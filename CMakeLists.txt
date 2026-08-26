@@ -37,6 +37,8 @@ target_link_libraries(rekordbox_format PUBLIC kaitai_cpp_stl_runtime)
 add_executable(djconvert
     src/domain/duplicate_cue_consolidation.cpp
     src/domain/fuzzy_matcher.cpp
+    src/domain/sync_planning.cpp
+    src/domain/track_matching.cpp
     src/domain/track_queries.cpp
     src/application/ports/progress_reporter.cpp
     src/infrastructure/rekordbox/kaitai_rekordbox_reader.cpp
@@ -57,10 +59,19 @@ target_link_libraries(djconvert PRIVATE rekordbox_format DjInterop)
 enable_testing()
 add_executable(duplicate_cue_consolidation_test
     src/domain/duplicate_cue_consolidation.cpp
+    src/domain/track_matching.cpp
     tests/duplicate_cue_consolidation_test.cpp
 )
 target_include_directories(duplicate_cue_consolidation_test PRIVATE src)
 add_test(NAME duplicate_cue_consolidation_test COMMAND duplicate_cue_consolidation_test)
+
+add_executable(sync_planning_test
+    src/domain/sync_planning.cpp
+    src/domain/track_matching.cpp
+    tests/sync_planning_test.cpp
+)
+target_include_directories(sync_planning_test PRIVATE src)
+add_test(NAME sync_planning_test COMMAND sync_planning_test)
 
 add_executable(fuzzy_matcher_test
     src/domain/fuzzy_matcher.cpp
