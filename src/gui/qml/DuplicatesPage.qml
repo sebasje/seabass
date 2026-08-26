@@ -148,6 +148,13 @@ Page {
                                     wrapMode: Text.WordWrap
                                     Layout.fillWidth: true
                                 }
+                                WaveformView {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 40
+                                    waveformData: modelData.waveform
+                                    cueData: modelData.cues
+                                    trackDurationMs: modelData.durationMs
+                                }
                                 Label {
                                     text: modelData.cues.length > 0 ? "Cues:" : "Cues: (none)"
                                     color: "gray"

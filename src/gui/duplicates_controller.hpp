@@ -4,6 +4,8 @@
 #include <QObject>
 #include <QQmlEngine>
 
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "domain/duplicate_cue_consolidation.hpp"
@@ -36,11 +38,16 @@ public:
     QVariant data(const QModelIndex &index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
 
-    void setPlans(std::vector<domain::ConsolidationPlan> plans);
+    // waveformsBySourceId is best-effort, precomputed by the caller (only
+    // for tracks actually being displayed -- see DuplicatesController::
+    // rescan()) since decoding a waveform needs its own file I/O per track.
+    void setPlans(std::vector<domain::ConsolidationPlan> plans,
+                  std::unordered_map<std::string, std::vector<double>> waveformsBySourceId = {});
     const std::vector<domain::ConsolidationPlan> &plans() const { return m_plans; }
 
 private:
     std::vector<domain::ConsolidationPlan> m_plans;
+    std::unordered_map<std::string, std::vector<double>> m_waveformsBySourceId;
 };
 
 // Wraps ConsolidateDuplicateCues for QML: scans a library, finds duplicate

@@ -11,6 +11,7 @@ qt_add_qml_module(djconvert-gui
         qml/ScanPage.qml
         qml/DuplicatesPage.qml
         qml/PlayerBar.qml
+        qml/WaveformView.qml
     SOURCES
         media_controller.hpp
         media_controller.cpp
