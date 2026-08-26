@@ -36,7 +36,10 @@ std::vector<RawHotCueEntry> AnlzCueCodec::decodeHotCues(const std::string &pco2S
 
     size_t offset = 20;
     for (uint16_t i = 0; i < numCues; ++i) {
-        if (offset + FixedEntrySize > pco2SectionBytes.size()) {
+        // NoCommentEntrySize (44), not FixedEntrySize (40): lenComment is
+        // read from offset+40..+43, so the bounds check must cover through
+        // that field, not stop one field short of it.
+        if (offset + NoCommentEntrySize > pco2SectionBytes.size()) {
             throw std::runtime_error("PCO2 section truncated while decoding hot cue entries");
         }
         uint32_t lenEntry = readU32BE(pco2SectionBytes, offset + 8);

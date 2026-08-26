@@ -47,8 +47,22 @@ FilesystemBackupStore::FilesystemBackupStore(std::string baseDirectory) : m_base
 
 BackupRecord FilesystemBackupStore::backup(const std::vector<std::string> &filePaths, const std::string &label)
 {
-    std::string id = timestampNow() + "-" + sanitize(label);
+    // timestampNow() only has second resolution, and callers that back up
+    // several files under the same label in a tight loop (e.g. writing
+    // cues to many duplicate/sync targets) can easily make more than one
+    // backup() call within the same second. Since every rekordbox track's
+    // analysis file is literally named "ANLZ0000.EXT" -- only its
+    // containing directory differs -- two such calls landing in the same
+    // directory would silently overwrite one track's backup with
+    // another's, defeating the entire point of backing up first. Guard
+    // against that by never reusing an existing directory.
+    std::string baseId = timestampNow() + "-" + sanitize(label);
+    std::string id = baseId;
     fs::path dir = fs::path(m_baseDirectory) / id;
+    for (int suffix = 1; fs::exists(dir); ++suffix) {
+        id = baseId + "-" + std::to_string(suffix);
+        dir = fs::path(m_baseDirectory) / id;
+    }
     fs::create_directories(dir);
 
     for (const auto &filePath : filePaths) {
