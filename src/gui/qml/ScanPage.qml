@@ -8,6 +8,7 @@ Page {
     required property string format
     required property string path
     required property string stickLabel
+    required property var playbackController
 
     ScanController {
         id: scanController
@@ -53,6 +54,7 @@ Page {
 
         RowLayout {
             Layout.fillWidth: true
+            Label { text: ""; Layout.preferredWidth: 32 }
             Label { text: "Title"; font.bold: true; Layout.preferredWidth: 260 }
             Label { text: "Artist"; font.bold: true; Layout.preferredWidth: 200 }
             Label { text: "Duration"; font.bold: true; Layout.preferredWidth: 80 }
@@ -70,14 +72,22 @@ Page {
             delegate: Item {
                 width: ListView.view.width
                 height: 28
+                required property string sourceId
                 required property string title
                 required property string artist
                 required property double durationSeconds
                 required property int cueCount
                 required property int playCount
+                required property string filePath
 
                 RowLayout {
                     anchors.fill: parent
+                    ToolButton {
+                        text: "▶"
+                        Layout.preferredWidth: 32
+                        enabled: filePath.length > 0
+                        onClicked: root.playbackController.load(root.format, root.path, sourceId, filePath, title, artist)
+                    }
                     Label { text: title; Layout.preferredWidth: 260; elide: Text.ElideRight }
                     Label { text: artist; Layout.preferredWidth: 200; elide: Text.ElideRight }
                     Label {

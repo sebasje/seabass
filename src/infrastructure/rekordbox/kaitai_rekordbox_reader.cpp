@@ -1,6 +1,7 @@
 #include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
 
 #include <algorithm>
+#include <filesystem>
 #include <fstream>
 #include <unordered_map>
 
@@ -125,6 +126,10 @@ std::vector<domain::Track> KaitaiRekordboxReader::readAll()
     kaitai::kstream ks(&ifs);
     Pdb pdb(false, &ks);
 
+    // file_path (e.g. "/Contents/Artist/Album/01_track.mp3") is relative to
+    // the stick root, i.e. the PIONEER folder's parent.
+    std::string stickRoot = std::filesystem::path(m_pioneerRoot).parent_path().string();
+
     // Artist names live in their own normalized table; track rows only
     // carry an artist_id foreign key into it.
     std::unordered_map<uint32_t, std::string> artistNameById;
@@ -238,6 +243,10 @@ std::vector<domain::Track> KaitaiRekordboxReader::readAll()
                     auto artistIt = artistNameById.find(rowTrack->artist_id());
                     if (artistIt != artistNameById.end()) {
                         track.artist = artistIt->second;
+                    }
+                    std::string trackFilePath = sqlText(rowTrack->file_path());
+                    if (!trackFilePath.empty()) {
+                        track.filePath = stickRoot + trackFilePath;
                     }
                     track.durationSeconds = rowTrack->duration();
                     track.playCount = rowTrack->play_count();

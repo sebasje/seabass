@@ -40,6 +40,16 @@ std::string extAnlzPath(const std::string &pioneerRoot, const std::string &analy
     return pioneerRoot + "/" + rel;
 }
 
+std::string datAnlzPath(const std::string &pioneerRoot, const std::string &analyzePath)
+{
+    std::string rel = analyzePath;
+    size_t pos = rel.find("/PIONEER/");
+    if (pos != std::string::npos) {
+        rel = rel.substr(pos + std::string("/PIONEER/").size());
+    }
+    return pioneerRoot + "/" + rel;
+}
+
 std::optional<std::string> findAnlzPathForTrackId(const std::string &pioneerRoot, uint32_t trackId)
 {
     std::string pdbPath = pioneerRoot + "/rekordbox/export.pdb";

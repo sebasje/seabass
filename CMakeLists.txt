@@ -47,7 +47,9 @@ add_library(djconvert_core STATIC
     src/infrastructure/rekordbox/pdb_lookup.cpp
     src/infrastructure/rekordbox/rekordbox_cue_writer.cpp
     src/infrastructure/rekordbox/kaitai_rekordbox_reader.cpp
+    src/infrastructure/rekordbox/rekordbox_waveform_reader.cpp
     src/infrastructure/engine/libdjinterop_engine_reader.cpp
+    src/infrastructure/engine/libdjinterop_waveform_reader.cpp
     src/infrastructure/engine/libdjinterop_engine_cue_writer.cpp
     src/infrastructure/media/linux_removable_media_locator.cpp
     src/infrastructure/media/linux_udev_media_monitor.cpp
@@ -71,7 +73,7 @@ target_link_libraries(djconvert PRIVATE djconvert_core)
 # --- djconvert-gui: the Qt Quick composition root (opt-in: only built ---
 # --- when Qt6 is available, so machines without Qt still get the CLI) ---
 
-find_package(Qt6 QUIET COMPONENTS Core Gui Qml Quick QuickControls2 QuickLayouts)
+find_package(Qt6 QUIET COMPONENTS Core Gui Qml Quick QuickControls2 QuickLayouts Multimedia)
 if(Qt6_FOUND)
     qt_standard_project_setup(REQUIRES 6.5)
     # BUILD_SHARED_LIBS was forced OFF above for our own vendored static

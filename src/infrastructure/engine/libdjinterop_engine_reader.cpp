@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <filesystem>
 #include <optional>
 #include <stdexcept>
 #include <unordered_map>
@@ -94,6 +95,10 @@ std::vector<domain::Track> LibdjinteropEngineReader::readAll()
         track.title = safeGet<std::string>(*m_progress, id, "title", [&] { return tr.title().value_or(""); });
         track.artist = safeGet<std::string>(*m_progress, id, "artist", [&] { return tr.artist().value_or(""); });
         track.filename = safeGet<std::string>(*m_progress, id, "filename", [&] { return tr.filename(); });
+        track.filePath = safeGet<std::string>(*m_progress, id, "relative_path", [&] {
+            auto resolved = std::filesystem::path(m_engineLibraryPath) / tr.relative_path();
+            return resolved.lexically_normal().string();
+        });
         track.durationSeconds = safeGet<double>(*m_progress, id, "duration", [&] {
             auto duration = tr.duration();
             return duration ? duration->count() / 1000.0 : 0.0;

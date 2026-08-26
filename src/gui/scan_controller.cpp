@@ -24,6 +24,8 @@ QVariant TrackListModel::data(const QModelIndex &index, int role) const
     }
     const auto &track = m_tracks[static_cast<size_t>(index.row())];
     switch (role) {
+    case SourceIdRole:
+        return QString::fromStdString(track.sourceId);
     case TitleRole:
         return QString::fromStdString(track.title);
     case ArtistRole:
@@ -34,6 +36,8 @@ QVariant TrackListModel::data(const QModelIndex &index, int role) const
         return static_cast<int>(track.cues.size());
     case PlayCountRole:
         return track.playCount ? *track.playCount : -1;
+    case FilePathRole:
+        return QString::fromStdString(track.filePath);
     default:
         return {};
     }
@@ -42,11 +46,13 @@ QVariant TrackListModel::data(const QModelIndex &index, int role) const
 QHash<int, QByteArray> TrackListModel::roleNames() const
 {
     return {
+        {SourceIdRole, "sourceId"},
         {TitleRole, "title"},
         {ArtistRole, "artist"},
         {DurationSecondsRole, "durationSeconds"},
         {CueCountRole, "cueCount"},
         {PlayCountRole, "playCount"},
+        {FilePathRole, "filePath"},
     };
 }
 

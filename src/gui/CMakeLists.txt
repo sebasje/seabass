@@ -10,6 +10,7 @@ qt_add_qml_module(djconvert-gui
         qml/StickListPage.qml
         qml/ScanPage.qml
         qml/DuplicatesPage.qml
+        qml/PlayerBar.qml
     SOURCES
         media_controller.hpp
         media_controller.cpp
@@ -17,6 +18,8 @@ qt_add_qml_module(djconvert-gui
         scan_controller.cpp
         duplicates_controller.hpp
         duplicates_controller.cpp
+        playback_controller.hpp
+        playback_controller.cpp
 )
 
 target_include_directories(djconvert-gui PRIVATE ${CMAKE_SOURCE_DIR}/src)
@@ -28,4 +31,5 @@ target_link_libraries(djconvert-gui PRIVATE
     Qt6::Quick
     Qt6::QuickControls2
     Qt6::QuickLayouts
+    Qt6::Multimedia
 )

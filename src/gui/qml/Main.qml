@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Layouts
 import DjConvertGui
 
 ApplicationWindow {
@@ -13,10 +14,26 @@ ApplicationWindow {
         id: mediaCtrl
     }
 
-    StackView {
-        id: stackView
+    PlaybackController {
+        id: playbackCtrl
+    }
+
+    ColumnLayout {
         anchors.fill: parent
-        initialItem: stickListPageComponent
+        spacing: 0
+
+        StackView {
+            id: stackView
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            initialItem: stickListPageComponent
+        }
+
+        PlayerBar {
+            Layout.fillWidth: true
+            visible: playbackCtrl.hasTrack
+            controller: playbackCtrl
+        }
     }
 
     Component {
@@ -38,7 +55,9 @@ ApplicationWindow {
 
     Component {
         id: scanPageComponent
-        ScanPage {}
+        ScanPage {
+            playbackController: playbackCtrl
+        }
     }
 
     Component {
