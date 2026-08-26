@@ -227,7 +227,7 @@ std::vector<domain::Track> KaitaiRekordboxReader::readAll()
         });
     }
 
-    std::unordered_map<uint32_t, std::vector<std::string>> playlistsByTrackId;
+    std::unordered_map<uint32_t, std::vector<domain::PlaylistMembership>> playlistsByTrackId;
     for (const auto &table : *pdb.tables()) {
         if (table->type() != Pdb::PAGE_TYPE_PLAYLIST_ENTRIES) {
             continue;
@@ -246,7 +246,10 @@ std::vector<domain::Track> KaitaiRekordboxReader::readAll()
                     if (it == playlistTreeById.end() || it->second.isFolder) {
                         continue;
                     }
-                    playlistsByTrackId[rowEntry->track_id()].push_back(playlistPath(rowEntry->playlist_id(), playlistTreeById));
+                    playlistsByTrackId[rowEntry->track_id()].push_back(domain::PlaylistMembership{
+                        playlistPath(rowEntry->playlist_id(), playlistTreeById),
+                        static_cast<int>(rowEntry->entry_index()),
+                    });
                 }
             }
         });

@@ -21,6 +21,15 @@ struct CuePoint
     std::string comment;
 };
 
+// One playlist a track belongs to, with its position within that specific
+// playlist (0-based; -1 if the reader couldn't determine it) -- lets
+// callers sort a playlist-filtered view back into its original order.
+struct PlaylistMembership
+{
+    std::string name;  // full path, e.g. "Techno/Peak Time"
+    int position = -1;
+};
+
 // A track as read from either a rekordbox USB export or an Engine Library,
 // normalized to a common shape. This is the shared intermediate
 // representation the application layer's use cases operate on.
@@ -37,10 +46,9 @@ struct Track
     std::string key;  // human-readable, e.g. "Fm" or "F#m" -- empty if unknown
     std::vector<CuePoint> cues;
 
-    // Full paths (e.g. "Techno/Peak Time") of every playlist this track
-    // belongs to. Best-effort: populated where the reader supports it,
-    // empty otherwise.
-    std::vector<std::string> playlists;
+    // Every playlist this track belongs to. Best-effort: populated where
+    // the reader supports it, empty otherwise.
+    std::vector<PlaylistMembership> playlists;
 
     // Engagement signals used to prioritize which tracks are worth setting
     // cue points on. The two formats track different things -- rekordbox

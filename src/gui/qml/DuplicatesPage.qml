@@ -8,6 +8,7 @@ Page {
     required property string format
     required property string path
     required property string stickLabel
+    required property var playbackController
 
     DuplicatesController {
         id: duplicatesController
@@ -127,7 +128,18 @@ Page {
                             ColumnLayout {
                                 anchors.fill: parent
                                 spacing: 4
-                                Label { text: "id=" + modelData.sourceId; font.bold: true }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Label { text: modelData.title + "  (id=" + modelData.sourceId + ")"; font.bold: true }
+                                    Item { Layout.fillWidth: true }
+                                    Button {
+                                        text: "▶ Play"
+                                        enabled: modelData.filePath.length > 0
+                                        onClicked: root.playbackController.load(root.format, root.path, modelData.sourceId,
+                                            modelData.filePath, modelData.title, modelData.artist, modelData.artworkPath,
+                                            modelData.cues)
+                                    }
+                                }
                                 Label {
                                     text: modelData.playlists.length > 0
                                         ? "Playlists: " + modelData.playlists.join(", ")

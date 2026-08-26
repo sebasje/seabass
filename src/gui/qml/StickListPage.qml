@@ -5,7 +5,7 @@ import QtQuick.Layouts
 Item {
     id: root
     required property var mediaController
-    signal browseRequested(string stickLabel, string format, string path)
+    signal browseRequested(string stickLabel, string format, string path, string siblingRekordboxPath)
     signal duplicatesRequested(string stickLabel, string format, string path)
 
     ColumnLayout {
@@ -109,12 +109,12 @@ Item {
                         Button {
                             text: "Browse rekordbox library"
                             enabled: delegateRoot.hasRekordbox
-                            onClicked: root.browseRequested(delegateRoot.label, "rekordbox", delegateRoot.rekordboxPath)
+                            onClicked: root.browseRequested(delegateRoot.label, "rekordbox", delegateRoot.rekordboxPath, "")
                         }
                         Button {
                             text: "Browse Engine library"
                             enabled: delegateRoot.hasEngine
-                            onClicked: root.browseRequested(delegateRoot.label, "engine", delegateRoot.enginePath)
+                            onClicked: root.browseRequested(delegateRoot.label, "engine", delegateRoot.enginePath, delegateRoot.rekordboxPath)
                         }
                     }
                     RowLayout {

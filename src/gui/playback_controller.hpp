@@ -22,6 +22,7 @@ class PlaybackController : public QObject
     Q_PROPERTY(QString artist READ artist NOTIFY trackChanged)
     Q_PROPERTY(QString artworkPath READ artworkPath NOTIFY trackChanged)
     Q_PROPERTY(QVariantList waveform READ waveform NOTIFY trackChanged)
+    Q_PROPERTY(QVariantList cues READ cues NOTIFY trackChanged)
     Q_PROPERTY(qint64 duration READ duration NOTIFY durationChanged)
     Q_PROPERTY(qint64 position READ position NOTIFY positionChanged)
     Q_PROPERTY(bool playing READ playing NOTIFY playingChanged)
@@ -35,6 +36,7 @@ public:
     QString artist() const { return m_artist; }
     QString artworkPath() const { return m_artworkPath; }
     QVariantList waveform() const { return m_waveform; }
+    QVariantList cues() const { return m_cues; }
     qint64 duration() const { return m_player.duration(); }
     qint64 position() const { return m_player.position(); }
     bool playing() const { return m_player.playbackState() == QMediaPlayer::PlayingState; }
@@ -45,7 +47,7 @@ public:
     // artist come straight from the track row being played.
     Q_INVOKABLE void load(const QString &format, const QString &libraryPath, const QString &sourceId,
                            const QString &filePath, const QString &title, const QString &artist,
-                           const QString &artworkPath);
+                           const QString &artworkPath, const QVariantList &cues);
     Q_INVOKABLE void togglePlay();
     Q_INVOKABLE void seek(qint64 positionMs);
     Q_INVOKABLE void stop();
@@ -67,6 +69,7 @@ private:
     QString m_artist;
     QString m_artworkPath;
     QVariantList m_waveform;
+    QVariantList m_cues;
     QString m_errorMessage;
 };
 

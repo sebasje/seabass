@@ -9,6 +9,7 @@ Page {
     required property string path
     required property string stickLabel
     required property var playbackController
+    property string siblingRekordboxPath: ""
 
     ScanController {
         id: scanController
@@ -16,7 +17,7 @@ Page {
 
     property int selectedPlaylistIndex: 0
 
-    Component.onCompleted: scanController.scan(root.format, root.path)
+    Component.onCompleted: scanController.scan(root.format, root.path, root.siblingRekordboxPath)
 
     function formatDuration(seconds) {
         var total = Math.round(seconds);
@@ -39,6 +40,37 @@ Page {
                 font.pointSize: 14
             }
             Item { Layout.fillWidth: true }
+            TextField {
+                id: searchField
+                Layout.preferredWidth: 220
+                placeholderText: "Search title or artist..."
+                onTextChanged: scanController.search(text)
+            }
+            Label { text: "Sort:" }
+            ComboBox {
+                id: sortCombo
+                Layout.preferredWidth: 130
+                textRole: "text"
+                valueRole: "value"
+                model: [
+                    { text: "Playlist order", value: "playlist" },
+                    { text: "Title", value: "title" },
+                    { text: "Artist", value: "artist" },
+                    { text: "Key", value: "key" },
+                    { text: "BPM", value: "bpm" },
+                    { text: "Duration", value: "duration" },
+                    { text: "Cues", value: "cues" },
+                    { text: "Plays", value: "plays" },
+                ]
+                onActivated: scanController.setSort(currentValue, sortDirectionButton.checked)
+            }
+            ToolButton {
+                id: sortDirectionButton
+                checkable: true
+                checked: true
+                text: checked ? "▲" : "▼"
+                onCheckedChanged: scanController.setSort(sortCombo.currentValue, checked)
+            }
             BusyIndicator {
                 running: scanController.busy
                 visible: scanController.busy
@@ -134,8 +166,9 @@ Page {
                     required property string artworkPath
                     required property double bpm
                     required property string key
+                    required property var cues
 
-                    onClicked: playbackController.load(root.format, root.path, sourceId, filePath, title, artist, artworkPath)
+                    onClicked: playbackController.load(root.format, root.path, sourceId, filePath, title, artist, artworkPath, cues)
 
                     contentItem: RowLayout {
                         spacing: 8
