@@ -21,6 +21,11 @@ std::string sqlText(rekordbox_pdb_t::device_sql_string_t *s);
 // (colors/comments, tag "PCO2") lives in the sibling .EXT file, not .DAT.
 std::string extAnlzPath(const std::string &pioneerRoot, const std::string &analyzePath);
 
+// Same resolution as extAnlzPath(), but keeps the ".DAT" extension -- for
+// tags (like the waveform preview) that live in the base file rather than
+// the ".EXT" sibling.
+std::string datAnlzPath(const std::string &pioneerRoot, const std::string &analyzePath);
+
 // Walks every page of a table, invoking visitDataPage(page) for each page
 // that actually holds row data.
 template<typename Visitor>

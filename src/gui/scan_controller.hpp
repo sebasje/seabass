@@ -20,11 +20,13 @@ class TrackListModel : public QAbstractListModel
 
 public:
     enum Roles {
-        TitleRole = Qt::UserRole + 1,
+        SourceIdRole = Qt::UserRole + 1,
+        TitleRole,
         ArtistRole,
         DurationSecondsRole,
         CueCountRole,
         PlayCountRole,
+        FilePathRole,
     };
 
     explicit TrackListModel(QObject *parent = nullptr);

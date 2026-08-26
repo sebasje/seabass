@@ -30,6 +30,7 @@ struct Track
     std::string title;
     std::string artist;
     std::string filename;
+    std::string filePath;  // best-effort resolved absolute path to the audio file on disk, empty if unresolved
     double durationSeconds = 0.0;
     std::vector<CuePoint> cues;
 
