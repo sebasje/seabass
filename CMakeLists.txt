@@ -36,12 +36,15 @@ target_link_libraries(rekordbox_format PUBLIC kaitai_cpp_stl_runtime)
 
 add_executable(djconvert
     src/domain/duplicate_cue_consolidation.cpp
+    src/domain/fuzzy_matcher.cpp
+    src/domain/track_queries.cpp
     src/application/ports/progress_reporter.cpp
     src/infrastructure/rekordbox/kaitai_rekordbox_reader.cpp
     src/infrastructure/engine/libdjinterop_engine_reader.cpp
     src/infrastructure/engine/libdjinterop_engine_cue_writer.cpp
     src/infrastructure/media/linux_removable_media_locator.cpp
     src/infrastructure/backup/filesystem_backup_store.cpp
+    src/infrastructure/logging/file_operation_log.cpp
     src/cli/console.cpp
     src/cli/terminal_progress_reporter.cpp
     src/cli/main.cpp
@@ -58,3 +61,17 @@ add_executable(duplicate_cue_consolidation_test
 )
 target_include_directories(duplicate_cue_consolidation_test PRIVATE src)
 add_test(NAME duplicate_cue_consolidation_test COMMAND duplicate_cue_consolidation_test)
+
+add_executable(fuzzy_matcher_test
+    src/domain/fuzzy_matcher.cpp
+    tests/fuzzy_matcher_test.cpp
+)
+target_include_directories(fuzzy_matcher_test PRIVATE src)
+add_test(NAME fuzzy_matcher_test COMMAND fuzzy_matcher_test)
+
+add_executable(track_queries_test
+    src/domain/track_queries.cpp
+    tests/track_queries_test.cpp
+)
+target_include_directories(track_queries_test PRIVATE src)
+add_test(NAME track_queries_test COMMAND track_queries_test)

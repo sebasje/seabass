@@ -183,6 +183,7 @@ std::vector<domain::Track> KaitaiRekordboxReader::readAll()
                     track.title = sqlText(rowTrack->title());
                     track.filename = sqlText(rowTrack->filename());
                     track.durationSeconds = rowTrack->duration();
+                    track.playCount = rowTrack->play_count();
 
                     std::string analyzePath = sqlText(rowTrack->analyze_path());
                     if (!analyzePath.empty()) {
