@@ -133,6 +133,14 @@ Page {
                                     Label { text: modelData.title + "  (id=" + modelData.sourceId + ")"; font.bold: true }
                                     Item { Layout.fillWidth: true }
                                     Button {
+                                        text: "Copy"
+                                        visible: delegateRoot.kind === "conflict"
+                                        enabled: modelData.cues.length > 0
+                                        ToolTip.visible: hovered
+                                        ToolTip.text: "Copy this track's cues to the other copies of the same track"
+                                        onClicked: duplicatesController.copyFromTrack(delegateRoot.index, modelData.sourceId)
+                                    }
+                                    Button {
                                         text: "▶ Play"
                                         enabled: modelData.filePath.length > 0
                                         onClicked: root.playbackController.load(root.format, root.path, modelData.sourceId,

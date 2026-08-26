@@ -166,10 +166,10 @@ FormatContext makeContext(const QString &format, const QString &path)
     return ctx;
 }
 
-void applyOnePlan(const ConsolidationPlan &plan, FormatContext &ctx, std::set<std::string> &backedUpFiles,
-                   int &cuesCopied, int &targetsWritten)
+void copyCuesToTargets(const domain::Track &source, const std::vector<domain::Track> &targets, FormatContext &ctx,
+                        std::set<std::string> &backedUpFiles, int &cuesCopied, int &targetsWritten)
 {
-    for (const auto &target : plan.targets) {
+    for (const auto &target : targets) {
         auto files = ctx.filesToBackUpFor(target.sourceId);
         files.erase(
             std::remove_if(files.begin(), files.end(), [&](const std::string &f) { return backedUpFiles.contains(f); }),
@@ -182,10 +182,10 @@ void applyOnePlan(const ConsolidationPlan &plan, FormatContext &ctx, std::set<st
             }
         }
 
-        ctx.writer->writeHotCues(target.sourceId, plan.source->cues);
-        ctx.log->record("copied " + std::to_string(plan.source->cues.size()) +
-                         " cue(s) from track id=" + plan.source->sourceId + " to track id=" + target.sourceId);
-        cuesCopied += static_cast<int>(plan.source->cues.size());
+        ctx.writer->writeHotCues(target.sourceId, source.cues);
+        ctx.log->record("copied " + std::to_string(source.cues.size()) + " cue(s) from track id=" + source.sourceId +
+                         " to track id=" + target.sourceId);
+        cuesCopied += static_cast<int>(source.cues.size());
         targetsWritten++;
     }
 }
@@ -269,7 +269,50 @@ void DuplicatesController::applyOne(int index)
         std::set<std::string> backedUpFiles;
         int cuesCopied = 0;
         int targetsWritten = 0;
-        applyOnePlan(plan, ctx, backedUpFiles, cuesCopied, targetsWritten);
+        copyCuesToTargets(*plan.source, plan.targets, ctx, backedUpFiles, cuesCopied, targetsWritten);
+        setStatusMessage(QString("Copied %1 cue(s) onto %2 track(s)").arg(cuesCopied).arg(targetsWritten));
+    } catch (const std::exception &e) {
+        setErrorMessage(QString::fromStdString(e.what()));
+    }
+    setBusy(false);
+
+    rescan();
+}
+
+void DuplicatesController::copyFromTrack(int index, const QString &sourceTrackId)
+{
+    const auto &plans = m_model.plans();
+    if (index < 0 || static_cast<size_t>(index) >= plans.size()) {
+        return;
+    }
+    const auto &group = plans[static_cast<size_t>(index)].group;
+
+    std::string wantedId = sourceTrackId.toStdString();
+    const domain::Track *source = nullptr;
+    std::vector<domain::Track> targets;
+    for (const auto &track : group.tracks) {
+        if (track.sourceId == wantedId) {
+            source = &track;
+        }
+    }
+    if (!source) {
+        return;
+    }
+    for (const auto &track : group.tracks) {
+        if (track.sourceId != source->sourceId) {
+            targets.push_back(track);
+        }
+    }
+
+    setErrorMessage({});
+    setStatusMessage({});
+    setBusy(true);
+    try {
+        auto ctx = makeContext(m_format, m_path);
+        std::set<std::string> backedUpFiles;
+        int cuesCopied = 0;
+        int targetsWritten = 0;
+        copyCuesToTargets(*source, targets, ctx, backedUpFiles, cuesCopied, targetsWritten);
         setStatusMessage(QString("Copied %1 cue(s) onto %2 track(s)").arg(cuesCopied).arg(targetsWritten));
     } catch (const std::exception &e) {
         setErrorMessage(QString::fromStdString(e.what()));
@@ -297,7 +340,7 @@ void DuplicatesController::applyAllUnambiguous()
             }
             int cuesCopied = 0;
             int targetsWritten = 0;
-            applyOnePlan(plan, ctx, backedUpFiles, cuesCopied, targetsWritten);
+            copyCuesToTargets(*plan.source, plan.targets, ctx, backedUpFiles, cuesCopied, targetsWritten);
             totalCues += cuesCopied;
             totalTargets += targetsWritten;
             groups++;
