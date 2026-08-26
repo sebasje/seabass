@@ -12,35 +12,44 @@ using Anlz = rekordbox_anlz_t;
 
 std::vector<double> readWaveformPreview(const std::string &pioneerRoot, const std::string &trackSourceId)
 {
-    auto analyzePath = findAnlzPathForTrackId(pioneerRoot, static_cast<uint32_t>(std::stoul(trackSourceId)));
-    if (!analyzePath) {
+    // Best-effort per the header contract: findAnlzPathForTrackId() throws
+    // if export.pdb itself can't be opened (e.g. the stick was unmounted
+    // right as playback was requested), which callers -- notably
+    // PlaybackController::load(), invoked directly from every Play click --
+    // don't expect and don't guard against.
+    try {
+        auto analyzePath = findAnlzPathForTrackId(pioneerRoot, static_cast<uint32_t>(std::stoul(trackSourceId)));
+        if (!analyzePath) {
+            return {};
+        }
+
+        std::ifstream ifs(datAnlzPath(pioneerRoot, *analyzePath), std::ifstream::binary);
+        if (!ifs.is_open()) {
+            return {};
+        }
+
+        kaitai::kstream ks(&ifs);
+        Anlz anlz(&ks);
+
+        for (const auto &section : *anlz.sections()) {
+            if (section->fourcc() != Anlz::SECTION_TAGS_WAVE_PREVIEW) {
+                continue;
+            }
+            auto *tag = dynamic_cast<Anlz::wave_preview_tag_t *>(section->body());
+            if (!tag || tag->_is_null_data()) {
+                continue;
+            }
+
+            std::string data = tag->data();
+            std::vector<double> waveform;
+            waveform.reserve(data.size());
+            for (unsigned char b : data) {
+                waveform.push_back((b & 0x1F) / 31.0);
+            }
+            return waveform;
+        }
+    } catch (const std::exception &) {
         return {};
-    }
-
-    std::ifstream ifs(datAnlzPath(pioneerRoot, *analyzePath), std::ifstream::binary);
-    if (!ifs.is_open()) {
-        return {};
-    }
-
-    kaitai::kstream ks(&ifs);
-    Anlz anlz(&ks);
-
-    for (const auto &section : *anlz.sections()) {
-        if (section->fourcc() != Anlz::SECTION_TAGS_WAVE_PREVIEW) {
-            continue;
-        }
-        auto *tag = dynamic_cast<Anlz::wave_preview_tag_t *>(section->body());
-        if (!tag || tag->_is_null_data()) {
-            continue;
-        }
-
-        std::string data = tag->data();
-        std::vector<double> waveform;
-        waveform.reserve(data.size());
-        for (unsigned char b : data) {
-            waveform.push_back((b & 0x1F) / 31.0);
-        }
-        return waveform;
     }
     return {};
 }

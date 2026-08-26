@@ -226,31 +226,41 @@ void ScanController::applyFilters()
         result = std::move(filtered);
     }
 
-    std::stable_sort(result.begin(), result.end(), [&](const domain::Track &a, const domain::Track &b) {
-        bool less;
+    // A strict weak ordering must return false for both (a, b) and (b, a)
+    // when the two compare equal. Negating "a < b" to get descending order
+    // breaks that (both (a, b) and (b, a) would return true for ties), so
+    // descending order is done by swapping the arguments instead.
+    auto lessAscending = [&](const domain::Track &a, const domain::Track &b) {
         if (m_sortField == "title") {
-            less = a.title < b.title;
-        } else if (m_sortField == "artist") {
-            less = a.artist < b.artist;
-        } else if (m_sortField == "key") {
-            less = a.key < b.key;
-        } else if (m_sortField == "bpm") {
-            less = a.bpm < b.bpm;
-        } else if (m_sortField == "duration") {
-            less = a.durationSeconds < b.durationSeconds;
-        } else if (m_sortField == "cues") {
-            less = a.cues.size() < b.cues.size();
-        } else if (m_sortField == "plays") {
-            less = a.playCount.value_or(-1) < b.playCount.value_or(-1);
-        } else {
-            // "playlist" -- the selected playlist's own track order; when
-            // no playlist is selected this leaves every position unknown,
-            // so stable_sort just preserves scan order.
-            auto posA = playlistPosition(a, playlistFilter);
-            auto posB = playlistPosition(b, playlistFilter);
-            less = posA.value_or(std::numeric_limits<int>::max()) < posB.value_or(std::numeric_limits<int>::max());
+            return a.title < b.title;
         }
-        return m_sortAscending ? less : !less;
+        if (m_sortField == "artist") {
+            return a.artist < b.artist;
+        }
+        if (m_sortField == "key") {
+            return a.key < b.key;
+        }
+        if (m_sortField == "bpm") {
+            return a.bpm < b.bpm;
+        }
+        if (m_sortField == "duration") {
+            return a.durationSeconds < b.durationSeconds;
+        }
+        if (m_sortField == "cues") {
+            return a.cues.size() < b.cues.size();
+        }
+        if (m_sortField == "plays") {
+            return a.playCount.value_or(-1) < b.playCount.value_or(-1);
+        }
+        // "playlist" -- the selected playlist's own track order; when no
+        // playlist is selected this leaves every position unknown, so
+        // stable_sort just preserves scan order.
+        auto posA = playlistPosition(a, playlistFilter);
+        auto posB = playlistPosition(b, playlistFilter);
+        return posA.value_or(std::numeric_limits<int>::max()) < posB.value_or(std::numeric_limits<int>::max());
+    };
+    std::stable_sort(result.begin(), result.end(), [&](const domain::Track &a, const domain::Track &b) {
+        return m_sortAscending ? lessAscending(a, b) : lessAscending(b, a);
     });
 
     m_model.setTracks(std::move(result));
