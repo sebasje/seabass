@@ -5,8 +5,10 @@ import QtQuick.Layouts
 Item {
     id: root
     required property var mediaController
+    required property var playbackController
     signal browseRequested(string stickLabel, string format, string path, string siblingRekordboxPath)
     signal duplicatesRequested(string stickLabel, string format, string path)
+    signal settingsRequested(string stickLabel, string pioneerRoot)
 
     ColumnLayout {
         anchors.fill: parent
@@ -102,9 +104,16 @@ Item {
                         spacing: 8
                         Button {
                             text: delegateRoot.mounted ? "Unmount" : "Mount"
-                            onClicked: delegateRoot.mounted
-                                ? root.mediaController.unmountStick(delegateRoot.devicePath)
-                                : root.mediaController.mountStick(delegateRoot.devicePath)
+                            onClicked: {
+                                if (delegateRoot.mounted) {
+                                    // Stop first -- unmounting out from under an open
+                                    // file handle on the playing track would be bad.
+                                    root.playbackController.stop();
+                                    root.mediaController.unmountStick(delegateRoot.devicePath);
+                                } else {
+                                    root.mediaController.mountStick(delegateRoot.devicePath);
+                                }
+                            }
                         }
                         Button {
                             text: "Browse rekordbox library"
@@ -128,6 +137,11 @@ Item {
                             text: "Duplicate tracks (Engine)"
                             enabled: delegateRoot.hasEngine
                             onClicked: root.duplicatesRequested(delegateRoot.label, "engine", delegateRoot.enginePath)
+                        }
+                        Button {
+                            text: "Device settings"
+                            enabled: delegateRoot.hasRekordbox
+                            onClicked: root.settingsRequested(delegateRoot.label, delegateRoot.rekordboxPath)
                         }
                         Button { text: "Sync cues between formats (coming soon)"; enabled: false }
                         Button { text: "Manage backups (coming soon)"; enabled: false }

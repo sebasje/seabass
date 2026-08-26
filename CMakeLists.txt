@@ -48,6 +48,7 @@ add_library(djconvert_core STATIC
     src/infrastructure/rekordbox/rekordbox_cue_writer.cpp
     src/infrastructure/rekordbox/kaitai_rekordbox_reader.cpp
     src/infrastructure/rekordbox/rekordbox_waveform_reader.cpp
+    src/infrastructure/rekordbox/rekordbox_settings_reader.cpp
     src/infrastructure/engine/libdjinterop_engine_reader.cpp
     src/infrastructure/engine/libdjinterop_waveform_reader.cpp
     src/infrastructure/engine/libdjinterop_engine_cue_writer.cpp

@@ -12,6 +12,7 @@ qt_add_qml_module(djconvert-gui
         qml/DuplicatesPage.qml
         qml/PlayerBar.qml
         qml/WaveformView.qml
+        qml/SettingsPage.qml
     SOURCES
         media_controller.hpp
         media_controller.cpp
@@ -21,6 +22,8 @@ qt_add_qml_module(djconvert-gui
         duplicates_controller.cpp
         playback_controller.hpp
         playback_controller.cpp
+        settings_controller.hpp
+        settings_controller.cpp
 )
 
 target_include_directories(djconvert-gui PRIVATE ${CMAKE_SOURCE_DIR}/src)
