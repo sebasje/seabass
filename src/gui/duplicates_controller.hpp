@@ -77,6 +77,13 @@ public:
     Q_INVOKABLE void applyOne(int index);
     Q_INVOKABLE void applyAllUnambiguous();
 
+    // Manual override for a Conflict group: copies sourceTrackId's cues
+    // onto every other track in that same group. Unlike applyOne, this
+    // works regardless of plan kind -- it's the human decision the domain
+    // model defers to when copies disagree (see ConsolidationPlan::Kind::
+    // Conflict's doc comment).
+    Q_INVOKABLE void copyFromTrack(int index, const QString &sourceTrackId);
+
 signals:
     void busyChanged();
     void errorMessageChanged();
