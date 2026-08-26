@@ -41,6 +41,10 @@ add_executable(djconvert
     src/domain/track_matching.cpp
     src/domain/track_queries.cpp
     src/application/ports/progress_reporter.cpp
+    src/infrastructure/rekordbox/anlz_cue_codec.cpp
+    src/infrastructure/rekordbox/anlz_file.cpp
+    src/infrastructure/rekordbox/pdb_lookup.cpp
+    src/infrastructure/rekordbox/rekordbox_cue_writer.cpp
     src/infrastructure/rekordbox/kaitai_rekordbox_reader.cpp
     src/infrastructure/engine/libdjinterop_engine_reader.cpp
     src/infrastructure/engine/libdjinterop_engine_cue_writer.cpp
@@ -86,3 +90,11 @@ add_executable(track_queries_test
 )
 target_include_directories(track_queries_test PRIVATE src)
 add_test(NAME track_queries_test COMMAND track_queries_test)
+
+add_executable(anlz_cue_codec_test
+    src/infrastructure/rekordbox/anlz_cue_codec.cpp
+    src/infrastructure/rekordbox/anlz_file.cpp
+    tests/anlz_cue_codec_test.cpp
+)
+target_include_directories(anlz_cue_codec_test PRIVATE src)
+add_test(NAME anlz_cue_codec_test COMMAND anlz_cue_codec_test)

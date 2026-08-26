@@ -4,9 +4,11 @@
 #include <cstdio>
 #include <filesystem>
 #include <format>
+#include <functional>
 #include <iterator>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -28,6 +30,8 @@
 #include "infrastructure/logging/file_operation_log.hpp"
 #include "infrastructure/media/linux_removable_media_locator.hpp"
 #include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
+#include "infrastructure/rekordbox/pdb_lookup.hpp"
+#include "infrastructure/rekordbox/rekordbox_cue_writer.hpp"
 
 using djconvert::application::BackupStore;
 using djconvert::application::ConsolidateDuplicateCues;
@@ -132,11 +136,9 @@ void printUsage()
     Console::heading("Duplicate-track cue consolidation");
     Console::info("  A stick can hold the same track more than once (re-imports, duplicate");
     Console::info("  rows). If exactly one copy has hot cues and the others have none, djconvert");
-    Console::info("  offers to copy those cues onto the cue-less copies -- this runs as the");
-    Console::info("  last step of a scan, after all reporting is done. It's only implemented");
-    Console::info("  for Engine libraries so far (rekordbox has no write path yet); rekordbox");
-    Console::info("  duplicates are still detected and reported, just not auto-fixed. If");
-    Console::info("  copies have cues that actually *differ*, that's reported as a conflict and");
+    Console::info("  offers to copy those cues onto the cue-less copies -- this runs as the last");
+    Console::info("  step of a scan, after all reporting is done, for both rekordbox and Engine.");
+    Console::info("  If copies have cues that actually *differ*, that's reported as a conflict and");
     Console::info("  never touched -- you decide by hand which copy is right.");
     Console::info("");
     Console::heading("Sync");
@@ -145,11 +147,14 @@ void printUsage()
     Console::info("  to the other side; if both have the *same* cues, nothing happens; if both");
     Console::info("  have *different* cues, that's a conflict, resolved by which side's underlying");
     Console::info("  file was modified more recently (a heuristic, not a true edit timestamp --");
-    Console::info("  documented as such, not treated as certain). Only rekordbox -> Engine can");
-    Console::info("  actually be written (no rekordbox write path yet); anything that would go the");
-    Console::info("  other way is always reported, never applied. The full proposal is always");
-    Console::info("  printed before anything is written -- --auto only skips the confirmation");
-    Console::info("  prompt afterwards, it never skips the analysis step.");
+    Console::info("  documented as such, not treated as certain). Both directions can be written");
+    Console::info("  now. Writing to rekordbox (rewriting the target track's ANLZ .EXT file) is the");
+    Console::info("  least-proven part of djconvert -- validated by round-tripping real files and");
+    Console::info("  cross-checking with an independent reader, but not yet confirmed against real");
+    Console::info("  rekordbox software or real CDJ/XDJ hardware. Verify on your own gear before");
+    Console::info("  trusting it for a gig. The full proposal is always printed before anything is");
+    Console::info("  written -- --auto only skips the confirmation prompt afterwards, it never");
+    Console::info("  skips the analysis step.");
     Console::info("");
     Console::heading("Backups");
     Console::info("  Every write djconvert makes (duplicate-cue consolidation, sync) backs up the");
@@ -301,10 +306,16 @@ std::vector<Track> scanPath(std::unique_ptr<LibraryReader> reader)
 // Last step of a scan: find duplicate tracks and, where an unambiguous
 // consolidation is possible and a CueWriter exists for this format, offer
 // to apply it (backing up first). writer/backupStore/log may be null when
-// the format has no write path yet (rekordbox) -- such duplicates are
-// still detected and reported, just never modified.
+// the format has no write path yet -- such duplicates are still detected
+// and reported, just never modified.
+//
+// filesToBackUpFor resolves which underlying file(s) a given track's data
+// lives in -- for Engine that's always the same m.db regardless of track,
+// but for rekordbox each track's cues live in its own ANLZ .EXT file, so
+// the backup target genuinely depends on which track is being written.
 void handleDuplicates(const std::string &formatName, const std::vector<Track> &tracks, CueWriter *writer,
-                       BackupStore *backupStore, OperationLog *log, const std::vector<std::string> &filesToBackUp,
+                       BackupStore *backupStore, OperationLog *log,
+                       const std::function<std::vector<std::string>(const std::string &)> &filesToBackUpFor,
                        bool autoMode)
 {
     auto plans = ConsolidateDuplicateCues().execute(tracks);
@@ -313,7 +324,7 @@ void handleDuplicates(const std::string &formatName, const std::vector<Track> &t
     }
 
     bool printedHeading = false;
-    bool backedUp = false;
+    std::set<std::string> backedUpFiles;
     size_t groupsConsolidated = 0;
     size_t totalCuesCopied = 0;
     size_t targetsWritten = 0;
@@ -357,16 +368,24 @@ void handleDuplicates(const std::string &formatName, const std::vector<Track> &t
             continue;
         }
 
-        if (!backedUp && backupStore) {
-            auto record = backupStore->backup(filesToBackUp, "duplicate-cue-consolidation");
-            Console::info("  backed up to " + record.path);
-            if (log) {
-                log->record(formatName + ": backed up before duplicate-cue consolidation -> " + record.path);
-            }
-            backedUp = true;
-        }
-
         for (const auto &target : plan.targets) {
+            if (backupStore) {
+                auto files = filesToBackUpFor(target.sourceId);
+                files.erase(std::remove_if(files.begin(), files.end(),
+                                            [&](const std::string &f) { return backedUpFiles.contains(f); }),
+                            files.end());
+                if (!files.empty()) {
+                    auto record = backupStore->backup(files, "duplicate-cue-consolidation");
+                    Console::info("  backed up to " + record.path);
+                    if (log) {
+                        log->record(formatName + ": backed up before duplicate-cue consolidation -> " + record.path);
+                    }
+                    for (const auto &f : files) {
+                        backedUpFiles.insert(f);
+                    }
+                }
+            }
+
             writer->writeHotCues(target.sourceId, plan.source->cues);
             Console::info("  copied " + std::to_string(plan.source->cues.size()) + " cue(s) from \"" +
                            plan.source->filename + "\" (id=" + plan.source->sourceId + ") to id=" + target.sourceId);
@@ -678,16 +697,16 @@ int runSyncCommand(bool wantRekordbox, bool wantEngine, const std::optional<std:
     Console::info("  matched tracks:   " + std::to_string(plans.size()));
 
     std::vector<const SyncPlan *> toEngine;
-    std::vector<const SyncPlan *> toRekordboxOnly;  // not writable, report-only
+    std::vector<const SyncPlan *> toRekordbox;
     for (const auto &plan : plans) {
         if (plan.direction == SyncPlan::Direction::ToEngine) {
             toEngine.push_back(&plan);
         } else if (plan.direction == SyncPlan::Direction::ToRekordbox) {
-            toRekordboxOnly.push_back(&plan);
+            toRekordbox.push_back(&plan);
         }
     }
 
-    if (toEngine.empty() && toRekordboxOnly.empty()) {
+    if (toEngine.empty() && toRekordbox.empty()) {
         Console::info("  nothing to sync -- matched tracks' cues are already consistent (or empty on both sides).");
         return 0;
     }
@@ -702,22 +721,16 @@ int runSyncCommand(bool wantRekordbox, bool wantEngine, const std::optional<std:
         }
     }
 
-    if (!toRekordboxOnly.empty()) {
+    if (!toRekordbox.empty()) {
         Console::info("");
-        Console::warn(std::to_string(toRekordboxOnly.size()) +
-                       " track(s) have cues that belong on the rekordbox side, but rekordbox has no write path yet "
-                       "-- reported only, nothing will be written:");
-        for (const auto *plan : toRekordboxOnly) {
+        Console::info("Would copy cues to rekordbox for " + std::to_string(toRekordbox.size()) + " track(s):");
+        for (const auto *plan : toRekordbox) {
             bool conflict = plan->kind == SyncPlan::Kind::Conflict;
             Console::info("  \"" + plan->match.engineTrack.filename + "\": " + describeCues(plan->cuesToApply) +
                            (conflict ? "  [conflict resolved: Engine's m.db is newer]" : ""));
         }
-    }
-
-    if (toEngine.empty()) {
-        Console::info("");
-        Console::info("nothing writable to apply this run (only rekordbox-direction changes found).");
-        return 0;
+        Console::warn("rekordbox writing is the least-proven part of djconvert -- verify the result in rekordbox");
+        Console::warn("and on real hardware before trusting it for a gig (see --help's Sync section).");
     }
 
     if (dryRun) {
@@ -727,9 +740,8 @@ int runSyncCommand(bool wantRekordbox, bool wantEngine, const std::optional<std:
     }
 
     // --- Phase 2: single confirmation gate ---
-    bool apply =
-        autoMode || Console::confirm("\nApply the " + std::to_string(toEngine.size()) +
-                                      " Engine-bound change(s) above?");
+    size_t totalChanges = toEngine.size() + toRekordbox.size();
+    bool apply = autoMode || Console::confirm("\nApply the " + std::to_string(totalChanges) + " change(s) above?");
     if (!apply) {
         Console::info("skipped -- no changes made.");
         return 0;
@@ -737,32 +749,70 @@ int runSyncCommand(bool wantRekordbox, bool wantEngine, const std::optional<std:
 
     // --- Phase 3: apply ---
     try {
-        djconvert::infrastructure::engine::LibdjinteropEngineCueWriter writer(*resolved.enginePath);
-        fs::path stickRoot = fs::path(*resolved.enginePath).parent_path();
-        djconvert::infrastructure::backup::FilesystemBackupStore backupStore((stickRoot / ".djconvert-backups").string());
-        djconvert::infrastructure::logging::FileOperationLog log((stickRoot / ".djconvert.log").string());
+        djconvert::infrastructure::backup::FilesystemBackupStore engineBackupStore(
+            (fs::path(*resolved.enginePath).parent_path() / ".djconvert-backups").string());
+        djconvert::infrastructure::logging::FileOperationLog engineLog(
+            (fs::path(*resolved.enginePath).parent_path() / ".djconvert.log").string());
+        djconvert::infrastructure::backup::FilesystemBackupStore rekordboxBackupStore(
+            (fs::path(*resolved.rekordboxPath).parent_path() / ".djconvert-backups").string());
+        djconvert::infrastructure::logging::FileOperationLog rekordboxLog(
+            (fs::path(*resolved.rekordboxPath).parent_path() / ".djconvert.log").string());
 
-        auto record = backupStore.backup({engineDbFile}, "sync");
-        Console::info("");
-        Console::info("backed up to " + record.path);
-        log.record("sync: backed up before cross-format sync -> " + record.path);
+        size_t engineCuesCopied = 0;
+        if (!toEngine.empty()) {
+            djconvert::infrastructure::engine::LibdjinteropEngineCueWriter writer(*resolved.enginePath);
+            auto record = engineBackupStore.backup({engineDbFile}, "sync");
+            Console::info("");
+            Console::info("backed up Engine to " + record.path);
+            engineLog.record("sync: backed up before cross-format sync -> " + record.path);
 
-        size_t cuesCopied = 0;
-        for (const auto *plan : toEngine) {
-            writer.writeHotCues(plan->match.engineTrack.sourceId, plan->cuesToApply);
-            cuesCopied += plan->cuesToApply.size();
-            log.record("sync: copied cues (" + describeCues(plan->cuesToApply) + ") from rekordbox track \"" +
-                        plan->match.rekordboxTrack.title + "\" (id=" + plan->match.rekordboxTrack.sourceId +
-                        ") to engine track id=" + plan->match.engineTrack.sourceId);
+            for (const auto *plan : toEngine) {
+                writer.writeHotCues(plan->match.engineTrack.sourceId, plan->cuesToApply);
+                engineCuesCopied += plan->cuesToApply.size();
+                engineLog.record("sync: copied cues (" + describeCues(plan->cuesToApply) +
+                                  ") from rekordbox track \"" + plan->match.rekordboxTrack.title +
+                                  "\" (id=" + plan->match.rekordboxTrack.sourceId +
+                                  ") to engine track id=" + plan->match.engineTrack.sourceId);
+            }
+        }
+
+        size_t rekordboxCuesCopied = 0;
+        if (!toRekordbox.empty()) {
+            djconvert::infrastructure::rekordbox::RekordboxCueWriter writer(*resolved.rekordboxPath);
+            std::string pioneerRoot = *resolved.rekordboxPath;
+            std::set<std::string> backedUpFiles;
+
+            for (const auto *plan : toRekordbox) {
+                auto analyzePath = djconvert::infrastructure::rekordbox::findAnlzPathForTrackId(
+                    pioneerRoot, static_cast<uint32_t>(std::stoul(plan->match.rekordboxTrack.sourceId)));
+                if (analyzePath) {
+                    std::string extPath = djconvert::infrastructure::rekordbox::extAnlzPath(pioneerRoot,
+                                                                                              *analyzePath);
+                    if (backedUpFiles.insert(extPath).second) {
+                        auto record = rekordboxBackupStore.backup({extPath}, "sync");
+                        Console::info("backed up " + extPath + " to " + record.path);
+                        rekordboxLog.record("sync: backed up before cross-format sync -> " + record.path);
+                    }
+                }
+
+                writer.writeHotCues(plan->match.rekordboxTrack.sourceId, plan->cuesToApply);
+                rekordboxCuesCopied += plan->cuesToApply.size();
+                rekordboxLog.record("sync: copied cues (" + describeCues(plan->cuesToApply) +
+                                     ") from engine track \"" + plan->match.engineTrack.title +
+                                     "\" (id=" + plan->match.engineTrack.sourceId +
+                                     ") to rekordbox track id=" + plan->match.rekordboxTrack.sourceId);
+            }
         }
 
         Console::info("");
         Console::heading("sync summary");
-        Console::info("  synced " + std::to_string(toEngine.size()) + " track(s): copied " +
-                       std::to_string(cuesCopied) + " cue(s) total to Engine");
-        if (!toRekordboxOnly.empty()) {
-            Console::info("  " + std::to_string(toRekordboxOnly.size()) +
-                           " track(s) still need their cues copied to rekordbox by hand (no write path yet)");
+        if (!toEngine.empty()) {
+            Console::info("  synced " + std::to_string(toEngine.size()) + " track(s) to Engine: copied " +
+                           std::to_string(engineCuesCopied) + " cue(s) total");
+        }
+        if (!toRekordbox.empty()) {
+            Console::info("  synced " + std::to_string(toRekordbox.size()) + " track(s) to rekordbox: copied " +
+                           std::to_string(rekordboxCuesCopied) + " cue(s) total");
         }
     } catch (const std::exception &e) {
         Console::error(e.what());
@@ -882,8 +932,22 @@ int main(int argc, char **argv)
             auto tracks = scanPath(
                 std::make_unique<djconvert::infrastructure::rekordbox::KaitaiRekordboxReader>(target.path));
             printReport(heading, tracks, reportOptions);
-            // No CueWriter for rekordbox yet -- duplicates are detected and reported, never applied.
-            handleDuplicates(heading, tracks, nullptr, nullptr, nullptr, {}, autoMode);
+
+            djconvert::infrastructure::rekordbox::RekordboxCueWriter writer(target.path);
+            fs::path stickRoot = fs::path(target.path).parent_path();
+            djconvert::infrastructure::backup::FilesystemBackupStore backupStore(
+                (stickRoot / ".djconvert-backups").string());
+            djconvert::infrastructure::logging::FileOperationLog log((stickRoot / ".djconvert.log").string());
+            std::string pioneerRoot = target.path;
+            auto filesToBackUpFor = [pioneerRoot](const std::string &trackSourceId) -> std::vector<std::string> {
+                auto analyzePath = djconvert::infrastructure::rekordbox::findAnlzPathForTrackId(
+                    pioneerRoot, static_cast<uint32_t>(std::stoul(trackSourceId)));
+                if (!analyzePath) {
+                    return {};
+                }
+                return {djconvert::infrastructure::rekordbox::extAnlzPath(pioneerRoot, *analyzePath)};
+            };
+            handleDuplicates(heading, tracks, &writer, &backupStore, &log, filesToBackUpFor, autoMode);
         }
 
         bool multipleEngine = scanTargets.engineTargets.size() > 1;
@@ -898,8 +962,11 @@ int main(int argc, char **argv)
             djconvert::infrastructure::backup::FilesystemBackupStore backupStore(
                 (stickRoot / ".djconvert-backups").string());
             djconvert::infrastructure::logging::FileOperationLog log((stickRoot / ".djconvert.log").string());
-            std::vector<std::string> filesToBackUp = {(fs::path(target.path) / "Database2" / "m.db").string()};
-            handleDuplicates(heading, tracks, &writer, &backupStore, &log, filesToBackUp, autoMode);
+            std::string engineDbFile = (fs::path(target.path) / "Database2" / "m.db").string();
+            auto filesToBackUpFor = [engineDbFile](const std::string &) -> std::vector<std::string> {
+                return {engineDbFile};
+            };
+            handleDuplicates(heading, tracks, &writer, &backupStore, &log, filesToBackUpFor, autoMode);
         }
     } catch (const std::exception &e) {
         Console::error(e.what());

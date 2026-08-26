@@ -1,0 +1,118 @@
+#include "infrastructure/rekordbox/anlz_cue_codec.hpp"
+
+#include <stdexcept>
+
+#include "infrastructure/rekordbox/big_endian.hpp"
+
+namespace djconvert::infrastructure::rekordbox
+{
+
+namespace
+{
+
+// See the confidence-level notes in anlz_cue_codec.hpp.
+constexpr unsigned char Pad3Template[3] = {0x00, 0x03, 0xE8};
+constexpr uint32_t NotALoopSentinel = 0xFFFFFFFFu;
+constexpr unsigned char Pad7FirstByte = 0x01;
+
+constexpr size_t FixedEntrySize = 40;  // magic..loop_denominator, before len_comment
+constexpr size_t NoCommentEntrySize = FixedEntrySize + 4;  // + len_comment(=0)
+constexpr size_t WithColorEntrySize = NoCommentEntrySize + 4;  // + color_code/r/g/b
+
+}  // namespace
+
+std::vector<RawHotCueEntry> AnlzCueCodec::decodeHotCues(const std::string &pco2SectionBytes)
+{
+    std::vector<RawHotCueEntry> result;
+    if (pco2SectionBytes.size() < 20) {
+        return result;
+    }
+
+    uint32_t type = readU32BE(pco2SectionBytes, 12);
+    uint16_t numCues = readU16BE(pco2SectionBytes, 16);
+    if (type != 1) {  // cue_list_type::hot_cues
+        return result;
+    }
+
+    size_t offset = 20;
+    for (uint16_t i = 0; i < numCues; ++i) {
+        if (offset + FixedEntrySize > pco2SectionBytes.size()) {
+            throw std::runtime_error("PCO2 section truncated while decoding hot cue entries");
+        }
+        uint32_t lenEntry = readU32BE(pco2SectionBytes, offset + 8);
+        uint32_t hotCue = readU32BE(pco2SectionBytes, offset + 12);
+        uint32_t time = readU32BE(pco2SectionBytes, offset + 20);
+        uint32_t lenComment = readU32BE(pco2SectionBytes, offset + 40);
+
+        RawHotCueEntry entry;
+        entry.hotCueNumber = hotCue;
+        entry.timeMs = time;
+
+        size_t colorPos = offset + FixedEntrySize + 4 + lenComment;
+        if ((lenEntry - lenComment) > 44 && colorPos + 4 <= pco2SectionBytes.size()) {
+            unsigned char r = static_cast<unsigned char>(pco2SectionBytes[colorPos + 1]);
+            unsigned char g = static_cast<unsigned char>(pco2SectionBytes[colorPos + 2]);
+            unsigned char b = static_cast<unsigned char>(pco2SectionBytes[colorPos + 3]);
+            entry.color = std::make_tuple(r, g, b);
+        }
+
+        if (hotCue != 0) {
+            result.push_back(entry);
+        }
+        offset += lenEntry;
+    }
+
+    return result;
+}
+
+std::string AnlzCueCodec::encodeHotCues(const std::vector<RawHotCueEntry> &cues)
+{
+    std::string body;
+    appendU32BE(body, 1);  // cue_list_type::hot_cues
+    appendU16BE(body, static_cast<uint16_t>(cues.size()));
+    body += std::string(2, '\0');  // padding
+
+    uint16_t orderCounter = 0;
+    for (const auto &cue : cues) {
+        bool hasColor = cue.color.has_value();
+        uint32_t lenEntry = static_cast<uint32_t>(hasColor ? WithColorEntrySize : NoCommentEntrySize);
+
+        std::string entry;
+        entry += "PCP2";
+        appendU32BE(entry, 16);  // len_header, matches real data
+        appendU32BE(entry, lenEntry);
+        appendU32BE(entry, cue.hotCueNumber);
+        entry.push_back(static_cast<char>(1));  // cue_entry_type::memory_cue (a cue point, not a loop)
+        entry += std::string(reinterpret_cast<const char *>(Pad3Template), 3);
+        appendU32BE(entry, cue.timeMs);
+        appendU32BE(entry, NotALoopSentinel);
+        entry.push_back(static_cast<char>(0));  // color_id (legacy field; RGB below is authoritative when present)
+        entry.push_back(static_cast<char>(Pad7FirstByte));
+        appendU16BE(entry, ++orderCounter);  // see confidence notes: shape-matched, not confirmed semantics
+        entry += std::string(4, '\0');
+        appendU16BE(entry, 0);  // loop_numerator
+        appendU16BE(entry, 0);  // loop_denominator
+        appendU32BE(entry, 0);  // len_comment (v1: no comment support)
+        if (hasColor) {
+            auto [r, g, b] = *cue.color;
+            entry.push_back(static_cast<char>(0));  // color_code: unknown required semantics, RGB is authoritative
+            entry.push_back(static_cast<char>(r));
+            entry.push_back(static_cast<char>(g));
+            entry.push_back(static_cast<char>(b));
+        }
+
+        if (entry.size() != lenEntry) {
+            throw std::logic_error("AnlzCueCodec: encoded entry size mismatch (internal bug)");
+        }
+        body += entry;
+    }
+
+    std::string section;
+    section += "PCO2";
+    appendU32BE(section, 20);  // len_header: fourcc+len_header+len_tag+type+num_cues+pad, matches real data
+    appendU32BE(section, static_cast<uint32_t>(12 + body.size()));  // len_tag
+    section += body;
+    return section;
+}
+
+}  // namespace djconvert::infrastructure::rekordbox

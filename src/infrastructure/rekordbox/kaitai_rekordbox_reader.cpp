@@ -4,6 +4,7 @@
 
 #include "infrastructure/rekordbox/generated/rekordbox_anlz.h"
 #include "infrastructure/rekordbox/generated/rekordbox_pdb.h"
+#include "infrastructure/rekordbox/pdb_lookup.hpp"
 
 namespace djconvert::infrastructure::rekordbox
 {
@@ -14,24 +15,6 @@ namespace domain = djconvert::domain;
 
 namespace
 {
-
-std::string sqlText(Pdb::device_sql_string_t *s)
-{
-    if (!s) {
-        return "";
-    }
-    auto *body = s->body();
-    if (auto *a = dynamic_cast<Pdb::device_sql_short_ascii_t *>(body)) {
-        return a->text();
-    }
-    if (auto *a = dynamic_cast<Pdb::device_sql_long_ascii_t *>(body)) {
-        return a->text();
-    }
-    if (auto *a = dynamic_cast<Pdb::device_sql_long_utf16le_t *>(body)) {
-        return a->text();
-    }
-    return "";
-}
 
 // Extended cue color, when present (color_code/red/green/blue), as
 // "#RRGGBB"; falls back to the legacy color_id as a bare number, since
@@ -48,23 +31,6 @@ std::string cueColor(Anlz::cue_extended_entry_t &cue)
         return buf;
     }
     return std::to_string(static_cast<int>(cue.color_id()));
-}
-
-// Path from track_row::analyze_path() is like
-// "/PIONEER/USBANLZ/P05D/000117F3/ANLZ0000.DAT"; extended hot-cue data
-// (colors/comments, tag "PCO2") lives in the sibling .EXT file, not .DAT.
-std::string extAnlzPath(const std::string &pioneerRoot, const std::string &analyzePath)
-{
-    std::string rel = analyzePath;
-    size_t pos = rel.find("/PIONEER/");
-    if (pos != std::string::npos) {
-        rel = rel.substr(pos + std::string("/PIONEER/").size());
-    }
-    size_t dot = rel.rfind(".DAT");
-    if (dot != std::string::npos) {
-        rel = rel.substr(0, dot) + ".EXT";
-    }
-    return pioneerRoot + "/" + rel;
 }
 
 std::vector<domain::CuePoint> readCues(const std::string &anlzPath)
@@ -109,31 +75,6 @@ KaitaiRekordboxReader::KaitaiRekordboxReader(std::string pioneerRoot)
     : m_pioneerRoot(std::move(pioneerRoot))
 {
 }
-
-namespace
-{
-
-// Walks every page of a table, invoking visitDataPage(page) for each page
-// that actually holds row data. Shared between the counting pre-pass and
-// the extraction pass below.
-template<typename Visitor>
-void forEachDataPage(Pdb::table_t &table, Visitor visitDataPage)
-{
-    uint32_t lastIndex = table.last_page()->index();
-    Pdb::page_ref_t *pageRef = table.first_page();
-    while (true) {
-        Pdb::page_t *page = pageRef->body();
-        if (page->is_data_page()) {
-            visitDataPage(page);
-        }
-        if (page->page_index() == lastIndex) {
-            break;
-        }
-        pageRef = page->next_page();
-    }
-}
-
-}  // namespace
 
 std::vector<domain::Track> KaitaiRekordboxReader::readAll()
 {

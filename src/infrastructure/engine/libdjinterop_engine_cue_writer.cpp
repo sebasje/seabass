@@ -41,7 +41,20 @@ void LibdjinteropEngineCueWriter::writeHotCues(const std::string &trackSourceId,
         throw std::runtime_error("no Engine track with id=" + trackSourceId);
     }
 
-    auto sampleRate = track->sample_rate();
+    // Some tracks' sample_rate() throws even though set_hot_cues() below
+    // works fine (same libdjinterop decoder quirk documented in the Engine
+    // reader: it lives in a different blob than the one hot cues use).
+    // Fall back to 44.1kHz -- see libdjinterop_engine_reader.cpp for the
+    // same reasoning.
+    double sampleRate = 44100.0;
+    try {
+        if (auto rate = track->sample_rate()) {
+            sampleRate = *rate;
+        }
+    } catch (const std::exception &) {
+        // fall back to the default above
+    }
+
     std::vector<std::optional<djinterop::hot_cue>> slots(HotCueSlotCount);
     for (const auto &cue : cues) {
         if (cue.kind != domain::CuePoint::Kind::Hot) {
@@ -51,7 +64,7 @@ void LibdjinteropEngineCueWriter::writeHotCues(const std::string &trackSourceId,
         if (slot < 0 || slot >= HotCueSlotCount) {
             continue;
         }
-        double sampleOffset = sampleRate ? (cue.positionMs / 1000.0 * *sampleRate) : cue.positionMs;
+        double sampleOffset = cue.positionMs / 1000.0 * sampleRate;
         slots[slot] = djinterop::hot_cue{cue.comment, sampleOffset, parseColor(cue.color)};
     }
 
