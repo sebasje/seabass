@@ -862,7 +862,13 @@ int main(int argc, char **argv)
                 Console::error("--keep requires a number");
                 return 1;
             }
-            keepCount = std::stoul(args[++i]);
+            ++i;
+            try {
+                keepCount = std::stoul(args[i]);
+            } catch (const std::exception &) {
+                Console::error("--keep requires a number, got \"" + args[i] + "\"");
+                return 1;
+            }
         } else if (arg == "--track") {
             if (i + 1 >= args.size()) {
                 Console::error("--track requires a name to search for");
