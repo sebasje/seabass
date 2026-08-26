@@ -17,6 +17,7 @@
 #include "application/ports/removable_media_locator.hpp"
 #include "application/use_cases/consolidate_duplicate_cues.hpp"
 #include "application/use_cases/scan_library.hpp"
+#include "application/use_cases/sync_libraries.hpp"
 #include "cli/console.hpp"
 #include "cli/terminal_progress_reporter.hpp"
 #include "domain/fuzzy_matcher.hpp"
@@ -64,6 +65,7 @@ void printUsage()
     Console::heading("Usage");
     Console::info("  djconvert scan [--rekordbox [PATH]] [--engine [PATH]] [--verbose] [--auto]");
     Console::info("                 [--track NAME] [--needs-cues [N]]");
+    Console::info("  djconvert sync --rekordbox [PATH] --engine [PATH] [--dry-run] [--auto]");
     Console::info("  djconvert backups [--rekordbox [PATH]] [--engine [PATH]] [--clean] [--keep N]");
     Console::info("  djconvert --help");
     Console::info("");
@@ -74,6 +76,12 @@ void printUsage()
     Console::info("           modifies anything; consolidating duplicates does write, but only");
     Console::info("           after backing up the file(s) it's about to change, and only with");
     Console::info("           your confirmation unless --auto is given.");
+    Console::info("  sync     Matches tracks between one rekordbox source and one Engine source by");
+    Console::info("           filename and duration, and syncs their cues (see \"Sync\" below).");
+    Console::info("           Two phases, always: first it analyzes both libraries and prints the");
+    Console::info("           full proposal -- what would move where, and what can't be applied");
+    Console::info("           yet -- without touching anything; only then does it ask you to");
+    Console::info("           confirm (unless --auto or --dry-run) before writing anything.");
     Console::info("  backups  Lists the backups djconvert has made on a stick (see \"Backups\"");
     Console::info("           below). With --clean, deletes the oldest ones so at most --keep");
     Console::info("           N remain (default " + std::to_string(DefaultKeepBackups) +
@@ -88,11 +96,13 @@ void printUsage()
     Console::info("                      contains \"Database2/\" (i.e. the \"Engine Library\"");
     Console::info("                      folder itself). If PATH is omitted, an inserted USB");
     Console::info("                      stick is auto-detected.");
-    Console::info("  --auto              Don't prompt before consolidating duplicate cues.");
-    Console::info("                      Only ever applies when a group is unambiguous --");
-    Console::info("                      exactly one copy has cues, the rest have none. A");
-    Console::info("                      real conflict (copies with *different* cues) is never");
-    Console::info("                      auto-resolved, --auto or not -- it's only reported.");
+    Console::info("  --auto              Skip the confirmation prompt (scan: for consolidating an");
+    Console::info("                      unambiguous duplicate group; sync: for applying the");
+    Console::info("                      analyzed plan). Never changes *what* gets decided --");
+    Console::info("                      conflicts are still resolved the same way, and anything");
+    Console::info("                      unwritable is still only reported, never guessed at.");
+    Console::info("  --dry-run           sync only: run the analysis and print the full proposal,");
+    Console::info("                      then stop -- never prompts, never writes.");
     Console::info("  --track NAME        Show only tracks whose title, artist, or filename");
     Console::info("                      fuzzy-matches NAME (typo-tolerant, case-insensitive).");
     Console::info("                      Shows every match, including ones with no cues yet --");
@@ -129,9 +139,21 @@ void printUsage()
     Console::info("  copies have cues that actually *differ*, that's reported as a conflict and");
     Console::info("  never touched -- you decide by hand which copy is right.");
     Console::info("");
+    Console::heading("Sync");
+    Console::info("  Matches tracks between a rekordbox source and an Engine source by filename +");
+    Console::info("  duration, then for each matched pair: if only one side has cues, they'd move");
+    Console::info("  to the other side; if both have the *same* cues, nothing happens; if both");
+    Console::info("  have *different* cues, that's a conflict, resolved by which side's underlying");
+    Console::info("  file was modified more recently (a heuristic, not a true edit timestamp --");
+    Console::info("  documented as such, not treated as certain). Only rekordbox -> Engine can");
+    Console::info("  actually be written (no rekordbox write path yet); anything that would go the");
+    Console::info("  other way is always reported, never applied. The full proposal is always");
+    Console::info("  printed before anything is written -- --auto only skips the confirmation");
+    Console::info("  prompt afterwards, it never skips the analysis step.");
+    Console::info("");
     Console::heading("Backups");
-    Console::info("  Every write djconvert makes (currently: duplicate-cue consolidation) backs");
-    Console::info("  up the file(s) it's about to touch first, under");
+    Console::info("  Every write djconvert makes (duplicate-cue consolidation, sync) backs up the");
+    Console::info("  file(s) it's about to touch first, under");
     Console::info("  \"<stick root>/.djconvert-backups/<timestamp>-<label>/\" -- shared across");
     Console::info("  rekordbox and Engine, since both live under the same stick root. Nothing");
     Console::info("  is ever deleted automatically; run \"djconvert backups --clean\" yourself to");
@@ -151,6 +173,8 @@ void printUsage()
     Console::info("  djconvert backups --clean --keep 3          # keep only the 3 most recent");
     Console::info("  djconvert scan --engine --track concorde    # look up a track by (fuzzy) name");
     Console::info("  djconvert scan --rekordbox --needs-cues 10  # top 10 most-played tracks with no cues");
+    Console::info("  djconvert sync --rekordbox --engine --dry-run  # see the proposal, change nothing");
+    Console::info("  djconvert sync --rekordbox --engine            # analyze, then confirm before writing");
 }
 
 // Which tracks printReport shows detail for, beyond the always-printed
@@ -589,6 +613,165 @@ int runBackupsCommand(bool wantRekordbox, bool wantEngine, const std::optional<s
     return resolved.ok ? 0 : 1;
 }
 
+std::chrono::system_clock::time_point fileMtime(const std::string &path)
+{
+    return std::chrono::clock_cast<std::chrono::system_clock>(std::filesystem::last_write_time(path));
+}
+
+std::string describeCues(const std::vector<djconvert::domain::CuePoint> &cues)
+{
+    int hot = 0;
+    int memory = 0;
+    for (const auto &cue : cues) {
+        (cue.kind == djconvert::domain::CuePoint::Kind::Hot ? hot : memory)++;
+    }
+    std::string result = std::to_string(hot) + " hot";
+    if (memory > 0) {
+        result += ", " + std::to_string(memory) + " memory (not written -- Engine writer only handles hot cues)";
+    }
+    return result;
+}
+
+// "sync": two phases. First, analyze both libraries and print the full
+// proposal -- what would move which direction, and what can't be applied
+// because rekordbox has no write path yet -- without touching anything.
+// Only after that does it ask for confirmation (unless --auto or
+// --dry-run) before actually writing.
+int runSyncCommand(bool wantRekordbox, bool wantEngine, const std::optional<std::string> &rekordboxPath,
+                    const std::optional<std::string> &enginePath, bool autoMode, bool dryRun)
+{
+    auto resolved = resolveLibraryPaths(wantRekordbox, wantEngine, rekordboxPath, enginePath);
+    if (!resolved.rekordboxPath || !resolved.enginePath) {
+        Console::error("sync needs both a rekordbox and an Engine source -- found: " +
+                        std::string(resolved.rekordboxPath ? "rekordbox" : "no rekordbox") + ", " +
+                        std::string(resolved.enginePath ? "engine" : "no engine"));
+        return 1;
+    }
+
+    using djconvert::domain::SyncPlan;
+
+    std::vector<djconvert::domain::Track> rekordboxTracks;
+    std::vector<djconvert::domain::Track> engineTracks;
+    std::string rekordboxDbFile = (fs::path(*resolved.rekordboxPath) / "rekordbox" / "export.pdb").string();
+    std::string engineDbFile = (fs::path(*resolved.enginePath) / "Database2" / "m.db").string();
+
+    try {
+        rekordboxTracks = scanPath(
+            std::make_unique<djconvert::infrastructure::rekordbox::KaitaiRekordboxReader>(*resolved.rekordboxPath));
+        engineTracks = scanPath(
+            std::make_unique<djconvert::infrastructure::engine::LibdjinteropEngineReader>(*resolved.enginePath));
+    } catch (const std::exception &e) {
+        Console::error(e.what());
+        return 1;
+    }
+
+    auto rekordboxMtime = fileMtime(rekordboxDbFile);
+    auto engineMtime = fileMtime(engineDbFile);
+    auto plans = djconvert::application::SyncLibraries().execute(rekordboxTracks, engineTracks, rekordboxMtime,
+                                                                   engineMtime);
+
+    // --- Phase 1: analyze and propose, no writes yet ---
+    Console::info("");
+    Console::heading("sync analysis");
+    Console::info("  rekordbox tracks: " + std::to_string(rekordboxTracks.size()));
+    Console::info("  engine tracks:    " + std::to_string(engineTracks.size()));
+    Console::info("  matched tracks:   " + std::to_string(plans.size()));
+
+    std::vector<const SyncPlan *> toEngine;
+    std::vector<const SyncPlan *> toRekordboxOnly;  // not writable, report-only
+    for (const auto &plan : plans) {
+        if (plan.direction == SyncPlan::Direction::ToEngine) {
+            toEngine.push_back(&plan);
+        } else if (plan.direction == SyncPlan::Direction::ToRekordbox) {
+            toRekordboxOnly.push_back(&plan);
+        }
+    }
+
+    if (toEngine.empty() && toRekordboxOnly.empty()) {
+        Console::info("  nothing to sync -- matched tracks' cues are already consistent (or empty on both sides).");
+        return 0;
+    }
+
+    if (!toEngine.empty()) {
+        Console::info("");
+        Console::info("Would copy cues to Engine for " + std::to_string(toEngine.size()) + " track(s):");
+        for (const auto *plan : toEngine) {
+            bool conflict = plan->kind == SyncPlan::Kind::Conflict;
+            Console::info("  \"" + plan->match.rekordboxTrack.filename + "\": " + describeCues(plan->cuesToApply) +
+                           (conflict ? "  [conflict resolved: rekordbox's export.pdb is newer]" : ""));
+        }
+    }
+
+    if (!toRekordboxOnly.empty()) {
+        Console::info("");
+        Console::warn(std::to_string(toRekordboxOnly.size()) +
+                       " track(s) have cues that belong on the rekordbox side, but rekordbox has no write path yet "
+                       "-- reported only, nothing will be written:");
+        for (const auto *plan : toRekordboxOnly) {
+            bool conflict = plan->kind == SyncPlan::Kind::Conflict;
+            Console::info("  \"" + plan->match.engineTrack.filename + "\": " + describeCues(plan->cuesToApply) +
+                           (conflict ? "  [conflict resolved: Engine's m.db is newer]" : ""));
+        }
+    }
+
+    if (toEngine.empty()) {
+        Console::info("");
+        Console::info("nothing writable to apply this run (only rekordbox-direction changes found).");
+        return 0;
+    }
+
+    if (dryRun) {
+        Console::info("");
+        Console::info("--dry-run: no changes made.");
+        return 0;
+    }
+
+    // --- Phase 2: single confirmation gate ---
+    bool apply =
+        autoMode || Console::confirm("\nApply the " + std::to_string(toEngine.size()) +
+                                      " Engine-bound change(s) above?");
+    if (!apply) {
+        Console::info("skipped -- no changes made.");
+        return 0;
+    }
+
+    // --- Phase 3: apply ---
+    try {
+        djconvert::infrastructure::engine::LibdjinteropEngineCueWriter writer(*resolved.enginePath);
+        fs::path stickRoot = fs::path(*resolved.enginePath).parent_path();
+        djconvert::infrastructure::backup::FilesystemBackupStore backupStore((stickRoot / ".djconvert-backups").string());
+        djconvert::infrastructure::logging::FileOperationLog log((stickRoot / ".djconvert.log").string());
+
+        auto record = backupStore.backup({engineDbFile}, "sync");
+        Console::info("");
+        Console::info("backed up to " + record.path);
+        log.record("sync: backed up before cross-format sync -> " + record.path);
+
+        size_t cuesCopied = 0;
+        for (const auto *plan : toEngine) {
+            writer.writeHotCues(plan->match.engineTrack.sourceId, plan->cuesToApply);
+            cuesCopied += plan->cuesToApply.size();
+            log.record("sync: copied cues (" + describeCues(plan->cuesToApply) + ") from rekordbox track \"" +
+                        plan->match.rekordboxTrack.title + "\" (id=" + plan->match.rekordboxTrack.sourceId +
+                        ") to engine track id=" + plan->match.engineTrack.sourceId);
+        }
+
+        Console::info("");
+        Console::heading("sync summary");
+        Console::info("  synced " + std::to_string(toEngine.size()) + " track(s): copied " +
+                       std::to_string(cuesCopied) + " cue(s) total to Engine");
+        if (!toRekordboxOnly.empty()) {
+            Console::info("  " + std::to_string(toRekordboxOnly.size()) +
+                           " track(s) still need their cues copied to rekordbox by hand (no write path yet)");
+        }
+    } catch (const std::exception &e) {
+        Console::error(e.what());
+        return 1;
+    }
+
+    return 0;
+}
+
 }  // namespace
 
 int main(int argc, char **argv)
@@ -598,6 +781,7 @@ int main(int argc, char **argv)
     bool verbose = false;
     bool help = false;
     bool autoMode = false;
+    bool dryRun = false;
     bool clean = false;
     bool wantRekordbox = false;
     bool wantEngine = false;
@@ -619,6 +803,8 @@ int main(int argc, char **argv)
             verbose = true;
         } else if (arg == "--auto") {
             autoMode = true;
+        } else if (arg == "--dry-run") {
+            dryRun = true;
         } else if (arg == "--clean") {
             clean = true;
         } else if (arg == "--keep") {
@@ -668,7 +854,7 @@ int main(int argc, char **argv)
         printUsage();
         return help ? 0 : 1;
     }
-    if (commands.size() != 1 || (commands[0] != "scan" && commands[0] != "backups")) {
+    if (commands.size() != 1 || (commands[0] != "scan" && commands[0] != "backups" && commands[0] != "sync")) {
         Console::error("unknown command: " + commands[0]);
         printUsage();
         return 1;
@@ -676,6 +862,10 @@ int main(int argc, char **argv)
 
     if (commands[0] == "backups") {
         return runBackupsCommand(wantRekordbox, wantEngine, rekordboxPath, enginePath, clean, keepCount);
+    }
+
+    if (commands[0] == "sync") {
+        return runSyncCommand(wantRekordbox, wantEngine, rekordboxPath, enginePath, autoMode, dryRun);
     }
 
     // commands[0] == "scan". Every detected stick carrying a requested
