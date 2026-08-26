@@ -1,14 +1,19 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Controls.Material
 import QtQuick.Layouts
 import DjConvertGui
 
 ApplicationWindow {
     id: window
-    width: 1000
-    height: 700
+    width: 1100
+    height: 720
     visible: true
     title: "djconvert"
+
+    Material.theme: Material.Dark
+    Material.accent: Material.DeepOrange
+    Material.primary: Material.Grey
 
     MediaController {
         id: mediaCtrl

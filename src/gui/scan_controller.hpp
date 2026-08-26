@@ -27,6 +27,9 @@ public:
         CueCountRole,
         PlayCountRole,
         FilePathRole,
+        ArtworkPathRole,
+        BpmRole,
+        KeyRole,
     };
 
     explicit TrackListModel(QObject *parent = nullptr);
@@ -50,6 +53,7 @@ class ScanController : public QObject
     Q_PROPERTY(djconvert::gui::TrackListModel *tracks READ tracksModel CONSTANT)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
+    Q_PROPERTY(QStringList playlistNames READ playlistNames NOTIFY playlistNamesChanged)
 
 public:
     explicit ScanController(QObject *parent = nullptr);
@@ -57,20 +61,27 @@ public:
     TrackListModel *tracksModel() { return &m_model; }
     bool busy() const { return m_busy; }
     QString errorMessage() const { return m_errorMessage; }
+    QStringList playlistNames() const { return m_playlistNames; }
 
     // format is "rekordbox" or "engine"; path is the corresponding
     // DetectedStick.rekordboxPath / .enginePath.
     Q_INVOKABLE void scan(const QString &format, const QString &path);
 
+    // playlistName empty shows every scanned track again.
+    Q_INVOKABLE void filterByPlaylist(const QString &playlistName);
+
 signals:
     void busyChanged();
     void errorMessageChanged();
+    void playlistNamesChanged();
 
 private:
     void setBusy(bool busy);
     void setErrorMessage(const QString &message);
 
     TrackListModel m_model;
+    std::vector<domain::Track> m_allTracks;
+    QStringList m_playlistNames;
     bool m_busy = false;
     QString m_errorMessage;
 };

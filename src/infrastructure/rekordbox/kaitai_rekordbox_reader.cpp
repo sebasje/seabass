@@ -153,6 +153,52 @@ std::vector<domain::Track> KaitaiRekordboxReader::readAll()
         });
     }
 
+    // Musical key names live in their own table; track rows only carry a
+    // key_id foreign key into it.
+    std::unordered_map<uint32_t, std::string> keyNameById;
+    for (const auto &table : *pdb.tables()) {
+        if (table->type() != Pdb::PAGE_TYPE_KEYS) {
+            continue;
+        }
+        forEachDataPage(*table, [&](Pdb::page_t *page) {
+            for (const auto &group : *page->row_groups()) {
+                for (const auto &row : *group->rows()) {
+                    if (!row->present()) {
+                        continue;
+                    }
+                    auto *rowKey = dynamic_cast<Pdb::key_row_t *>(row->body());
+                    if (!rowKey) {
+                        continue;
+                    }
+                    keyNameById[rowKey->id()] = sqlText(rowKey->name());
+                }
+            }
+        });
+    }
+
+    // Cover art images live in their own table; track rows only carry an
+    // artwork_id foreign key into it.
+    std::unordered_map<uint32_t, std::string> artworkPathById;
+    for (const auto &table : *pdb.tables()) {
+        if (table->type() != Pdb::PAGE_TYPE_ARTWORK) {
+            continue;
+        }
+        forEachDataPage(*table, [&](Pdb::page_t *page) {
+            for (const auto &group : *page->row_groups()) {
+                for (const auto &row : *group->rows()) {
+                    if (!row->present()) {
+                        continue;
+                    }
+                    auto *rowArtwork = dynamic_cast<Pdb::artwork_row_t *>(row->body());
+                    if (!rowArtwork) {
+                        continue;
+                    }
+                    artworkPathById[rowArtwork->id()] = sqlText(rowArtwork->path());
+                }
+            }
+        });
+    }
+
     // Playlists: build id -> {name, parent, isFolder} from PLAYLIST_TREE,
     // then track id -> playlist path(s) from PLAYLIST_ENTRIES. Both tables
     // are small, so this is done fully upfront rather than per-track.
@@ -248,7 +294,16 @@ std::vector<domain::Track> KaitaiRekordboxReader::readAll()
                     if (!trackFilePath.empty()) {
                         track.filePath = stickRoot + trackFilePath;
                     }
+                    auto artworkIt = artworkPathById.find(rowTrack->artwork_id());
+                    if (artworkIt != artworkPathById.end() && !artworkIt->second.empty()) {
+                        track.artworkPath = stickRoot + artworkIt->second;
+                    }
                     track.durationSeconds = rowTrack->duration();
+                    track.bpm = rowTrack->tempo() / 100.0;
+                    auto keyIt = keyNameById.find(rowTrack->key_id());
+                    if (keyIt != keyNameById.end()) {
+                        track.key = keyIt->second;
+                    }
                     track.playCount = rowTrack->play_count();
                     auto playlistsIt = playlistsByTrackId.find(rowTrack->id());
                     if (playlistsIt != playlistsByTrackId.end()) {
