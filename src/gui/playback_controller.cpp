@@ -23,7 +23,7 @@ PlaybackController::PlaybackController(QObject *parent) : QObject(parent)
 
 void PlaybackController::load(const QString &format, const QString &libraryPath, const QString &sourceId,
                                const QString &filePath, const QString &title, const QString &artist,
-                               const QString &artworkPath)
+                               const QString &artworkPath, const QVariantList &cues)
 {
     m_player.stop();
     setErrorMessage({});
@@ -32,6 +32,7 @@ void PlaybackController::load(const QString &format, const QString &libraryPath,
     m_title = title;
     m_artist = artist;
     m_artworkPath = artworkPath;
+    m_cues = cues;
     m_hasTrack = true;
 
     if (filePath.isEmpty() || !QFile::exists(filePath)) {
@@ -76,6 +77,7 @@ void PlaybackController::stop()
     m_player.stop();
     m_hasTrack = false;
     m_waveform.clear();
+    m_cues.clear();
     emit trackChanged();
 }
 

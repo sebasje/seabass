@@ -49,11 +49,12 @@ T safeGet(application::ProgressReporter &progress, int64_t trackId, const char *
 // leaves playlists empty rather than failing the whole scan, since
 // membership is supplementary information, not core track data.
 void collectPlaylistMemberships(const djinterop::playlist &pl, const std::string &pathPrefix,
-                                 std::unordered_map<int64_t, std::vector<std::string>> &membership)
+                                 std::unordered_map<int64_t, std::vector<domain::PlaylistMembership>> &membership)
 {
     std::string path = pathPrefix.empty() ? pl.name() : pathPrefix + "/" + pl.name();
+    int position = 0;
     for (const auto &tr : pl.tracks()) {
-        membership[tr.id()].push_back(path);
+        membership[tr.id()].push_back(domain::PlaylistMembership{path, position++});
     }
     for (const auto &child : pl.children()) {
         collectPlaylistMemberships(child, path, membership);
@@ -76,7 +77,7 @@ std::vector<domain::Track> LibdjinteropEngineReader::readAll()
     auto db = djinterop::engine::load_database(m_engineLibraryPath);
     auto allTracks = db.tracks();
 
-    std::unordered_map<int64_t, std::vector<std::string>> playlistsByTrackId;
+    std::unordered_map<int64_t, std::vector<domain::PlaylistMembership>> playlistsByTrackId;
     try {
         for (const auto &root : db.root_playlists()) {
             collectPlaylistMemberships(root, "", playlistsByTrackId);

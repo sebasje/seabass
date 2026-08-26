@@ -30,6 +30,7 @@ public:
         ArtworkPathRole,
         BpmRole,
         KeyRole,
+        CuesRole,
     };
 
     explicit TrackListModel(QObject *parent = nullptr);
@@ -64,11 +65,23 @@ public:
     QStringList playlistNames() const { return m_playlistNames; }
 
     // format is "rekordbox" or "engine"; path is the corresponding
-    // DetectedStick.rekordboxPath / .enginePath.
-    Q_INVOKABLE void scan(const QString &format, const QString &path);
+    // DetectedStick.rekordboxPath / .enginePath. siblingRekordboxPath (only
+    // used when format is "engine") lets Engine tracks borrow cover art
+    // from the same song's rekordbox copy, matched by title+artist, since
+    // libdjinterop has no usable cover art API of its own.
+    Q_INVOKABLE void scan(const QString &format, const QString &path, const QString &siblingRekordboxPath = QString());
 
     // playlistName empty shows every scanned track again.
     Q_INVOKABLE void filterByPlaylist(const QString &playlistName);
+
+    // Matches against title or artist, case-insensitive substring. Empty
+    // clears the search.
+    Q_INVOKABLE void search(const QString &query);
+
+    // field is one of "playlist" (the selected playlist's own order, or
+    // scan order when no playlist is selected), "title", "artist", "key",
+    // "bpm", "duration", "cues", "plays".
+    Q_INVOKABLE void setSort(const QString &field, bool ascending);
 
 signals:
     void busyChanged();
@@ -78,10 +91,15 @@ signals:
 private:
     void setBusy(bool busy);
     void setErrorMessage(const QString &message);
+    void applyFilters();
 
     TrackListModel m_model;
     std::vector<domain::Track> m_allTracks;
     QStringList m_playlistNames;
+    QString m_currentPlaylistFilter;
+    QString m_currentSearchQuery;
+    QString m_sortField = "playlist";
+    bool m_sortAscending = true;
     bool m_busy = false;
     QString m_errorMessage;
 };

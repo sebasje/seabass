@@ -45,10 +45,11 @@ ApplicationWindow {
         id: stickListPageComponent
         StickListPage {
             mediaController: mediaCtrl
-            onBrowseRequested: (stickLabel, format, path) => stackView.push(scanPageComponent, {
+            onBrowseRequested: (stickLabel, format, path, siblingRekordboxPath) => stackView.push(scanPageComponent, {
                 stickLabel: stickLabel,
                 format: format,
                 path: path,
+                siblingRekordboxPath: siblingRekordboxPath,
             })
             onDuplicatesRequested: (stickLabel, format, path) => stackView.push(duplicatesPageComponent, {
                 stickLabel: stickLabel,
@@ -67,6 +68,8 @@ ApplicationWindow {
 
     Component {
         id: duplicatesPageComponent
-        DuplicatesPage {}
+        DuplicatesPage {
+            playbackController: playbackCtrl
+        }
     }
 }

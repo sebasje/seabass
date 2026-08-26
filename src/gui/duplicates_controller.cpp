@@ -61,10 +61,14 @@ QVariant ConsolidationPlanListModel::data(const QModelIndex &index, int role) co
         for (const auto &t : plan.group.tracks) {
             QVariantMap trackMap;
             trackMap["sourceId"] = QString::fromStdString(t.sourceId);
+            trackMap["title"] = QString::fromStdString(t.title);
+            trackMap["artist"] = QString::fromStdString(t.artist);
+            trackMap["filePath"] = QString::fromStdString(t.filePath);
+            trackMap["artworkPath"] = QString::fromStdString(t.artworkPath);
 
             QStringList playlists;
             for (const auto &p : t.playlists) {
-                playlists << QString::fromStdString(p);
+                playlists << QString::fromStdString(p.name);
             }
             trackMap["playlists"] = playlists;
 
