@@ -1,5 +1,7 @@
 #pragma once
 
+#include <chrono>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -30,6 +32,15 @@ struct Track
     std::string filename;
     double durationSeconds = 0.0;
     std::vector<CuePoint> cues;
+
+    // Engagement signals used to prioritize which tracks are worth setting
+    // cue points on. The two formats track different things -- rekordbox
+    // keeps a running play count, Engine (via libdjinterop) only exposes
+    // the timestamp of the most recent play -- so both are optional and
+    // independent; a given Track will typically have at most one set,
+    // depending on which format it came from.
+    std::optional<int> playCount;
+    std::optional<std::chrono::system_clock::time_point> lastPlayedAt;
 };
 
 }  // namespace djconvert::domain

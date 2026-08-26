@@ -1,6 +1,9 @@
+#include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
+#include <format>
 #include <iterator>
 #include <memory>
 #include <optional>
@@ -10,14 +13,18 @@
 #include "application/ports/backup_store.hpp"
 #include "application/ports/cue_writer.hpp"
 #include "application/ports/library_reader.hpp"
+#include "application/ports/operation_log.hpp"
 #include "application/ports/removable_media_locator.hpp"
 #include "application/use_cases/consolidate_duplicate_cues.hpp"
 #include "application/use_cases/scan_library.hpp"
 #include "cli/console.hpp"
 #include "cli/terminal_progress_reporter.hpp"
+#include "domain/fuzzy_matcher.hpp"
+#include "domain/track_queries.hpp"
 #include "infrastructure/backup/filesystem_backup_store.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cue_writer.hpp"
 #include "infrastructure/engine/libdjinterop_engine_reader.hpp"
+#include "infrastructure/logging/file_operation_log.hpp"
 #include "infrastructure/media/linux_removable_media_locator.hpp"
 #include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
 
@@ -26,12 +33,15 @@ using djconvert::application::ConsolidateDuplicateCues;
 using djconvert::application::CueWriter;
 using djconvert::application::DetectedStick;
 using djconvert::application::LibraryReader;
+using djconvert::application::OperationLog;
 using djconvert::application::RemovableMediaLocator;
 using djconvert::application::ScanLibrary;
 using djconvert::cli::Color;
 using djconvert::cli::Console;
 using djconvert::domain::ConsolidationPlan;
+using djconvert::domain::FuzzyMatcher;
 using djconvert::domain::Track;
+using djconvert::domain::TrackPrioritizer;
 
 namespace fs = std::filesystem;
 
@@ -39,6 +49,7 @@ namespace
 {
 
 constexpr size_t DefaultKeepBackups = 10;
+constexpr size_t DefaultNeedsCuesLimit = 20;
 
 void printUsage()
 {
@@ -52,6 +63,7 @@ void printUsage()
     Console::info("");
     Console::heading("Usage");
     Console::info("  djconvert scan [--rekordbox [PATH]] [--engine [PATH]] [--verbose] [--auto]");
+    Console::info("                 [--track NAME] [--needs-cues [N]]");
     Console::info("  djconvert backups [--rekordbox [PATH]] [--engine [PATH]] [--clean] [--keep N]");
     Console::info("  djconvert --help");
     Console::info("");
@@ -81,18 +93,31 @@ void printUsage()
     Console::info("                      exactly one copy has cues, the rest have none. A");
     Console::info("                      real conflict (copies with *different* cues) is never");
     Console::info("                      auto-resolved, --auto or not -- it's only reported.");
+    Console::info("  --track NAME        Show only tracks whose title, artist, or filename");
+    Console::info("                      fuzzy-matches NAME (typo-tolerant, case-insensitive).");
+    Console::info("                      Shows every match, including ones with no cues yet --");
+    Console::info("                      unlike the default report, which only samples tracks");
+    Console::info("                      that already have cues.");
+    Console::info("  --needs-cues [N]    List cue-less tracks worth setting cues on, most");
+    Console::info("                      \"worth it\" first: highest rekordbox play count, or");
+    Console::info("                      most recently played on Engine (Engine has no play");
+    Console::info("                      count, only a last-played timestamp). Defaults to the");
+    Console::info("                      top " + std::to_string(DefaultNeedsCuesLimit) +
+                   "; pass N to change that, or 0 for no limit.");
     Console::info("  --verbose           Print extra detail (resolved paths, per-item");
     Console::info("                      diagnostics). Default output is already");
     Console::info("                      informational, not silent -- this adds more on top.");
     Console::info("  --help, -h          Show this help and exit.");
     Console::info("");
     Console::heading("Auto-detection");
-    Console::info("  Run \"djconvert scan\" with no --rekordbox/--engine PATH to auto-detect an");
-    Console::info("  inserted USB stick. A single stick often carries both a \"PIONEER\" folder");
-    Console::info("  and an \"Engine Library\" folder side by side -- if so, both are scanned");
-    Console::info("  and reported. If more than one candidate stick is mounted, djconvert warns");
-    Console::info("  and lists them instead of guessing which one you meant; re-run naming the");
-    Console::info("  stick's path explicitly with --rekordbox/--engine.");
+    Console::info("  Run \"djconvert scan\" with no --rekordbox/--engine PATH to auto-detect");
+    Console::info("  inserted USB stick(s). A single stick often carries both a \"PIONEER\" folder");
+    Console::info("  and an \"Engine Library\" folder side by side -- if so, both are scanned and");
+    Console::info("  reported. Scanning is read-only, so if more than one stick is mounted, ALL of");
+    Console::info("  them get scanned (each report labeled with the stick it came from); pass");
+    Console::info("  --rekordbox/--engine with a PATH to scan just one specific stick instead.");
+    Console::info("  \"djconvert backups\", which can delete old backups, is stricter: it always");
+    Console::info("  requires a single unambiguous stick and will ask you to specify one.");
     Console::info("");
     Console::heading("Duplicate-track cue consolidation");
     Console::info("  A stick can hold the same track more than once (re-imports, duplicate");
@@ -112,6 +137,9 @@ void printUsage()
     Console::info("  is ever deleted automatically; run \"djconvert backups --clean\" yourself to");
     Console::info("  prune old ones once they've accumulated (default: keep the " +
                    std::to_string(DefaultKeepBackups) + " most recent).");
+    Console::info("  Every write is also appended to a plain-text log at");
+    Console::info("  \"<stick root>/.djconvert.log\" (what was copied, to/from which track id,");
+    Console::info("  and which backup covers it) -- kept forever, since it's just text.");
     Console::info("");
     Console::heading("Examples");
     Console::info("  djconvert scan                              # auto-detect an inserted stick");
@@ -121,9 +149,54 @@ void printUsage()
     Console::info("  djconvert scan --engine --auto              # also auto-fix unambiguous duplicates");
     Console::info("  djconvert backups                           # list backups on an inserted stick");
     Console::info("  djconvert backups --clean --keep 3          # keep only the 3 most recent");
+    Console::info("  djconvert scan --engine --track concorde    # look up a track by (fuzzy) name");
+    Console::info("  djconvert scan --rekordbox --needs-cues 10  # top 10 most-played tracks with no cues");
 }
 
-void printReport(const std::string &heading, const std::vector<Track> &tracks)
+// Which tracks printReport shows detail for, beyond the always-printed
+// summary counts. With neither set, it falls back to the original
+// behavior: up to 5 tracks that have cues, as a representative sample.
+struct ReportOptions
+{
+    std::optional<std::string> trackFilter;  // fuzzy match against title/artist/filename
+    bool needsCues = false;
+    size_t needsCuesLimit = 20;
+};
+
+constexpr double MinFuzzyMatchScore = 0.4;
+
+std::string formatTimestamp(std::chrono::system_clock::time_point tp)
+{
+    return std::format("{:%Y-%m-%d}", std::chrono::floor<std::chrono::seconds>(tp));
+}
+
+void printTrackDetail(const Track &track)
+{
+    Console::info("");
+    Console::info(Console::colorize(track.title, Color::Bold) + " (" + track.artist + ") [" +
+                   std::to_string(static_cast<int>(track.durationSeconds)) + "s]");
+    Console::verbose("  id=" + track.sourceId + " file=" + track.filename);
+    if (track.playCount) {
+        Console::info("  plays: " + std::to_string(*track.playCount));
+    }
+    if (track.lastPlayedAt) {
+        Console::info("  last played: " + formatTimestamp(*track.lastPlayedAt));
+    }
+
+    if (track.cues.empty()) {
+        Console::info(Console::colorize("  no cues yet", Color::Gray));
+        return;
+    }
+    for (const auto &cue : track.cues) {
+        bool isHot = cue.kind == djconvert::domain::CuePoint::Kind::Hot;
+        std::string line = std::string("  ") + (isHot ? "hot" : "mem") + " " + std::to_string(cue.hotCueNumber) +
+                            " @ " + std::to_string(static_cast<long>(cue.positionMs)) + "ms";
+        Console::info(Console::colorize(line, isHot ? Color::Cyan : Color::Gray) + " " + cue.color +
+                       (cue.comment.empty() ? "" : (" \"" + cue.comment + "\"")));
+    }
+}
+
+void printReport(const std::string &heading, const std::vector<Track> &tracks, const ReportOptions &options)
 {
     int tracksWithCues = 0;
     int totalCues = 0;
@@ -140,23 +213,55 @@ void printReport(const std::string &heading, const std::vector<Track> &tracks)
     Console::info("  tracks with cues: " + std::to_string(tracksWithCues));
     Console::info("  total cues:       " + std::to_string(totalCues));
 
-    int shown = 0;
-    for (const auto &track : tracks) {
-        if (track.cues.empty() || shown >= 5) {
-            continue;
+    if (!options.trackFilter && !options.needsCues) {
+        int shown = 0;
+        for (const auto &track : tracks) {
+            if (track.cues.empty() || shown >= 5) {
+                continue;
+            }
+            shown++;
+            printTrackDetail(track);
         }
-        shown++;
+        return;
+    }
+
+    std::vector<Track> candidates = tracks;
+
+    if (options.trackFilter) {
+        struct ScoredTrack
+        {
+            Track track;
+            double score;
+        };
+        std::vector<ScoredTrack> scored;
+        for (const auto &track : candidates) {
+            double score = std::max({FuzzyMatcher::score(*options.trackFilter, track.title),
+                                      FuzzyMatcher::score(*options.trackFilter, track.artist),
+                                      FuzzyMatcher::score(*options.trackFilter, track.filename)});
+            if (score >= MinFuzzyMatchScore) {
+                scored.push_back({track, score});
+            }
+        }
+        std::sort(scored.begin(), scored.end(), [](const auto &a, const auto &b) { return a.score > b.score; });
+        candidates.clear();
+        for (auto &s : scored) {
+            candidates.push_back(std::move(s.track));
+        }
+    }
+
+    if (options.needsCues) {
+        candidates = TrackPrioritizer::tracksNeedingCues(candidates, options.needsCuesLimit);
+    }
+
+    if (candidates.empty()) {
         Console::info("");
-        Console::info(Console::colorize(track.title, Color::Bold) + " (" + track.artist + ") [" +
-                       std::to_string(static_cast<int>(track.durationSeconds)) + "s]");
-        Console::verbose("  id=" + track.sourceId + " file=" + track.filename);
-        for (const auto &cue : track.cues) {
-            bool isHot = cue.kind == djconvert::domain::CuePoint::Kind::Hot;
-            std::string line = std::string("  ") + (isHot ? "hot" : "mem") + " " + std::to_string(cue.hotCueNumber) +
-                                " @ " + std::to_string(static_cast<long>(cue.positionMs)) + "ms";
-            Console::info(Console::colorize(line, isHot ? Color::Cyan : Color::Gray) + " " + cue.color +
-                           (cue.comment.empty() ? "" : (" \"" + cue.comment + "\"")));
-        }
+        Console::info(options.trackFilter ? "no tracks matching \"" + *options.trackFilter + "\""
+                                           : "no tracks need cues");
+        return;
+    }
+
+    for (const auto &track : candidates) {
+        printTrackDetail(track);
     }
 }
 
@@ -171,11 +276,12 @@ std::vector<Track> scanPath(std::unique_ptr<LibraryReader> reader)
 
 // Last step of a scan: find duplicate tracks and, where an unambiguous
 // consolidation is possible and a CueWriter exists for this format, offer
-// to apply it (backing up first). writer/backupStore may be null when the
-// format has no write path yet (rekordbox) -- such duplicates are still
-// detected and reported, just never modified.
+// to apply it (backing up first). writer/backupStore/log may be null when
+// the format has no write path yet (rekordbox) -- such duplicates are
+// still detected and reported, just never modified.
 void handleDuplicates(const std::string &formatName, const std::vector<Track> &tracks, CueWriter *writer,
-                       BackupStore *backupStore, const std::vector<std::string> &filesToBackUp, bool autoMode)
+                       BackupStore *backupStore, OperationLog *log, const std::vector<std::string> &filesToBackUp,
+                       bool autoMode)
 {
     auto plans = ConsolidateDuplicateCues().execute(tracks);
     if (plans.empty()) {
@@ -184,6 +290,9 @@ void handleDuplicates(const std::string &formatName, const std::vector<Track> &t
 
     bool printedHeading = false;
     bool backedUp = false;
+    size_t groupsConsolidated = 0;
+    size_t totalCuesCopied = 0;
+    size_t targetsWritten = 0;
     auto ensureHeading = [&]() {
         if (!printedHeading) {
             Console::info("");
@@ -227,13 +336,33 @@ void handleDuplicates(const std::string &formatName, const std::vector<Track> &t
         if (!backedUp && backupStore) {
             auto record = backupStore->backup(filesToBackUp, "duplicate-cue-consolidation");
             Console::info("  backed up to " + record.path);
+            if (log) {
+                log->record(formatName + ": backed up before duplicate-cue consolidation -> " + record.path);
+            }
             backedUp = true;
         }
 
         for (const auto &target : plan.targets) {
             writer->writeHotCues(target.sourceId, plan.source->cues);
-            Console::info("  copied onto id=" + target.sourceId);
+            Console::info("  copied " + std::to_string(plan.source->cues.size()) + " cue(s) from \"" +
+                           plan.source->filename + "\" (id=" + plan.source->sourceId + ") to id=" + target.sourceId);
+            if (log) {
+                log->record(formatName + ": copied " + std::to_string(plan.source->cues.size()) +
+                             " cue(s) from track id=" + plan.source->sourceId + " (\"" + plan.source->title +
+                             "\") to track id=" + target.sourceId);
+            }
+            totalCuesCopied += plan.source->cues.size();
+            targetsWritten++;
         }
+        groupsConsolidated++;
+    }
+
+    if (groupsConsolidated > 0) {
+        Console::info("");
+        Console::heading(formatName + ": summary");
+        Console::info("  consolidated " + std::to_string(groupsConsolidated) + " duplicate track(s): copied " +
+                       std::to_string(totalCuesCopied) + " cue(s) total onto " + std::to_string(targetsWritten) +
+                       " track(s)");
     }
 }
 
@@ -280,10 +409,13 @@ struct ResolvedLibraryPaths
     bool ok = true;
 };
 
-// Shared by "scan" and "backups": resolves which format(s) to act on and
-// their paths, auto-detecting a USB stick where a PATH wasn't given.
-// wantRekordbox/wantEngine are updated in place when neither was requested
-// (a bare invocation infers both from whatever the detected stick carries).
+// Used by "backups": resolves which format(s) to act on and their paths,
+// auto-detecting a USB stick where a PATH wasn't given. Requires a single
+// unambiguous stick, since pruning targets one specific backup directory --
+// unlike "scan" (see resolveScanTargets below), which happily scans every
+// detected stick since reading is never destructive. wantRekordbox/
+// wantEngine are updated in place when neither was requested (a bare
+// invocation infers both from whatever the detected stick carries).
 ResolvedLibraryPaths resolveLibraryPaths(bool &wantRekordbox, bool &wantEngine,
                                           const std::optional<std::string> &rekordboxPathArg,
                                           const std::optional<std::string> &enginePathArg)
@@ -325,6 +457,78 @@ ResolvedLibraryPaths resolveLibraryPaths(bool &wantRekordbox, bool &wantEngine,
         result.enginePath = resolvePath(enginePathArg, detected, "engine", &DetectedStick::enginePath);
         result.ok = result.ok && result.enginePath.has_value();
     }
+    return result;
+}
+
+// One thing to scan: a path plus a human label for its report heading
+// (the stick's label when auto-detected, or the path itself when given
+// explicitly -- only shown when there's more than one target, to avoid
+// cluttering the common single-target case).
+struct ScanTarget
+{
+    std::string label;
+    std::string path;
+};
+
+struct ResolvedScanTargets
+{
+    std::vector<ScanTarget> rekordboxTargets;
+    std::vector<ScanTarget> engineTargets;
+};
+
+// Used by "scan": resolves every target to scan for each requested format.
+// Unlike resolveLibraryPaths (used by "backups"), multiple detected sticks
+// are never an error here -- scanning is read-only, so there's no harm in
+// just scanning all of them. An explicit PATH for a format always means
+// exactly one target for that format, no detection needed.
+ResolvedScanTargets resolveScanTargets(bool wantRekordbox, bool wantEngine,
+                                        const std::optional<std::string> &rekordboxPathArg,
+                                        const std::optional<std::string> &enginePathArg, bool &ok)
+{
+    ResolvedScanTargets result;
+    ok = true;
+    bool bareInvocation = !wantRekordbox && !wantEngine;
+
+    std::vector<DetectedStick> detected;
+    if ((!rekordboxPathArg && (bareInvocation || wantRekordbox)) ||
+        (!enginePathArg && (bareInvocation || wantEngine))) {
+        djconvert::infrastructure::media::LinuxRemovableMediaLocator locator;
+        detected = locator.detect();
+    }
+
+    if (rekordboxPathArg) {
+        result.rekordboxTargets.push_back({*rekordboxPathArg, *rekordboxPathArg});
+    } else if (bareInvocation || wantRekordbox) {
+        for (const auto &stick : detected) {
+            if (stick.rekordboxPath) {
+                result.rekordboxTargets.push_back({stick.label, *stick.rekordboxPath});
+            }
+        }
+        if (wantRekordbox && result.rekordboxTargets.empty()) {
+            Console::error("no rekordbox USB stick found. Mount one, or pass a path explicitly.");
+            ok = false;
+        }
+    }
+
+    if (enginePathArg) {
+        result.engineTargets.push_back({*enginePathArg, *enginePathArg});
+    } else if (bareInvocation || wantEngine) {
+        for (const auto &stick : detected) {
+            if (stick.enginePath) {
+                result.engineTargets.push_back({stick.label, *stick.enginePath});
+            }
+        }
+        if (wantEngine && result.engineTargets.empty()) {
+            Console::error("no engine USB stick found. Mount one, or pass a path explicitly.");
+            ok = false;
+        }
+    }
+
+    if (bareInvocation && result.rekordboxTargets.empty() && result.engineTargets.empty()) {
+        Console::error("no rekordbox or Engine USB stick found. Mount one, or pass a path explicitly.");
+        ok = false;
+    }
+
     return result;
 }
 
@@ -397,9 +601,12 @@ int main(int argc, char **argv)
     bool clean = false;
     bool wantRekordbox = false;
     bool wantEngine = false;
+    bool needsCues = false;
     size_t keepCount = DefaultKeepBackups;
+    size_t needsCuesLimit = DefaultNeedsCuesLimit;
     std::optional<std::string> rekordboxPath;
     std::optional<std::string> enginePath;
+    std::optional<std::string> trackFilter;
     std::vector<std::string> commands;
 
     auto looksLikeFlag = [](const std::string &s) { return s.size() >= 2 && s[0] == '-' && s[1] == '-'; };
@@ -420,6 +627,22 @@ int main(int argc, char **argv)
                 return 1;
             }
             keepCount = std::stoul(args[++i]);
+        } else if (arg == "--track") {
+            if (i + 1 >= args.size()) {
+                Console::error("--track requires a name to search for");
+                return 1;
+            }
+            trackFilter = args[++i];
+        } else if (arg == "--needs-cues") {
+            needsCues = true;
+            if (i + 1 < args.size() && !looksLikeFlag(args[i + 1])) {
+                try {
+                    needsCuesLimit = std::stoul(args[i + 1]);
+                    ++i;
+                } catch (const std::exception &) {
+                    // Not a number -- leave it for the next flag/command to consume.
+                }
+            }
         } else if (arg == "--rekordbox") {
             wantRekordbox = true;
             if (i + 1 < args.size() && !looksLikeFlag(args[i + 1])) {
@@ -455,30 +678,38 @@ int main(int argc, char **argv)
         return runBackupsCommand(wantRekordbox, wantEngine, rekordboxPath, enginePath, clean, keepCount);
     }
 
-    // commands[0] == "scan". Paths that failed to resolve are simply absent
-    // from `resolved` below (with the reason already printed) -- whatever
-    // did resolve still gets scanned, matching this command's normal
-    // "keep going, report the exit code" behavior.
-    auto resolved = resolveLibraryPaths(wantRekordbox, wantEngine, rekordboxPath, enginePath);
-    bool ok = resolved.ok;
+    // commands[0] == "scan". Every detected stick carrying a requested
+    // format gets scanned -- reading is never destructive, so unlike
+    // "backups" there's no reason to force picking just one when several
+    // sticks are plugged in.
+    bool ok = true;
+    auto scanTargets = resolveScanTargets(wantRekordbox, wantEngine, rekordboxPath, enginePath, ok);
+    ReportOptions reportOptions{.trackFilter = trackFilter, .needsCues = needsCues, .needsCuesLimit = needsCuesLimit};
     try {
-        if (resolved.rekordboxPath) {
-            auto tracks = scanPath(std::make_unique<djconvert::infrastructure::rekordbox::KaitaiRekordboxReader>(
-                *resolved.rekordboxPath));
-            printReport("rekordbox", tracks);
-            // No CueWriter for rekordbox yet -- duplicates are detected and reported, never applied.
-            handleDuplicates("rekordbox", tracks, nullptr, nullptr, {}, autoMode);
-        }
-        if (resolved.enginePath) {
+        bool multipleRekordbox = scanTargets.rekordboxTargets.size() > 1;
+        for (const auto &target : scanTargets.rekordboxTargets) {
+            std::string heading = multipleRekordbox ? "rekordbox (" + target.label + ")" : "rekordbox";
             auto tracks = scanPath(
-                std::make_unique<djconvert::infrastructure::engine::LibdjinteropEngineReader>(*resolved.enginePath));
-            printReport("engine", tracks);
+                std::make_unique<djconvert::infrastructure::rekordbox::KaitaiRekordboxReader>(target.path));
+            printReport(heading, tracks, reportOptions);
+            // No CueWriter for rekordbox yet -- duplicates are detected and reported, never applied.
+            handleDuplicates(heading, tracks, nullptr, nullptr, nullptr, {}, autoMode);
+        }
 
-            djconvert::infrastructure::engine::LibdjinteropEngineCueWriter writer(*resolved.enginePath);
-            djconvert::infrastructure::backup::FilesystemBackupStore backupStore(backupDirFor(resolved));
-            std::vector<std::string> filesToBackUp = {
-                (fs::path(*resolved.enginePath) / "Database2" / "m.db").string()};
-            handleDuplicates("engine", tracks, &writer, &backupStore, filesToBackUp, autoMode);
+        bool multipleEngine = scanTargets.engineTargets.size() > 1;
+        for (const auto &target : scanTargets.engineTargets) {
+            std::string heading = multipleEngine ? "engine (" + target.label + ")" : "engine";
+            auto tracks =
+                scanPath(std::make_unique<djconvert::infrastructure::engine::LibdjinteropEngineReader>(target.path));
+            printReport(heading, tracks, reportOptions);
+
+            djconvert::infrastructure::engine::LibdjinteropEngineCueWriter writer(target.path);
+            fs::path stickRoot = fs::path(target.path).parent_path();
+            djconvert::infrastructure::backup::FilesystemBackupStore backupStore(
+                (stickRoot / ".djconvert-backups").string());
+            djconvert::infrastructure::logging::FileOperationLog log((stickRoot / ".djconvert.log").string());
+            std::vector<std::string> filesToBackUp = {(fs::path(target.path) / "Database2" / "m.db").string()};
+            handleDuplicates(heading, tracks, &writer, &backupStore, &log, filesToBackUp, autoMode);
         }
     } catch (const std::exception &e) {
         Console::error(e.what());

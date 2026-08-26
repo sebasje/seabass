@@ -13,3 +13,4 @@
 # .djconvert-backups/ next to whatever it just backed up) -- local-only,
 # never meant to be committed, including under test fixtures.
 .djconvert-backups/
+.djconvert.log
