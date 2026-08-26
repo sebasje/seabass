@@ -30,8 +30,11 @@ struct Track
     std::string title;
     std::string artist;
     std::string filename;
-    std::string filePath;  // best-effort resolved absolute path to the audio file on disk, empty if unresolved
+    std::string filePath;     // best-effort resolved absolute path to the audio file on disk, empty if unresolved
+    std::string artworkPath;  // best-effort resolved path to a cover art image file, empty if unavailable
     double durationSeconds = 0.0;
+    double bpm = 0.0;
+    std::string key;  // human-readable, e.g. "Fm" or "F#m" -- empty if unknown
     std::vector<CuePoint> cues;
 
     // Full paths (e.g. "Techno/Peak Time") of every playlist this track

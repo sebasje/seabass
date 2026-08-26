@@ -20,6 +20,7 @@ class PlaybackController : public QObject
     Q_PROPERTY(bool hasTrack READ hasTrack NOTIFY trackChanged)
     Q_PROPERTY(QString title READ title NOTIFY trackChanged)
     Q_PROPERTY(QString artist READ artist NOTIFY trackChanged)
+    Q_PROPERTY(QString artworkPath READ artworkPath NOTIFY trackChanged)
     Q_PROPERTY(QVariantList waveform READ waveform NOTIFY trackChanged)
     Q_PROPERTY(qint64 duration READ duration NOTIFY durationChanged)
     Q_PROPERTY(qint64 position READ position NOTIFY positionChanged)
@@ -32,6 +33,7 @@ public:
     bool hasTrack() const { return m_hasTrack; }
     QString title() const { return m_title; }
     QString artist() const { return m_artist; }
+    QString artworkPath() const { return m_artworkPath; }
     QVariantList waveform() const { return m_waveform; }
     qint64 duration() const { return m_player.duration(); }
     qint64 position() const { return m_player.position(); }
@@ -42,7 +44,8 @@ public:
     // DetectedStick.rekordboxPath / .enginePath; sourceId/filePath/title/
     // artist come straight from the track row being played.
     Q_INVOKABLE void load(const QString &format, const QString &libraryPath, const QString &sourceId,
-                           const QString &filePath, const QString &title, const QString &artist);
+                           const QString &filePath, const QString &title, const QString &artist,
+                           const QString &artworkPath);
     Q_INVOKABLE void togglePlay();
     Q_INVOKABLE void seek(qint64 positionMs);
     Q_INVOKABLE void stop();
@@ -62,6 +65,7 @@ private:
     bool m_hasTrack = false;
     QString m_title;
     QString m_artist;
+    QString m_artworkPath;
     QVariantList m_waveform;
     QString m_errorMessage;
 };

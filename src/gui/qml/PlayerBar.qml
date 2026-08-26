@@ -22,6 +22,14 @@ Frame {
             onClicked: root.controller.togglePlay()
         }
 
+        Image {
+            Layout.preferredWidth: 64
+            Layout.preferredHeight: 64
+            fillMode: Image.PreserveAspectFit
+            visible: root.controller.artworkPath.length > 0
+            source: root.controller.artworkPath.length > 0 ? "file://" + root.controller.artworkPath : ""
+        }
+
         ColumnLayout {
             Layout.fillWidth: true
             spacing: 2

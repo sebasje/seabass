@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
 #include <unordered_map>
 
@@ -98,6 +99,16 @@ std::vector<domain::Track> LibdjinteropEngineReader::readAll()
         track.filePath = safeGet<std::string>(*m_progress, id, "relative_path", [&] {
             auto resolved = std::filesystem::path(m_engineLibraryPath) / tr.relative_path();
             return resolved.lexically_normal().string();
+        });
+        track.bpm = safeGet<double>(*m_progress, id, "bpm", [&] { return tr.bpm().value_or(0.0); });
+        track.key = safeGet<std::string>(*m_progress, id, "key", [&] {
+            auto k = tr.key();
+            if (!k) {
+                return std::string();
+            }
+            std::ostringstream oss;
+            oss << *k;
+            return oss.str();
         });
         track.durationSeconds = safeGet<double>(*m_progress, id, "duration", [&] {
             auto duration = tr.duration();

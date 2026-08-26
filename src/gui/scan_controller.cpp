@@ -1,5 +1,8 @@
 #include "scan_controller.hpp"
 
+#include <algorithm>
+#include <set>
+
 #include "application/use_cases/scan_library.hpp"
 #include "infrastructure/engine/libdjinterop_engine_reader.hpp"
 #include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
@@ -38,6 +41,12 @@ QVariant TrackListModel::data(const QModelIndex &index, int role) const
         return track.playCount ? *track.playCount : -1;
     case FilePathRole:
         return QString::fromStdString(track.filePath);
+    case ArtworkPathRole:
+        return QString::fromStdString(track.artworkPath);
+    case BpmRole:
+        return track.bpm;
+    case KeyRole:
+        return QString::fromStdString(track.key);
     default:
         return {};
     }
@@ -53,6 +62,9 @@ QHash<int, QByteArray> TrackListModel::roleNames() const
         {CueCountRole, "cueCount"},
         {PlayCountRole, "playCount"},
         {FilePathRole, "filePath"},
+        {ArtworkPathRole, "artworkPath"},
+        {BpmRole, "bpm"},
+        {KeyRole, "key"},
     };
 }
 
@@ -81,12 +93,42 @@ void ScanController::scan(const QString &format, const QString &path)
             application::ScanLibrary useCase(reader);
             tracks = useCase.execute();
         }
+        std::set<std::string> uniquePlaylistNames;
+        for (const auto &track : tracks) {
+            for (const auto &playlist : track.playlists) {
+                uniquePlaylistNames.insert(playlist);
+            }
+        }
+        m_playlistNames.clear();
+        for (const auto &name : uniquePlaylistNames) {
+            m_playlistNames << QString::fromStdString(name);
+        }
+        emit playlistNamesChanged();
+
+        m_allTracks = tracks;
         m_model.setTracks(std::move(tracks));
     } catch (const std::exception &e) {
         setErrorMessage(QString::fromStdString(e.what()));
     }
 
     setBusy(false);
+}
+
+void ScanController::filterByPlaylist(const QString &playlistName)
+{
+    if (playlistName.isEmpty()) {
+        m_model.setTracks(m_allTracks);
+        return;
+    }
+
+    std::string target = playlistName.toStdString();
+    std::vector<domain::Track> filtered;
+    for (const auto &track : m_allTracks) {
+        if (std::find(track.playlists.begin(), track.playlists.end(), target) != track.playlists.end()) {
+            filtered.push_back(track);
+        }
+    }
+    m_model.setTracks(std::move(filtered));
 }
 
 void ScanController::setBusy(bool busy)
