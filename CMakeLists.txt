@@ -32,9 +32,10 @@ target_include_directories(rekordbox_format PUBLIC
 )
 target_link_libraries(rekordbox_format PUBLIC kaitai_cpp_stl_runtime)
 
-# --- djconvert itself, layered: domain -> application -> infrastructure -> cli ---
+# --- djconvert_core: domain -> application -> infrastructure, shared by ---
+# --- both the CLI (src/cli/) and the Qt GUI (src/gui/) composition roots ---
 
-add_executable(djconvert
+add_library(djconvert_core STATIC
     src/domain/duplicate_cue_consolidation.cpp
     src/domain/fuzzy_matcher.cpp
     src/domain/sync_planning.cpp
@@ -49,14 +50,40 @@ add_executable(djconvert
     src/infrastructure/engine/libdjinterop_engine_reader.cpp
     src/infrastructure/engine/libdjinterop_engine_cue_writer.cpp
     src/infrastructure/media/linux_removable_media_locator.cpp
+    src/infrastructure/media/linux_udev_media_monitor.cpp
+    src/infrastructure/media/udisksctl_media_mounter.cpp
     src/infrastructure/backup/filesystem_backup_store.cpp
     src/infrastructure/logging/file_operation_log.cpp
+)
+target_include_directories(djconvert_core PUBLIC src)
+target_link_libraries(djconvert_core PUBLIC rekordbox_format DjInterop udev)
+
+# --- djconvert: the terminal composition root ---
+
+add_executable(djconvert
     src/cli/console.cpp
     src/cli/terminal_progress_reporter.cpp
     src/cli/main.cpp
 )
 target_include_directories(djconvert PRIVATE src)
-target_link_libraries(djconvert PRIVATE rekordbox_format DjInterop)
+target_link_libraries(djconvert PRIVATE djconvert_core)
+
+# --- djconvert-gui: the Qt Quick composition root (opt-in: only built ---
+# --- when Qt6 is available, so machines without Qt still get the CLI) ---
+
+find_package(Qt6 QUIET COMPONENTS Core Gui Qml Quick QuickControls2 QuickLayouts)
+if(Qt6_FOUND)
+    qt_standard_project_setup(REQUIRES 6.5)
+    # BUILD_SHARED_LIBS was forced OFF above for our own vendored static
+    # libs; shadow it back to ON (non-cache, scoped to this subdirectory)
+    # so Qt's QML tooling doesn't assume a static Qt build and go looking
+    # for static QML plugin targets that don't exist in this (dynamic)
+    # system Qt install.
+    set(BUILD_SHARED_LIBS ON)
+    add_subdirectory(src/gui)
+else()
+    message(STATUS "Qt6 not found -- skipping djconvert-gui (CLI and tests still build)")
+endif()
 
 # --- domain-layer unit tests (no infrastructure deps, no fixtures needed) ---
 

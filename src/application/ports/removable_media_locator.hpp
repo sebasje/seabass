@@ -7,12 +7,15 @@
 namespace djconvert::application
 {
 
-// A mounted removable drive that looks like a rekordbox and/or Engine USB
-// stick (a single stick commonly carries both side by side).
+// A removable USB drive, mounted or not. Sticks that look like a rekordbox
+// and/or Engine export (a single stick commonly carries both side by side)
+// have rekordboxPath/enginePath set; that's only possible once mounted.
 struct DetectedStick
 {
-    std::string mountPoint;
+    std::string devicePath;  // e.g. "/dev/sdb1"
+    std::string mountPoint;  // empty if not currently mounted
     std::string label;
+    bool mounted = false;
     std::optional<std::string> rekordboxPath;  // the "PIONEER" folder, if export.pdb was found under it
     std::optional<std::string> enginePath;     // the "Engine Library" folder, if Database2/m.db was found under it
 };
