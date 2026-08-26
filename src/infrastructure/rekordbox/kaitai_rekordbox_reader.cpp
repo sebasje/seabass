@@ -1,6 +1,8 @@
 #include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
 
+#include <algorithm>
 #include <fstream>
+#include <unordered_map>
 
 #include "infrastructure/rekordbox/generated/rekordbox_anlz.h"
 #include "infrastructure/rekordbox/generated/rekordbox_pdb.h"
@@ -69,6 +71,40 @@ std::vector<domain::CuePoint> readCues(const std::string &anlzPath)
     return cues;
 }
 
+struct PlaylistTreeInfo
+{
+    std::string name;
+    uint32_t parentId = 0;
+    bool isFolder = false;
+};
+
+// Builds the full path (e.g. "Techno/Peak Time") for a playlist id by
+// walking parent_id links up to the root. Guards against a malformed/
+// cyclic parent chain rather than looping forever.
+std::string playlistPath(uint32_t id, const std::unordered_map<uint32_t, PlaylistTreeInfo> &tree)
+{
+    std::vector<std::string> parts;
+    uint32_t current = id;
+    for (int guard = 0; current != 0 && guard < 64; ++guard) {
+        auto it = tree.find(current);
+        if (it == tree.end()) {
+            break;
+        }
+        parts.push_back(it->second.name);
+        current = it->second.parentId;
+    }
+    std::reverse(parts.begin(), parts.end());
+
+    std::string path;
+    for (size_t i = 0; i < parts.size(); ++i) {
+        if (i != 0) {
+            path += "/";
+        }
+        path += parts[i];
+    }
+    return path;
+}
+
 }  // namespace
 
 KaitaiRekordboxReader::KaitaiRekordboxReader(std::string pioneerRoot)
@@ -88,6 +124,59 @@ std::vector<domain::Track> KaitaiRekordboxReader::readAll()
 
     kaitai::kstream ks(&ifs);
     Pdb pdb(false, &ks);
+
+    // Playlists: build id -> {name, parent, isFolder} from PLAYLIST_TREE,
+    // then track id -> playlist path(s) from PLAYLIST_ENTRIES. Both tables
+    // are small, so this is done fully upfront rather than per-track.
+    std::unordered_map<uint32_t, PlaylistTreeInfo> playlistTreeById;
+    for (const auto &table : *pdb.tables()) {
+        if (table->type() != Pdb::PAGE_TYPE_PLAYLIST_TREE) {
+            continue;
+        }
+        forEachDataPage(*table, [&](Pdb::page_t *page) {
+            for (const auto &group : *page->row_groups()) {
+                for (const auto &row : *group->rows()) {
+                    if (!row->present()) {
+                        continue;
+                    }
+                    auto *rowPlaylist = dynamic_cast<Pdb::playlist_tree_row_t *>(row->body());
+                    if (!rowPlaylist) {
+                        continue;
+                    }
+                    playlistTreeById[rowPlaylist->id()] = PlaylistTreeInfo{
+                        sqlText(rowPlaylist->name()),
+                        rowPlaylist->parent_id(),
+                        rowPlaylist->raw_is_folder() != 0,
+                    };
+                }
+            }
+        });
+    }
+
+    std::unordered_map<uint32_t, std::vector<std::string>> playlistsByTrackId;
+    for (const auto &table : *pdb.tables()) {
+        if (table->type() != Pdb::PAGE_TYPE_PLAYLIST_ENTRIES) {
+            continue;
+        }
+        forEachDataPage(*table, [&](Pdb::page_t *page) {
+            for (const auto &group : *page->row_groups()) {
+                for (const auto &row : *group->rows()) {
+                    if (!row->present()) {
+                        continue;
+                    }
+                    auto *rowEntry = dynamic_cast<Pdb::playlist_entry_row_t *>(row->body());
+                    if (!rowEntry) {
+                        continue;
+                    }
+                    auto it = playlistTreeById.find(rowEntry->playlist_id());
+                    if (it == playlistTreeById.end() || it->second.isFolder) {
+                        continue;
+                    }
+                    playlistsByTrackId[rowEntry->track_id()].push_back(playlistPath(rowEntry->playlist_id(), playlistTreeById));
+                }
+            }
+        });
+    }
 
     // Pre-pass: count rows across the tracks table's pages (cheap -- just
     // reads page headers, no per-row parsing) so progress can show a real
@@ -125,6 +214,10 @@ std::vector<domain::Track> KaitaiRekordboxReader::readAll()
                     track.filename = sqlText(rowTrack->filename());
                     track.durationSeconds = rowTrack->duration();
                     track.playCount = rowTrack->play_count();
+                    auto playlistsIt = playlistsByTrackId.find(rowTrack->id());
+                    if (playlistsIt != playlistsByTrackId.end()) {
+                        track.playlists = playlistsIt->second;
+                    }
 
                     std::string analyzePath = sqlText(rowTrack->analyze_path());
                     if (!analyzePath.empty()) {

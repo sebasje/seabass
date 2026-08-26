@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <optional>
 #include <stdexcept>
+#include <unordered_map>
 
 #include <djinterop/djinterop.hpp>
 
@@ -41,6 +42,22 @@ T safeGet(application::ProgressReporter &progress, int64_t trackId, const char *
     }
 }
 
+// Recursively walks a playlist tree, recording each track's full playlist
+// path(s) (e.g. "Techno/Peak Time"). Best-effort: any failure here just
+// leaves playlists empty rather than failing the whole scan, since
+// membership is supplementary information, not core track data.
+void collectPlaylistMemberships(const djinterop::playlist &pl, const std::string &pathPrefix,
+                                 std::unordered_map<int64_t, std::vector<std::string>> &membership)
+{
+    std::string path = pathPrefix.empty() ? pl.name() : pathPrefix + "/" + pl.name();
+    for (const auto &tr : pl.tracks()) {
+        membership[tr.id()].push_back(path);
+    }
+    for (const auto &child : pl.children()) {
+        collectPlaylistMemberships(child, path, membership);
+    }
+}
+
 }  // namespace
 
 LibdjinteropEngineReader::LibdjinteropEngineReader(std::string engineLibraryPath)
@@ -56,6 +73,15 @@ std::vector<domain::Track> LibdjinteropEngineReader::readAll()
 
     auto db = djinterop::engine::load_database(m_engineLibraryPath);
     auto allTracks = db.tracks();
+
+    std::unordered_map<int64_t, std::vector<std::string>> playlistsByTrackId;
+    try {
+        for (const auto &root : db.root_playlists()) {
+            collectPlaylistMemberships(root, "", playlistsByTrackId);
+        }
+    } catch (const std::exception &e) {
+        m_progress->warn(std::string("could not read playlists: ") + e.what());
+    }
 
     m_progress->start("Scanning Engine tracks", allTracks.size());
     size_t processed = 0;
@@ -74,6 +100,10 @@ std::vector<domain::Track> LibdjinteropEngineReader::readAll()
         });
         track.lastPlayedAt = safeGet<std::optional<std::chrono::system_clock::time_point>>(
             *m_progress, id, "last_played_at", [&] { return tr.last_played_at(); });
+        auto playlistsIt = playlistsByTrackId.find(id);
+        if (playlistsIt != playlistsByTrackId.end()) {
+            track.playlists = playlistsIt->second;
+        }
 
         auto sampleRate = safeGet<std::optional<double>>(*m_progress, id, "sample_rate",
                                                           [&] { return tr.sample_rate(); });
