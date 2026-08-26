@@ -1,0 +1,15 @@
+/build/
+/build-*/
+*.o
+*.a
+*.so
+*.exe
+
+# Real personal DJ library data used for local testing against actual
+# hardware exports - not for version control (size + personal data).
+/testdata/
+
+# Backups djconvert creates before a mutating write (e.g. under
+# .djconvert-backups/ next to whatever it just backed up) -- local-only,
+# never meant to be committed, including under test fixtures.
+.djconvert-backups/
