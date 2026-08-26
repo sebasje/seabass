@@ -14,10 +14,12 @@
 #include "infrastructure/backup/filesystem_backup_store.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cue_writer.hpp"
 #include "infrastructure/engine/libdjinterop_engine_reader.hpp"
+#include "infrastructure/engine/libdjinterop_waveform_reader.hpp"
 #include "infrastructure/logging/file_operation_log.hpp"
 #include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 #include "infrastructure/rekordbox/rekordbox_cue_writer.hpp"
+#include "infrastructure/rekordbox/rekordbox_waveform_reader.hpp"
 
 namespace djconvert::gui
 {
@@ -82,6 +84,16 @@ QVariant ConsolidationPlanListModel::data(const QModelIndex &index, int role) co
                 cues << cueMap;
             }
             trackMap["cues"] = cues;
+            trackMap["durationMs"] = t.durationSeconds * 1000.0;
+
+            QVariantList waveform;
+            auto waveformIt = m_waveformsBySourceId.find(t.sourceId);
+            if (waveformIt != m_waveformsBySourceId.end()) {
+                for (double v : waveformIt->second) {
+                    waveform << v;
+                }
+            }
+            trackMap["waveform"] = waveform;
 
             result << trackMap;
         }
@@ -103,10 +115,12 @@ QHash<int, QByteArray> ConsolidationPlanListModel::roleNames() const
     };
 }
 
-void ConsolidationPlanListModel::setPlans(std::vector<domain::ConsolidationPlan> plans)
+void ConsolidationPlanListModel::setPlans(std::vector<domain::ConsolidationPlan> plans,
+                                           std::unordered_map<std::string, std::vector<double>> waveformsBySourceId)
 {
     beginResetModel();
     m_plans = std::move(plans);
+    m_waveformsBySourceId = std::move(waveformsBySourceId);
     endResetModel();
 }
 
@@ -209,7 +223,26 @@ void DuplicatesController::rescan()
                 actionable.push_back(std::move(plan));
             }
         }
-        m_model.setPlans(std::move(actionable));
+
+        // Waveforms need their own file I/O per track, so only decode them
+        // for tracks actually being displayed here, not the whole library.
+        std::unordered_map<std::string, std::vector<double>> waveformsBySourceId;
+        for (const auto &plan : actionable) {
+            for (const auto &track : plan.group.tracks) {
+                if (waveformsBySourceId.contains(track.sourceId)) {
+                    continue;
+                }
+                std::vector<double> waveform;
+                if (m_format == "rekordbox") {
+                    waveform = infrastructure::rekordbox::readWaveformPreview(m_path.toStdString(), track.sourceId);
+                } else {
+                    waveform = infrastructure::engine::readWaveformPreview(m_path.toStdString(), track.sourceId);
+                }
+                waveformsBySourceId[track.sourceId] = std::move(waveform);
+            }
+        }
+
+        m_model.setPlans(std::move(actionable), std::move(waveformsBySourceId));
     } catch (const std::exception &e) {
         setErrorMessage(QString::fromStdString(e.what()));
     }
