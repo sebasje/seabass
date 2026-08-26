@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <optional>
 
 #include <djinterop/djinterop.hpp>
 
@@ -17,18 +18,21 @@ constexpr size_t TargetPoints = 400;
 
 std::vector<double> readWaveformPreview(const std::string &engineLibraryPath, const std::string &trackSourceId)
 {
-    if (!djinterop::engine::database_exists(engineLibraryPath)) {
-        return {};
-    }
-
-    auto db = djinterop::engine::load_database(engineLibraryPath);
-    auto track = db.track_by_id(std::stoll(trackSourceId));
-    if (!track) {
-        return {};
-    }
-
+    // Best-effort per the header contract -- load_database()/track_by_id()
+    // can throw (e.g. the stick was unmounted right as playback was
+    // requested), which callers -- notably PlaybackController::load(),
+    // invoked directly from every Play click -- don't guard against.
+    std::optional<djinterop::track> track;
     std::vector<djinterop::waveform_entry> entries;
     try {
+        if (!djinterop::engine::database_exists(engineLibraryPath)) {
+            return {};
+        }
+        auto db = djinterop::engine::load_database(engineLibraryPath);
+        track = db.track_by_id(std::stoll(trackSourceId));
+        if (!track) {
+            return {};
+        }
         entries = track->waveform();
     } catch (const std::exception &) {
         return {};
