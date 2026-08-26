@@ -2,6 +2,8 @@
 
 #include <cmath>
 #include <map>
+#include <numeric>
+#include <optional>
 
 #include "domain/track_matching.hpp"
 
@@ -13,39 +15,90 @@ namespace
 
 constexpr double DurationToleranceSeconds = 2.0;
 
+// Tracks under different filenames are still the same song if title+artist
+// match exactly (e.g. re-imported into rekordbox under a different naming
+// scheme) -- empty title/artist is too weak a signal to match on, so those
+// are skipped rather than treated as one giant group.
+std::optional<std::string> titleArtistKey(const Track &track)
+{
+    if (track.title.empty() || track.artist.empty()) {
+        return std::nullopt;
+    }
+    return normalizeFilename(track.title + "|" + track.artist);
+}
+
+size_t findRoot(std::vector<size_t> &parent, size_t x)
+{
+    while (parent[x] != x) {
+        parent[x] = parent[parent[x]];
+        x = parent[x];
+    }
+    return x;
+}
+
+void unite(std::vector<size_t> &parent, size_t a, size_t b)
+{
+    parent[findRoot(parent, a)] = findRoot(parent, b);
+}
+
 }  // namespace
 
 std::vector<DuplicateGroup> DuplicateTrackFinder::find(const std::vector<Track> &tracks)
 {
-    std::map<std::string, std::vector<Track>> byFilename;
-    for (const auto &track : tracks) {
-        byFilename[normalizeFilename(track.filename)].push_back(track);
+    // Two tracks are candidates if they share a filename OR share a
+    // title+artist -- union-find merges both criteria transitively into
+    // one candidate set per underlying song.
+    std::vector<size_t> parent(tracks.size());
+    std::iota(parent.begin(), parent.end(), size_t{0});
+
+    std::map<std::string, std::vector<size_t>> byFilename;
+    std::map<std::string, std::vector<size_t>> byTitleArtist;
+    for (size_t i = 0; i < tracks.size(); ++i) {
+        byFilename[normalizeFilename(tracks[i].filename)].push_back(i);
+        if (auto key = titleArtistKey(tracks[i])) {
+            byTitleArtist[*key].push_back(i);
+        }
+    }
+    for (const auto &[key, indices] : byFilename) {
+        for (size_t k = 1; k < indices.size(); ++k) {
+            unite(parent, indices[0], indices[k]);
+        }
+    }
+    for (const auto &[key, indices] : byTitleArtist) {
+        for (size_t k = 1; k < indices.size(); ++k) {
+            unite(parent, indices[0], indices[k]);
+        }
+    }
+
+    std::map<size_t, std::vector<size_t>> byRoot;
+    for (size_t i = 0; i < tracks.size(); ++i) {
+        byRoot[findRoot(parent, i)].push_back(i);
     }
 
     std::vector<DuplicateGroup> groups;
-    for (auto &[filename, candidates] : byFilename) {
-        if (candidates.size() < 2) {
+    for (auto &[root, indices] : byRoot) {
+        if (indices.size() < 2) {
             continue;
         }
 
-        // Within a shared filename, cluster by duration tolerance -- two
-        // unrelated tracks that happen to share a filename (e.g. "01.mp3"
-        // from different releases) shouldn't be treated as duplicates.
-        std::vector<bool> used(candidates.size(), false);
-        for (size_t i = 0; i < candidates.size(); ++i) {
+        // Within a candidate set, cluster by duration tolerance -- two
+        // unrelated tracks that happen to share a filename or title+artist
+        // (e.g. a cover version) shouldn't be treated as duplicates.
+        std::vector<bool> used(indices.size(), false);
+        for (size_t i = 0; i < indices.size(); ++i) {
             if (used[i]) {
                 continue;
             }
             DuplicateGroup group;
-            group.tracks.push_back(candidates[i]);
+            group.tracks.push_back(tracks[indices[i]]);
             used[i] = true;
-            for (size_t j = i + 1; j < candidates.size(); ++j) {
+            for (size_t j = i + 1; j < indices.size(); ++j) {
                 if (used[j]) {
                     continue;
                 }
-                if (std::abs(candidates[i].durationSeconds - candidates[j].durationSeconds) <=
+                if (std::abs(tracks[indices[i]].durationSeconds - tracks[indices[j]].durationSeconds) <=
                     DurationToleranceSeconds) {
-                    group.tracks.push_back(candidates[j]);
+                    group.tracks.push_back(tracks[indices[j]]);
                     used[j] = true;
                 }
             }

@@ -125,6 +125,29 @@ std::vector<domain::Track> KaitaiRekordboxReader::readAll()
     kaitai::kstream ks(&ifs);
     Pdb pdb(false, &ks);
 
+    // Artist names live in their own normalized table; track rows only
+    // carry an artist_id foreign key into it.
+    std::unordered_map<uint32_t, std::string> artistNameById;
+    for (const auto &table : *pdb.tables()) {
+        if (table->type() != Pdb::PAGE_TYPE_ARTISTS) {
+            continue;
+        }
+        forEachDataPage(*table, [&](Pdb::page_t *page) {
+            for (const auto &group : *page->row_groups()) {
+                for (const auto &row : *group->rows()) {
+                    if (!row->present()) {
+                        continue;
+                    }
+                    auto *rowArtist = dynamic_cast<Pdb::artist_row_t *>(row->body());
+                    if (!rowArtist) {
+                        continue;
+                    }
+                    artistNameById[rowArtist->id()] = sqlText(rowArtist->name());
+                }
+            }
+        });
+    }
+
     // Playlists: build id -> {name, parent, isFolder} from PLAYLIST_TREE,
     // then track id -> playlist path(s) from PLAYLIST_ENTRIES. Both tables
     // are small, so this is done fully upfront rather than per-track.
@@ -212,6 +235,10 @@ std::vector<domain::Track> KaitaiRekordboxReader::readAll()
                     track.sourceId = std::to_string(rowTrack->id());
                     track.title = sqlText(rowTrack->title());
                     track.filename = sqlText(rowTrack->filename());
+                    auto artistIt = artistNameById.find(rowTrack->artist_id());
+                    if (artistIt != artistNameById.end()) {
+                        track.artist = artistIt->second;
+                    }
                     track.durationSeconds = rowTrack->duration();
                     track.playCount = rowTrack->play_count();
                     auto playlistsIt = playlistsByTrackId.find(rowTrack->id());
