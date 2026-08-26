@@ -7,10 +7,9 @@
 namespace djconvert::infrastructure::media
 {
 
-// Finds candidate USB sticks by scanning the mount-point directories Linux
-// desktop environments use for removable media (/media/$USER,
-// /run/media/$USER, /media, /mnt), looking for the on-disk signature of
-// either format under each mounted directory.
+// Finds candidate USB sticks via udev: every USB block device (mounted or
+// not) is reported, with the on-disk signature of either format checked
+// for on any that are currently mounted.
 class LinuxRemovableMediaLocator : public application::RemovableMediaLocator
 {
 public:
