@@ -6,6 +6,7 @@ Item {
     id: root
     required property var mediaController
     signal browseRequested(string stickLabel, string format, string path)
+    signal duplicatesRequested(string stickLabel, string format, string path)
 
     ColumnLayout {
         anchors.fill: parent
@@ -118,7 +119,16 @@ Item {
                     }
                     RowLayout {
                         spacing: 8
-                        Button { text: "Find duplicate cue points (coming soon)"; enabled: false }
+                        Button {
+                            text: "Duplicate tracks (rekordbox)"
+                            enabled: delegateRoot.hasRekordbox
+                            onClicked: root.duplicatesRequested(delegateRoot.label, "rekordbox", delegateRoot.rekordboxPath)
+                        }
+                        Button {
+                            text: "Duplicate tracks (Engine)"
+                            enabled: delegateRoot.hasEngine
+                            onClicked: root.duplicatesRequested(delegateRoot.label, "engine", delegateRoot.enginePath)
+                        }
                         Button { text: "Sync cues between formats (coming soon)"; enabled: false }
                         Button { text: "Manage backups (coming soon)"; enabled: false }
                     }

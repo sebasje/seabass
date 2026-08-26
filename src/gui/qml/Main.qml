@@ -28,11 +28,21 @@ ApplicationWindow {
                 format: format,
                 path: path,
             })
+            onDuplicatesRequested: (stickLabel, format, path) => stackView.push(duplicatesPageComponent, {
+                stickLabel: stickLabel,
+                format: format,
+                path: path,
+            })
         }
     }
 
     Component {
         id: scanPageComponent
         ScanPage {}
+    }
+
+    Component {
+        id: duplicatesPageComponent
+        DuplicatesPage {}
     }
 }

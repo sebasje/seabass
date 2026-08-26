@@ -1,0 +1,167 @@
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+import DjConvertGui
+
+Page {
+    id: root
+    required property string format
+    required property string path
+    required property string stickLabel
+
+    DuplicatesController {
+        id: duplicatesController
+    }
+
+    Component.onCompleted: duplicatesController.scan(root.format, root.path)
+
+    header: ToolBar {
+        RowLayout {
+            anchors.fill: parent
+            anchors.margins: 8
+            ToolButton {
+                text: "< Back"
+                onClicked: root.StackView.view.pop()
+            }
+            Label {
+                text: root.stickLabel + " -- " + (root.format === "rekordbox" ? "rekordbox" : "Engine") + " duplicate tracks"
+                font.bold: true
+                font.pointSize: 14
+            }
+            Item { Layout.fillWidth: true }
+            Button {
+                text: "Apply all fixable"
+                enabled: !duplicatesController.busy
+                onClicked: duplicatesController.applyAllUnambiguous()
+            }
+            BusyIndicator {
+                running: duplicatesController.busy
+                visible: duplicatesController.busy
+                implicitWidth: 24
+                implicitHeight: 24
+            }
+        }
+    }
+
+    ColumnLayout {
+        anchors.fill: parent
+        anchors.margins: 16
+        spacing: 8
+
+        Label {
+            visible: duplicatesController.errorMessage.length > 0
+            text: duplicatesController.errorMessage
+            color: "red"
+            wrapMode: Text.WordWrap
+            Layout.fillWidth: true
+        }
+        Label {
+            visible: duplicatesController.statusMessage.length > 0
+            text: duplicatesController.statusMessage
+            color: "#8fce8f"
+            wrapMode: Text.WordWrap
+            Layout.fillWidth: true
+        }
+
+        ListView {
+            id: plansListView
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            clip: true
+            model: duplicatesController.plans
+            spacing: 4
+
+            delegate: Column {
+                id: delegateRoot
+                width: ListView.view.width
+                spacing: 4
+
+                required property int index
+                required property string kind
+                required property string filename
+                required property string description
+                required property bool actionable
+                required property var tracks
+
+                property bool expanded: false
+
+                ItemDelegate {
+                    width: parent.width
+                    onClicked: delegateRoot.expanded = !delegateRoot.expanded
+
+                    contentItem: ColumnLayout {
+                        spacing: 2
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Label { text: delegateRoot.filename; font.bold: true }
+                            Label {
+                                text: delegateRoot.kind === "unambiguous" ? "  (fixable)" : "  (conflict)"
+                                color: delegateRoot.kind === "unambiguous" ? "#8fce8f" : "orange"
+                            }
+                            Item { Layout.fillWidth: true }
+                            Button {
+                                text: "Copy cues"
+                                visible: delegateRoot.actionable
+                                onClicked: duplicatesController.applyOne(delegateRoot.index)
+                            }
+                            Label {
+                                text: delegateRoot.expanded ? "▾" : "▸"
+                                color: "gray"
+                            }
+                        }
+                        Label { text: delegateRoot.description; color: "gray" }
+                    }
+                }
+
+                ColumnLayout {
+                    width: parent.width
+                    visible: delegateRoot.expanded
+                    spacing: 8
+
+                    Repeater {
+                        model: delegateRoot.tracks
+                        delegate: Frame {
+                            Layout.fillWidth: true
+                            required property var modelData
+
+                            ColumnLayout {
+                                anchors.fill: parent
+                                spacing: 4
+                                Label { text: "id=" + modelData.sourceId; font.bold: true }
+                                Label {
+                                    text: modelData.playlists.length > 0
+                                        ? "Playlists: " + modelData.playlists.join(", ")
+                                        : "Playlists: (none)"
+                                    color: "gray"
+                                    wrapMode: Text.WordWrap
+                                    Layout.fillWidth: true
+                                }
+                                Label {
+                                    text: modelData.cues.length > 0 ? "Cues:" : "Cues: (none)"
+                                    color: "gray"
+                                }
+                                Repeater {
+                                    model: modelData.cues
+                                    delegate: Label {
+                                        required property var modelData
+                                        leftPadding: 12
+                                        text: "- " + (modelData.kind === "hot" ? ("hot " + modelData.hotCueNumber) : "memory")
+                                            + " @ " + (modelData.positionMs / 1000).toFixed(1) + "s"
+                                            + (modelData.color ? "  " + modelData.color : "")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Label {
+                anchors.centerIn: parent
+                visible: plansListView.count === 0 && !duplicatesController.busy
+                text: "No duplicate tracks needing attention."
+                color: "gray"
+            }
+        }
+    }
+}

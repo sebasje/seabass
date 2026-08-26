@@ -9,11 +9,14 @@ qt_add_qml_module(djconvert-gui
         qml/Main.qml
         qml/StickListPage.qml
         qml/ScanPage.qml
+        qml/DuplicatesPage.qml
     SOURCES
         media_controller.hpp
         media_controller.cpp
         scan_controller.hpp
         scan_controller.cpp
+        duplicates_controller.hpp
+        duplicates_controller.cpp
 )
 
 target_include_directories(djconvert-gui PRIVATE ${CMAKE_SOURCE_DIR}/src)

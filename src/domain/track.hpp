@@ -33,6 +33,11 @@ struct Track
     double durationSeconds = 0.0;
     std::vector<CuePoint> cues;
 
+    // Full paths (e.g. "Techno/Peak Time") of every playlist this track
+    // belongs to. Best-effort: populated where the reader supports it,
+    // empty otherwise.
+    std::vector<std::string> playlists;
+
     // Engagement signals used to prioritize which tracks are worth setting
     // cue points on. The two formats track different things -- rekordbox
     // keeps a running play count, Engine (via libdjinterop) only exposes
