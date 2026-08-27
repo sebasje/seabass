@@ -93,14 +93,14 @@ int main(int argc, char **argv)
                 visible: true
                 width: 420
                 height: 140
-                title: "djconvert"
+                title: "Seabass"
                 Label {
                     anchors.centerIn: parent
                     anchors.margins: 20
                     width: parent.width - 40
                     wrapMode: Text.WordWrap
                     horizontalAlignment: Text.AlignHCenter
-                    text: "djconvert is already running.\nOnly one instance can run at a time."
+                    text: "Seabass is already running.\nOnly one instance can run at a time."
                 }
             }
         )QML");

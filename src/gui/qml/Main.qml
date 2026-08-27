@@ -9,7 +9,7 @@ ApplicationWindow {
     width: 1100
     height: 720
     visible: true
-    title: "djconvert"
+    title: "Seabass"
 
     // "seabass" palette (see the app icon/watermark's source artifact):
     // Current is the accent, Abyss is the app-bar primary -- both fixed
