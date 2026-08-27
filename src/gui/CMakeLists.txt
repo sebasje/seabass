@@ -24,6 +24,7 @@ qt_add_qml_module(djconvert-gui
         playback_controller.cpp
         settings_controller.hpp
         settings_controller.cpp
+        qt_progress_reporter.hpp
 )
 
 target_include_directories(djconvert-gui PRIVATE ${CMAKE_SOURCE_DIR}/src)
@@ -36,4 +37,5 @@ target_link_libraries(djconvert-gui PRIVATE
     Qt6::QuickControls2
     Qt6::QuickLayouts
     Qt6::Multimedia
+    Qt6::Concurrent
 )

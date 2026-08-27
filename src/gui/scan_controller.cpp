@@ -1,13 +1,17 @@
 #include "scan_controller.hpp"
 
+#include <QtConcurrent/QtConcurrentRun>
+
 #include <algorithm>
 #include <limits>
+#include <memory>
 #include <optional>
 #include <set>
 #include <unordered_map>
 
 #include "application/use_cases/scan_library.hpp"
 #include "domain/track_matching.hpp"
+#include "gui/qt_progress_reporter.hpp"
 #include "infrastructure/engine/libdjinterop_engine_reader.hpp"
 #include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
 
@@ -92,21 +96,26 @@ void TrackListModel::setTracks(std::vector<domain::Track> tracks)
     endResetModel();
 }
 
-ScanController::ScanController(QObject *parent) : QObject(parent) {}
-
-void ScanController::scan(const QString &format, const QString &path, const QString &siblingRekordboxPath)
+namespace
 {
-    setErrorMessage({});
-    setBusy(true);
 
+// Runs entirely on a background thread (see ScanController::scan()) -- no
+// access to the controller itself, so everything it needs travels in by
+// value and its result travels back out as a plain struct.
+ScanTaskResult runScanTask(QString format, QString path, QString siblingRekordboxPath,
+                            std::shared_ptr<QtProgressReporter> reporter)
+{
+    ScanTaskResult result;
     try {
         std::vector<domain::Track> tracks;
         if (format == "rekordbox") {
             infrastructure::rekordbox::KaitaiRekordboxReader reader(path.toStdString());
+            reader.setProgressReporter(*reporter);
             application::ScanLibrary useCase(reader);
             tracks = useCase.execute();
         } else if (format == "engine") {
             infrastructure::engine::LibdjinteropEngineReader reader(path.toStdString());
+            reader.setProgressReporter(*reporter);
             application::ScanLibrary useCase(reader);
             tracks = useCase.execute();
 
@@ -141,25 +150,70 @@ void ScanController::scan(const QString &format, const QString &path, const QStr
                 }
             }
         }
-        std::set<std::string> uniquePlaylistNames;
-        for (const auto &track : tracks) {
-            for (const auto &playlist : track.playlists) {
-                uniquePlaylistNames.insert(playlist.name);
-            }
-        }
-        m_playlistNames.clear();
-        for (const auto &name : uniquePlaylistNames) {
-            m_playlistNames << QString::fromStdString(name);
-        }
-        emit playlistNamesChanged();
-
-        m_allTracks = std::move(tracks);
-        m_currentPlaylistFilter.clear();
-        m_currentSearchQuery.clear();
-        applyFilters();
+        result.tracks = std::move(tracks);
     } catch (const std::exception &e) {
-        setErrorMessage(QString::fromStdString(e.what()));
+        result.errorMessage = QString::fromStdString(e.what());
     }
+    return result;
+}
+
+}  // namespace
+
+ScanController::ScanController(QObject *parent) : QObject(parent)
+{
+    connect(&m_watcher, &QFutureWatcher<ScanTaskResult>::finished, this, &ScanController::onScanFinished);
+}
+
+void ScanController::scan(const QString &format, const QString &path, const QString &siblingRekordboxPath)
+{
+    if (m_busy) {
+        return;  // a scan is already running -- never overlap two
+    }
+    setErrorMessage({});
+    setScanProgress(0, 0);
+    setBusy(true);
+
+    // The reporter is owned by the background task (via shared_ptr, kept
+    // alive for exactly as long as the task runs), not by this controller --
+    // if the user navigates away and this ScanController is destroyed
+    // mid-scan, the task keeps running harmlessly in the background instead
+    // of touching a dangling object. Signals are connected with `this` as
+    // the context object, so Qt stops delivering them once we're gone.
+    auto reporter = std::make_shared<QtProgressReporter>();
+    connect(reporter.get(), &QtProgressReporter::started, this,
+            [this](const QString &, int total) { setScanProgress(0, total); });
+    connect(reporter.get(), &QtProgressReporter::progressed, this,
+            [this](int current) { setScanProgress(current, m_scanTotal); });
+
+    m_watcher.setFuture(QtConcurrent::run(runScanTask, format, path, siblingRekordboxPath, reporter));
+}
+
+void ScanController::onScanFinished()
+{
+    ScanTaskResult result = m_watcher.result();
+
+    if (!result.errorMessage.isEmpty()) {
+        setErrorMessage(result.errorMessage);
+        setBusy(false);
+        return;
+    }
+
+    std::set<std::string> uniquePlaylistNames;
+    for (const auto &track : result.tracks) {
+        for (const auto &playlist : track.playlists) {
+            uniquePlaylistNames.insert(playlist.name);
+        }
+    }
+    m_playlistNames.clear();
+    for (const auto &name : uniquePlaylistNames) {
+        m_playlistNames << QString::fromStdString(name);
+    }
+    emit playlistNamesChanged();
+
+    m_allTracks = std::move(result.tracks);
+    m_currentPlaylistFilter.clear();
+    m_currentSearchQuery.clear();
+    applyFilters();
 
     setBusy(false);
 }
@@ -273,6 +327,16 @@ void ScanController::setBusy(bool busy)
     }
     m_busy = busy;
     emit busyChanged();
+}
+
+void ScanController::setScanProgress(int current, int total)
+{
+    if (m_scanCurrent == current && m_scanTotal == total) {
+        return;
+    }
+    m_scanCurrent = current;
+    m_scanTotal = total;
+    emit scanProgressChanged();
 }
 
 void ScanController::setErrorMessage(const QString &message)

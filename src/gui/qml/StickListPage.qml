@@ -10,6 +10,13 @@ Item {
     signal duplicatesRequested(string stickLabel, string format, string path)
     signal settingsRequested(string stickLabel, string pioneerRoot)
 
+    // Keyed by devicePath (stable across mount state changes) rather than
+    // stored per-delegate: mounting/unmounting refreshes the whole sticks
+    // list (a full model reset), which destroys and recreates every
+    // delegate -- per-delegate "expanded" state would collapse right back
+    // on every mount/unmount click.
+    property string expandedDevicePath: ""
+
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: 16
@@ -57,11 +64,11 @@ Item {
                 required property string rekordboxPath
                 required property string enginePath
 
-                property bool expanded: false
+                readonly property bool expanded: root.expandedDevicePath === delegateRoot.devicePath
 
                 ItemDelegate {
                     width: parent.width
-                    onClicked: delegateRoot.expanded = !delegateRoot.expanded
+                    onClicked: root.expandedDevicePath = delegateRoot.expanded ? "" : delegateRoot.devicePath
 
                     contentItem: ColumnLayout {
                         spacing: 2
