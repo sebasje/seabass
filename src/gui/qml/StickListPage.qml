@@ -23,18 +23,6 @@ Page {
     signal localCueRequested(string stickLabel, string rekordboxPath, string enginePath)
     signal aboutRequested()
 
-    // Keyed by devicePath (stable across mount state changes) rather than
-    // stored per-delegate: mounting/unmounting refreshes the whole sticks
-    // list (a full model reset), which destroys and recreates every
-    // delegate -- per-delegate "expanded" state would collapse right back
-    // on every mount/unmount click.
-    //
-    // Tracks which sticks are COLLAPSED (not expanded) -- inverted from the
-    // more obvious "expanded set" so the default (nothing in it) means every
-    // stick starts expanded without needing to know their device paths
-    // ahead of time.
-    property var collapsedDevicePaths: ({})
-
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: 16
@@ -104,8 +92,6 @@ Page {
                 required property string rekordboxPath
                 required property string enginePath
 
-                readonly property bool expanded: !root.collapsedDevicePaths[delegateRoot.devicePath]
-
                 ColumnLayout {
                     id: contentColumn
                     anchors.fill: parent
@@ -116,22 +102,14 @@ Page {
                     Layout.fillWidth: true
                     ToolTip.visible: hovered && !delegateRoot.mounted
                     ToolTip.text: "Click to mount " + delegateRoot.label
+                    // Nothing to collapse anymore -- a mounted stick's
+                    // actions are always shown, so a click here only does
+                    // something for an unmounted one (mounts it, same
+                    // action as the eject/mount button).
                     onClicked: {
-                        // An unmounted stick has nothing to expand/collapse
-                        // (no rekordbox/engine paths to show yet) -- so a
-                        // click here is unambiguously "mount it," same
-                        // action as the eject/mount button.
                         if (!delegateRoot.mounted) {
                             root.mediaController.mountStick(delegateRoot.devicePath);
-                            return;
                         }
-                        var next = Object.assign({}, root.collapsedDevicePaths);
-                        if (delegateRoot.expanded) {
-                            next[delegateRoot.devicePath] = true;
-                        } else {
-                            delete next[delegateRoot.devicePath];
-                        }
-                        root.collapsedDevicePaths = next;
                     }
 
                     contentItem: RowLayout {
@@ -197,24 +175,11 @@ Page {
                                 }
                             }
                         }
-
-                        // Expand/collapse indicator -- grouped with the
-                        // eject button (both live at the end of the row,
-                        // vertically centered) rather than floating alone
-                        // in the title row above, where it read as
-                        // unexplained clutter disconnected from anything.
-                        Label {
-                            visible: delegateRoot.mounted
-                            text: delegateRoot.expanded ? "▾" : "▸"
-                            color: Theme.textMuted
-                            Layout.alignment: Qt.AlignVCenter
-                        }
                     }
                 }
 
                 ColumnLayout {
                     Layout.fillWidth: true
-                    visible: delegateRoot.expanded
 
                     GridLayout {
                         Layout.fillWidth: true
