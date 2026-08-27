@@ -60,7 +60,7 @@ ApplicationWindow {
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         anchors.margins: -width * 0.08
-        width: Math.min(window.width, window.height) * 0.25
+        width: Math.min(window.width, window.height) * 0.75
         height: width
         opacity: 0.10
         fillMode: Image.PreserveAspectFit
@@ -93,6 +93,11 @@ ApplicationWindow {
                 enginePath: enginePath,
             })
             onAppSettingsRequested: stackView.push(appSettingsPageComponent)
+            onBackupsRequested: (stickLabel, rekordboxPath, enginePath) => stackView.push(backupsPageComponent, {
+                stickLabel: stickLabel,
+                rekordboxPath: rekordboxPath,
+                enginePath: enginePath,
+            })
         }
     }
 
@@ -127,5 +132,10 @@ ApplicationWindow {
         AppSettingsPage {
             appSettingsController: appSettingsCtrl
         }
+    }
+
+    Component {
+        id: backupsPageComponent
+        BackupsPage {}
     }
 }

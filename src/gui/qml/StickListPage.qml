@@ -11,6 +11,7 @@ Item {
     signal settingsRequested(string stickLabel, string pioneerRoot)
     signal syncRequested(string stickLabel, string rekordboxPath, string enginePath)
     signal appSettingsRequested()
+    signal backupsRequested(string stickLabel, string rekordboxPath, string enginePath)
 
     // Keyed by devicePath (stable across mount state changes) rather than
     // stored per-delegate: mounting/unmounting refreshes the whole sticks
@@ -201,10 +202,11 @@ Item {
                             onClicked: root.syncRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
                         }
                         Button {
-                            text: "Manage Backups (Coming Soon)"
-                            enabled: false
+                            text: "Manage Backups"
+                            enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
                             ToolTip.visible: hovered
                             ToolTip.text: "List and clean up automatic backups made before cue writes"
+                            onClicked: root.backupsRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
                         }
                     }
                 }
