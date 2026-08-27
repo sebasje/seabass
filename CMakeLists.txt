@@ -1,5 +1,13 @@
 cmake_minimum_required(VERSION 3.16)
-project(djconvert CXX)
+# C, not just CXX -- libdjinterop's bundled SQLite/date fallback (used
+# when cross-compiling, see the WIN32 branch below) is plain C
+# (sqlite3.c). Declaring it here at the top level, rather than relying on
+# a subdirectory's own project() call to add it implicitly, avoids a real
+# cross-compile gotcha hit while adding Windows support: enabling C only
+# from within third_party/libdjinterop's own project() call left
+# CMAKE_C_COMPILE_OBJECT unset for the Unix Makefiles generator when
+# cross-compiling, breaking the Generate step.
+project(djconvert CXX C)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -11,12 +19,23 @@ set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(BUILD_DOC OFF CACHE BOOL "" FORCE)
+if(WIN32)
+    # No SQLite3-for-mingw package exists for Ubuntu -- libdjinterop
+    # already has its own bundled-amalgamation fallback for exactly this
+    # (see third_party/libdjinterop/CMakeLists.txt's SYSTEM_SQLITE
+    # option); djconvert_core's own direct SQLite3 use (LocalCueStore)
+    # gets the identical amalgamation compiled straight into it below,
+    # instead of going through find_package(SQLite3) at all.
+    set(SYSTEM_SQLITE OFF CACHE BOOL "" FORCE)
+endif()
 add_subdirectory(third_party/libdjinterop)
 
-# System SQLite3 -- already required to build libdjinterop (Engine's
-# library format is itself SQLite), so LocalCueStore reuses it rather
-# than vendoring a JSON library for the same job.
-find_package(SQLite3 REQUIRED)
+if(NOT WIN32)
+    # System SQLite3 -- already required to build libdjinterop (Engine's
+    # library format is itself SQLite), so LocalCueStore reuses it rather
+    # than vendoring a JSON library for the same job.
+    find_package(SQLite3 REQUIRED)
+endif()
 
 # System zlib -- used to compress local cue-backup snapshots and full
 # metadata backups before they hit disk (see infrastructure/compression/).
@@ -33,6 +52,31 @@ target_include_directories(kaitai_cpp_stl_runtime PUBLIC
     third_party/kaitai_struct_cpp_stl_runtime
 )
 target_compile_definitions(kaitai_cpp_stl_runtime PUBLIC KS_STR_ENCODING_ICONV)
+if(WIN32)
+    # mingw-w64 has neither <endian.h> nor <byteswap.h> (Linux/BSD-only) --
+    # see third_party/mingw-compat/endian.h for the full explanation. Only
+    # this one target needs it (the only place that source file's
+    # platform-detection preamble is compiled), and PRIVATE so it doesn't
+    # leak onto anything else's include path.
+    target_include_directories(kaitai_cpp_stl_runtime PRIVATE third_party/mingw-compat)
+    # win-iconv-mingw-w64-dev's iconv() declares its second parameter
+    # `const char **` by default (POSIX-2008 style); kaitaistream.cpp
+    # (written against glibc's non-const `char **`) passes a plain
+    # `char**`, which C++ refuses to implicitly convert -- this empties
+    # win-iconv's own WINICONV_CONST macro (its documented escape hatch
+    # for exactly this) to match glibc's signature instead.
+    target_compile_definitions(kaitai_cpp_stl_runtime PRIVATE WINICONV_CONST=)
+    # win-iconv-mingw-w64-dev ships iconv.h but (unlike glibc) needs
+    # explicitly linking -- PUBLIC so it also reaches whatever links this
+    # static library's .a (djconvert.exe's final link), not just this
+    # target's own compilation. Bare "iconv" resolves to libiconv.dll.a
+    # (the *import* library for iconv.dll) by mingw ld's default
+    # preference, silently making the exe depend on iconv.dll at runtime
+    # instead of bundling it -- find_library forces the real static
+    # libiconv.a instead, for a self-contained portable exe.
+    find_library(WIN_ICONV_STATIC_LIB NAMES libiconv.a PATHS /usr/x86_64-w64-mingw32/lib REQUIRED)
+    target_link_libraries(kaitai_cpp_stl_runtime PUBLIC ${WIN_ICONV_STATIC_LIB})
+endif()
 
 # --- rekordbox format parser, generated from specs/*.ksy (see specs/README.md) ---
 
@@ -78,7 +122,20 @@ add_library(djconvert_core STATIC
     src/infrastructure/system/rekordbox_process_detector.cpp
 )
 target_include_directories(djconvert_core PUBLIC src)
-target_link_libraries(djconvert_core PUBLIC rekordbox_format DjInterop SQLite::SQLite3 ZLIB::ZLIB)
+target_link_libraries(djconvert_core PUBLIC rekordbox_format DjInterop ZLIB::ZLIB)
+
+if(WIN32)
+    # See the SYSTEM_SQLITE note above -- same bundled amalgamation
+    # libdjinterop uses privately, compiled straight into djconvert_core
+    # instead of going through find_package(SQLite3).
+    target_sources(djconvert_core PRIVATE
+        third_party/libdjinterop/ext/sqlite-amalgamation/sqlite3.c)
+    target_include_directories(djconvert_core PRIVATE
+        third_party/libdjinterop/ext/sqlite-amalgamation)
+    target_compile_definitions(djconvert_core PRIVATE SQLITE_OMIT_LOAD_EXTENSION)
+else()
+    target_link_libraries(djconvert_core PUBLIC SQLite::SQLite3)
+endif()
 
 # --- platform-specific removable-media adapters (see media_factory.cpp) ---
 # --- -- the only part of djconvert_core with no single cross-platform ---
@@ -110,6 +167,13 @@ add_executable(djconvert
 )
 target_include_directories(djconvert PRIVATE src)
 target_link_libraries(djconvert PRIVATE djconvert_core)
+if(WIN32)
+    # A portable single-file .exe -- without these, mingw links
+    # libgcc_s_seh-1.dll/libstdc++-6.dll dynamically, which aren't
+    # present next to the exe (or anywhere in a real Windows install)
+    # unless separately deployed.
+    target_link_options(djconvert PRIVATE -static-libgcc -static-libstdc++)
+endif()
 
 # --- djconvert-gui: the Qt Quick composition root (opt-in: only built ---
 # --- when Qt6 is available, so machines without Qt still get the CLI) ---
@@ -129,7 +193,12 @@ else()
 endif()
 
 # --- domain-layer unit tests (no infrastructure deps, no fixtures needed) ---
+# --- -- gated on NOT WIN32 for now: several link SQLite::SQLite3/ ---
+# --- ZLIB::ZLIB directly (not through djconvert_core, which handles the ---
+# --- WIN32 case above), and Windows test coverage is genuinely not yet ---
+# --- wired up -- tracked as real follow-up work, not silently skipped. ---
 
+if(NOT WIN32)
 enable_testing()
 add_executable(duplicate_cue_consolidation_test
     src/domain/duplicate_cue_consolidation.cpp
@@ -226,3 +295,5 @@ add_executable(local_cue_store_test
 target_include_directories(local_cue_store_test PRIVATE src)
 target_link_libraries(local_cue_store_test PRIVATE SQLite::SQLite3 ZLIB::ZLIB)
 add_test(NAME local_cue_store_test COMMAND local_cue_store_test)
+
+endif()  # NOT WIN32
