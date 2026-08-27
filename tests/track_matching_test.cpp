@@ -47,15 +47,19 @@ int main()
         std::cout << "case 4 (cueSetsEqual position tolerance boundary) OK\n";
     }
 
-    // cueSetsEqual: kind/hotCueNumber/color/comment mismatches all count,
-    // regardless of position.
+    // cueSetsEqual: kind/hotCueNumber/color mismatches all count, regardless
+    // of position. comment is deliberately NOT compared -- RekordboxCueWriter
+    // can't write it at all (anlz_cue_codec.cpp always encodes an empty
+    // comment), so treating a comment difference as a real mismatch made
+    // Engine cues with a label permanently reappear as "needs sync" with no
+    // writer able to ever resolve it.
     {
         CuePoint base{CuePoint::Kind::Hot, 1, 1000.0, "#FF0000", "drop"};
         assert(!cueSetsEqual({base}, {CuePoint{CuePoint::Kind::Memory, 1, 1000.0, "#FF0000", "drop"}}));
         assert(!cueSetsEqual({base}, {CuePoint{CuePoint::Kind::Hot, 2, 1000.0, "#FF0000", "drop"}}));
         assert(!cueSetsEqual({base}, {CuePoint{CuePoint::Kind::Hot, 1, 1000.0, "#00FF00", "drop"}}));
-        assert(!cueSetsEqual({base}, {CuePoint{CuePoint::Kind::Hot, 1, 1000.0, "#FF0000", "break"}}));
-        std::cout << "case 5 (cueSetsEqual field mismatches -> false) OK\n";
+        assert(cueSetsEqual({base}, {CuePoint{CuePoint::Kind::Hot, 1, 1000.0, "#FF0000", "break"}}));
+        std::cout << "case 5 (cueSetsEqual field mismatches -> false, comment ignored) OK\n";
     }
 
     // titleArtistKey: case/whitespace-insensitive, symmetric in what it
@@ -102,7 +106,9 @@ int main()
         b1.artist = "Artist";
         b1.durationSeconds = 200.5;
 
-        auto matches = matchTracks({a1}, {b1});
+        std::vector<Track> as = {a1};
+        std::vector<Track> bs = {b1};
+        auto matches = matchTracks(as, bs);
         assert(matches.size() == 1);
         assert(matches[0].first->sourceId == "a1");
         assert(matches[0].second->sourceId == "b1");
@@ -119,7 +125,9 @@ int main()
         b2.filename = "same.mp3";
         b2.durationSeconds = 100.0;
 
-        auto matches = matchTracks({a2}, {b2});
+        std::vector<Track> as = {a2};
+        std::vector<Track> bs = {b2};
+        auto matches = matchTracks(as, bs);
         assert(matches.size() == 1);
         assert(matches[0].first->sourceId == "a2");
         assert(matches[0].second->sourceId == "b2");

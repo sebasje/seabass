@@ -102,7 +102,13 @@ bool cueSetsEqual(const std::vector<CuePoint> &a, const std::vector<CuePoint> &b
     for (size_t i = 0; i < sortedA.size(); ++i) {
         const auto &x = sortedA[i];
         const auto &y = sortedB[i];
-        if (x.kind != y.kind || x.hotCueNumber != y.hotCueNumber || x.color != y.color || x.comment != y.comment) {
+        // comment is deliberately excluded: it's cosmetic label metadata,
+        // not core cue data, and RekordboxCueWriter can't write it at all
+        // (anlz_cue_codec.cpp always encodes len_comment=0) -- treating a
+        // comment difference as a real mismatch made every Engine cue with
+        // a label permanently reappear as "needs sync" after a ToRekordbox
+        // apply, since no writer could ever make the comment fields agree.
+        if (x.kind != y.kind || x.hotCueNumber != y.hotCueNumber || x.color != y.color) {
             return false;
         }
         if (std::abs(x.positionMs - y.positionMs) > PositionToleranceMs) {
