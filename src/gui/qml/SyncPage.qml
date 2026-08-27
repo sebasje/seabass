@@ -278,6 +278,10 @@ Page {
                                     cueData: modelData.cues
                                     trackDurationMs: modelData.durationMs
                                 }
+                                CueFallbackNotice {
+                                    cues: modelData.cues
+                                    durationMs: modelData.durationMs
+                                }
                             }
                         }
                     }
