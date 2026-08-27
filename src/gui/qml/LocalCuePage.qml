@@ -62,7 +62,7 @@ Page {
             spacing: 12
             ToolButton {
                 text: "‹"
-                font.pixelSize: 22
+                font.pointSize: Theme.fontHuge
                 enabled: !localCueController.writing
                 ToolTip.visible: hovered
                 ToolTip.text: localCueController.writing
@@ -72,7 +72,7 @@ Page {
             Label {
                 text: root.stickLabel + " -- Local Cue Backup"
                 font.bold: true
-                font.pointSize: 14
+                font.pointSize: Theme.fontLarge
             }
             Item { Layout.fillWidth: true }
             FormatToggle {
@@ -90,7 +90,7 @@ Page {
             Label {
                 visible: localCueController.busy && localCueController.scanTotal > 0
                 text: localCueController.scanCurrent + " / " + localCueController.scanTotal
-                color: "gray"
+                color: Theme.textMuted
             }
         }
     }
@@ -119,7 +119,7 @@ Page {
             Label {
                 text: "The stick is backed up before anything is written -- once this finishes, "
                     + "\"Undo\" reverts every file it touched. Do not remove the stick while it's running."
-                color: "gray"
+                color: Theme.textMuted
                 wrapMode: Text.WordWrap
             }
         }
@@ -160,14 +160,14 @@ Page {
         Label {
             visible: localCueController.errorMessage.length > 0
             text: localCueController.errorMessage
-            color: "red"
+            color: Theme.danger
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
         }
         Label {
             visible: localCueController.statusMessage.length > 0
             text: localCueController.statusMessage
-            color: "#8fce8f"
+            color: Theme.good
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
         }
@@ -186,7 +186,7 @@ Page {
                         Label { text: "Back Up to This Computer"; font.bold: true }
                         Label {
                             text: "Copies this stick's cues to a local backup -- never touches the stick, no confirmation needed."
-                            color: "gray"
+                            color: Theme.textMuted
                             wrapMode: Text.WordWrap
                             Layout.fillWidth: true
                         }
@@ -220,7 +220,7 @@ Page {
                 Label {
                     text: "Each backup here is frozen at the moment it was made -- restoring from one "
                         + "always uses exactly that snapshot, even if newer backups exist."
-                    color: "gray"
+                    color: Theme.textMuted
                     wrapMode: Text.WordWrap
                     Layout.fillWidth: true
                 }
@@ -246,7 +246,7 @@ Page {
                                 text: root.friendlyTimestamp(snapshotDelegate.modelData.createdAt)
                                     + "  --  " + snapshotDelegate.modelData.trackCount + " track(s), "
                                     + snapshotDelegate.modelData.cueCount + " cue(s)"
-                                color: "gray"
+                                color: Theme.textMuted
                                 Layout.preferredWidth: 320
                                 elide: Text.ElideRight
                             }
@@ -257,9 +257,9 @@ Page {
                                 text: snapshotDelegate.modelData.description
                                 background: Rectangle {
                                     radius: 4
-                                    color: snapshotDescriptionField.activeFocus ? Qt.rgba(1, 1, 1, 0.08) : "transparent"
+                                    color: snapshotDescriptionField.activeFocus ? Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.08) : "transparent"
                                     border.width: snapshotDescriptionField.activeFocus ? 1 : 0
-                                    border.color: "#3daee9"
+                                    border.color: Theme.accent
                                 }
                                 onEditingFinished: {
                                     localCueController.setSnapshotDescription(snapshotDelegate.modelData.id, text);
@@ -297,7 +297,7 @@ Page {
                         anchors.centerIn: parent
                         visible: snapshotListView.count === 0
                         text: "No backups yet -- click \"Backup Now\" above to create the first one."
-                        color: "gray"
+                        color: Theme.textMuted
                     }
                 }
             }
@@ -321,7 +321,7 @@ Page {
                             text: "Stick tracks: " + localCueController.stickTrackCount
                                 + "   Backed up on this computer: " + localCueController.localTrackCount
                                 + "   Have new cues to add: " + restoreListView.count
-                            color: "gray"
+                            color: Theme.textMuted
                         }
                     }
                     Button {
@@ -360,7 +360,7 @@ Page {
                         contentItem: ColumnLayout {
                             spacing: 2
                             Label { text: title.length > 0 ? (title + " -- " + artist) : filename; font.bold: true }
-                            Label { text: description + " new cue(s) would be added"; color: "gray" }
+                            Label { text: description + " new cue(s) would be added"; color: Theme.textMuted }
                         }
                     }
 
@@ -369,7 +369,7 @@ Page {
                         visible: restoreListView.count === 0 && !localCueController.busy
                         text: "Nothing to merge -- either the stick already has every cue this backup offers,\nor none of its tracks match one backed up on this computer."
                         horizontalAlignment: Text.AlignHCenter
-                        color: "gray"
+                        color: Theme.textMuted
                     }
                 }
             }

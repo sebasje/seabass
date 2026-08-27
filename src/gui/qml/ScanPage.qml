@@ -67,7 +67,7 @@ Page {
                 ToolButton {
                     text: "‹"
 
-                    font.pixelSize: 22
+                    font.pointSize: Theme.fontHuge
 
                     ToolTip.visible: hovered
 
@@ -77,7 +77,7 @@ Page {
                 Label {
                     text: root.stickLabel + " -- Library"
                     font.bold: true
-                    font.pointSize: 14
+                    font.pointSize: Theme.fontLarge
                 }
                 Item { Layout.fillWidth: true }
                 FormatToggle {
@@ -95,7 +95,7 @@ Page {
                 Label {
                     visible: scanController.busy && scanController.scanTotal > 0
                     text: scanController.scanCurrent + " / " + scanController.scanTotal
-                    color: "gray"
+                    color: Theme.textMuted
                 }
             }
 
@@ -145,7 +145,7 @@ Page {
         anchors.margins: 12
         visible: scanController.errorMessage.length > 0
         text: scanController.errorMessage
-        color: "#ff8080"
+        color: Theme.danger
         wrapMode: Text.WordWrap
     }
 
@@ -202,7 +202,7 @@ Page {
         Rectangle {
             Layout.preferredWidth: 1
             Layout.fillHeight: true
-            color: "#333"
+            color: Theme.borderSubtle
         }
 
         // Right pane: tracks in the selected playlist (or all tracks).
@@ -238,12 +238,16 @@ Page {
                 clip: true
                 model: scanController.tracks
 
-                delegate: ItemDelegate {
+                // A plain Rectangle, not an ItemDelegate -- overriding a
+                // Material Control's `background:` property doesn't
+                // reliably replace its own implicit chrome (see
+                // StickListPage.qml's stick-card delegate for the same
+                // fix and the fuller explanation); a bare Rectangle +
+                // MouseArea sidesteps it entirely.
+                delegate: Rectangle {
                     id: trackDelegate
                     width: ListView.view.width
                     height: 56
-                    leftPadding: 8
-                    rightPadding: 8
 
                     required property int index
                     required property string sourceId
@@ -258,26 +262,34 @@ Page {
                     required property string key
                     required property var cues
 
-                    onClicked: playbackController.load(root.format, root.currentPath(), sourceId, filePath, title, artist, artworkPath, cues)
-
                     // Alternating row shading -- makes it much easier to
                     // track a row across the wide, densely-columned list.
                     // Solid, muted colors rather than a translucent overlay,
                     // so the result doesn't depend on (and can't pick up an
                     // unexpected tint from) whatever's rendered underneath.
-                    background: Rectangle {
-                        color: trackDelegate.down ? "#33404a"
-                            : trackDelegate.hovered ? "#2c363f"
-                            : (trackDelegate.index % 2 === 0 ? "#1e2226" : "#22262b")
+                    color: rowMouseArea.pressed ? Theme.rowPressed
+                        : rowMouseArea.containsMouse ? Theme.rowHover
+                        : (trackDelegate.index % 2 === 0 ? Theme.rowEven : Theme.rowOdd)
+
+                    MouseArea {
+                        id: rowMouseArea
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        onClicked: playbackController.load(root.format, root.currentPath(), trackDelegate.sourceId,
+                            trackDelegate.filePath, trackDelegate.title, trackDelegate.artist, trackDelegate.artworkPath,
+                            trackDelegate.cues)
                     }
 
-                    contentItem: RowLayout {
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 8
+                        anchors.rightMargin: 8
                         spacing: 8
 
                         Rectangle {
                             Layout.preferredWidth: 40
                             Layout.preferredHeight: 40
-                            color: "#2a2a2a"
+                            color: Theme.surface
                             Image {
                                 anchors.fill: parent
                                 visible: artworkPath.length > 0
@@ -297,7 +309,7 @@ Page {
                             }
                             Label {
                                 text: artist
-                                color: "#999"
+                                color: Theme.textMuted
                                 elide: Text.ElideRight
                                 Layout.fillWidth: true
                             }
@@ -315,14 +327,14 @@ Page {
                     anchors.centerIn: parent
                     visible: trackListView.count === 0 && !scanController.busy
                     text: "No tracks found."
-                    color: "gray"
+                    color: Theme.textMuted
                 }
             }
 
             Label {
                 Layout.margins: 8
                 text: trackListView.count + " tracks"
-                color: "gray"
+                color: Theme.textMuted
             }
         }
     }

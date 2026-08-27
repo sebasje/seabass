@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import DjConvertGui
 
 Page {
     id: root
@@ -12,7 +13,7 @@ Page {
             ToolButton {
                 text: "‹"
 
-                font.pixelSize: 22
+                font.pointSize: Theme.fontHuge
 
                 ToolTip.visible: hovered
 
@@ -22,7 +23,7 @@ Page {
             Label {
                 text: "About"
                 font.bold: true
-                font.pointSize: 14
+                font.pointSize: Theme.fontLarge
             }
             Item { Layout.fillWidth: true }
         }
@@ -55,13 +56,13 @@ Page {
                 Label {
                     text: "Seabass"
                     font.bold: true
-                    font.pointSize: 26
+                    font.pointSize: Theme.baseFontPointSize * 2.6
                     Layout.alignment: Qt.AlignHCenter
                 }
                 Label {
                     text: "DJ USB Stick Management"
-                    font.pointSize: 13
-                    color: "#6cc7f2"
+                    font.pointSize: Theme.baseFontPointSize * 1.3
+                    color: Qt.lighter(Theme.accent, 1.3)
                     Layout.alignment: Qt.AlignHCenter
                 }
             }
@@ -71,14 +72,14 @@ Page {
                     + "USB stick -- cue points, playlists, and the metadata your DJ software already "
                     + "computed -- so you can inspect it, fix it up, and keep the two formats in sync."
                 wrapMode: Text.WordWrap
-                font.pointSize: 11
+                font.pointSize: Theme.baseFontPointSize * 1.1
                 Layout.fillWidth: true
             }
 
             ColumnLayout {
                 spacing: 6
                 Layout.fillWidth: true
-                Label { text: "What Seabass does"; font.bold: true; font.pointSize: 12 }
+                Label { text: "What Seabass does"; font.bold: true; font.pointSize: Theme.fontMedium }
                 Label {
                     text: "• Browses tracks, playlists and cue points on Rekordbox and Engine sticks\n"
                         + "• Finds duplicate tracks and consolidates their cue points onto every copy\n"
@@ -86,8 +87,8 @@ Page {
                         + "• Lists and cleans up the automatic backups made before every write\n"
                         + "• Backs up cues to this computer and restores them if a stick's cues are lost"
                     wrapMode: Text.WordWrap
-                    font.pointSize: 11
-                    color: "#c8c8c8"
+                    font.pointSize: Theme.baseFontPointSize * 1.1
+                    color: Theme.textMuted
                     Layout.fillWidth: true
                 }
             }
@@ -95,15 +96,15 @@ Page {
             ColumnLayout {
                 spacing: 6
                 Layout.fillWidth: true
-                Label { text: "What Seabass doesn't do"; font.bold: true; font.pointSize: 12 }
+                Label { text: "What Seabass doesn't do"; font.bold: true; font.pointSize: Theme.fontMedium }
                 Label {
                     text: "Seabass never analyzes audio. Beatgridding, BPM/key detection, and waveform "
                         + "analysis all have to happen in Rekordbox or Engine DJ software first -- "
                         + "Seabass only ever reads and moves around the results of that analysis, "
                         + "never recomputes it."
                     wrapMode: Text.WordWrap
-                    font.pointSize: 11
-                    color: "#c8c8c8"
+                    font.pointSize: Theme.baseFontPointSize * 1.1
+                    color: Theme.textMuted
                     Layout.fillWidth: true
                 }
             }
@@ -113,16 +114,16 @@ Page {
                     + "inMusic Brands, Inc. Seabass is an independent, unofficial tool and is not "
                     + "affiliated with, endorsed by, or sponsored by either company."
                 wrapMode: Text.WordWrap
-                font.pointSize: 8
-                color: "#888"
+                font.pointSize: Theme.fontTiny
+                color: Theme.textMuted
                 Layout.fillWidth: true
                 Layout.topMargin: 8
             }
 
             Label {
                 text: "Also known as djconvert on the command line."
-                font.pointSize: 9
-                color: "gray"
+                font.pointSize: Theme.baseFontPointSize * 0.9
+                color: Theme.textMuted
                 Layout.alignment: Qt.AlignHCenter
                 Layout.topMargin: 8
             }

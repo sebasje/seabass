@@ -23,7 +23,7 @@ Page {
             ToolButton {
                 text: "‹"
 
-                font.pixelSize: 22
+                font.pointSize: Theme.fontHuge
                 enabled: !syncController.writing
 
                 ToolTip.visible: hovered
@@ -34,7 +34,7 @@ Page {
             Label {
                 text: root.stickLabel + " -- Sync Cues Between Rekordbox and Engine"
                 font.bold: true
-                font.pointSize: 14
+                font.pointSize: Theme.fontLarge
             }
             Item { Layout.fillWidth: true }
             Button {
@@ -69,7 +69,7 @@ Page {
             Label {
                 visible: syncController.busy && syncController.scanTotal > 0
                 text: syncController.scanCurrent + " / " + syncController.scanTotal
-                color: "gray"
+                color: Theme.textMuted
             }
         }
     }
@@ -100,13 +100,13 @@ Page {
             Label {
                 visible: syncController.toRekordboxCount > 0
                 text: "Rekordbox writing is the least-proven part of djconvert -- verify the result\non real hardware before trusting it for a gig."
-                color: "orange"
+                color: Theme.conflictText
                 wrapMode: Text.WordWrap
             }
             Label {
                 text: "Both sides are backed up before anything is written -- once this finishes, "
                     + "\"Undo\" reverts every file it touched. Do not remove the stick while it's running."
-                color: "gray"
+                color: Theme.textMuted
                 wrapMode: Text.WordWrap
             }
         }
@@ -125,14 +125,14 @@ Page {
         Label {
             visible: syncController.errorMessage.length > 0
             text: syncController.errorMessage
-            color: "red"
+            color: Theme.danger
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
         }
         Label {
             visible: syncController.statusMessage.length > 0
             text: syncController.statusMessage
-            color: "#8fce8f"
+            color: Theme.good
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
         }
@@ -141,7 +141,7 @@ Page {
             text: "Rekordbox tracks: " + syncController.rekordboxTrackCount
                 + "   Engine tracks: " + syncController.engineTrackCount
                 + "   matched, needing sync: " + plansListView.count
-            color: "gray"
+            color: Theme.textMuted
         }
 
         ListView {
@@ -182,7 +182,7 @@ Page {
                             Label {
                                 text: delegateRoot.direction === "toEngine" ? "Rekordbox -> Engine" : "Engine -> Rekordbox"
                                 font.bold: true
-                                color: delegateRoot.direction === "toEngine" ? "#8fce8f" : "#8ab4f8"
+                                color: delegateRoot.direction === "toEngine" ? Theme.good : Theme.info
                                 Layout.preferredWidth: 160
                             }
                             Label {
@@ -195,7 +195,7 @@ Page {
                             }
                             Label {
                                 text: delegateRoot.conflict ? "  (conflict resolved by newer file)" : ""
-                                color: "orange"
+                                color: Theme.conflictText
                             }
                             Button {
                                 text: "Copy"
@@ -206,10 +206,10 @@ Page {
                             }
                             Label {
                                 text: delegateRoot.expanded ? "▾" : "▸"
-                                color: "gray"
+                                color: Theme.textMuted
                             }
                         }
-                        Label { text: delegateRoot.description; color: "gray"; leftPadding: 168 }
+                        Label { text: delegateRoot.description; color: Theme.textMuted; leftPadding: 168 }
                     }
                 }
 
@@ -222,8 +222,8 @@ Page {
                     width: parent.width - 168
                     visible: delegateRoot.expanded
                     height: delegateRoot.expanded ? syncGroupColumn.implicitHeight + 16 : 0
-                    color: "#161a1e"
-                    border.color: "#2c3238"
+                    color: Theme.groupBackground
+                    border.color: Theme.borderSubtle
                     radius: 4
 
                     ColumnLayout {
@@ -289,7 +289,7 @@ Page {
                 anchors.centerIn: parent
                 visible: plansListView.count === 0 && !syncController.busy
                 text: "Nothing to sync -- matched tracks' cues are already consistent."
-                color: "gray"
+                color: Theme.textMuted
             }
         }
     }

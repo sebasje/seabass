@@ -14,7 +14,7 @@ Page {
             ToolButton {
                 text: "‹"
 
-                font.pixelSize: 22
+                font.pointSize: Theme.fontHuge
 
                 ToolTip.visible: hovered
 
@@ -24,7 +24,7 @@ Page {
             Label {
                 text: "App Settings"
                 font.bold: true
-                font.pointSize: 14
+                font.pointSize: Theme.fontLarge
             }
             Item { Layout.fillWidth: true }
         }

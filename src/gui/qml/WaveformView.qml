@@ -1,4 +1,5 @@
 import QtQuick
+import DjConvertGui
 
 // Draws a waveform (as normalized 0..1 amplitude bars) with cue markers
 // overlaid at their real position. Used both by the live PlayerBar (with
@@ -28,7 +29,7 @@ Canvas {
         var wf = waveformData;
 
         if (!wf || wf.length === 0) {
-            ctx.fillStyle = "#666";
+            ctx.fillStyle = String(Theme.textMuted);
             ctx.fillRect(0, h / 2 - 1, w, 2);
         } else {
             var barW = w / wf.length;

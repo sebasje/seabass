@@ -3,7 +3,13 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import DjConvertGui
 
-Item {
+// A Page, not a plain Item, specifically so it gets the same
+// Material-style implicit background every other page in this app gets
+// for free -- a plain Item has no background mechanism at all, which is
+// exactly why this page (the very first one shown) kept rendering the
+// Qt-default white despite the window/StackView-level background fixes
+// applied elsewhere, while every `Page`-rooted page rendered correctly.
+Page {
     id: root
     required property var mediaController
     required property var playbackController
@@ -38,12 +44,12 @@ Item {
             Label {
                 text: "USB Sticks"
                 font.bold: true
-                font.pointSize: 16
+                font.pointSize: Theme.fontXLarge
             }
             Item { Layout.fillWidth: true }
             ToolButton {
                 text: "ⓘ"
-                font.pointSize: 14
+                font.pointSize: Theme.fontLarge
                 ToolTip.visible: hovered
                 ToolTip.text: "About Seabass"
                 onClicked: root.aboutRequested()
@@ -51,7 +57,7 @@ Item {
             ToolButton {
                 text: "⚙"
                 font.family: "Noto Sans Symbols"
-                font.pointSize: 14
+                font.pointSize: Theme.fontLarge
                 ToolTip.visible: hovered
                 ToolTip.text: "App Settings"
                 onClicked: root.appSettingsRequested()
@@ -61,7 +67,7 @@ Item {
         Label {
             visible: root.mediaController.errorMessage.length > 0
             text: root.mediaController.errorMessage
-            color: "red"
+            color: Theme.danger
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
         }
@@ -73,9 +79,21 @@ Item {
             clip: true
             spacing: 4
 
-            delegate: Frame {
+            // A plain Rectangle, not a Frame -- Qt Quick Controls' Material
+            // style gives Frame its own additional implicit chrome that a
+            // custom `background:` assignment doesn't fully replace (kept
+            // rendering a stray light margin around the real content no
+            // matter what the override's own color was set to). Every
+            // other grouping frame in this app (SyncPage.qml/
+            // DuplicatesPage.qml's meta-track groups) already uses this
+            // same plain-Rectangle pattern for exactly that reason.
+            delegate: Rectangle {
                 id: delegateRoot
                 width: ListView.view.width
+                height: contentColumn.implicitHeight + 24
+                color: Theme.surface
+                border.color: Theme.border
+                radius: 4
 
                 required property string label
                 required property string mountPoint
@@ -88,18 +106,10 @@ Item {
 
                 readonly property bool expanded: !root.collapsedDevicePaths[delegateRoot.devicePath]
 
-                // The frame visually groups this stick's header and its
-                // action cards into one card, so with several sticks
-                // detected each one's controls read as clearly belonging
-                // to it rather than blurring into the list.
-                background: Rectangle {
-                    color: "#1a1f24"
-                    border.color: "#333a40"
-                    radius: 4
-                }
-
                 ColumnLayout {
+                    id: contentColumn
                     anchors.fill: parent
+                    anchors.margins: 12
                     spacing: 4
 
                 ItemDelegate {
@@ -121,7 +131,6 @@ Item {
                             Layout.preferredWidth: 40
                             Layout.preferredHeight: 40
                             Layout.alignment: Qt.AlignVCenter
-                            color: "#8a97a0"
                         }
 
                         ColumnLayout {
@@ -132,22 +141,22 @@ Item {
                                 Label {
                                     text: delegateRoot.label
                                     font.bold: true
-                                    font.pointSize: 12
+                                    font.pointSize: Theme.baseFontPointSize * 1.2
                                 }
                                 Label {
                                     text: delegateRoot.mounted ? "" : "(not mounted)"
-                                    color: "gray"
+                                    color: Theme.textMuted
                                 }
                                 Item { Layout.fillWidth: true }
                                 Label {
                                     text: delegateRoot.expanded ? "▾" : "▸"
-                                    color: "gray"
+                                    color: Theme.textMuted
                                 }
                             }
                             Label {
                                 text: delegateRoot.mounted ? delegateRoot.mountPoint : delegateRoot.devicePath
-                                color: "gray"
-                                font.pointSize: 9
+                                color: Theme.textMuted
+                                font.pointSize: Theme.baseFontPointSize * 0.9
                             }
                             RowLayout {
                                 visible: delegateRoot.mounted
@@ -159,7 +168,7 @@ Item {
                         ToolButton {
                             text: "⏏"
                             font.family: "Noto Sans Symbols2"
-                            font.pixelSize: 26
+                            font.pointSize: Theme.fontHuge
                             rotation: delegateRoot.mounted ? 0 : 180
                             Layout.preferredWidth: 48
                             Layout.preferredHeight: 48
@@ -208,8 +217,8 @@ Item {
                                 Label {
                                     text: card.cardIcon
                                     font.family: card.cardIconFont
-                                    font.pixelSize: 26
-                                    color: card.enabled ? "#8a97a0" : "#4a5157"
+                                    font.pointSize: Theme.fontHuge
+                                    color: card.enabled ? Theme.textMuted : Qt.darker(Theme.textMuted, 1.6)
                                     Layout.preferredWidth: 30
                                     horizontalAlignment: Text.AlignHCenter
                                 }
@@ -224,8 +233,8 @@ Item {
                                     }
                                     Label {
                                         text: card.cardSubtitle
-                                        color: card.enabled ? "gray" : "#5a5a5a"
-                                        font.pointSize: 9
+                                        color: card.enabled ? Theme.textMuted : Qt.darker(Theme.textMuted, 1.6)
+                                        font.pointSize: Theme.baseFontPointSize * 0.9
                                         wrapMode: Text.WordWrap
                                         Layout.fillWidth: true
                                     }
@@ -286,8 +295,8 @@ Item {
                 anchors.centerIn: parent
                 visible: parent.count === 0
                 text: "No USB sticks detected. Insert one to get started."
-                font.pointSize: 14
-                color: "#999"
+                font.pointSize: Theme.fontLarge
+                color: Theme.textMuted
             }
         }
     }

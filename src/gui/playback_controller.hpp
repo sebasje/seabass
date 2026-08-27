@@ -26,6 +26,7 @@ class PlaybackController : public QObject
     Q_PROPERTY(qint64 duration READ duration NOTIFY durationChanged)
     Q_PROPERTY(qint64 position READ position NOTIFY positionChanged)
     Q_PROPERTY(bool playing READ playing NOTIFY playingChanged)
+    Q_PROPERTY(qreal volume READ volume WRITE setVolume NOTIFY volumeChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
 
 public:
@@ -40,6 +41,10 @@ public:
     qint64 duration() const { return m_player.duration(); }
     qint64 position() const { return m_player.position(); }
     bool playing() const { return m_player.playbackState() == QMediaPlayer::PlayingState; }
+    // Linear gain, 0.0 (silent) to 1.0 (unattenuated) -- matches
+    // QAudioOutput::volume()'s own scale directly, no remapping.
+    qreal volume() const { return m_audioOutput.volume(); }
+    void setVolume(qreal volume);
     QString errorMessage() const { return m_errorMessage; }
 
     // format is "rekordbox" or "engine"; libraryPath is the corresponding
@@ -57,6 +62,7 @@ signals:
     void durationChanged();
     void positionChanged();
     void playingChanged();
+    void volumeChanged();
     void errorMessageChanged();
 
 private:

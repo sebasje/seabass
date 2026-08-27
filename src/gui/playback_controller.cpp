@@ -17,9 +17,15 @@ PlaybackController::PlaybackController(QObject *parent) : QObject(parent)
     connect(&m_player, &QMediaPlayer::durationChanged, this, &PlaybackController::durationChanged);
     connect(&m_player, &QMediaPlayer::positionChanged, this, &PlaybackController::positionChanged);
     connect(&m_player, &QMediaPlayer::playbackStateChanged, this, &PlaybackController::playingChanged);
+    connect(&m_audioOutput, &QAudioOutput::volumeChanged, this, &PlaybackController::volumeChanged);
     connect(&m_player, &QMediaPlayer::errorOccurred, this, [this](QMediaPlayer::Error, const QString &message) {
         setErrorMessage(message);
     });
+}
+
+void PlaybackController::setVolume(qreal volume)
+{
+    m_audioOutput.setVolume(static_cast<float>(qBound(0.0, volume, 1.0)));
 }
 
 void PlaybackController::load(const QString &format, const QString &libraryPath, const QString &sourceId,
