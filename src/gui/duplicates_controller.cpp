@@ -225,21 +225,32 @@ DuplicatesTaskResult runRescanTask(QString format, QString path, std::shared_ptr
 
         // Waveforms need their own file I/O per track, so only decode them
         // for tracks actually being displayed here, not the whole library.
+        // This is a second phase after the scan above already finished (and
+        // already reported 100%) -- give it its own start()/tick() run
+        // rather than leave the bar looking stalled while it happens.
+        size_t totalWaveformTracks = 0;
+        for (const auto &plan : actionable) {
+            totalWaveformTracks += plan.group.tracks.size();
+        }
+        reporter->start("Loading waveforms", totalWaveformTracks);
+        size_t waveformsProcessed = 0;
+
         std::unordered_map<std::string, std::vector<double>> waveformsBySourceId;
         for (const auto &plan : actionable) {
             for (const auto &track : plan.group.tracks) {
-                if (waveformsBySourceId.contains(track.sourceId)) {
-                    continue;
+                if (!waveformsBySourceId.contains(track.sourceId)) {
+                    std::vector<double> waveform;
+                    if (format == "rekordbox") {
+                        waveform = infrastructure::rekordbox::readWaveformPreview(path.toStdString(), track.sourceId);
+                    } else {
+                        waveform = infrastructure::engine::readWaveformPreview(path.toStdString(), track.sourceId);
+                    }
+                    waveformsBySourceId[track.sourceId] = std::move(waveform);
                 }
-                std::vector<double> waveform;
-                if (format == "rekordbox") {
-                    waveform = infrastructure::rekordbox::readWaveformPreview(path.toStdString(), track.sourceId);
-                } else {
-                    waveform = infrastructure::engine::readWaveformPreview(path.toStdString(), track.sourceId);
-                }
-                waveformsBySourceId[track.sourceId] = std::move(waveform);
+                reporter->tick(++waveformsProcessed);
             }
         }
+        reporter->finish();
 
         result.plans = std::move(actionable);
         result.waveformsBySourceId = std::move(waveformsBySourceId);

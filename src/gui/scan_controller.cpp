@@ -121,7 +121,12 @@ ScanTaskResult runScanTask(QString format, QString path, QString siblingRekordbo
 
             if (!siblingRekordboxPath.isEmpty()) {
                 try {
+                    // This is a second full scan (to build the artwork
+                    // lookup) that can take as long as the one above -- give
+                    // it the same reporter rather than let the bar sit at
+                    // 100% while this runs silently in the background.
                     infrastructure::rekordbox::KaitaiRekordboxReader rbReader(siblingRekordboxPath.toStdString());
+                    rbReader.setProgressReporter(*reporter);
                     application::ScanLibrary rbUseCase(rbReader);
                     auto rbTracks = rbUseCase.execute();
 
