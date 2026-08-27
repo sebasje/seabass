@@ -10,9 +10,14 @@ qt_add_qml_module(djconvert-gui
         qml/StickListPage.qml
         qml/ScanPage.qml
         qml/DuplicatesPage.qml
+        qml/SyncPage.qml
         qml/PlayerBar.qml
         qml/WaveformView.qml
         qml/SettingsPage.qml
+        qml/AppSettingsPage.qml
+        qml/UsbStickIcon.qml
+    RESOURCES
+        qml/icons/seabass_soundbass.svg
     SOURCES
         media_controller.hpp
         media_controller.cpp
@@ -20,10 +25,14 @@ qt_add_qml_module(djconvert-gui
         scan_controller.cpp
         duplicates_controller.hpp
         duplicates_controller.cpp
+        sync_controller.hpp
+        sync_controller.cpp
         playback_controller.hpp
         playback_controller.cpp
         settings_controller.hpp
         settings_controller.cpp
+        app_settings_controller.hpp
+        app_settings_controller.cpp
         qt_progress_reporter.hpp
 )
 
@@ -38,4 +47,5 @@ target_link_libraries(djconvert-gui PRIVATE
     Qt6::QuickLayouts
     Qt6::Multimedia
     Qt6::Concurrent
+    Qt6::Svg
 )

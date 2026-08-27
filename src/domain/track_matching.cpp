@@ -40,6 +40,14 @@ std::string normalizeFilename(const std::string &filename)
     return result;
 }
 
+std::optional<std::string> titleArtistKey(const Track &track)
+{
+    if (track.title.empty() || track.artist.empty()) {
+        return std::nullopt;
+    }
+    return normalizeFilename(track.title + "|" + track.artist);
+}
+
 bool cueSetsEqual(const std::vector<CuePoint> &a, const std::vector<CuePoint> &b)
 {
     if (a.size() != b.size()) {

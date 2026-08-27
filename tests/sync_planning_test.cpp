@@ -6,13 +6,16 @@
 using namespace djconvert::domain;
 using namespace std::chrono;
 
-Track makeTrack(std::string id, std::string filename, double duration, std::vector<CuePoint> cues)
+Track makeTrack(std::string id, std::string filename, double duration, std::vector<CuePoint> cues,
+                 std::string title = "", std::string artist = "")
 {
     Track t;
     t.sourceId = std::move(id);
     t.filename = std::move(filename);
     t.durationSeconds = duration;
     t.cues = std::move(cues);
+    t.title = std::move(title);
+    t.artist = std::move(artist);
     return t;
 }
 
@@ -31,13 +34,42 @@ int main()
         std::cout << "case 1 (matching) OK\n";
     }
 
-    // No match when filenames differ.
+    // No match when filenames differ and there's no title/artist metadata
+    // to fall back on.
     {
         std::vector<Track> rekordbox = {makeTrack("r1", "a.mp3", 200.0, {})};
         std::vector<Track> engine = {makeTrack("e1", "b.mp3", 200.0, {})};
         auto matches = TrackMatcher::match(rekordbox, engine);
         assert(matches.empty());
-        std::cout << "case 2 (no match, different filenames) OK\n";
+        std::cout << "case 2 (no match, different filenames, no metadata) OK\n";
+    }
+
+    // Title+artist is the primary matching signal: filenames can legitimately
+    // differ across formats (e.g. a playlist index embedded in the
+    // filename), but matching title+artist still pairs the tracks up.
+    {
+        std::vector<Track> rekordbox = {
+            makeTrack("r1", "01 - song.mp3", 200.0, {}, "Song", "Artist")};
+        std::vector<Track> engine = {
+            makeTrack("e1", "song (export).mp3", 200.5, {}, "Song", "Artist")};
+        auto matches = TrackMatcher::match(rekordbox, engine);
+        assert(matches.size() == 1);
+        assert(matches[0].rekordboxTrack.sourceId == "r1");
+        assert(matches[0].engineTrack.sourceId == "e1");
+        std::cout << "case 2b (matching by title+artist despite differing filenames) OK\n";
+    }
+
+    // Title+artist matches but duration is wildly different (e.g. a cover
+    // version, or coincidentally identical metadata) -> not treated as the
+    // same track.
+    {
+        std::vector<Track> rekordbox = {
+            makeTrack("r1", "a.mp3", 200.0, {}, "Song", "Artist")};
+        std::vector<Track> engine = {
+            makeTrack("e1", "b.mp3", 400.0, {}, "Song", "Artist")};
+        auto matches = TrackMatcher::match(rekordbox, engine);
+        assert(matches.empty());
+        std::cout << "case 2c (title+artist match but duration too different -> no match) OK\n";
     }
 
     // rekordbox has cues, engine doesn't -> propagate to engine.

@@ -18,18 +18,40 @@ constexpr double DurationToleranceSeconds = 2.0;
 std::vector<SyncMatch> TrackMatcher::match(const std::vector<Track> &rekordboxTracks,
                                             const std::vector<Track> &engineTracks)
 {
+    // Title+artist is the primary signal: filenames can legitimately
+    // differ across formats (Sebastian sometimes embeds a playlist index
+    // in the filename), so filename is only a fallback for tracks missing
+    // title/artist metadata.
+    std::map<std::string, std::vector<const Track *>> engineByTitleArtist;
     std::map<std::string, std::vector<const Track *>> engineByFilename;
     for (const auto &track : engineTracks) {
+        if (auto key = titleArtistKey(track)) {
+            engineByTitleArtist[*key].push_back(&track);
+        }
         engineByFilename[normalizeFilename(track.filename)].push_back(&track);
     }
 
     std::vector<SyncMatch> matches;
     for (const auto &rekordboxTrack : rekordboxTracks) {
-        auto it = engineByFilename.find(normalizeFilename(rekordboxTrack.filename));
-        if (it == engineByFilename.end()) {
+        const std::vector<const Track *> *candidates = nullptr;
+
+        if (auto key = titleArtistKey(rekordboxTrack)) {
+            auto it = engineByTitleArtist.find(*key);
+            if (it != engineByTitleArtist.end()) {
+                candidates = &it->second;
+            }
+        }
+        if (!candidates) {
+            auto it = engineByFilename.find(normalizeFilename(rekordboxTrack.filename));
+            if (it != engineByFilename.end()) {
+                candidates = &it->second;
+            }
+        }
+        if (!candidates) {
             continue;
         }
-        for (const auto *engineTrack : it->second) {
+
+        for (const auto *engineTrack : *candidates) {
             if (std::abs(rekordboxTrack.durationSeconds - engineTrack->durationSeconds) <= DurationToleranceSeconds) {
                 matches.push_back({rekordboxTrack, *engineTrack});
                 break;  // one match per rekordbox track is enough for cue syncing

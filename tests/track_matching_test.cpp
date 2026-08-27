@@ -58,6 +58,33 @@ int main()
         std::cout << "case 5 (cueSetsEqual field mismatches -> false) OK\n";
     }
 
+    // titleArtistKey: case/whitespace-insensitive, symmetric in what it
+    // normalizes, and nullopt when either field is missing (too weak a
+    // signal to match on).
+    {
+        Track a;
+        a.title = "Song Title";
+        a.artist = "The Artist";
+        Track b;
+        b.title = "song title";
+        b.artist = "the artist";
+        assert(titleArtistKey(a) == titleArtistKey(b));
+
+        Track noTitle;
+        noTitle.artist = "The Artist";
+        assert(!titleArtistKey(noTitle).has_value());
+
+        Track noArtist;
+        noArtist.title = "Song Title";
+        assert(!titleArtistKey(noArtist).has_value());
+
+        Track differentArtist;
+        differentArtist.title = "Song Title";
+        differentArtist.artist = "Someone Else";
+        assert(titleArtistKey(a) != titleArtistKey(differentArtist));
+        std::cout << "case 6 (titleArtistKey normalization and missing-field handling) OK\n";
+    }
+
     std::cout << "all cases passed\n";
     return 0;
 }

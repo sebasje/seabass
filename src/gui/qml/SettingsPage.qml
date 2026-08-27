@@ -23,7 +23,7 @@ Page {
                 onClicked: root.StackView.view.pop()
             }
             Label {
-                text: root.stickLabel + " -- device settings"
+                text: root.stickLabel + " -- Device Settings"
                 font.bold: true
                 font.pointSize: 14
             }

@@ -15,18 +15,6 @@ namespace
 
 constexpr double DurationToleranceSeconds = 2.0;
 
-// Tracks under different filenames are still the same song if title+artist
-// match exactly (e.g. re-imported into rekordbox under a different naming
-// scheme) -- empty title/artist is too weak a signal to match on, so those
-// are skipped rather than treated as one giant group.
-std::optional<std::string> titleArtistKey(const Track &track)
-{
-    if (track.title.empty() || track.artist.empty()) {
-        return std::nullopt;
-    }
-    return normalizeFilename(track.title + "|" + track.artist);
-}
-
 size_t findRoot(std::vector<size_t> &parent, size_t x)
 {
     while (parent[x] != x) {
