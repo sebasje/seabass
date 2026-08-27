@@ -51,8 +51,12 @@ private:
 // / analyzeRestore(). Built entirely on a worker thread.
 struct LocalCueTaskResult
 {
-    // backupToComputer: number of tracks upserted. analyzeRestore: unused.
-    int tracksAffected = 0;
+    // backupToComputer: tracks upserted for each format actually present on
+    // the stick, -1 for a format the stick doesn't have (so the UI can tell
+    // "backed up 0 tracks" apart from "this stick has no Engine data").
+    // analyzeRestore: both unused.
+    int tracksAffectedRekordbox = -1;
+    int tracksAffectedEngine = -1;
     int stickTrackCount = 0;
     int localTrackCount = 0;
     std::vector<domain::RestoreCandidate> candidates;
@@ -115,14 +119,16 @@ public:
     QString statusMessage() const { return m_statusMessage; }
     bool canUndo() const { return !m_lastBackups.empty(); }
 
-    // format is "rekordbox" or "engine"; path is the corresponding
-    // DetectedStick.rekordboxPath / .enginePath. Scans the stick, upserts
-    // every track with cues into the local database's merged "current
-    // state" (never touches the stick, so needs no confirmation), and
-    // freezes an independently-restorable snapshot of the same data under
+    // Backs up whichever of rekordboxPath/enginePath is non-empty -- both,
+    // for a stick that has both formats, in one call, rather than making
+    // the user switch formats and click twice (and risk only ever backing
+    // up whichever format happened to be selected). Scans each present
+    // side, upserts every track with cues into the local database's merged
+    // "current state" (never touches the stick, so needs no confirmation),
+    // and freezes an independently-restorable snapshot of each under
     // `description`.
-    Q_INVOKABLE void backupToComputer(const QString &format, const QString &path, const QString &stickLabel,
-                                       const QString &description = QString());
+    Q_INVOKABLE void backupToComputer(const QString &stickLabel, const QString &description,
+                                       const QString &rekordboxPath, const QString &enginePath);
 
     // Phase 1 (read-only): scans the stick and matches it against the
     // local backup's merged "current state," proposing to merge in

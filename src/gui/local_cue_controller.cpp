@@ -1,5 +1,6 @@
 #include "local_cue_controller.hpp"
 
+#include <QStringList>
 #include <QVariantMap>
 #include <QtConcurrent/QtConcurrentRun>
 
@@ -121,24 +122,40 @@ void RestoreCandidateListModel::setCandidates(std::vector<domain::RestoreCandida
 namespace
 {
 
+// Backs up one format's side of the stick into the local store -- shared
+// by both branches of runBackupTask() below.
+int backupOneFormat(const QString &format, const QString &path, const QString &stickLabel,
+                     const QString &description, std::shared_ptr<QtProgressReporter> reporter)
+{
+    auto tracks = scanStick(format, path, reporter);
+    int withCues = 0;
+    for (const auto &track : tracks) {
+        if (!track.cues.empty()) {
+            withCues++;
+        }
+    }
+
+    infrastructure::local::LocalCueStore store;
+    store.upsert(tracks, format.toStdString(), stickLabel.toStdString());
+    store.createSnapshot(tracks, format.toStdString(), stickLabel.toStdString(), description.toStdString());
+    return withCues;
+}
+
 // Runs entirely on a background thread -- no access to the controller.
-LocalCueTaskResult runBackupTask(QString format, QString path, QString stickLabel, QString description,
+// Backs up whichever of rekordboxPath/enginePath is non-empty, so a stick
+// with both formats gets both backed up from a single "Backup Now" click
+// rather than requiring the user to switch formats and click twice.
+LocalCueTaskResult runBackupTask(QString stickLabel, QString description, QString rekordboxPath, QString enginePath,
                                   std::shared_ptr<QtProgressReporter> reporter)
 {
     LocalCueTaskResult result;
     try {
-        auto tracks = scanStick(format, path, reporter);
-        int withCues = 0;
-        for (const auto &track : tracks) {
-            if (!track.cues.empty()) {
-                withCues++;
-            }
+        if (!rekordboxPath.isEmpty()) {
+            result.tracksAffectedRekordbox = backupOneFormat("rekordbox", rekordboxPath, stickLabel, description, reporter);
         }
-
-        infrastructure::local::LocalCueStore store;
-        store.upsert(tracks, format.toStdString(), stickLabel.toStdString());
-        store.createSnapshot(tracks, format.toStdString(), stickLabel.toStdString(), description.toStdString());
-        result.tracksAffected = withCues;
+        if (!enginePath.isEmpty()) {
+            result.tracksAffectedEngine = backupOneFormat("engine", enginePath, stickLabel, description, reporter);
+        }
     } catch (const std::exception &e) {
         result.errorMessage = QString::fromStdString(e.what());
     }
@@ -312,8 +329,8 @@ LocalCueController::LocalCueController(QObject *parent) : QObject(parent)
             &LocalCueController::onWriteFinished);
 }
 
-void LocalCueController::backupToComputer(const QString &format, const QString &path, const QString &stickLabel,
-                                           const QString &description)
+void LocalCueController::backupToComputer(const QString &stickLabel, const QString &description,
+                                           const QString &rekordboxPath, const QString &enginePath)
 {
     if (m_busy) {
         return;
@@ -324,7 +341,7 @@ void LocalCueController::backupToComputer(const QString &format, const QString &
     setBusy(true);
 
     m_backupWatcher.setFuture(
-        QtConcurrent::run(runBackupTask, format, path, stickLabel, description, makeReporter()));
+        QtConcurrent::run(runBackupTask, stickLabel, description, rekordboxPath, enginePath, makeReporter()));
 }
 
 void LocalCueController::onBackupFinished()
@@ -334,7 +351,14 @@ void LocalCueController::onBackupFinished()
     if (!result.errorMessage.isEmpty()) {
         setErrorMessage(result.errorMessage);
     } else {
-        setStatusMessage(QString("Backed up cues for %1 track(s) to this computer").arg(result.tracksAffected));
+        QStringList parts;
+        if (result.tracksAffectedRekordbox >= 0) {
+            parts << QString("%1 track(s) (Rekordbox)").arg(result.tracksAffectedRekordbox);
+        }
+        if (result.tracksAffectedEngine >= 0) {
+            parts << QString("%1 track(s) (Engine)").arg(result.tracksAffectedEngine);
+        }
+        setStatusMessage(QString("Backed up cues to this computer: %1").arg(parts.join(", ")));
     }
     setBusy(false);
 }

@@ -185,7 +185,10 @@ Page {
                         Layout.fillWidth: true
                         Label { text: "Back Up to This Computer"; font.bold: true }
                         Label {
-                            text: "Copies this stick's cues to a local backup -- never touches the stick, no confirmation needed."
+                            text: (root.hasRekordbox && root.hasEngine
+                                    ? "Copies this stick's cues -- both Rekordbox and Engine -- to a local backup."
+                                    : "Copies this stick's cues to a local backup.")
+                                + " Never touches the stick, no confirmation needed."
                             color: Theme.textMuted
                             wrapMode: Text.WordWrap
                             Layout.fillWidth: true
@@ -200,8 +203,8 @@ Page {
                         text: "Backup Now"
                         enabled: !localCueController.busy
                         onClicked: {
-                            localCueController.backupToComputer(root.format, root.currentPath(), root.stickLabel,
-                                backupDescriptionField.text);
+                            localCueController.backupToComputer(root.stickLabel, backupDescriptionField.text,
+                                root.rekordboxPath, root.enginePath);
                             backupDescriptionField.text = "";
                         }
                     }
@@ -243,6 +246,12 @@ Page {
                         contentItem: RowLayout {
                             spacing: 8
                             Label {
+                                text: snapshotDelegate.modelData.sourceFormat === "engine" ? "Engine" : "Rekordbox"
+                                color: Theme.accent
+                                font.bold: true
+                                Layout.preferredWidth: 72
+                            }
+                            Label {
                                 text: root.friendlyTimestamp(snapshotDelegate.modelData.createdAt)
                                     + "  --  " + snapshotDelegate.modelData.trackCount + " track(s), "
                                     + snapshotDelegate.modelData.cueCount + " cue(s)"
@@ -270,7 +279,8 @@ Page {
                                 text: "Restore From Here"
                                 enabled: !localCueController.busy
                                 ToolTip.visible: hovered
-                                ToolTip.text: "Match this exact backup against the stick -- results appear below"
+                                ToolTip.text: "Match this exact backup against the " + (root.format === "engine" ? "Engine" : "Rekordbox")
+                                    + " side of the stick (switch the toggle above to restore the other side) -- results appear below"
                                 onClicked: {
                                     confirmDialog.sourceDescription = snapshotDescriptionField.text.length > 0
                                         ? snapshotDescriptionField.text
