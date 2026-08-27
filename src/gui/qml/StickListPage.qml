@@ -197,8 +197,6 @@ Page {
                             property string cardIconFont: "Noto Sans Symbols2"
                             Layout.fillWidth: true
                             Layout.preferredHeight: 68
-                            ToolTip.visible: hovered
-                            ToolTip.text: cardSubtitle
 
                             contentItem: RowLayout {
                                 spacing: 10
