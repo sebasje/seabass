@@ -38,6 +38,7 @@ qt_add_qml_module(djconvert-gui
         qml/UsbStickIcon.qml
         qml/StickWriteWarning.qml
         qml/RekordboxRunningWarning.qml
+        qml/CueFallbackNotice.qml
     RESOURCES
         qml/icons/seabass_soundbass.svg
     SOURCES

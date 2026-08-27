@@ -179,12 +179,17 @@ Page {
                             text: "⏏"
                             font.family: "Noto Sans Symbols2"
                             font.pointSize: Theme.fontHuge
-                            rotation: delegateRoot.mounted ? 0 : 180
+                            // Rotating the eject glyph 180° to mean "mount"
+                            // isn't a real convention -- it just reads as
+                            // an upside-down (broken-looking) eject icon.
+                            // Kept upright always; the tooltip (and now
+                            // click-anywhere-on-the-row) carry the "mount"
+                            // meaning instead.
                             Layout.preferredWidth: 48
                             Layout.preferredHeight: 48
                             Layout.alignment: Qt.AlignVCenter
                             ToolTip.visible: hovered
-                            ToolTip.text: delegateRoot.mounted ? "Unmount " + delegateRoot.label : "Mount " + delegateRoot.label
+                            ToolTip.text: delegateRoot.mounted ? "Eject " + delegateRoot.label : "Mount " + delegateRoot.label
                             onClicked: {
                                 if (delegateRoot.mounted) {
                                     // Stop first -- unmounting out from under an open
