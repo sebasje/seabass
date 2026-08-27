@@ -32,9 +32,17 @@ ApplicationWindow {
         id: appSettingsCtrl
     }
 
+    RekordboxGuardController {
+        id: rekordboxGuardCtrl
+    }
+
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
+
+        RekordboxRunningWarning {
+            visible: rekordboxGuardCtrl.rekordboxRunning
+        }
 
         StackView {
             id: stackView

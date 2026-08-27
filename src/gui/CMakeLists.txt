@@ -20,6 +20,8 @@ qt_add_qml_module(djconvert-gui
         qml/SettingsPage.qml
         qml/AppSettingsPage.qml
         qml/UsbStickIcon.qml
+        qml/StickWriteWarning.qml
+        qml/RekordboxRunningWarning.qml
     RESOURCES
         qml/icons/seabass_soundbass.svg
     SOURCES
@@ -41,6 +43,10 @@ qt_add_qml_module(djconvert-gui
         settings_controller.cpp
         app_settings_controller.hpp
         app_settings_controller.cpp
+        rekordbox_guard_controller.hpp
+        rekordbox_guard_controller.cpp
+        write_guard.hpp
+        write_guard.cpp
         qt_progress_reporter.hpp
 )
 

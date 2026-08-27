@@ -10,7 +10,8 @@ namespace djconvert::infrastructure::rekordbox
 
 using Anlz = rekordbox_anlz_t;
 
-std::vector<double> readWaveformPreview(const std::string &pioneerRoot, const std::string &trackSourceId)
+std::vector<domain::WaveformColumn> readWaveformPreview(const std::string &pioneerRoot,
+                                                          const std::string &trackSourceId)
 {
     // Best-effort per the header contract: findAnlzPathForTrackId() throws
     // if export.pdb itself can't be opened (e.g. the stick was unmounted
@@ -41,10 +42,16 @@ std::vector<double> readWaveformPreview(const std::string &pioneerRoot, const st
             }
 
             std::string data = tag->data();
-            std::vector<double> waveform;
+            std::vector<domain::WaveformColumn> waveform;
             waveform.reserve(data.size());
             for (unsigned char b : data) {
-                waveform.push_back((b & 0x1F) / 31.0);
+                double height = (b & 0x1F) / 31.0;
+                double whiteness = ((b >> 5) & 0x07) / 7.0;
+                domain::WaveformColumn col;
+                col.low = height;
+                col.mid = height * (0.55 + 0.45 * whiteness);
+                col.high = height * whiteness;
+                waveform.push_back(col);
             }
             return waveform;
         }

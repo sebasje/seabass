@@ -7,9 +7,11 @@
 #include <ctime>
 #include <filesystem>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
 
 #include "domain/track_matching.hpp"
+#include "infrastructure/compression/zlib_compressor.hpp"
 
 namespace djconvert::infrastructure::local
 {
@@ -57,6 +59,10 @@ public:
     void bind(int index, double value) { sqlite3_bind_double(m_stmt, index, value); }
     void bind(int index, int value) { sqlite3_bind_int(m_stmt, index, value); }
     void bindInt64(int index, sqlite3_int64 value) { sqlite3_bind_int64(m_stmt, index, value); }
+    void bindBlob(int index, const std::string &value)
+    {
+        sqlite3_bind_blob(m_stmt, index, value.data(), static_cast<int>(value.size()), SQLITE_TRANSIENT);
+    }
 
     // Runs to completion; throws if the statement reports an error.
     void run()
@@ -89,6 +95,12 @@ public:
     double columnDouble(int index) { return sqlite3_column_double(m_stmt, index); }
     int columnInt(int index) { return sqlite3_column_int(m_stmt, index); }
     sqlite3_int64 columnInt64(int index) { return sqlite3_column_int64(m_stmt, index); }
+    std::string columnBlob(int index)
+    {
+        const void *data = sqlite3_column_blob(m_stmt, index);
+        int size = sqlite3_column_bytes(m_stmt, index);
+        return data ? std::string(reinterpret_cast<const char *>(data), static_cast<size_t>(size)) : std::string();
+    }
 
     sqlite3_int64 lastInsertRowId() { return sqlite3_last_insert_rowid(m_db); }
 
@@ -104,6 +116,173 @@ void exec(sqlite3 *db, const char *sql)
         std::string message = errMsg ? errMsg : "unknown error";
         sqlite3_free(errMsg);
         throw std::runtime_error("local cue store: " + message);
+    }
+}
+
+// A schema migration for a database that already had backup_sessions
+// before schema_version existed (this feature's own first release, before
+// the column was added) -- CREATE TABLE IF NOT EXISTS never adds a column
+// to an existing table, only ALTER TABLE does, and SQLite has no "ADD
+// COLUMN IF NOT EXISTS." A duplicate-column error means it's already
+// there, which is expected on every run after the first and not a
+// failure.
+void addColumnIfMissing(sqlite3 *db, const char *alterSql)
+{
+    char *errMsg = nullptr;
+    if (sqlite3_exec(db, alterSql, nullptr, nullptr, &errMsg) != SQLITE_OK) {
+        std::string message = errMsg ? errMsg : "unknown error";
+        sqlite3_free(errMsg);
+        if (message.find("duplicate column name") == std::string::npos) {
+            throw std::runtime_error("local cue store: " + message);
+        }
+    }
+}
+
+// A private, own-format serialization for snapshot blobs -- there's no
+// need for a general interchange format (JSON etc.) since nothing outside
+// this file ever reads it, so a tiny escaped-tab-separated scheme avoids
+// vendoring a JSON library for one job. Backslash-escapes tab/newline/
+// carriage-return/backslash itself, so free-text fields (title, artist,
+// comment) can never corrupt the line structure.
+//
+// Every snapshot stores the format version it was written with (see the
+// backup_sessions.schema_version column) alongside the blob, and
+// deserializeTracks() dispatches on it. This is the actual backwards-
+// compatibility guarantee: if this format ever needs to change, the
+// version-1 parser below stays exactly as it is forever, a new
+// version-N branch gets added alongside it, and every snapshot written
+// under the old version keeps reading back correctly no matter how old.
+// Never repurpose an existing version number for a changed format.
+constexpr int CurrentSnapshotFormatVersion = 1;
+
+std::string escapeField(const std::string &value)
+{
+    std::string out;
+    out.reserve(value.size());
+    for (char c : value) {
+        switch (c) {
+        case '\\':
+            out += "\\\\";
+            break;
+        case '\t':
+            out += "\\t";
+            break;
+        case '\n':
+            out += "\\n";
+            break;
+        case '\r':
+            out += "\\r";
+            break;
+        default:
+            out += c;
+        }
+    }
+    return out;
+}
+
+std::string unescapeField(const std::string &value)
+{
+    std::string out;
+    out.reserve(value.size());
+    for (size_t i = 0; i < value.size(); ++i) {
+        if (value[i] == '\\' && i + 1 < value.size()) {
+            char next = value[++i];
+            switch (next) {
+            case 't':
+                out += '\t';
+                break;
+            case 'n':
+                out += '\n';
+                break;
+            case 'r':
+                out += '\r';
+                break;
+            default:
+                out += next;  // handles '\\' -> '\' too
+            }
+        } else {
+            out += value[i];
+        }
+    }
+    return out;
+}
+
+// Format version 1. If this ever needs to change, add serializeTracksV2 /
+// deserializeTracksV2 alongside it (see CurrentSnapshotFormatVersion's
+// comment above) rather than editing this one.
+std::string serializeTracksV1(const std::vector<Track> &tracks)
+{
+    std::ostringstream out;
+    for (const auto &track : tracks) {
+        out << "T\t" << escapeField(track.sourceId) << '\t' << escapeField(track.filename) << '\t'
+            << escapeField(track.title) << '\t' << escapeField(track.artist) << '\t' << track.durationSeconds
+            << '\n';
+        for (const auto &cue : track.cues) {
+            out << "C\t" << (cue.kind == CuePoint::Kind::Hot ? "hot" : "memory") << '\t' << cue.hotCueNumber << '\t'
+                << cue.positionMs << '\t' << escapeField(cue.color) << '\t' << escapeField(cue.comment) << '\n';
+        }
+    }
+    return out.str();
+}
+
+std::vector<std::string> splitFields(const std::string &line)
+{
+    std::vector<std::string> fields;
+    size_t start = 0;
+    for (size_t i = 0; i <= line.size(); ++i) {
+        if (i == line.size() || line[i] == '\t') {
+            fields.push_back(line.substr(start, i - start));
+            start = i + 1;
+        }
+    }
+    return fields;
+}
+
+std::vector<Track> deserializeTracksV1(const std::string &data)
+{
+    std::vector<Track> tracks;
+    std::istringstream in(data);
+    std::string line;
+    while (std::getline(in, line)) {
+        auto fields = splitFields(line);
+        if (fields.empty()) {
+            continue;
+        }
+        if (fields[0] == "T" && fields.size() >= 6) {
+            Track track;
+            track.sourceId = unescapeField(fields[1]);
+            track.filename = unescapeField(fields[2]);
+            track.title = unescapeField(fields[3]);
+            track.artist = unescapeField(fields[4]);
+            track.durationSeconds = std::stod(fields[5]);
+            tracks.push_back(std::move(track));
+        } else if (fields[0] == "C" && fields.size() >= 6 && !tracks.empty()) {
+            CuePoint cue;
+            cue.kind = fields[1] == "hot" ? CuePoint::Kind::Hot : CuePoint::Kind::Memory;
+            cue.hotCueNumber = std::stoi(fields[2]);
+            cue.positionMs = std::stod(fields[3]);
+            cue.color = unescapeField(fields[4]);
+            cue.comment = unescapeField(fields[5]);
+            tracks.back().cues.push_back(std::move(cue));
+        }
+    }
+    return tracks;
+}
+
+// Dispatches to the parser for whichever version the snapshot was actually
+// written with -- see CurrentSnapshotFormatVersion's comment: every past
+// version's parser stays available here forever, so a snapshot backed up
+// years ago on an older djconvert always reads back correctly.
+std::vector<Track> deserializeTracks(const std::string &data, int formatVersion)
+{
+    switch (formatVersion) {
+    case 1:
+        return deserializeTracksV1(data);
+    default:
+        throw std::runtime_error("local cue store: snapshot was written with format version " +
+                                  std::to_string(formatVersion) +
+                                  ", which this version of Seabass doesn't know how to read "
+                                  "(a downgrade?) -- try a newer version of the app");
     }
 }
 
@@ -153,6 +332,21 @@ LocalCueStore::LocalCueStore(std::string path)
             comment TEXT NOT NULL DEFAULT ''
         );
     )sql");
+    exec(m_db, R"sql(
+        CREATE TABLE IF NOT EXISTS backup_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT NOT NULL,
+            stick_label TEXT NOT NULL,
+            source_format TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            track_count INTEGER NOT NULL,
+            cue_count INTEGER NOT NULL,
+            uncompressed_size_bytes INTEGER NOT NULL,
+            compressed_size_bytes INTEGER NOT NULL,
+            data BLOB NOT NULL
+        );
+    )sql");
+    addColumnIfMissing(m_db, "ALTER TABLE backup_sessions ADD COLUMN schema_version INTEGER NOT NULL DEFAULT 1");
 }
 
 LocalCueStore::~LocalCueStore()
@@ -288,6 +482,96 @@ void LocalCueStore::upsert(const std::vector<Track> &tracks, const std::string &
             insertCue.run();
         }
     }
+}
+
+std::int64_t LocalCueStore::createSnapshot(const std::vector<Track> &tracks, const std::string &sourceFormat,
+                                            const std::string &stickLabel, const std::string &description)
+{
+    std::vector<Track> withCues;
+    int cueCount = 0;
+    for (const auto &track : tracks) {
+        if (track.cues.empty()) {
+            continue;
+        }
+        withCues.push_back(track);
+        cueCount += static_cast<int>(track.cues.size());
+    }
+
+    std::string serialized = serializeTracksV1(withCues);
+    std::string compressed = compression::compress(serialized);
+
+    Statement insert(m_db, R"sql(
+        INSERT INTO backup_sessions (created_at, stick_label, source_format, description, track_count,
+            cue_count, uncompressed_size_bytes, compressed_size_bytes, schema_version, data)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    )sql");
+    insert.bind(1, isoTimestampUtc());
+    insert.bind(2, stickLabel);
+    insert.bind(3, sourceFormat);
+    insert.bind(4, description);
+    insert.bind(5, static_cast<int>(withCues.size()));
+    insert.bind(6, cueCount);
+    insert.bindInt64(7, static_cast<sqlite3_int64>(serialized.size()));
+    insert.bindInt64(8, static_cast<sqlite3_int64>(compressed.size()));
+    insert.bind(9, CurrentSnapshotFormatVersion);
+    insert.bindBlob(10, compressed);
+    insert.run();
+    return insert.lastInsertRowId();
+}
+
+std::vector<BackupSessionSummary> LocalCueStore::listSnapshots()
+{
+    std::vector<BackupSessionSummary> summaries;
+    Statement stmt(m_db, R"sql(
+        SELECT id, created_at, stick_label, source_format, description, track_count, cue_count,
+            uncompressed_size_bytes, compressed_size_bytes, schema_version
+        FROM backup_sessions ORDER BY id DESC
+    )sql");
+    while (stmt.step()) {
+        BackupSessionSummary summary;
+        summary.id = stmt.columnInt64(0);
+        summary.createdAt = stmt.columnText(1);
+        summary.stickLabel = stmt.columnText(2);
+        summary.sourceFormat = stmt.columnText(3);
+        summary.description = stmt.columnText(4);
+        summary.trackCount = stmt.columnInt(5);
+        summary.cueCount = stmt.columnInt(6);
+        summary.uncompressedSizeBytes = static_cast<std::uint64_t>(stmt.columnInt64(7));
+        summary.compressedSizeBytes = static_cast<std::uint64_t>(stmt.columnInt64(8));
+        summary.schemaVersion = stmt.columnInt(9);
+        summaries.push_back(std::move(summary));
+    }
+    return summaries;
+}
+
+std::vector<Track> LocalCueStore::readSnapshot(std::int64_t id)
+{
+    Statement stmt(m_db, "SELECT data, uncompressed_size_bytes, schema_version FROM backup_sessions WHERE id = ?");
+    stmt.bindInt64(1, id);
+    if (!stmt.step()) {
+        throw std::runtime_error("local cue store: no such backup session " + std::to_string(id));
+    }
+    std::string compressed = stmt.columnBlob(0);
+    auto uncompressedSize = static_cast<size_t>(stmt.columnInt64(1));
+    int formatVersion = stmt.columnInt(2);
+    std::string serialized = compression::decompress(compressed, uncompressedSize);
+    return deserializeTracks(serialized, formatVersion);
+}
+
+void LocalCueStore::setSnapshotDescription(std::int64_t id, const std::string &description)
+{
+    Statement update(m_db, "UPDATE backup_sessions SET description = ? WHERE id = ?");
+    update.bind(1, description);
+    update.bindInt64(2, id);
+    update.run();
+}
+
+bool LocalCueStore::deleteSnapshot(std::int64_t id)
+{
+    Statement del(m_db, "DELETE FROM backup_sessions WHERE id = ?");
+    del.bindInt64(1, id);
+    del.run();
+    return sqlite3_changes(m_db) > 0;
 }
 
 }  // namespace djconvert::infrastructure::local

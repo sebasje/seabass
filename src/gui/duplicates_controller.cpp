@@ -14,7 +14,9 @@
 #include "application/use_cases/consolidate_duplicate_cues.hpp"
 #include "application/use_cases/scan_library.hpp"
 #include "gui/qt_progress_reporter.hpp"
+#include "gui/write_guard.hpp"
 #include "infrastructure/backup/filesystem_backup_store.hpp"
+#include "infrastructure/backup/stick_write_lock.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cue_writer.hpp"
 #include "infrastructure/engine/libdjinterop_engine_reader.hpp"
 #include "infrastructure/engine/libdjinterop_waveform_reader.hpp"
@@ -92,8 +94,12 @@ QVariant ConsolidationPlanListModel::data(const QModelIndex &index, int role) co
             QVariantList waveform;
             auto waveformIt = m_waveformsBySourceId.find(t.sourceId);
             if (waveformIt != m_waveformsBySourceId.end()) {
-                for (double v : waveformIt->second) {
-                    waveform << v;
+                for (const auto &col : waveformIt->second) {
+                    QVariantMap colMap;
+                    colMap["low"] = col.low;
+                    colMap["mid"] = col.mid;
+                    colMap["high"] = col.high;
+                    waveform << colMap;
                 }
             }
             trackMap["waveform"] = waveform;
@@ -118,8 +124,9 @@ QHash<int, QByteArray> ConsolidationPlanListModel::roleNames() const
     };
 }
 
-void ConsolidationPlanListModel::setPlans(std::vector<domain::ConsolidationPlan> plans,
-                                           std::unordered_map<std::string, std::vector<double>> waveformsBySourceId)
+void ConsolidationPlanListModel::setPlans(
+    std::vector<domain::ConsolidationPlan> plans,
+    std::unordered_map<std::string, std::vector<domain::WaveformColumn>> waveformsBySourceId)
 {
     beginResetModel();
     m_plans = std::move(plans);
@@ -170,7 +177,8 @@ FormatContext makeContext(const QString &format, const QString &path)
 }
 
 void copyCuesToTargets(const domain::Track &source, const std::vector<domain::Track> &targets, FormatContext &ctx,
-                        std::set<std::string> &backedUpFiles, int &cuesCopied, int &targetsWritten)
+                        std::set<std::string> &backedUpFiles, int &cuesCopied, int &targetsWritten,
+                        std::vector<UndoableBackup> &outBackups)
 {
     for (const auto &target : targets) {
         auto files = ctx.filesToBackUpFor(target.sourceId);
@@ -180,6 +188,8 @@ void copyCuesToTargets(const domain::Track &source, const std::vector<domain::Tr
         if (!files.empty()) {
             auto record = ctx.backupStore->backup(files, "duplicate-cue-consolidation");
             ctx.log->record("backed up before duplicate-cue consolidation -> " + record.path);
+            outBackups.push_back({QString::fromStdString(fs::path(record.path).parent_path().string()),
+                                   QString::fromStdString(record.id)});
             for (const auto &f : files) {
                 backedUpFiles.insert(f);
             }
@@ -191,6 +201,102 @@ void copyCuesToTargets(const domain::Track &source, const std::vector<domain::Tr
         cuesCopied += static_cast<int>(source.cues.size());
         targetsWritten++;
     }
+}
+
+// Runs entirely on a background thread (see DuplicatesController::
+// startApply()) -- writes are file I/O just like the rescan, so they get
+// the same treatment: never block the UI thread, report progress as they
+// go. multiGroup only changes the wording of the final status message.
+DuplicatesWriteResult runApplyTask(QString format, QString path, std::vector<DuplicatesCopyOp> ops, bool multiGroup,
+                                    std::shared_ptr<QtProgressReporter> reporter)
+{
+    DuplicatesWriteResult result;
+    QString refusal = refuseIfRekordboxRunning();
+    if (!refusal.isEmpty()) {
+        result.errorMessage = refusal;
+        return result;
+    }
+    try {
+        std::string backupDir = (fs::path(path.toStdString()).parent_path() / ".djconvert-backups").string();
+        infrastructure::backup::StickWriteLock lock(backupDir + "/.write.lock");
+
+        auto ctx = makeContext(format, path);
+        std::set<std::string> backedUpFiles;
+        int totalCues = 0;
+        int totalTargets = 0;
+        int groups = 0;
+
+        size_t totalWork = 0;
+        for (const auto &op : ops) {
+            totalWork += op.targets.size();
+        }
+        reporter->start("Writing cues", totalWork);
+        size_t done = 0;
+
+        for (const auto &op : ops) {
+            int cuesCopied = 0;
+            int targetsWritten = 0;
+            copyCuesToTargets(op.source, op.targets, ctx, backedUpFiles, cuesCopied, targetsWritten, result.backups);
+            totalCues += cuesCopied;
+            totalTargets += targetsWritten;
+            groups++;
+            done += op.targets.size();
+            reporter->tick(done);
+        }
+        reporter->finish();
+
+        result.statusMessage = multiGroup
+            ? QString("Consolidated %1 duplicate track(s): copied %2 cue(s) onto %3 track(s)")
+                  .arg(groups).arg(totalCues).arg(totalTargets)
+            : QString("Copied %1 cue(s) onto %2 track(s)").arg(totalCues).arg(totalTargets);
+    } catch (const std::exception &e) {
+        result.errorMessage = QString::fromStdString(e.what());
+    }
+    return result;
+}
+
+// Runs entirely on a background thread (see DuplicatesController::
+// undoLastOperation()). An empty `backups` result always means "nothing
+// left to undo" -- the caller's undo trail is stale either way.
+DuplicatesWriteResult runUndoTask(std::vector<UndoableBackup> backups, std::shared_ptr<QtProgressReporter> reporter)
+{
+    DuplicatesWriteResult result;
+    QString refusal = refuseIfRekordboxRunning();
+    if (!refusal.isEmpty()) {
+        result.errorMessage = refusal;
+        return result;
+    }
+    int restored = 0;
+    try {
+        // All of these backups came from one controller instance (one
+        // format+path), so in practice this is always exactly one
+        // directory -- dedup anyway rather than assume it.
+        std::vector<std::string> dirs;
+        for (const auto &backup : backups) {
+            dirs.push_back(backup.backupDir.toStdString());
+        }
+        std::sort(dirs.begin(), dirs.end());
+        dirs.erase(std::unique(dirs.begin(), dirs.end()), dirs.end());
+        std::vector<std::unique_ptr<infrastructure::backup::StickWriteLock>> locks;
+        for (const auto &dir : dirs) {
+            locks.push_back(std::make_unique<infrastructure::backup::StickWriteLock>(dir + "/.write.lock"));
+        }
+
+        reporter->start("Undoing", backups.size());
+        for (auto it = backups.rbegin(); it != backups.rend(); ++it) {
+            infrastructure::backup::FilesystemBackupStore store(it->backupDir.toStdString());
+            if (store.restore(it->id.toStdString())) {
+                restored++;
+            }
+            reporter->tick(static_cast<size_t>(restored));
+        }
+        reporter->finish();
+        result.statusMessage =
+            QString("Undone -- restored %1 file(s) to their state before the last consolidation").arg(restored);
+    } catch (const std::exception &e) {
+        result.errorMessage = QString::fromStdString(e.what());
+    }
+    return result;
 }
 
 }  // namespace
@@ -235,11 +341,11 @@ DuplicatesTaskResult runRescanTask(QString format, QString path, std::shared_ptr
         reporter->start("Loading waveforms", totalWaveformTracks);
         size_t waveformsProcessed = 0;
 
-        std::unordered_map<std::string, std::vector<double>> waveformsBySourceId;
+        std::unordered_map<std::string, std::vector<domain::WaveformColumn>> waveformsBySourceId;
         for (const auto &plan : actionable) {
             for (const auto &track : plan.group.tracks) {
                 if (!waveformsBySourceId.contains(track.sourceId)) {
-                    std::vector<double> waveform;
+                    std::vector<domain::WaveformColumn> waveform;
                     if (format == "rekordbox") {
                         waveform = infrastructure::rekordbox::readWaveformPreview(path.toStdString(), track.sourceId);
                     } else {
@@ -266,6 +372,8 @@ DuplicatesController::DuplicatesController(QObject *parent) : QObject(parent)
 {
     connect(&m_watcher, &QFutureWatcher<DuplicatesTaskResult>::finished, this,
             &DuplicatesController::onRescanFinished);
+    connect(&m_writeWatcher, &QFutureWatcher<DuplicatesWriteResult>::finished, this,
+            &DuplicatesController::onWriteFinished);
 }
 
 void DuplicatesController::scan(const QString &format, const QString &path)
@@ -284,15 +392,19 @@ void DuplicatesController::rescan()
     setScanProgress(0, 0);
     setBusy(true);
 
-    // See ScanController::scan() for why the reporter is owned by the task
-    // (via shared_ptr) rather than by this controller.
+    m_watcher.setFuture(QtConcurrent::run(runRescanTask, m_format, m_path, makeReporter()));
+}
+
+// See ScanController::scan() for why the reporter is owned by the task
+// (via shared_ptr) rather than by this controller.
+std::shared_ptr<QtProgressReporter> DuplicatesController::makeReporter()
+{
     auto reporter = std::make_shared<QtProgressReporter>();
     connect(reporter.get(), &QtProgressReporter::started, this,
             [this](const QString &, int total) { setScanProgress(0, total); });
     connect(reporter.get(), &QtProgressReporter::progressed, this,
             [this](int current) { setScanProgress(current, m_scanTotal); });
-
-    m_watcher.setFuture(QtConcurrent::run(runRescanTask, m_format, m_path, reporter));
+    return reporter;
 }
 
 void DuplicatesController::onRescanFinished()
@@ -311,35 +423,26 @@ void DuplicatesController::onRescanFinished()
 
 void DuplicatesController::applyOne(int index)
 {
+    if (m_busy) {
+        return;
+    }
     const auto &plans = m_model.plans();
     if (index < 0 || static_cast<size_t>(index) >= plans.size()) {
         return;
     }
-    if (plans[static_cast<size_t>(index)].kind != ConsolidationPlan::Kind::Unambiguous) {
+    const auto &plan = plans[static_cast<size_t>(index)];
+    if (plan.kind != ConsolidationPlan::Kind::Unambiguous) {
         return;
     }
-    ConsolidationPlan plan = plans[static_cast<size_t>(index)];
-
-    setErrorMessage({});
-    setStatusMessage({});
-    setBusy(true);
-    try {
-        auto ctx = makeContext(m_format, m_path);
-        std::set<std::string> backedUpFiles;
-        int cuesCopied = 0;
-        int targetsWritten = 0;
-        copyCuesToTargets(*plan.source, plan.targets, ctx, backedUpFiles, cuesCopied, targetsWritten);
-        setStatusMessage(QString("Copied %1 cue(s) onto %2 track(s)").arg(cuesCopied).arg(targetsWritten));
-    } catch (const std::exception &e) {
-        setErrorMessage(QString::fromStdString(e.what()));
-    }
-    setBusy(false);
-
-    rescan();
+    std::vector<DuplicatesCopyOp> ops{{*plan.source, plan.targets}};
+    startApply(std::move(ops), false);
 }
 
 void DuplicatesController::copyFromTrack(int index, const QString &sourceTrackId)
 {
+    if (m_busy) {
+        return;
+    }
     const auto &plans = m_model.plans();
     if (index < 0 || static_cast<size_t>(index) >= plans.size()) {
         return;
@@ -363,57 +466,72 @@ void DuplicatesController::copyFromTrack(int index, const QString &sourceTrackId
         }
     }
 
-    setErrorMessage({});
-    setStatusMessage({});
-    setBusy(true);
-    try {
-        auto ctx = makeContext(m_format, m_path);
-        std::set<std::string> backedUpFiles;
-        int cuesCopied = 0;
-        int targetsWritten = 0;
-        copyCuesToTargets(*source, targets, ctx, backedUpFiles, cuesCopied, targetsWritten);
-        setStatusMessage(QString("Copied %1 cue(s) onto %2 track(s)").arg(cuesCopied).arg(targetsWritten));
-    } catch (const std::exception &e) {
-        setErrorMessage(QString::fromStdString(e.what()));
-    }
-    setBusy(false);
-
-    rescan();
+    std::vector<DuplicatesCopyOp> ops{{*source, std::move(targets)}};
+    startApply(std::move(ops), false);
 }
 
 void DuplicatesController::applyAllUnambiguous()
 {
+    if (m_busy) {
+        return;
+    }
+    std::vector<DuplicatesCopyOp> ops;
+    for (const auto &plan : m_model.plans()) {
+        if (plan.kind == ConsolidationPlan::Kind::Unambiguous) {
+            ops.push_back({*plan.source, plan.targets});
+        }
+    }
+    startApply(std::move(ops), true);
+}
+
+void DuplicatesController::startApply(std::vector<DuplicatesCopyOp> ops, bool multiGroup)
+{
     setErrorMessage({});
     setStatusMessage({});
+    setScanProgress(0, 0);
     setBusy(true);
+    setWriting(true);
+    m_lastBackups.clear();
+    emit canUndoChanged();
 
-    int totalCues = 0;
-    int totalTargets = 0;
-    int groups = 0;
-    try {
-        auto ctx = makeContext(m_format, m_path);
-        std::set<std::string> backedUpFiles;
-        for (const auto &plan : m_model.plans()) {
-            if (plan.kind != ConsolidationPlan::Kind::Unambiguous) {
-                continue;
-            }
-            int cuesCopied = 0;
-            int targetsWritten = 0;
-            copyCuesToTargets(*plan.source, plan.targets, ctx, backedUpFiles, cuesCopied, targetsWritten);
-            totalCues += cuesCopied;
-            totalTargets += targetsWritten;
-            groups++;
-        }
-        setStatusMessage(QString("Consolidated %1 duplicate track(s): copied %2 cue(s) onto %3 track(s)")
-                              .arg(groups)
-                              .arg(totalCues)
-                              .arg(totalTargets));
-    } catch (const std::exception &e) {
-        setErrorMessage(QString::fromStdString(e.what()));
+    m_writeWatcher.setFuture(
+        QtConcurrent::run(runApplyTask, m_format, m_path, std::move(ops), multiGroup, makeReporter()));
+}
+
+// Common completion path for applyOne()/copyFromTrack()/
+// applyAllUnambiguous()/undoLastOperation() -- they only differ in which
+// background task fed the watcher.
+void DuplicatesController::onWriteFinished()
+{
+    DuplicatesWriteResult result = m_writeWatcher.result();
+    m_lastBackups = std::move(result.backups);
+    emit canUndoChanged();
+
+    if (!result.errorMessage.isEmpty()) {
+        setErrorMessage(result.errorMessage);
+    } else {
+        setStatusMessage(result.statusMessage);
     }
     setBusy(false);
+    setWriting(false);
 
     rescan();
+}
+
+void DuplicatesController::undoLastOperation()
+{
+    if (m_busy || m_lastBackups.empty()) {
+        return;
+    }
+    setErrorMessage({});
+    setStatusMessage({});
+    setScanProgress(0, 0);
+    setBusy(true);
+    setWriting(true);
+
+    // m_lastBackups stays intact (canUndo stays true) until the task
+    // finishes and onWriteFinished() replaces it with the (empty) result.
+    m_writeWatcher.setFuture(QtConcurrent::run(runUndoTask, m_lastBackups, makeReporter()));
 }
 
 void DuplicatesController::setBusy(bool busy)
@@ -423,6 +541,15 @@ void DuplicatesController::setBusy(bool busy)
     }
     m_busy = busy;
     emit busyChanged();
+}
+
+void DuplicatesController::setWriting(bool writing)
+{
+    if (m_writing == writing) {
+        return;
+    }
+    m_writing = writing;
+    emit writingChanged();
 }
 
 void DuplicatesController::setScanProgress(int current, int total)

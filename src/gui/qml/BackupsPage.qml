@@ -15,12 +15,48 @@ Page {
 
     Component.onCompleted: backupsController.load(root.rekordboxPath, root.enginePath)
 
+    readonly property var reasonNames: ({
+        "duplicate-cue-consolidation": "Duplicate cue consolidation",
+        "sync": "Cross-format sync",
+        "local-restore": "Local cue restore",
+        "device-settings": "Device settings change",
+        "pre-restore": "Pre-restore snapshot",
+    })
+
+    // Backup ids are "<timestamp>-<reason>[-N]"; label is everything after
+    // the first dash (see FilesystemBackupStore::list()). Presented as a
+    // readable date/reason pair, with the raw id/label kept as a tooltip
+    // for anyone who needs to find the directory on disk by hand.
+    function friendlyTimestamp(id) {
+        var m = id.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})/);
+        if (!m) {
+            return id;
+        }
+        var d = new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]), parseInt(m[4]), parseInt(m[5]), parseInt(m[6]));
+        return d.toLocaleString(Qt.locale(), "d MMM yyyy, HH:mm:ss");
+    }
+
+    function friendlyReason(label) {
+        var stripped = label.replace(/-\d+$/, "");
+        if (root.reasonNames[stripped] !== undefined) {
+            return root.reasonNames[stripped];
+        }
+        return stripped.split("-").map((w) => w.length > 0 ? w[0].toUpperCase() + w.slice(1) : w).join(" ");
+    }
+
     header: ToolBar {
         RowLayout {
             anchors.fill: parent
             anchors.margins: 8
             ToolButton {
-                text: "< Back"
+                text: "‹"
+
+                font.pixelSize: 22
+                enabled: !backupsController.busy
+
+                ToolTip.visible: hovered
+
+                ToolTip.text: backupsController.busy ? "Wait for the write to finish before leaving this page" : "Back"
                 onClicked: root.StackView.view.pop()
             }
             Label {
@@ -40,10 +76,16 @@ Page {
             }
             Button {
                 text: "Clean Up"
-                enabled: backupsListView.count > 0
+                enabled: !backupsController.busy && backupsListView.count > 0
                 ToolTip.visible: hovered
                 ToolTip.text: "Permanently delete older backup copies -- never touches the stick's live data"
                 onClicked: confirmCleanDialog.open()
+            }
+            BusyIndicator {
+                visible: backupsController.busy
+                running: backupsController.busy
+                implicitWidth: 24
+                implicitHeight: 24
             }
         }
     }
@@ -53,13 +95,53 @@ Page {
         anchors.centerIn: parent
         modal: true
         title: "Clean Up Backups?"
-        standardButtons: Dialog.Yes | Dialog.No
+        footer: DialogButtonBox {
+            Button { text: "Clean Up"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
+            Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
+        }
         onAccepted: backupsController.clean(keepSpinBox.value)
 
         Label {
             text: "This permanently deletes the " + Math.max(0, backupsListView.count - keepSpinBox.value)
                 + " oldest backup(s) under " + backupsController.backupDir
                 + ".\nIt never touches the stick's live Rekordbox/Engine data."
+            wrapMode: Text.WordWrap
+        }
+    }
+
+    Dialog {
+        id: confirmRestoreDialog
+        property string targetId: ""
+        anchors.centerIn: parent
+        modal: true
+        title: "Restore This Backup?"
+        footer: DialogButtonBox {
+            Button { text: "Restore"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
+            Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
+        }
+        onAccepted: backupsController.restoreBackup(targetId)
+
+        Label {
+            text: "This overwrites the current files on the stick with this backup's copies.\n"
+                + "The files being overwritten are themselves backed up first, so this can be undone."
+            wrapMode: Text.WordWrap
+        }
+    }
+
+    Dialog {
+        id: confirmDeleteDialog
+        property string targetId: ""
+        anchors.centerIn: parent
+        modal: true
+        title: "Delete This Backup?"
+        footer: DialogButtonBox {
+            Button { text: "Delete"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
+            Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
+        }
+        onAccepted: backupsController.deleteBackup(targetId)
+
+        Label {
+            text: "This permanently deletes this one backup copy. It never touches the stick's live data."
             wrapMode: Text.WordWrap
         }
     }
@@ -99,16 +181,71 @@ Page {
             spacing: 2
 
             delegate: ItemDelegate {
+                id: backupDelegate
                 width: ListView.view.width
+                height: 44
+                hoverEnabled: true
 
                 required property string id
                 required property string label
+                required property string description
                 required property string sizeHuman
 
+                ToolTip.visible: hovered
+                ToolTip.text: "ID: " + backupDelegate.id + "\nReason: " + backupDelegate.label
+
                 contentItem: RowLayout {
-                    Label { text: id; font.family: "monospace"; Layout.preferredWidth: 220 }
-                    Label { text: label; color: "gray"; Layout.fillWidth: true }
-                    Label { text: sizeHuman; color: "gray" }
+                    spacing: 8
+                    Label {
+                        text: root.friendlyTimestamp(backupDelegate.id) + "  --  " + root.friendlyReason(backupDelegate.label)
+                        Layout.preferredWidth: 320
+                        elide: Text.ElideRight
+                    }
+                    // Reads as plain text until clicked -- a border and
+                    // background only appear while actually editing, so the
+                    // row doesn't look like a form when you're just scanning
+                    // the list for a backup.
+                    TextField {
+                        id: descriptionField
+                        Layout.fillWidth: true
+                        placeholderText: "Click to add a note (e.g. \"before Berlin gig\")..."
+                        text: backupDelegate.description
+                        background: Rectangle {
+                            radius: 4
+                            color: descriptionField.activeFocus ? Qt.rgba(1, 1, 1, 0.08) : "transparent"
+                            border.width: descriptionField.activeFocus ? 1 : 0
+                            border.color: "#3daee9"
+                        }
+                        onEditingFinished: backupsController.setDescription(backupDelegate.id, text)
+                    }
+                    Label { text: backupDelegate.sizeHuman; color: "gray"; Layout.preferredWidth: 70 }
+                    Button {
+                        text: "Restore"
+                        enabled: !backupsController.busy
+                        ToolTip.visible: hovered
+                        ToolTip.text: "Copy this backup's files back to where they came from"
+                        onClicked: {
+                            confirmRestoreDialog.targetId = backupDelegate.id;
+                            confirmRestoreDialog.open();
+                        }
+                    }
+                    // Deliberately understated (flat, dim, icon-only) --
+                    // deleting a single backup is rarer and less reversible
+                    // than "Clean Up," so it shouldn't compete visually
+                    // with Restore.
+                    ToolButton {
+                        text: "🗑"
+                        font.family: "Noto Sans Symbols2"
+                        opacity: 0.55
+                        enabled: !backupsController.busy
+                        Layout.preferredWidth: 32
+                        ToolTip.visible: hovered
+                        ToolTip.text: "Delete this backup permanently"
+                        onClicked: {
+                            confirmDeleteDialog.targetId = backupDelegate.id;
+                            confirmDeleteDialog.open();
+                        }
+                    }
                 }
             }
 

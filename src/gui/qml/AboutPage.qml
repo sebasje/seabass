@@ -10,7 +10,13 @@ Page {
             anchors.fill: parent
             anchors.margins: 10
             ToolButton {
-                text: "< Back"
+                text: "‹"
+
+                font.pixelSize: 22
+
+                ToolTip.visible: hovered
+
+                ToolTip.text: "Back"
                 onClicked: root.StackView.view.pop()
             }
             Label {
@@ -61,7 +67,7 @@ Page {
             }
 
             Label {
-                text: "Seabass reads and writes the DJ data already on a rekordbox or Denon Engine "
+                text: "Seabass reads and writes the DJ data already on a Rekordbox or Denon Engine "
                     + "USB stick -- cue points, playlists, and the metadata your DJ software already "
                     + "computed -- so you can inspect it, fix it up, and keep the two formats in sync."
                 wrapMode: Text.WordWrap
@@ -74,9 +80,9 @@ Page {
                 Layout.fillWidth: true
                 Label { text: "What Seabass does"; font.bold: true; font.pointSize: 12 }
                 Label {
-                    text: "• Browses tracks, playlists and cue points on rekordbox and Engine sticks\n"
+                    text: "• Browses tracks, playlists and cue points on Rekordbox and Engine sticks\n"
                         + "• Finds duplicate tracks and consolidates their cue points onto every copy\n"
-                        + "• Syncs hot cues between the rekordbox and Engine copies of the same stick\n"
+                        + "• Syncs hot cues between the Rekordbox and Engine copies of the same stick\n"
                         + "• Lists and cleans up the automatic backups made before every write\n"
                         + "• Backs up cues to this computer and restores them if a stick's cues are lost"
                     wrapMode: Text.WordWrap
@@ -92,7 +98,7 @@ Page {
                 Label { text: "What Seabass doesn't do"; font.bold: true; font.pointSize: 12 }
                 Label {
                     text: "Seabass never analyzes audio. Beatgridding, BPM/key detection, and waveform "
-                        + "analysis all have to happen in rekordbox or Engine DJ software first -- "
+                        + "analysis all have to happen in Rekordbox or Engine DJ software first -- "
                         + "Seabass only ever reads and moves around the results of that analysis, "
                         + "never recomputes it."
                     wrapMode: Text.WordWrap
@@ -100,6 +106,17 @@ Page {
                     color: "#c8c8c8"
                     Layout.fillWidth: true
                 }
+            }
+
+            Label {
+                text: "Rekordbox is a trademark of AlphaTheta Corporation. Engine DJ is a trademark of "
+                    + "inMusic Brands, Inc. Seabass is an independent, unofficial tool and is not "
+                    + "affiliated with, endorsed by, or sponsored by either company."
+                wrapMode: Text.WordWrap
+                font.pointSize: 8
+                color: "#888"
+                Layout.fillWidth: true
+                Layout.topMargin: 8
             }
 
             Label {

@@ -4,11 +4,16 @@
 #include <QFutureWatcher>
 #include <QObject>
 #include <QQmlEngine>
+#include <QVariantList>
 
 #include <string>
 #include <vector>
 
+#include <memory>
+
 #include "domain/local_restore.hpp"
+#include "gui/qt_progress_reporter.hpp"
+#include "gui/undo_tracking.hpp"
 
 namespace djconvert::gui
 {
@@ -54,13 +59,28 @@ struct LocalCueTaskResult
     QString errorMessage;  // empty on success
 };
 
+// Result of a background write task -- see LocalCueController::
+// applyRestore()/undoLastOperation(). Built entirely on a worker thread,
+// with no access to the controller. Shared by both: an undo task always
+// returns an empty `backups`, which is exactly what should replace the
+// controller's undo trail either way.
+struct LocalCueWriteResult
+{
+    QString errorMessage;  // empty on success
+    QString statusMessage;
+    std::vector<UndoableBackup> backups;
+};
+
 // Wraps LocalCueStore for QML: backing up a stick's cues to a local
 // SQLite database (application data dir, see LocalCueStore::defaultPath)
-// and restoring them back to a stick whose cues were lost or
-// overwritten. Backup only ever writes to the local database; restore
-// only ever writes to the stick -- mirroring SyncController's two-phase
-// analyze/confirm/apply shape for the restore direction (backup needs no
-// confirmation, since nothing on the stick is ever at risk from it).
+// and merging them back onto a stick -- adding whatever cues the backup
+// has that the stick doesn't (a missing hot cue slot, a memory cue at a
+// position nothing existing is close to), never overwriting a cue already
+// there (see domain::LocalRestorePlanner::mergeCues() for the exact rule).
+// Backup only ever writes to the local database; merge only ever writes to
+// the stick -- mirroring SyncController's two-phase analyze/confirm/apply
+// shape for the merge direction (backup needs no confirmation, since
+// nothing on the stick is ever at risk from it).
 class LocalCueController : public QObject
 {
     Q_OBJECT
@@ -73,34 +93,63 @@ class LocalCueController : public QObject
     Q_PROPERTY(int localTrackCount READ localTrackCount NOTIFY analysisChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
     Q_PROPERTY(QString statusMessage READ statusMessage NOTIFY statusMessageChanged)
+    Q_PROPERTY(bool canUndo READ canUndo NOTIFY canUndoChanged)
+    Q_PROPERTY(bool writing READ writing NOTIFY writingChanged)
 
 public:
     explicit LocalCueController(QObject *parent = nullptr);
 
     RestoreCandidateListModel *restoreCandidatesModel() { return &m_model; }
     bool busy() const { return m_busy; }
+    // True only while actually writing to the stick (applyRestore()/
+    // undoLastOperation()) -- unlike busy(), which is also true during
+    // backupToComputer() and the read-only analyze*Restore() scans, both
+    // safe to interrupt (backup never touches the stick; analysis never
+    // writes).
+    bool writing() const { return m_writing; }
     int scanCurrent() const { return m_scanCurrent; }
     int scanTotal() const { return m_scanTotal; }
     int stickTrackCount() const { return m_stickTrackCount; }
     int localTrackCount() const { return m_localTrackCount; }
     QString errorMessage() const { return m_errorMessage; }
     QString statusMessage() const { return m_statusMessage; }
+    bool canUndo() const { return !m_lastBackups.empty(); }
 
     // format is "rekordbox" or "engine"; path is the corresponding
-    // DetectedStick.rekordboxPath / .enginePath. Scans the stick and
-    // upserts every track with cues into the local database -- never
-    // touches the stick, so needs no confirmation.
-    Q_INVOKABLE void backupToComputer(const QString &format, const QString &path, const QString &stickLabel);
+    // DetectedStick.rekordboxPath / .enginePath. Scans the stick, upserts
+    // every track with cues into the local database's merged "current
+    // state" (never touches the stick, so needs no confirmation), and
+    // freezes an independently-restorable snapshot of the same data under
+    // `description`.
+    Q_INVOKABLE void backupToComputer(const QString &format, const QString &path, const QString &stickLabel,
+                                       const QString &description = QString());
 
     // Phase 1 (read-only): scans the stick and matches it against the
-    // local backup, proposing a restore only for stick tracks that
-    // currently have zero cues (see domain::LocalRestorePlanner).
+    // local backup's merged "current state," proposing to merge in
+    // whichever cues the backup has that the stick doesn't yet (see
+    // domain::LocalRestorePlanner::mergeCues()).
     Q_INVOKABLE void analyzeRestore(const QString &format, const QString &path);
 
+    // Same as analyzeRestore(), but matches against one specific past
+    // snapshot instead of the merged current state.
+    Q_INVOKABLE void analyzeSnapshotRestore(qint64 snapshotId, const QString &format, const QString &path);
+
     // Phase 2 (the confirmation gate) + phase 3: backs up the stick, then
-    // writes every candidate currently proposed. Only call this from a
-    // confirm dialog.
+    // writes every candidate currently proposed (from whichever of
+    // analyzeRestore()/analyzeSnapshotRestore() ran last). Only call this
+    // from a confirm dialog.
     Q_INVOKABLE void applyRestore();
+
+    // Snapshot history management -- synchronous (a lightweight metadata
+    // read/write, not a library scan).
+    Q_INVOKABLE QVariantList listSnapshots();
+    Q_INVOKABLE void setSnapshotDescription(qint64 id, const QString &description);
+    Q_INVOKABLE bool deleteSnapshot(qint64 id);
+
+    // Reverts every file the last applyRestore() write touched back to
+    // what it was immediately before, using the backups that write made.
+    // Available only right after a write (canUndo).
+    Q_INVOKABLE void undoLastOperation();
 
 signals:
     void busyChanged();
@@ -108,18 +157,24 @@ signals:
     void analysisChanged();
     void errorMessageChanged();
     void statusMessageChanged();
+    void canUndoChanged();
+    void writingChanged();
 
 private:
     void onBackupFinished();
     void onAnalyzeFinished();
+    void onWriteFinished();
     void setBusy(bool busy);
+    void setWriting(bool writing);
     void setScanProgress(int current, int total);
     void setErrorMessage(const QString &message);
     void setStatusMessage(const QString &message);
+    std::shared_ptr<QtProgressReporter> makeReporter();
 
     RestoreCandidateListModel m_model;
     QFutureWatcher<LocalCueTaskResult> m_backupWatcher;
     QFutureWatcher<LocalCueTaskResult> m_analyzeWatcher;
+    QFutureWatcher<LocalCueWriteResult> m_writeWatcher;
     QString m_format;
     QString m_path;
     bool m_busy = false;
@@ -129,6 +184,8 @@ private:
     int m_localTrackCount = 0;
     QString m_errorMessage;
     QString m_statusMessage;
+    std::vector<UndoableBackup> m_lastBackups;
+    bool m_writing = false;
 };
 
 }  // namespace djconvert::gui

@@ -21,7 +21,14 @@ Page {
             anchors.fill: parent
             anchors.margins: 8
             ToolButton {
-                text: "< Back"
+                text: "‹"
+
+                font.pixelSize: 22
+                enabled: !syncController.writing
+
+                ToolTip.visible: hovered
+
+                ToolTip.text: syncController.writing ? "Wait for the write to finish before leaving this page" : "Back"
                 onClicked: root.StackView.view.pop()
             }
             Label {
@@ -44,6 +51,14 @@ Page {
                 ToolTip.text: "Review and confirm before writing any cues"
                 onClicked: confirmDialog.open()
             }
+            Button {
+                text: "Undo"
+                visible: syncController.canUndo
+                enabled: !syncController.busy
+                ToolTip.visible: hovered
+                ToolTip.text: "Revert the last sync -- restores every file it touched to what it was before"
+                onClicked: syncController.undoLastOperation()
+            }
             ProgressBar {
                 visible: syncController.busy
                 indeterminate: syncController.scanTotal === 0
@@ -64,7 +79,10 @@ Page {
         anchors.centerIn: parent
         modal: true
         title: "Apply Sync?"
-        standardButtons: Dialog.Yes | Dialog.No
+        footer: DialogButtonBox {
+            Button { text: "Sync Now"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
+            Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
+        }
         onAccepted: syncController.apply()
 
         ColumnLayout {
@@ -86,7 +104,8 @@ Page {
                 wrapMode: Text.WordWrap
             }
             Label {
-                text: "Both sides are backed up before anything is written."
+                text: "Both sides are backed up before anything is written -- once this finishes, "
+                    + "\"Undo\" reverts every file it touched. Do not remove the stick while it's running."
                 color: "gray"
                 wrapMode: Text.WordWrap
             }
@@ -97,6 +116,11 @@ Page {
         anchors.fill: parent
         anchors.margins: 16
         spacing: 8
+
+        StickWriteWarning {
+            visible: syncController.writing
+            text: "Writing cues to the stick -- do not remove it until this finishes."
+        }
 
         Label {
             visible: syncController.errorMessage.length > 0
@@ -143,39 +167,82 @@ Page {
                 property bool expanded: false
 
                 ItemDelegate {
+                    id: planRow
                     width: parent.width
+                    hoverEnabled: true
                     onClicked: delegateRoot.expanded = !delegateRoot.expanded
+
+                    ToolTip.visible: hovered
+                    ToolTip.text: delegateRoot.filename
 
                     contentItem: ColumnLayout {
                         spacing: 2
                         RowLayout {
                             Layout.fillWidth: true
                             Label {
-                                text: delegateRoot.direction === "toEngine" ? "-> Engine" : "-> Rekordbox"
+                                text: delegateRoot.direction === "toEngine" ? "Rekordbox -> Engine" : "Engine -> Rekordbox"
                                 font.bold: true
                                 color: delegateRoot.direction === "toEngine" ? "#8fce8f" : "#8ab4f8"
-                                Layout.preferredWidth: 100
+                                Layout.preferredWidth: 160
                             }
-                            Label { text: delegateRoot.filename; font.bold: true }
+                            Label {
+                                text: delegateRoot.tracks.length > 0
+                                    ? (delegateRoot.tracks[0].title + " -- " + delegateRoot.tracks[0].artist)
+                                    : delegateRoot.filename
+                                font.bold: true
+                                elide: Text.ElideRight
+                                Layout.fillWidth: true
+                            }
                             Label {
                                 text: delegateRoot.conflict ? "  (conflict resolved by newer file)" : ""
                                 color: "orange"
                             }
-                            Item { Layout.fillWidth: true }
+                            Button {
+                                text: "Copy"
+                                enabled: !syncController.busy
+                                ToolTip.visible: hovered
+                                ToolTip.text: "Sync just this one track now"
+                                onClicked: syncController.applyOne(delegateRoot.index)
+                            }
                             Label {
                                 text: delegateRoot.expanded ? "▾" : "▸"
                                 color: "gray"
                             }
                         }
-                        Label { text: delegateRoot.description; color: "gray"; leftPadding: 108 }
+                        Label { text: delegateRoot.description; color: "gray"; leftPadding: 168 }
                     }
                 }
 
-                ColumnLayout {
-                    x: 108
-                    width: parent.width - 108
+                // Groups the two sides' copies of this track visually --
+                // matches DuplicatesPage.qml's treatment, and same
+                // rationale: several stacked expanded groups otherwise read
+                // as one long list rather than distinct matched pairs.
+                Rectangle {
+                    x: 168
+                    width: parent.width - 168
                     visible: delegateRoot.expanded
-                    spacing: 8
+                    height: delegateRoot.expanded ? syncGroupColumn.implicitHeight + 16 : 0
+                    color: "#161a1e"
+                    border.color: "#2c3238"
+                    radius: 4
+
+                    ColumnLayout {
+                        id: syncGroupColumn
+                        anchors.fill: parent
+                        anchors.margins: 8
+                        spacing: 8
+
+                    // The "meta track" both sides below are matched copies
+                    // of -- ties the pair together as one group rather than
+                    // two unrelated-looking Rekordbox/Engine frames.
+                    Label {
+                        Layout.fillWidth: true
+                        text: (delegateRoot.tracks.length > 0
+                            ? delegateRoot.tracks[0].title + " -- " + delegateRoot.tracks[0].artist
+                            : delegateRoot.filename)
+                        font.bold: true
+                        elide: Text.ElideRight
+                    }
 
                     Repeater {
                         model: delegateRoot.tracks
@@ -213,6 +280,7 @@ Page {
                                 }
                             }
                         }
+                    }
                     }
                 }
             }

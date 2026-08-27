@@ -16,7 +16,8 @@ constexpr size_t TargetPoints = 400;
 
 }  // namespace
 
-std::vector<double> readWaveformPreview(const std::string &engineLibraryPath, const std::string &trackSourceId)
+std::vector<domain::WaveformColumn> readWaveformPreview(const std::string &engineLibraryPath,
+                                                          const std::string &trackSourceId)
 {
     // Best-effort per the header contract -- load_database()/track_by_id()
     // can throw (e.g. the stick was unmounted right as playback was
@@ -41,20 +42,28 @@ std::vector<double> readWaveformPreview(const std::string &engineLibraryPath, co
         return {};
     }
 
-    // Downsample to ~TargetPoints columns by averaging each bucket's
-    // low/mid/high band values into a single amplitude.
-    std::vector<double> waveform;
+    // Downsample to ~TargetPoints columns by averaging each band separately
+    // within each bucket, keeping the low/mid/high split intact.
+    std::vector<domain::WaveformColumn> waveform;
     waveform.reserve(TargetPoints);
     size_t bucketSize = std::max<size_t>(1, entries.size() / TargetPoints);
     for (size_t start = 0; start < entries.size(); start += bucketSize) {
         size_t end = std::min(entries.size(), start + bucketSize);
-        double sum = 0.0;
+        double lowSum = 0.0, midSum = 0.0, highSum = 0.0;
         size_t count = 0;
         for (size_t i = start; i < end; ++i) {
-            sum += entries[i].low.value + entries[i].mid.value + entries[i].high.value;
-            count += 3;
+            lowSum += entries[i].low.value;
+            midSum += entries[i].mid.value;
+            highSum += entries[i].high.value;
+            count++;
         }
-        waveform.push_back(count > 0 ? (sum / count) / 255.0 : 0.0);
+        domain::WaveformColumn col;
+        if (count > 0) {
+            col.low = (lowSum / count) / 255.0;
+            col.mid = (midSum / count) / 255.0;
+            col.high = (highSum / count) / 255.0;
+        }
+        waveform.push_back(col);
     }
     return waveform;
 }

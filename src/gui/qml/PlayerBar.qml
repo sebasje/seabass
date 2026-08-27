@@ -30,12 +30,40 @@ Frame {
             border.color: "#1a1a1a"
             border.width: 2
 
-            Text {
-                anchors.centerIn: parent
-                anchors.horizontalCenterOffset: root.controller.playing ? 0 : 2
-                text: root.controller.playing ? "⏸" : "▶"
-                font.pixelSize: 26
-                color: "white"
+            // Hand-drawn rather than a font glyph: icon-font play/pause
+            // characters carry their own (inconsistent, per-font) internal
+            // padding, so centering them by anchoring the Text item never
+            // lines the visible ink up with the circle -- only exact
+            // geometry does. Both shapes are built with a bounding box
+            // exactly centered on (cx, cy).
+            Canvas {
+                id: playIcon
+                anchors.fill: parent
+                onPaint: {
+                    var ctx = getContext("2d");
+                    ctx.reset();
+                    ctx.fillStyle = "white";
+                    var cx = width / 2, cy = height / 2;
+                    if (root.controller.playing) {
+                        var barW = width * 0.13;
+                        var barH = height * 0.42;
+                        var gap = width * 0.12;
+                        ctx.fillRect(cx - gap / 2 - barW, cy - barH / 2, barW, barH);
+                        ctx.fillRect(cx + gap / 2, cy - barH / 2, barW, barH);
+                    } else {
+                        var w = width * 0.36, h = height * 0.42;
+                        ctx.beginPath();
+                        ctx.moveTo(cx - w / 2, cy - h / 2);
+                        ctx.lineTo(cx - w / 2, cy + h / 2);
+                        ctx.lineTo(cx + w / 2, cy);
+                        ctx.closePath();
+                        ctx.fill();
+                    }
+                }
+                Connections {
+                    target: root.controller
+                    function onPlayingChanged() { playIcon.requestPaint(); }
+                }
             }
 
             MouseArea {
@@ -90,8 +118,15 @@ Frame {
             }
         }
 
-        Button {
+        ToolButton {
             text: "✕"
+            font.family: "Noto Sans Symbols2"
+            font.pixelSize: 18
+            Layout.preferredWidth: 40
+            Layout.preferredHeight: 40
+            Layout.alignment: Qt.AlignVCenter
+            ToolTip.visible: hovered
+            ToolTip.text: "Stop Playback"
             onClicked: root.controller.stop()
         }
     }

@@ -18,6 +18,14 @@ add_subdirectory(third_party/libdjinterop)
 # than vendoring a JSON library for the same job.
 find_package(SQLite3 REQUIRED)
 
+# System zlib -- used to compress local cue-backup snapshots and full
+# metadata backups before they hit disk (see infrastructure/compression/).
+find_package(ZLIB REQUIRED)
+
+# Only needed by stick_write_lock_test, which spawns a real std::thread to
+# prove StickWriteLock actually excludes a concurrent locker.
+find_package(Threads REQUIRED)
+
 add_library(kaitai_cpp_stl_runtime STATIC
     third_party/kaitai_struct_cpp_stl_runtime/kaitai/kaitaistream.cpp
 )
@@ -54,7 +62,9 @@ add_library(djconvert_core STATIC
     src/infrastructure/rekordbox/rekordbox_cue_writer.cpp
     src/infrastructure/rekordbox/kaitai_rekordbox_reader.cpp
     src/infrastructure/rekordbox/rekordbox_waveform_reader.cpp
+    src/infrastructure/rekordbox/rekordbox_settings_fields.cpp
     src/infrastructure/rekordbox/rekordbox_settings_reader.cpp
+    src/infrastructure/rekordbox/rekordbox_settings_writer.cpp
     src/infrastructure/engine/libdjinterop_engine_reader.cpp
     src/infrastructure/engine/libdjinterop_waveform_reader.cpp
     src/infrastructure/engine/libdjinterop_engine_cue_writer.cpp
@@ -62,11 +72,14 @@ add_library(djconvert_core STATIC
     src/infrastructure/media/linux_udev_media_monitor.cpp
     src/infrastructure/media/udisksctl_media_mounter.cpp
     src/infrastructure/backup/filesystem_backup_store.cpp
+    src/infrastructure/backup/stick_write_lock.cpp
+    src/infrastructure/compression/zlib_compressor.cpp
     src/infrastructure/logging/file_operation_log.cpp
     src/infrastructure/local/local_cue_store.cpp
+    src/infrastructure/system/rekordbox_process_detector.cpp
 )
 target_include_directories(djconvert_core PUBLIC src)
-target_link_libraries(djconvert_core PUBLIC rekordbox_format DjInterop udev SQLite::SQLite3)
+target_link_libraries(djconvert_core PUBLIC rekordbox_format DjInterop udev SQLite::SQLite3 ZLIB::ZLIB)
 
 # --- djconvert: the terminal composition root ---
 
@@ -150,14 +163,46 @@ add_executable(local_restore_test
 target_include_directories(local_restore_test PRIVATE src)
 add_test(NAME local_restore_test COMMAND local_restore_test)
 
+add_executable(filesystem_backup_store_test
+    src/infrastructure/backup/filesystem_backup_store.cpp
+    tests/filesystem_backup_store_test.cpp
+)
+target_include_directories(filesystem_backup_store_test PRIVATE src)
+add_test(NAME filesystem_backup_store_test COMMAND filesystem_backup_store_test)
+
+add_executable(stick_write_lock_test
+    src/infrastructure/backup/stick_write_lock.cpp
+    tests/stick_write_lock_test.cpp
+)
+target_include_directories(stick_write_lock_test PRIVATE src)
+target_link_libraries(stick_write_lock_test PRIVATE Threads::Threads)
+add_test(NAME stick_write_lock_test COMMAND stick_write_lock_test)
+
+add_executable(rekordbox_process_detector_test
+    src/infrastructure/system/rekordbox_process_detector.cpp
+    tests/rekordbox_process_detector_test.cpp
+)
+target_include_directories(rekordbox_process_detector_test PRIVATE src)
+add_test(NAME rekordbox_process_detector_test COMMAND rekordbox_process_detector_test)
+
+add_executable(rekordbox_settings_test
+    src/infrastructure/rekordbox/rekordbox_settings_fields.cpp
+    src/infrastructure/rekordbox/rekordbox_settings_reader.cpp
+    src/infrastructure/rekordbox/rekordbox_settings_writer.cpp
+    tests/rekordbox_settings_test.cpp
+)
+target_include_directories(rekordbox_settings_test PRIVATE src)
+add_test(NAME rekordbox_settings_test COMMAND rekordbox_settings_test)
+
 # --- infrastructure-layer test needing a real (temp-file) SQLite db ---
 
 add_executable(local_cue_store_test
     src/domain/track_matching.cpp
     src/application/ports/progress_reporter.cpp
+    src/infrastructure/compression/zlib_compressor.cpp
     src/infrastructure/local/local_cue_store.cpp
     tests/local_cue_store_test.cpp
 )
 target_include_directories(local_cue_store_test PRIVATE src)
-target_link_libraries(local_cue_store_test PRIVATE SQLite::SQLite3)
+target_link_libraries(local_cue_store_test PRIVATE SQLite::SQLite3 ZLIB::ZLIB)
 add_test(NAME local_cue_store_test COMMAND local_cue_store_test)
