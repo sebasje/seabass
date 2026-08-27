@@ -1,8 +1,6 @@
 #include "media_controller.hpp"
 
-#include "infrastructure/media/linux_removable_media_locator.hpp"
-#include "infrastructure/media/linux_udev_media_monitor.hpp"
-#include "infrastructure/media/udisksctl_media_mounter.hpp"
+#include "infrastructure/media/media_factory.hpp"
 
 namespace djconvert::gui
 {
@@ -74,7 +72,7 @@ MediaController::MediaController(QObject *parent) : QObject(parent)
 
     detect();
 
-    m_monitor = std::make_unique<infrastructure::media::LinuxUdevMediaMonitor>();
+    m_monitor = infrastructure::media::createRemovableMediaMonitor();
     m_monitor->start([this]() {
         QMetaObject::invokeMethod(this, [this]() { m_debounceTimer.start(); }, Qt::QueuedConnection);
     });
@@ -89,15 +87,15 @@ MediaController::~MediaController()
 
 void MediaController::detect()
 {
-    infrastructure::media::LinuxRemovableMediaLocator locator;
-    m_model.setSticks(locator.detect());
+    auto locator = infrastructure::media::createRemovableMediaLocator();
+    m_model.setSticks(locator->detect());
 }
 
 bool MediaController::mountStick(const QString &devicePath)
 {
-    infrastructure::media::UdisksctlMediaMounter mounter;
+    auto mounter = infrastructure::media::createRemovableMediaMounter();
     std::string error;
-    auto mountPoint = mounter.mount(devicePath.toStdString(), error);
+    auto mountPoint = mounter->mount(devicePath.toStdString(), error);
     if (!mountPoint) {
         setErrorMessage(QString::fromStdString(error));
         return false;
@@ -109,9 +107,9 @@ bool MediaController::mountStick(const QString &devicePath)
 
 bool MediaController::unmountStick(const QString &devicePath)
 {
-    infrastructure::media::UdisksctlMediaMounter mounter;
+    auto mounter = infrastructure::media::createRemovableMediaMounter();
     std::string error;
-    if (!mounter.unmount(devicePath.toStdString(), error)) {
+    if (!mounter->unmount(devicePath.toStdString(), error)) {
         setErrorMessage(QString::fromStdString(error));
         return false;
     }

@@ -28,7 +28,7 @@
 #include "infrastructure/engine/libdjinterop_engine_cue_writer.hpp"
 #include "infrastructure/engine/libdjinterop_engine_reader.hpp"
 #include "infrastructure/logging/file_operation_log.hpp"
-#include "infrastructure/media/linux_removable_media_locator.hpp"
+#include "infrastructure/media/media_factory.hpp"
 #include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 #include "infrastructure/rekordbox/rekordbox_cue_writer.hpp"
@@ -463,12 +463,12 @@ ResolvedLibraryPaths resolveLibraryPaths(bool &wantRekordbox, bool &wantEngine,
                                           const std::optional<std::string> &rekordboxPathArg,
                                           const std::optional<std::string> &enginePathArg)
 {
-    djconvert::infrastructure::media::LinuxRemovableMediaLocator locator;
+    auto locator = djconvert::infrastructure::media::createRemovableMediaLocator();
     bool needsDetection = (wantRekordbox && !rekordboxPathArg) || (wantEngine && !enginePathArg) ||
                           (!wantRekordbox && !wantEngine);
     std::vector<DetectedStick> detected;
     if (needsDetection) {
-        detected = locator.detect();
+        detected = locator->detect();
     }
 
     if (!wantRekordbox && !wantEngine) {
@@ -535,8 +535,8 @@ ResolvedScanTargets resolveScanTargets(bool wantRekordbox, bool wantEngine,
     std::vector<DetectedStick> detected;
     if ((!rekordboxPathArg && (bareInvocation || wantRekordbox)) ||
         (!enginePathArg && (bareInvocation || wantEngine))) {
-        djconvert::infrastructure::media::LinuxRemovableMediaLocator locator;
-        detected = locator.detect();
+        auto locator = djconvert::infrastructure::media::createRemovableMediaLocator();
+        detected = locator->detect();
     }
 
     if (rekordboxPathArg) {

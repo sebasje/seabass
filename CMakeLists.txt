@@ -68,9 +68,8 @@ add_library(djconvert_core STATIC
     src/infrastructure/engine/libdjinterop_engine_reader.cpp
     src/infrastructure/engine/libdjinterop_waveform_reader.cpp
     src/infrastructure/engine/libdjinterop_engine_cue_writer.cpp
-    src/infrastructure/media/linux_removable_media_locator.cpp
-    src/infrastructure/media/linux_udev_media_monitor.cpp
-    src/infrastructure/media/udisksctl_media_mounter.cpp
+    src/infrastructure/media/media_factory.cpp
+    src/infrastructure/media/stick_root_scan.cpp
     src/infrastructure/backup/filesystem_backup_store.cpp
     src/infrastructure/backup/stick_write_lock.cpp
     src/infrastructure/compression/zlib_compressor.cpp
@@ -79,7 +78,28 @@ add_library(djconvert_core STATIC
     src/infrastructure/system/rekordbox_process_detector.cpp
 )
 target_include_directories(djconvert_core PUBLIC src)
-target_link_libraries(djconvert_core PUBLIC rekordbox_format DjInterop udev SQLite::SQLite3 ZLIB::ZLIB)
+target_link_libraries(djconvert_core PUBLIC rekordbox_format DjInterop SQLite::SQLite3 ZLIB::ZLIB)
+
+# --- platform-specific removable-media adapters (see media_factory.cpp) ---
+# --- -- the only part of djconvert_core with no single cross-platform ---
+# --- implementation, since "how do I see/mount/eject a USB stick" is ---
+# --- genuinely OS-specific (udev+udisksctl on Linux, drive letters + ---
+# --- DeviceIoControl on Windows). ---
+
+if(WIN32)
+    target_sources(djconvert_core PRIVATE
+        src/infrastructure/media/windows_removable_media_locator.cpp
+        src/infrastructure/media/windows_removable_media_monitor.cpp
+        src/infrastructure/media/windows_removable_media_mounter.cpp
+    )
+else()
+    target_sources(djconvert_core PRIVATE
+        src/infrastructure/media/linux_removable_media_locator.cpp
+        src/infrastructure/media/linux_udev_media_monitor.cpp
+        src/infrastructure/media/udisksctl_media_mounter.cpp
+    )
+    target_link_libraries(djconvert_core PUBLIC udev)
+endif()
 
 # --- djconvert: the terminal composition root ---
 

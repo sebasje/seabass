@@ -5,6 +5,18 @@
 #include <filesystem>
 #include <fstream>
 
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+
+#include <tlhelp32.h>
+#endif
+
 namespace djconvert::infrastructure::system
 {
 
@@ -65,12 +77,52 @@ bool isProcessRunning(const std::string &name)
     return false;
 }
 
+#elif defined(_WIN32)
+
+namespace
+{
+
+std::string toLower(std::string s)
+{
+    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return s;
+}
+
+}  // namespace
+
+// Enumerates every running process via Toolhelp32Snapshot and compares
+// each one's executable name (szExeFile, e.g. "rekordbox.exe") against
+// name + ".exe", case-insensitively -- Windows process names always
+// include the extension, unlike Linux's /proc/<pid>/comm.
+bool isProcessRunning(const std::string &name)
+{
+    std::string wanted = toLower(name) + ".exe";
+
+    HANDLE snapshot = ::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snapshot == INVALID_HANDLE_VALUE) {
+        return false;
+    }
+
+    PROCESSENTRY32 entry;
+    entry.dwSize = sizeof(PROCESSENTRY32);
+    bool found = false;
+    if (::Process32First(snapshot, &entry)) {
+        do {
+            if (toLower(entry.szExeFile) == wanted) {
+                found = true;
+                break;
+            }
+        } while (::Process32Next(snapshot, &entry));
+    }
+    ::CloseHandle(snapshot);
+    return found;
+}
+
 #else
 
-// No detector implemented for this platform yet (tracked alongside adding
-// Windows builds -- see project notes). Always reports "not running":
-// never treat that as a guarantee either way, per the header's doc
-// comment.
+// No detector implemented for this platform yet. Always reports "not
+// running": never treat that as a guarantee either way, per the header's
+// doc comment.
 bool isProcessRunning(const std::string &)
 {
     return false;
