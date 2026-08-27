@@ -22,7 +22,12 @@ Item {
     // list (a full model reset), which destroys and recreates every
     // delegate -- per-delegate "expanded" state would collapse right back
     // on every mount/unmount click.
-    property string expandedDevicePath: ""
+    //
+    // Tracks which sticks are COLLAPSED (not expanded) -- inverted from the
+    // more obvious "expanded set" so the default (nothing in it) means every
+    // stick starts expanded without needing to know their device paths
+    // ahead of time.
+    property var collapsedDevicePaths: ({})
 
     ColumnLayout {
         anchors.fill: parent
@@ -68,10 +73,9 @@ Item {
             clip: true
             spacing: 4
 
-            delegate: Column {
+            delegate: Frame {
                 id: delegateRoot
                 width: ListView.view.width
-                spacing: 4
 
                 required property string label
                 required property string mountPoint
@@ -82,11 +86,33 @@ Item {
                 required property string rekordboxPath
                 required property string enginePath
 
-                readonly property bool expanded: root.expandedDevicePath === delegateRoot.devicePath
+                readonly property bool expanded: !root.collapsedDevicePaths[delegateRoot.devicePath]
+
+                // The frame visually groups this stick's header and its
+                // action cards into one card, so with several sticks
+                // detected each one's controls read as clearly belonging
+                // to it rather than blurring into the list.
+                background: Rectangle {
+                    color: "#1a1f24"
+                    border.color: "#333a40"
+                    radius: 4
+                }
+
+                ColumnLayout {
+                    anchors.fill: parent
+                    spacing: 4
 
                 ItemDelegate {
-                    width: parent.width
-                    onClicked: root.expandedDevicePath = delegateRoot.expanded ? "" : delegateRoot.devicePath
+                    Layout.fillWidth: true
+                    onClicked: {
+                        var next = Object.assign({}, root.collapsedDevicePaths);
+                        if (delegateRoot.expanded) {
+                            next[delegateRoot.devicePath] = true;
+                        } else {
+                            delete next[delegateRoot.devicePath];
+                        }
+                        root.collapsedDevicePaths = next;
+                    }
 
                     contentItem: RowLayout {
                         spacing: 12
@@ -155,7 +181,7 @@ Item {
                 }
 
                 ColumnLayout {
-                    width: parent.width
+                    Layout.fillWidth: true
                     visible: delegateRoot.expanded
 
                     GridLayout {
@@ -170,25 +196,39 @@ Item {
                             id: card
                             property string cardTitle
                             property string cardSubtitle
+                            property string cardIcon
+                            property string cardIconFont: "Noto Sans Symbols2"
                             Layout.fillWidth: true
                             Layout.preferredHeight: 68
                             ToolTip.visible: hovered
                             ToolTip.text: cardSubtitle
 
-                            contentItem: ColumnLayout {
-                                spacing: 2
+                            contentItem: RowLayout {
+                                spacing: 10
                                 Label {
-                                    text: card.cardTitle
-                                    font.bold: true
-                                    Layout.fillWidth: true
-                                    elide: Text.ElideRight
+                                    text: card.cardIcon
+                                    font.family: card.cardIconFont
+                                    font.pixelSize: 26
+                                    color: card.enabled ? "#8a97a0" : "#4a5157"
+                                    Layout.preferredWidth: 30
+                                    horizontalAlignment: Text.AlignHCenter
                                 }
-                                Label {
-                                    text: card.cardSubtitle
-                                    color: card.enabled ? "gray" : "#5a5a5a"
-                                    font.pointSize: 9
-                                    wrapMode: Text.WordWrap
+                                ColumnLayout {
                                     Layout.fillWidth: true
+                                    spacing: 2
+                                    Label {
+                                        text: card.cardTitle
+                                        font.bold: true
+                                        Layout.fillWidth: true
+                                        elide: Text.ElideRight
+                                    }
+                                    Label {
+                                        text: card.cardSubtitle
+                                        color: card.enabled ? "gray" : "#5a5a5a"
+                                        font.pointSize: 9
+                                        wrapMode: Text.WordWrap
+                                        Layout.fillWidth: true
+                                    }
                                 }
                             }
                         }
@@ -196,40 +236,49 @@ Item {
                         ActionCard {
                             cardTitle: "Browse Library"
                             cardSubtitle: "View tracks, playlists and cues"
+                            cardIcon: "▤"
                             enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
                             onClicked: root.browseRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
                         }
                         ActionCard {
                             cardTitle: "Duplicate Tracks"
                             cardSubtitle: "Find and consolidate repeated tracks"
+                            cardIcon: "▣"
                             enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
                             onClicked: root.duplicatesRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
                         }
                         ActionCard {
                             cardTitle: "Sync Cues Between Formats"
                             cardSubtitle: "Copy cues between Rekordbox and Engine"
+                            cardIcon: "⇄"
+                            cardIconFont: "Noto Sans Math"
                             enabled: delegateRoot.hasRekordbox && delegateRoot.hasEngine
                             onClicked: root.syncRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
                         }
                         ActionCard {
                             cardTitle: "Local Cue Backup"
                             cardSubtitle: "Back up or restore cues on this computer"
+                            cardIcon: "💿"
                             enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
                             onClicked: root.localCueRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
                         }
                         ActionCard {
                             cardTitle: "Manage Backups"
                             cardSubtitle: "List and clean up automatic write backups"
+                            cardIcon: "🗄"
                             enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
                             onClicked: root.backupsRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
                         }
                         ActionCard {
                             cardTitle: "Device Settings"
                             cardSubtitle: "View this stick's saved Rekordbox player settings"
+                            cardIcon: "⚙"
+                            cardIconFont: "Noto Sans Symbols"
                             enabled: delegateRoot.hasRekordbox
                             onClicked: root.settingsRequested(delegateRoot.label, delegateRoot.rekordboxPath)
                         }
                     }
+                }
                 }
             }
 

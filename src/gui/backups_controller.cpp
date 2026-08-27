@@ -1,10 +1,14 @@
 #include "backups_controller.hpp"
 
+#include <QtConcurrent/QtConcurrentRun>
+
 #include <algorithm>
 #include <cstdio>
 #include <filesystem>
 
+#include "gui/write_guard.hpp"
 #include "infrastructure/backup/filesystem_backup_store.hpp"
+#include "infrastructure/backup/stick_write_lock.hpp"
 
 namespace djconvert::gui
 {
@@ -61,6 +65,8 @@ QVariant BackupListModel::data(const QModelIndex &index, int role) const
         return QString::fromStdString(record.id);
     case LabelRole:
         return QString::fromStdString(record.label);
+    case DescriptionRole:
+        return QString::fromStdString(record.description);
     case SizeHumanRole:
         return humanSize(record.sizeBytes);
     case SizeBytesRole:
@@ -75,6 +81,7 @@ QHash<int, QByteArray> BackupListModel::roleNames() const
     return {
         {IdRole, "id"},
         {LabelRole, "label"},
+        {DescriptionRole, "description"},
         {SizeHumanRole, "sizeHuman"},
         {SizeBytesRole, "sizeBytes"},
     };
@@ -92,52 +99,152 @@ void BackupListModel::setRecords(std::vector<application::BackupRecord> records)
     endResetModel();
 }
 
-BackupsController::BackupsController(QObject *parent) : QObject(parent) {}
-
-void BackupsController::load(const QString &rekordboxPath, const QString &enginePath)
+namespace
 {
-    m_rekordboxPath = rekordboxPath;
-    m_enginePath = enginePath;
-    setErrorMessage({});
 
+// Runs entirely on a background thread (see BackupsController::startTask())
+// -- no access to the controller itself. Every action re-lists the
+// directory afterward so the caller always gets a fresh, consistent view.
+BackupsTaskResult runBackupsTask(BackupsAction action, QString dir, int keepCount, QString id,
+                                  QString description)
+{
+    BackupsTaskResult result;
+    bool mutating = action != BackupsAction::Load;
+    if (mutating) {
+        QString refusal = refuseIfRekordboxRunning();
+        if (!refusal.isEmpty()) {
+            result.errorMessage = refusal;
+            return result;
+        }
+    }
     try {
-        std::string dir = backupDirFor(rekordboxPath, enginePath);
-        m_backupDir = QString::fromStdString(dir);
-        infrastructure::backup::FilesystemBackupStore store(dir);
-        auto records = store.list();
+        // Held for every action, including Load -- reading this directory
+        // while another writer is mid-Clean/Restore/Delete could otherwise
+        // see a half-mutated view.
+        infrastructure::backup::StickWriteLock lock(dir.toStdString() + "/.write.lock");
 
+        infrastructure::backup::FilesystemBackupStore store(dir.toStdString());
+        switch (action) {
+        case BackupsAction::Clean: {
+            auto freed = store.prune(static_cast<size_t>(keepCount));
+            result.statusMessage =
+                QString("Freed %1 (kept up to %2 most recent backup(s))").arg(humanSize(freed)).arg(keepCount);
+            break;
+        }
+        case BackupsAction::SetDescription:
+            store.setDescription(id.toStdString(), description.toStdString());
+            break;
+        case BackupsAction::Restore:
+            if (store.restore(id.toStdString())) {
+                result.statusMessage = "Restored -- the files that were overwritten have their own new backup.";
+            } else {
+                result.errorMessage = "Could not restore -- this backup predates restore support or its files are gone.";
+            }
+            break;
+        case BackupsAction::Delete:
+            if (!store.remove(id.toStdString())) {
+                result.errorMessage = "Could not delete that backup.";
+            }
+            break;
+        case BackupsAction::Load:
+            break;
+        }
+
+        auto records = store.list();
         std::uint64_t total = 0;
         for (const auto &record : records) {
             total += record.sizeBytes;
         }
-        m_totalSizeHuman = humanSize(total);
-        m_model.setRecords(std::move(records));
+        result.totalSizeHuman = humanSize(total);
+        result.backupDir = dir;
+        result.records = std::move(records);
     } catch (const std::exception &e) {
-        setErrorMessage(QString::fromStdString(e.what()));
+        result.errorMessage = QString::fromStdString(e.what());
     }
-    emit backupsChanged();
+    return result;
+}
+
+}  // namespace
+
+BackupsController::BackupsController(QObject *parent) : QObject(parent)
+{
+    connect(&m_watcher, &QFutureWatcher<BackupsTaskResult>::finished, this, &BackupsController::onTaskFinished);
+}
+
+void BackupsController::load(const QString &rekordboxPath, const QString &enginePath)
+{
+    if (m_busy) {
+        return;
+    }
+    m_rekordboxPath = rekordboxPath;
+    m_enginePath = enginePath;
+    startTask(BackupsAction::Load, 0, {}, {});
 }
 
 void BackupsController::clean(int keepCount)
 {
-    if (keepCount < 0) {
+    if (m_busy || keepCount < 0) {
         return;
     }
+    startTask(BackupsAction::Clean, keepCount, {}, {});
+}
+
+void BackupsController::setDescription(const QString &id, const QString &description)
+{
+    if (m_busy) {
+        return;
+    }
+    startTask(BackupsAction::SetDescription, 0, id, description);
+}
+
+void BackupsController::restoreBackup(const QString &id)
+{
+    if (m_busy) {
+        return;
+    }
+    startTask(BackupsAction::Restore, 0, id, {});
+}
+
+void BackupsController::deleteBackup(const QString &id)
+{
+    if (m_busy) {
+        return;
+    }
+    startTask(BackupsAction::Delete, 0, id, {});
+}
+
+void BackupsController::startTask(BackupsAction action, int keepCount, const QString &id, const QString &description)
+{
     setErrorMessage({});
     setStatusMessage({});
+    setBusy(true);
+    std::string dir = backupDirFor(m_rekordboxPath, m_enginePath);
+    m_watcher.setFuture(QtConcurrent::run(runBackupsTask, action, QString::fromStdString(dir), keepCount, id, description));
+}
 
-    try {
-        std::string dir = backupDirFor(m_rekordboxPath, m_enginePath);
-        infrastructure::backup::FilesystemBackupStore store(dir);
-        auto freed = store.prune(static_cast<size_t>(keepCount));
-        setStatusMessage(QString("Freed %1 (kept up to %2 most recent backup(s))")
-                              .arg(humanSize(freed))
-                              .arg(keepCount));
-    } catch (const std::exception &e) {
-        setErrorMessage(QString::fromStdString(e.what()));
+void BackupsController::onTaskFinished()
+{
+    BackupsTaskResult result = m_watcher.result();
+    m_backupDir = result.backupDir;
+    m_totalSizeHuman = result.totalSizeHuman;
+    m_model.setRecords(std::move(result.records));
+    if (!result.errorMessage.isEmpty()) {
+        setErrorMessage(result.errorMessage);
     }
+    if (!result.statusMessage.isEmpty()) {
+        setStatusMessage(result.statusMessage);
+    }
+    emit backupsChanged();
+    setBusy(false);
+}
 
-    load(m_rekordboxPath, m_enginePath);
+void BackupsController::setBusy(bool busy)
+{
+    if (m_busy == busy) {
+        return;
+    }
+    m_busy = busy;
+    emit busyChanged();
 }
 
 void BackupsController::setErrorMessage(const QString &message)

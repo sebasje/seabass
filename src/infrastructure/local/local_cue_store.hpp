@@ -1,6 +1,8 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
+#include <vector>
 
 #include "application/ports/library_reader.hpp"
 #include "domain/track.hpp"
@@ -9,6 +11,25 @@ struct sqlite3;
 
 namespace djconvert::infrastructure::local
 {
+
+// One "Backup Now" moment, frozen -- unlike the tracks/cues tables (which
+// upsert() merges into, so they only ever reflect the latest state), each
+// snapshot keeps its own independent copy of every backed-up track's cues,
+// so it can be restored on its own later even after newer backups have
+// changed the merged state.
+struct BackupSessionSummary
+{
+    std::int64_t id;
+    std::string createdAt;  // ISO 8601 UTC
+    std::string stickLabel;
+    std::string sourceFormat;
+    std::string description;
+    int trackCount = 0;
+    int cueCount = 0;
+    std::uint64_t uncompressedSizeBytes = 0;
+    std::uint64_t compressedSizeBytes = 0;
+    int schemaVersion = 0;  // the blob's own format version -- see local_cue_store.cpp
+};
 
 // A stick-independent copy of cue data, kept on this computer so cues
 // survive a stick being reformatted or a track being re-imported. Backed
@@ -44,6 +65,25 @@ public:
     // source the tracks were read from.
     void upsert(const std::vector<domain::Track> &tracks, const std::string &sourceFormat,
                 const std::string &sourceLabel);
+
+    // Freezes a compressed, independently-restorable copy of every backed-up
+    // track's cues (same "has cues" filter as upsert()) as a new session.
+    // Called alongside upsert() on every "Backup Now" -- upsert() keeps the
+    // fast instant-restore path current, this keeps history. Returns the
+    // new session's id.
+    std::int64_t createSnapshot(const std::vector<domain::Track> &tracks, const std::string &sourceFormat,
+                                 const std::string &stickLabel, const std::string &description = "");
+
+    std::vector<BackupSessionSummary> listSnapshots();
+
+    // Throws if id doesn't exist or its data can't be decompressed.
+    std::vector<domain::Track> readSnapshot(std::int64_t id);
+
+    // No-op if id doesn't exist.
+    void setSnapshotDescription(std::int64_t id, const std::string &description);
+
+    // Returns false if id doesn't exist.
+    bool deleteSnapshot(std::int64_t id);
 
     static std::string defaultPath();
 

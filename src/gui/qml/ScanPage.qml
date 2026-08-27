@@ -19,7 +19,13 @@ Page {
         if (pref === "rekordbox" && hasRekordbox) return "rekordbox";
         return hasEngine ? "engine" : "rekordbox";
     }
-    readonly property string path: format === "engine" ? enginePath : rekordboxPath
+    // A plain function, not a cached property: QML evaluates onFormatChanged
+    // before a *dependent* property like a cached "path" has re-settled, so
+    // reading a cached path here could see the previous format's value.
+    // A function call is always evaluated fresh against the current format.
+    function currentPath() {
+        return root.format === "engine" ? root.enginePath : root.rekordboxPath;
+    }
 
     ScanController {
         id: scanController
@@ -29,7 +35,7 @@ Page {
 
     function rescan() {
         selectedPlaylistIndex = 0;
-        scanController.scan(root.format, root.path, root.format === "engine" ? root.rekordboxPath : "");
+        scanController.scan(root.format, root.currentPath(), root.format === "engine" ? root.rekordboxPath : "");
     }
 
     Component.onCompleted: rescan()
@@ -43,7 +49,14 @@ Page {
     }
 
     header: ToolBar {
+        // A ColumnLayout child sized purely by anchors.fill doesn't feed its
+        // own implicit size back up to the ToolBar, so without this the
+        // ToolBar stays single-row tall and the second row of controls
+        // renders past its bottom edge, overlapping the page content below.
+        implicitHeight: headerLayout.implicitHeight + 20
+
         ColumnLayout {
+            id: headerLayout
             anchors.fill: parent
             anchors.margins: 10
             spacing: 8
@@ -52,7 +65,13 @@ Page {
                 Layout.fillWidth: true
                 spacing: 12
                 ToolButton {
-                    text: "< Back"
+                    text: "‹"
+
+                    font.pixelSize: 22
+
+                    ToolTip.visible: hovered
+
+                    ToolTip.text: "Back"
                     onClicked: root.StackView.view.pop()
                 }
                 Label {
@@ -141,20 +160,40 @@ Page {
             Layout.fillHeight: true
             padding: 0
 
-            ListView {
-                id: playlistListView
+            ColumnLayout {
                 anchors.fill: parent
-                clip: true
-                model: ["All tracks"].concat(scanController.playlistNames)
-                currentIndex: root.selectedPlaylistIndex
+                spacing: 0
 
-                delegate: ItemDelegate {
-                    width: ListView.view.width
-                    text: modelData
-                    highlighted: ListView.isCurrentItem
-                    onClicked: {
-                        root.selectedPlaylistIndex = index;
-                        scanController.filterByPlaylist(index === 0 ? "" : modelData);
+                TextField {
+                    id: playlistFilterField
+                    Layout.fillWidth: true
+                    Layout.margins: 6
+                    placeholderText: "Filter playlists..."
+                }
+
+                ListView {
+                    id: playlistListView
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    clip: true
+                    property var allNames: ["All tracks"].concat(scanController.playlistNames)
+                    model: playlistFilterField.text.length === 0
+                        ? allNames
+                        : allNames.filter((n, i) => i === 0 || n.toLowerCase().includes(playlistFilterField.text.toLowerCase()))
+                    currentIndex: root.selectedPlaylistIndex
+
+                    delegate: ItemDelegate {
+                        required property int index
+                        required property string modelData
+                        width: ListView.view.width
+                        text: modelData + " (" + (index === 0
+                            ? scanController.totalTrackCount
+                            : (scanController.playlistTrackCounts[modelData] ?? 0)) + ")"
+                        highlighted: ListView.isCurrentItem
+                        onClicked: {
+                            root.selectedPlaylistIndex = index;
+                            scanController.filterByPlaylist(index === 0 ? "" : modelData);
+                        }
                     }
                 }
             }
@@ -173,9 +212,17 @@ Page {
             spacing: 0
 
             RowLayout {
+                // Mirrors the track delegate's own RowLayout exactly (same
+                // left/right inset, spacing and column widths) -- otherwise
+                // these headers silently drift out of alignment with the
+                // columns they're supposed to label.
                 Layout.fillWidth: true
-                Layout.margins: 8
-                Label { text: ""; Layout.preferredWidth: 48 }
+                Layout.leftMargin: 8
+                Layout.rightMargin: 8
+                Layout.topMargin: 4
+                Layout.bottomMargin: 4
+                spacing: 8
+                Label { text: ""; Layout.preferredWidth: 40 }
                 Label { text: "Title"; font.bold: true; Layout.fillWidth: true }
                 Label { text: "Key"; font.bold: true; Layout.preferredWidth: 50 }
                 Label { text: "BPM"; font.bold: true; Layout.preferredWidth: 50 }
@@ -192,9 +239,13 @@ Page {
                 model: scanController.tracks
 
                 delegate: ItemDelegate {
+                    id: trackDelegate
                     width: ListView.view.width
                     height: 56
+                    leftPadding: 8
+                    rightPadding: 8
 
+                    required property int index
                     required property string sourceId
                     required property string title
                     required property string artist
@@ -207,7 +258,18 @@ Page {
                     required property string key
                     required property var cues
 
-                    onClicked: playbackController.load(root.format, root.path, sourceId, filePath, title, artist, artworkPath, cues)
+                    onClicked: playbackController.load(root.format, root.currentPath(), sourceId, filePath, title, artist, artworkPath, cues)
+
+                    // Alternating row shading -- makes it much easier to
+                    // track a row across the wide, densely-columned list.
+                    // Solid, muted colors rather than a translucent overlay,
+                    // so the result doesn't depend on (and can't pick up an
+                    // unexpected tint from) whatever's rendered underneath.
+                    background: Rectangle {
+                        color: trackDelegate.down ? "#33404a"
+                            : trackDelegate.hovered ? "#2c363f"
+                            : (trackDelegate.index % 2 === 0 ? "#1e2226" : "#22262b")
+                    }
 
                     contentItem: RowLayout {
                         spacing: 8

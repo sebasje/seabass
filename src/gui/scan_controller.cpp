@@ -204,18 +204,28 @@ void ScanController::onScanFinished()
     }
 
     std::set<std::string> uniquePlaylistNames;
+    std::unordered_map<std::string, int> countByPlaylist;
     for (const auto &track : result.tracks) {
         for (const auto &playlist : track.playlists) {
             uniquePlaylistNames.insert(playlist.name);
+            countByPlaylist[playlist.name]++;
         }
     }
     m_playlistNames.clear();
+    m_playlistTrackCounts.clear();
     for (const auto &name : uniquePlaylistNames) {
-        m_playlistNames << QString::fromStdString(name);
+        QString qName = QString::fromStdString(name);
+        m_playlistNames << qName;
+        m_playlistTrackCounts[qName] = countByPlaylist[name];
     }
+
+    // m_allTracks (which totalTrackCount() reads) must be updated before
+    // playlistNamesChanged fires -- QML bindings that read totalTrackCount
+    // in response to that signal would otherwise see the previous scan's
+    // track count for one notification cycle.
+    m_allTracks = std::move(result.tracks);
     emit playlistNamesChanged();
 
-    m_allTracks = std::move(result.tracks);
     m_currentPlaylistFilter.clear();
     m_currentSearchQuery.clear();
     applyFilters();

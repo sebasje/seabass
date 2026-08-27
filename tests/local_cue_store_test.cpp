@@ -1,7 +1,10 @@
+#include <sqlite3.h>
+
 #include <cassert>
 #include <cstdio>
 #include <filesystem>
 #include <iostream>
+#include <stdexcept>
 
 #include "infrastructure/local/local_cue_store.hpp"
 
@@ -78,6 +81,83 @@ int main()
         assert(readBack[0].cues.size() == 1);
         assert(readBack[0].cues[0].positionMs == 5000.0);  // cues replaced, not appended
         std::cout << "case 3 (upsert matches by title+artist and replaces cues) OK\n";
+    }
+
+    // Snapshots: independent of upsert()'s merged state, each createSnapshot()
+    // call freezes its own restorable copy, with an editable description and
+    // its own lifecycle (list/read/delete).
+    {
+        LocalCueStore store(dbPath.string());
+        CuePoint cue2{CuePoint::Kind::Hot, 3, 9000.0, "#0000FF", "outro\twith\ttabs and \\backslash\\"};
+        std::vector<Track> tracks = {
+            makeTrack("e1", "song.mp3", "Song", "Artist", 200.0, {hotCue, cue2}),
+            makeTrack("e2", "no-cues.mp3", "Silent", "Nobody", 100.0, {}),  // no cues -> excluded
+        };
+
+        auto id1 = store.createSnapshot(tracks, "engine", "WHALESHARK2", "before Berlin gig");
+        auto summaries = store.listSnapshots();
+        assert(summaries.size() == 1);
+        assert(summaries[0].id == id1);
+        assert(summaries[0].description == "before Berlin gig");
+        assert(summaries[0].trackCount == 1);  // no-cues track excluded
+        assert(summaries[0].cueCount == 2);
+        assert(summaries[0].compressedSizeBytes > 0);
+
+        auto restored = store.readSnapshot(id1);
+        assert(restored.size() == 1);
+        assert(restored[0].title == "Song");
+        assert(restored[0].cues.size() == 2);
+        assert(restored[0].cues[1].comment == "outro\twith\ttabs and \\backslash\\");  // escaping round-trips
+        std::cout << "case 4 (snapshot create/list/read round-trips, including escaped text) OK\n";
+
+        store.setSnapshotDescription(id1, "updated note");
+        summaries = store.listSnapshots();
+        assert(summaries[0].description == "updated note");
+        std::cout << "case 5 (snapshot description is editable) OK\n";
+
+        auto id2 = store.createSnapshot(tracks, "engine", "WHALESHARK2");
+        assert(store.listSnapshots().size() == 2);
+        assert(store.deleteSnapshot(id2));
+        assert(store.listSnapshots().size() == 1);
+        assert(!store.deleteSnapshot(id2));  // already gone
+        std::cout << "case 6 (snapshots are independently deletable) OK\n";
+    }
+
+    // Every snapshot records the format version it was written with, and
+    // reading refuses (rather than misparses) a version it doesn't
+    // recognize -- the actual backwards-compatibility guarantee: a future
+    // format change can never break an old snapshot, since old snapshots
+    // simply keep the version number their real format was.
+    {
+        LocalCueStore store(dbPath.string());
+        std::vector<Track> tracks = {makeTrack("e1", "song.mp3", "Song", "Artist", 200.0, {hotCue})};
+        auto id = store.createSnapshot(tracks, "engine", "WHALESHARK2");
+
+        auto summaries = store.listSnapshots();
+        assert(summaries[0].id == id);
+        assert(summaries[0].schemaVersion == 1);
+        std::cout << "case 7 (snapshot records its own format version) OK\n";
+
+        // Simulate a snapshot written by some future djconvert version this
+        // build doesn't know about.
+        sqlite3 *rawDb = nullptr;
+        assert(sqlite3_open(dbPath.c_str(), &rawDb) == SQLITE_OK);
+        sqlite3_stmt *stmt = nullptr;
+        sqlite3_prepare_v2(rawDb, "UPDATE backup_sessions SET schema_version = 999 WHERE id = ?", -1, &stmt,
+                            nullptr);
+        sqlite3_bind_int64(stmt, 1, id);
+        assert(sqlite3_step(stmt) == SQLITE_DONE);
+        sqlite3_finalize(stmt);
+        sqlite3_close(rawDb);
+
+        bool threw = false;
+        try {
+            store.readSnapshot(id);
+        } catch (const std::runtime_error &) {
+            threw = true;
+        }
+        assert(threw);
+        std::cout << "case 8 (unrecognized format version refuses to read rather than misparse) OK\n";
     }
 
     fs::remove(dbPath);

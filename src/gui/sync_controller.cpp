@@ -2,15 +2,19 @@
 
 #include <QtConcurrent/QtConcurrentRun>
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
+#include <memory>
 #include <set>
 
 #include "application/ports/backup_store.hpp"
 #include "application/use_cases/scan_library.hpp"
 #include "application/use_cases/sync_libraries.hpp"
 #include "gui/qt_progress_reporter.hpp"
+#include "gui/write_guard.hpp"
 #include "infrastructure/backup/filesystem_backup_store.hpp"
+#include "infrastructure/backup/stick_write_lock.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cue_writer.hpp"
 #include "infrastructure/engine/libdjinterop_engine_reader.hpp"
 #include "infrastructure/engine/libdjinterop_waveform_reader.hpp"
@@ -60,7 +64,7 @@ namespace
 {
 
 QVariantMap trackToMap(const domain::Track &track, const QString &side,
-                        const std::unordered_map<std::string, std::vector<double>> &waveformsByKey)
+                        const std::unordered_map<std::string, std::vector<domain::WaveformColumn>> &waveformsByKey)
 {
     QVariantMap m;
     m["side"] = side;
@@ -86,8 +90,12 @@ QVariantMap trackToMap(const domain::Track &track, const QString &side,
     QVariantList waveform;
     auto it = waveformsByKey.find(key);
     if (it != waveformsByKey.end()) {
-        for (double v : it->second) {
-            waveform << v;
+        for (const auto &col : it->second) {
+            QVariantMap colMap;
+            colMap["low"] = col.low;
+            colMap["mid"] = col.mid;
+            colMap["high"] = col.high;
+            waveform << colMap;
         }
     }
     m["waveform"] = waveform;
@@ -133,7 +141,7 @@ QHash<int, QByteArray> SyncPlanListModel::roleNames() const
 }
 
 void SyncPlanListModel::setPlans(std::vector<domain::SyncPlan> plans,
-                                  std::unordered_map<std::string, std::vector<double>> waveformsByKey)
+                                  std::unordered_map<std::string, std::vector<domain::WaveformColumn>> waveformsByKey)
 {
     beginResetModel();
     m_plans = std::move(plans);
@@ -183,7 +191,7 @@ SyncTaskResult runAnalyzeTask(QString rekordboxPath, QString enginePath, std::sh
         // start()/tick() run rather than leave the bar looking stalled.
         reporter->start("Loading waveforms", actionable.size() * 2);
         size_t waveformsProcessed = 0;
-        std::unordered_map<std::string, std::vector<double>> waveformsByKey;
+        std::unordered_map<std::string, std::vector<domain::WaveformColumn>> waveformsByKey;
         for (const auto &plan : actionable) {
             std::string rbKey = "rb:" + plan.match.rekordboxTrack.sourceId;
             if (!waveformsByKey.contains(rbKey)) {
@@ -216,6 +224,7 @@ SyncTaskResult runAnalyzeTask(QString rekordboxPath, QString enginePath, std::sh
 SyncController::SyncController(QObject *parent) : QObject(parent)
 {
     connect(&m_watcher, &QFutureWatcher<SyncTaskResult>::finished, this, &SyncController::onAnalyzeFinished);
+    connect(&m_writeWatcher, &QFutureWatcher<SyncWriteResult>::finished, this, &SyncController::onWriteFinished);
 }
 
 void SyncController::analyze(const QString &rekordboxPath, const QString &enginePath)
@@ -230,15 +239,19 @@ void SyncController::analyze(const QString &rekordboxPath, const QString &engine
     setScanProgress(0, 0);
     setBusy(true);
 
-    // See ScanController::scan() for why the reporter is owned by the task
-    // (via shared_ptr) rather than by this controller.
+    m_watcher.setFuture(QtConcurrent::run(runAnalyzeTask, rekordboxPath, enginePath, makeReporter()));
+}
+
+// See ScanController::scan() for why the reporter is owned by the task
+// (via shared_ptr) rather than by this controller.
+std::shared_ptr<QtProgressReporter> SyncController::makeReporter()
+{
     auto reporter = std::make_shared<QtProgressReporter>();
     connect(reporter.get(), &QtProgressReporter::started, this,
             [this](const QString &, int total) { setScanProgress(0, total); });
     connect(reporter.get(), &QtProgressReporter::progressed, this,
             [this](int current) { setScanProgress(current, m_scanTotal); });
-
-    m_watcher.setFuture(QtConcurrent::run(runAnalyzeTask, rekordboxPath, enginePath, reporter));
+    return reporter;
 }
 
 void SyncController::onAnalyzeFinished()
@@ -270,104 +283,258 @@ void SyncController::recomputeDirectionCounts()
     emit analysisChanged();
 }
 
-// Phase 2 (the confirmation gate) + phase 3 (apply). Ports
-// cli/main.cpp's runSyncCommand phase-3 block verbatim: separate
-// FilesystemBackupStore/FileOperationLog per side, a single Engine m.db
-// backup, per-file-deduped rekordbox .EXT backups.
-void SyncController::apply()
+namespace
 {
-    if (m_busy) {
-        return;
-    }
-    setErrorMessage({});
-    setStatusMessage({});
-    setBusy(true);
 
-    const auto &plans = m_model.plans();
-    std::vector<const SyncPlan *> toEngine;
-    std::vector<const SyncPlan *> toRekordbox;
-    for (const auto &plan : plans) {
-        if (plan.direction == SyncPlan::Direction::ToEngine) {
-            toEngine.push_back(&plan);
-        } else if (plan.direction == SyncPlan::Direction::ToRekordbox) {
-            toRekordbox.push_back(&plan);
-        }
+// Acquires one StickWriteLock per distinct directory (sorted first so two
+// concurrent multi-lock callers always acquire in the same order, and
+// deduped so locking the same directory twice -- e.g. rekordbox and
+// Engine sharing one stick's .djconvert-backups -- never self-deadlocks).
+// Held for the caller's whole scope via RAII.
+std::vector<std::unique_ptr<infrastructure::backup::StickWriteLock>> acquireStickLocks(std::vector<std::string> dirs)
+{
+    std::sort(dirs.begin(), dirs.end());
+    dirs.erase(std::unique(dirs.begin(), dirs.end()), dirs.end());
+    std::vector<std::unique_ptr<infrastructure::backup::StickWriteLock>> locks;
+    locks.reserve(dirs.size());
+    for (const auto &dir : dirs) {
+        locks.push_back(std::make_unique<infrastructure::backup::StickWriteLock>(dir + "/.write.lock"));
     }
+    return locks;
+}
 
+// Ports cli/main.cpp's runSyncCommand phase-3 block, scoped to whichever
+// plans the caller (apply()/applyOne()) passes in: separate
+// FilesystemBackupStore/FileOperationLog per side, a single Engine m.db
+// backup, per-file-deduped rekordbox .EXT backups. Runs entirely on a
+// background thread (see SyncController::startApply()) -- writes are file
+// I/O just like the analyze scan, so they get the same treatment: never
+// block the UI thread, report progress as they go.
+SyncWriteResult runApplyTask(QString rekordboxPath, QString enginePath, std::vector<SyncPlan> toEngine,
+                              std::vector<SyncPlan> toRekordbox, std::shared_ptr<QtProgressReporter> reporter)
+{
+    SyncWriteResult result;
+    QString refusal = refuseIfRekordboxRunning();
+    if (!refusal.isEmpty()) {
+        result.errorMessage = refusal;
+        return result;
+    }
     try {
-        std::string rekordboxDbFile =
-            (fs::path(m_rekordboxPath.toStdString()) / "rekordbox" / "export.pdb").string();
-        std::string engineDbFile = (fs::path(m_enginePath.toStdString()) / "Database2" / "m.db").string();
+        std::string engineDbFile = (fs::path(enginePath.toStdString()) / "Database2" / "m.db").string();
+        std::string engineBackupDir = (fs::path(enginePath.toStdString()).parent_path() / ".djconvert-backups").string();
+        std::string rekordboxBackupDir =
+            (fs::path(rekordboxPath.toStdString()).parent_path() / ".djconvert-backups").string();
 
-        infrastructure::backup::FilesystemBackupStore engineBackupStore(
-            (fs::path(m_enginePath.toStdString()).parent_path() / ".djconvert-backups").string());
+        // Held for the rest of this function -- see acquireStickLocks()'s
+        // doc comment for why this alone is enough to keep two writers
+        // (same process or not) from touching this stick at once.
+        auto locks = acquireStickLocks({engineBackupDir, rekordboxBackupDir});
+
+        infrastructure::backup::FilesystemBackupStore engineBackupStore(engineBackupDir);
         infrastructure::logging::FileOperationLog engineLog(
-            (fs::path(m_enginePath.toStdString()).parent_path() / ".djconvert.log").string());
-        infrastructure::backup::FilesystemBackupStore rekordboxBackupStore(
-            (fs::path(m_rekordboxPath.toStdString()).parent_path() / ".djconvert-backups").string());
+            (fs::path(enginePath.toStdString()).parent_path() / ".djconvert.log").string());
+        infrastructure::backup::FilesystemBackupStore rekordboxBackupStore(rekordboxBackupDir);
         infrastructure::logging::FileOperationLog rekordboxLog(
-            (fs::path(m_rekordboxPath.toStdString()).parent_path() / ".djconvert.log").string());
+            (fs::path(rekordboxPath.toStdString()).parent_path() / ".djconvert.log").string());
+
+        reporter->start("Writing cues", toEngine.size() + toRekordbox.size());
+        size_t written = 0;
 
         size_t engineCuesCopied = 0;
         if (!toEngine.empty()) {
-            infrastructure::engine::LibdjinteropEngineCueWriter writer(m_enginePath.toStdString());
+            infrastructure::engine::LibdjinteropEngineCueWriter writer(enginePath.toStdString());
             auto record = engineBackupStore.backup({engineDbFile}, "sync");
             engineLog.record("sync: backed up before cross-format sync -> " + record.path);
+            result.backups.push_back(
+                {QString::fromStdString(fs::path(record.path).parent_path().string()), QString::fromStdString(record.id)});
 
-            for (const auto *plan : toEngine) {
-                writer.writeHotCues(plan->match.engineTrack.sourceId, plan->cuesToApply);
-                engineCuesCopied += plan->cuesToApply.size();
-                engineLog.record("sync: copied cues (" + describeCues(plan->cuesToApply).toStdString() +
-                                  ") from rekordbox track \"" + plan->match.rekordboxTrack.title +
-                                  "\" (id=" + plan->match.rekordboxTrack.sourceId +
-                                  ") to engine track id=" + plan->match.engineTrack.sourceId);
+            for (const auto &plan : toEngine) {
+                writer.writeHotCues(plan.match.engineTrack.sourceId, plan.cuesToApply);
+                engineCuesCopied += plan.cuesToApply.size();
+                engineLog.record("sync: copied cues (" + describeCues(plan.cuesToApply).toStdString() +
+                                  ") from rekordbox track \"" + plan.match.rekordboxTrack.title +
+                                  "\" (id=" + plan.match.rekordboxTrack.sourceId +
+                                  ") to engine track id=" + plan.match.engineTrack.sourceId);
+                reporter->tick(++written);
             }
         }
 
         size_t rekordboxCuesCopied = 0;
         if (!toRekordbox.empty()) {
-            infrastructure::rekordbox::RekordboxCueWriter writer(m_rekordboxPath.toStdString());
-            std::string pioneerRoot = m_rekordboxPath.toStdString();
+            infrastructure::rekordbox::RekordboxCueWriter writer(rekordboxPath.toStdString());
+            std::string pioneerRoot = rekordboxPath.toStdString();
             std::set<std::string> backedUpFiles;
 
-            for (const auto *plan : toRekordbox) {
+            for (const auto &plan : toRekordbox) {
                 auto analyzePath = infrastructure::rekordbox::findAnlzPathForTrackId(
-                    pioneerRoot, static_cast<uint32_t>(std::stoul(plan->match.rekordboxTrack.sourceId)));
+                    pioneerRoot, static_cast<uint32_t>(std::stoul(plan.match.rekordboxTrack.sourceId)));
                 if (analyzePath) {
                     std::string extPath = infrastructure::rekordbox::extAnlzPath(pioneerRoot, *analyzePath);
                     if (backedUpFiles.insert(extPath).second) {
                         auto record = rekordboxBackupStore.backup({extPath}, "sync");
                         rekordboxLog.record("sync: backed up before cross-format sync -> " + record.path);
+                        result.backups.push_back({QString::fromStdString(fs::path(record.path).parent_path().string()),
+                                                   QString::fromStdString(record.id)});
                     }
                 }
 
-                writer.writeHotCues(plan->match.rekordboxTrack.sourceId, plan->cuesToApply);
-                rekordboxCuesCopied += plan->cuesToApply.size();
-                rekordboxLog.record("sync: copied cues (" + describeCues(plan->cuesToApply).toStdString() +
-                                     ") from engine track \"" + plan->match.engineTrack.title +
-                                     "\" (id=" + plan->match.engineTrack.sourceId +
-                                     ") to rekordbox track id=" + plan->match.rekordboxTrack.sourceId);
+                writer.writeHotCues(plan.match.rekordboxTrack.sourceId, plan.cuesToApply);
+                rekordboxCuesCopied += plan.cuesToApply.size();
+                rekordboxLog.record("sync: copied cues (" + describeCues(plan.cuesToApply).toStdString() +
+                                     ") from engine track \"" + plan.match.engineTrack.title +
+                                     "\" (id=" + plan.match.engineTrack.sourceId +
+                                     ") to rekordbox track id=" + plan.match.rekordboxTrack.sourceId);
+                reporter->tick(++written);
             }
         }
+        reporter->finish();
 
         QStringList parts;
         if (!toEngine.empty()) {
             parts << QString("%1 track(s) to Engine (%2 cue(s))").arg(toEngine.size()).arg(engineCuesCopied);
         }
         if (!toRekordbox.empty()) {
-            parts << QString("%1 track(s) to rekordbox (%2 cue(s))").arg(toRekordbox.size()).arg(rekordboxCuesCopied);
+            parts << QString("%1 track(s) to Rekordbox (%2 cue(s))").arg(toRekordbox.size()).arg(rekordboxCuesCopied);
         }
-        setStatusMessage("Synced " + parts.join(", "));
+        result.statusMessage = "Synced " + parts.join(", ");
     } catch (const std::exception &e) {
-        setErrorMessage(QString::fromStdString(e.what()));
-        setBusy(false);
+        result.errorMessage = QString::fromStdString(e.what());
+    }
+    return result;
+}
+
+// Runs entirely on a background thread (see SyncController::
+// undoLastOperation()). An empty `backups` result always means "nothing
+// left to undo," whether that's because everything restored cleanly or
+// because an error stopped the loop partway -- either way the caller's
+// undo trail is now stale and should be cleared.
+SyncWriteResult runUndoTask(std::vector<UndoableBackup> backups, std::shared_ptr<QtProgressReporter> reporter)
+{
+    SyncWriteResult result;
+    QString refusal = refuseIfRekordboxRunning();
+    if (!refusal.isEmpty()) {
+        result.errorMessage = refusal;
+        return result;
+    }
+    int restored = 0;
+    try {
+        std::vector<std::string> dirs;
+        for (const auto &backup : backups) {
+            dirs.push_back(backup.backupDir.toStdString());
+        }
+        auto locks = acquireStickLocks(dirs);
+
+        reporter->start("Undoing", backups.size());
+        // Reverse order: if anything ever depends on write order, undoing
+        // most-recent-first is the safer default.
+        for (auto it = backups.rbegin(); it != backups.rend(); ++it) {
+            infrastructure::backup::FilesystemBackupStore store(it->backupDir.toStdString());
+            if (store.restore(it->id.toStdString())) {
+                restored++;
+            }
+            reporter->tick(static_cast<size_t>(restored));
+        }
+        reporter->finish();
+        result.statusMessage = QString("Undone -- restored %1 file(s) to their state before the last sync").arg(restored);
+    } catch (const std::exception &e) {
+        result.errorMessage = QString::fromStdString(e.what());
+    }
+    return result;
+}
+
+}  // namespace
+
+// Phase 2 (the confirmation gate) + phase 3: writes every plan currently in
+// the model. See startApply() for the actual backup/write logic.
+void SyncController::apply()
+{
+    if (m_busy) {
         return;
     }
-    setBusy(false);
+    std::vector<SyncPlan> toEngine;
+    std::vector<SyncPlan> toRekordbox;
+    for (const auto &plan : m_model.plans()) {
+        if (plan.direction == SyncPlan::Direction::ToEngine) {
+            toEngine.push_back(plan);
+        } else if (plan.direction == SyncPlan::Direction::ToRekordbox) {
+            toRekordbox.push_back(plan);
+        }
+    }
+    startApply(std::move(toEngine), std::move(toRekordbox));
+}
 
-    // Re-analyze so the model reflects the now-consistent state (mirrors
-    // DuplicatesController::applyOne re-running rescan() after a write).
+void SyncController::applyOne(int index)
+{
+    if (m_busy) {
+        return;
+    }
+    const auto &plans = m_model.plans();
+    if (index < 0 || static_cast<size_t>(index) >= plans.size()) {
+        return;
+    }
+    const SyncPlan &plan = plans[static_cast<size_t>(index)];
+    std::vector<SyncPlan> toEngine;
+    std::vector<SyncPlan> toRekordbox;
+    if (plan.direction == SyncPlan::Direction::ToEngine) {
+        toEngine.push_back(plan);
+    } else if (plan.direction == SyncPlan::Direction::ToRekordbox) {
+        toRekordbox.push_back(plan);
+    } else {
+        return;
+    }
+    startApply(std::move(toEngine), std::move(toRekordbox));
+}
+
+void SyncController::startApply(std::vector<SyncPlan> toEngine, std::vector<SyncPlan> toRekordbox)
+{
+    setErrorMessage({});
+    setStatusMessage({});
+    setScanProgress(0, 0);
+    setBusy(true);
+    setWriting(true);
+    m_lastBackups.clear();
+    emit canUndoChanged();
+
+    m_writeWatcher.setFuture(QtConcurrent::run(runApplyTask, m_rekordboxPath, m_enginePath, std::move(toEngine),
+                                                std::move(toRekordbox), makeReporter()));
+}
+
+// Common completion path for apply()/applyOne()/undoLastOperation() --
+// all three just differ in which background task fed the watcher.
+void SyncController::onWriteFinished()
+{
+    SyncWriteResult result = m_writeWatcher.result();
+    m_lastBackups = std::move(result.backups);
+    emit canUndoChanged();
+
+    if (!result.errorMessage.isEmpty()) {
+        setErrorMessage(result.errorMessage);
+    } else {
+        setStatusMessage(result.statusMessage);
+    }
+    setBusy(false);
+    setWriting(false);
+
+    // Re-analyze so the model reflects the now-consistent state.
     analyze(m_rekordboxPath, m_enginePath);
+}
+
+void SyncController::undoLastOperation()
+{
+    if (m_busy || m_lastBackups.empty()) {
+        return;
+    }
+    setErrorMessage({});
+    setStatusMessage({});
+    setScanProgress(0, 0);
+    setBusy(true);
+    setWriting(true);
+
+    // m_lastBackups stays intact (canUndo stays true) until the task
+    // finishes and onWriteFinished() replaces it with the (empty) result --
+    // same visible behavior as the old synchronous version, which only
+    // cleared it after the restore loop completed.
+    m_writeWatcher.setFuture(QtConcurrent::run(runUndoTask, m_lastBackups, makeReporter()));
 }
 
 void SyncController::setBusy(bool busy)
@@ -377,6 +544,15 @@ void SyncController::setBusy(bool busy)
     }
     m_busy = busy;
     emit busyChanged();
+}
+
+void SyncController::setWriting(bool writing)
+{
+    if (m_writing == writing) {
+        return;
+    }
+    m_writing = writing;
+    emit writingChanged();
 }
 
 void SyncController::setScanProgress(int current, int total)

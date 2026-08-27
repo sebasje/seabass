@@ -2,6 +2,7 @@
 
 #include <QFile>
 #include <QUrl>
+#include <QVariantMap>
 
 #include "infrastructure/engine/libdjinterop_waveform_reader.hpp"
 #include "infrastructure/rekordbox/rekordbox_waveform_reader.hpp"
@@ -38,14 +39,18 @@ void PlaybackController::load(const QString &format, const QString &libraryPath,
     if (filePath.isEmpty() || !QFile::exists(filePath)) {
         setErrorMessage("audio file not found" + (filePath.isEmpty() ? QString() : (": " + filePath)));
     } else {
-        std::vector<double> points;
+        std::vector<domain::WaveformColumn> points;
         if (format == "rekordbox") {
             points = infrastructure::rekordbox::readWaveformPreview(libraryPath.toStdString(), sourceId.toStdString());
         } else {
             points = infrastructure::engine::readWaveformPreview(libraryPath.toStdString(), sourceId.toStdString());
         }
-        for (double v : points) {
-            m_waveform.append(v);
+        for (const auto &col : points) {
+            QVariantMap m;
+            m["low"] = col.low;
+            m["mid"] = col.mid;
+            m["high"] = col.high;
+            m_waveform.append(m);
         }
 
         m_player.setSource(QUrl::fromLocalFile(filePath));

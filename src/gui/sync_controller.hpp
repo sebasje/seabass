@@ -5,11 +5,15 @@
 #include <QObject>
 #include <QQmlEngine>
 
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
 #include "domain/sync_planning.hpp"
+#include "domain/waveform.hpp"
+#include "gui/qt_progress_reporter.hpp"
+#include "gui/undo_tracking.hpp"
 
 namespace djconvert::gui
 {
@@ -45,12 +49,12 @@ public:
     // collisions -- see DuplicatesController::runRescanTask for the
     // single-format equivalent that doesn't need this).
     void setPlans(std::vector<domain::SyncPlan> plans,
-                  std::unordered_map<std::string, std::vector<double>> waveformsByKey = {});
+                  std::unordered_map<std::string, std::vector<domain::WaveformColumn>> waveformsByKey = {});
     const std::vector<domain::SyncPlan> &plans() const { return m_plans; }
 
 private:
     std::vector<domain::SyncPlan> m_plans;
-    std::unordered_map<std::string, std::vector<double>> m_waveformsByKey;
+    std::unordered_map<std::string, std::vector<domain::WaveformColumn>> m_waveformsByKey;
 };
 
 // Result of a background analyze task -- see SyncController::analyze().
@@ -58,10 +62,23 @@ private:
 struct SyncTaskResult
 {
     std::vector<domain::SyncPlan> plans;
-    std::unordered_map<std::string, std::vector<double>> waveformsByKey;
+    std::unordered_map<std::string, std::vector<domain::WaveformColumn>> waveformsByKey;
     int rekordboxTrackCount = 0;
     int engineTrackCount = 0;
     QString errorMessage;  // empty on success
+};
+
+// Result of a background write task -- see SyncController::apply()/
+// applyOne()/undoLastOperation(). Built entirely on a worker thread, with
+// no access to the controller. Shared by both apply and undo: an undo
+// task always returns an empty `backups` (there is nothing left to undo
+// once it's done), which is exactly what should replace the controller's
+// undo trail either way.
+struct SyncWriteResult
+{
+    QString errorMessage;  // empty on success
+    QString statusMessage;
+    std::vector<UndoableBackup> backups;
 };
 
 // Wraps SyncLibraries for QML: two-phase, non-destructive sync between a
@@ -83,12 +100,18 @@ class SyncController : public QObject
     Q_PROPERTY(int toRekordboxCount READ toRekordboxCount NOTIFY analysisChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
     Q_PROPERTY(QString statusMessage READ statusMessage NOTIFY statusMessageChanged)
+    Q_PROPERTY(bool canUndo READ canUndo NOTIFY canUndoChanged)
+    Q_PROPERTY(bool writing READ writing NOTIFY writingChanged)
 
 public:
     explicit SyncController(QObject *parent = nullptr);
 
     SyncPlanListModel *plansModel() { return &m_model; }
     bool busy() const { return m_busy; }
+    // True only while actually writing to the stick (apply()/applyOne()/
+    // undoLastOperation()) -- unlike busy(), which is also true during the
+    // read-only analyze() scan, which is safe to interrupt.
+    bool writing() const { return m_writing; }
     int scanCurrent() const { return m_scanCurrent; }
     int scanTotal() const { return m_scanTotal; }
     int rekordboxTrackCount() const { return m_rekordboxTrackCount; }
@@ -97,6 +120,7 @@ public:
     int toRekordboxCount() const { return m_toRekordboxCount; }
     QString errorMessage() const { return m_errorMessage; }
     QString statusMessage() const { return m_statusMessage; }
+    bool canUndo() const { return !m_lastBackups.empty(); }
 
     // Phase 1: read-only. rekordboxPath/enginePath are the stick's
     // DetectedStick.rekordboxPath / .enginePath.
@@ -106,23 +130,42 @@ public:
     // currently in the model. Only call this from a confirm dialog.
     Q_INVOKABLE void apply();
 
+    // Same as apply(), scoped to the single plan at index -- lets a track
+    // be synced on its own without waiting on (or being blocked by) every
+    // other matched track.
+    Q_INVOKABLE void applyOne(int index);
+
+    // Reverts every file the last apply()/applyOne() touched back to what
+    // it was immediately before that write -- using the very backups that
+    // write made, restored via FilesystemBackupStore::restore(). Available
+    // only right after a write (canUndo), and only once: a fresh apply
+    // clears the trail.
+    Q_INVOKABLE void undoLastOperation();
+
 signals:
     void busyChanged();
     void scanProgressChanged();
     void analysisChanged();
     void errorMessageChanged();
     void statusMessageChanged();
+    void canUndoChanged();
+    void writingChanged();
 
 private:
     void onAnalyzeFinished();
+    void onWriteFinished();
     void setBusy(bool busy);
+    void setWriting(bool writing);
     void setScanProgress(int current, int total);
     void setErrorMessage(const QString &message);
     void setStatusMessage(const QString &message);
     void recomputeDirectionCounts();
+    void startApply(std::vector<domain::SyncPlan> toEngine, std::vector<domain::SyncPlan> toRekordbox);
+    std::shared_ptr<QtProgressReporter> makeReporter();
 
     SyncPlanListModel m_model;
     QFutureWatcher<SyncTaskResult> m_watcher;
+    QFutureWatcher<SyncWriteResult> m_writeWatcher;
     QString m_rekordboxPath;
     QString m_enginePath;
     bool m_busy = false;
@@ -134,6 +177,8 @@ private:
     int m_toRekordboxCount = 0;
     QString m_errorMessage;
     QString m_statusMessage;
+    std::vector<UndoableBackup> m_lastBackups;
+    bool m_writing = false;
 };
 
 }  // namespace djconvert::gui

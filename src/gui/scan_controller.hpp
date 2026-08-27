@@ -4,6 +4,7 @@
 #include <QFutureWatcher>
 #include <QObject>
 #include <QQmlEngine>
+#include <QVariantMap>
 
 #include <vector>
 
@@ -71,6 +72,8 @@ class ScanController : public QObject
     Q_PROPERTY(int scanTotal READ scanTotal NOTIFY scanProgressChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
     Q_PROPERTY(QStringList playlistNames READ playlistNames NOTIFY playlistNamesChanged)
+    Q_PROPERTY(QVariantMap playlistTrackCounts READ playlistTrackCounts NOTIFY playlistNamesChanged)
+    Q_PROPERTY(int totalTrackCount READ totalTrackCount NOTIFY playlistNamesChanged)
 
 public:
     explicit ScanController(QObject *parent = nullptr);
@@ -81,6 +84,8 @@ public:
     int scanTotal() const { return m_scanTotal; }
     QString errorMessage() const { return m_errorMessage; }
     QStringList playlistNames() const { return m_playlistNames; }
+    QVariantMap playlistTrackCounts() const { return m_playlistTrackCounts; }
+    int totalTrackCount() const { return static_cast<int>(m_allTracks.size()); }
 
     // format is "rekordbox" or "engine"; path is the corresponding
     // DetectedStick.rekordboxPath / .enginePath. siblingRekordboxPath (only
@@ -119,6 +124,7 @@ private:
     QFutureWatcher<ScanTaskResult> m_watcher;
     std::vector<domain::Track> m_allTracks;
     QStringList m_playlistNames;
+    QVariantMap m_playlistTrackCounts;
     QString m_currentPlaylistFilter;
     QString m_currentSearchQuery;
     QString m_sortField = "playlist";

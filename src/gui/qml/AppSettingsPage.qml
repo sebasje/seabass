@@ -12,7 +12,13 @@ Page {
             anchors.fill: parent
             anchors.margins: 8
             ToolButton {
-                text: "< Back"
+                text: "‹"
+
+                font.pixelSize: 22
+
+                ToolTip.visible: hovered
+
+                ToolTip.text: "Back"
                 onClicked: root.StackView.view.pop()
             }
             Label {

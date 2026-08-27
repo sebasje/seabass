@@ -16,19 +16,42 @@ RowLayout {
 
     ButtonGroup { id: group }
 
-    Button {
-        text: "Rekordbox"
+    // "◎"/"⬡" are original, generic glyphs -- not reproductions of either
+    // company's actual logo -- used purely so the two modes are visually
+    // distinct at a glance. See AboutPage.qml for the trademark note. Kept
+    // in their own Label (not appended into the button's text) since the
+    // symbol font that has these glyphs has no Latin letters of its own.
+    component FormatButton: Button {
+        id: btn
+        property string glyph
+        property string label
         checkable: true
         flat: !checked
+        contentItem: RowLayout {
+            spacing: 4
+            Label {
+                text: btn.glyph
+                font.family: "Noto Sans Symbols2"
+                color: btn.palette.buttonText
+            }
+            Label {
+                text: btn.label
+                color: btn.palette.buttonText
+            }
+        }
+    }
+
+    FormatButton {
+        glyph: "◎"
+        label: "Rekordbox"
         checked: root.appSettingsController.preferredFormat === "rekordbox"
         enabled: root.hasRekordbox
         ButtonGroup.group: group
         onClicked: root.appSettingsController.preferredFormat = "rekordbox"
     }
-    Button {
-        text: "Engine"
-        checkable: true
-        flat: !checked
+    FormatButton {
+        glyph: "⬡"
+        label: "Engine"
         checked: root.appSettingsController.preferredFormat === "engine"
         enabled: root.hasEngine
         ButtonGroup.group: group

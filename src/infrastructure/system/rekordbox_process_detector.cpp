@@ -1,0 +1,86 @@
+#include "rekordbox_process_detector.hpp"
+
+#include <algorithm>
+#include <cctype>
+#include <filesystem>
+#include <fstream>
+
+namespace djconvert::infrastructure::system
+{
+
+#if defined(__linux__)
+
+namespace
+{
+
+namespace fs = std::filesystem;
+
+std::string toLower(std::string s)
+{
+    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return s;
+}
+
+bool isAllDigits(const std::string &s)
+{
+    return !s.empty() && std::all_of(s.begin(), s.end(), [](unsigned char c) { return std::isdigit(c) != 0; });
+}
+
+}  // namespace
+
+// Reads /proc/<pid>/comm for every numeric entry under /proc -- the
+// kernel's own record of each process's short name, truncated to 15
+// bytes, which is why isRekordboxRunning() never needs to worry about
+// matching a longer command line. Wrapped in a single try/catch rather
+// than threading error_code through every filesystem call: any failure
+// here (a process exiting mid-scan, a permission-denied /proc entry) just
+// means "couldn't confirm," which this function already treats the same
+// as "not found" -- see the header's doc comment.
+bool isProcessRunning(const std::string &name)
+{
+    std::string wanted = toLower(name);
+    try {
+        for (const auto &entry : fs::directory_iterator("/proc")) {
+            std::error_code ec;
+            if (!entry.is_directory(ec) || ec) {
+                continue;
+            }
+            std::string pid = entry.path().filename().string();
+            if (!isAllDigits(pid)) {
+                continue;
+            }
+            std::ifstream comm(entry.path() / "comm");
+            if (!comm) {
+                continue;  // process likely exited between listing and reading
+            }
+            std::string line;
+            std::getline(comm, line);
+            if (toLower(line) == wanted) {
+                return true;
+            }
+        }
+    } catch (const std::exception &) {
+        return false;
+    }
+    return false;
+}
+
+#else
+
+// No detector implemented for this platform yet (tracked alongside adding
+// Windows builds -- see project notes). Always reports "not running":
+// never treat that as a guarantee either way, per the header's doc
+// comment.
+bool isProcessRunning(const std::string &)
+{
+    return false;
+}
+
+#endif
+
+bool isRekordboxRunning()
+{
+    return isProcessRunning("rekordbox");
+}
+
+}  // namespace djconvert::infrastructure::system
