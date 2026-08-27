@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import DjConvertGui
 
 // Shown globally, above every page, whenever Rekordbox appears to be
 // running on this machine -- both it and djconvert writing to the same
@@ -14,8 +15,8 @@ Rectangle {
     visible: false
     Layout.fillWidth: true
     implicitHeight: visible ? contentRow.implicitHeight + 16 : 0
-    color: "#5c1a1a"
-    border.color: "#e74c3c"
+    color: Theme.dangerBg
+    border.color: Theme.dangerBorder
     radius: 4
 
     RowLayout {
@@ -27,14 +28,14 @@ Rectangle {
         Label {
             text: "⛔"
             font.family: "Noto Sans Symbols2"
-            font.pointSize: 16
+            font.pointSize: Theme.fontMedium
         }
         Label {
             id: label
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
             font.bold: true
-            color: "white"
+            color: Theme.dangerText
             text: "Rekordbox appears to be running -- writes to this stick are refused until it's closed, "
                 + "to avoid corrupting your library."
         }

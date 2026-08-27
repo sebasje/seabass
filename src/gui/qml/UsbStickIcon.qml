@@ -1,4 +1,5 @@
 import QtQuick
+import DjConvertGui
 
 // Flat, monochrome USB-stick pictogram (a rounded body plus a small
 // connector prong) -- drawn with plain Rectangles rather than a font
@@ -7,7 +8,7 @@ import QtQuick
 // font.family fix for what that risk looks like in practice).
 Item {
     id: root
-    property color color: "#94a1a8"
+    property color color: Theme.textMuted
     implicitWidth: 32
     implicitHeight: 32
 

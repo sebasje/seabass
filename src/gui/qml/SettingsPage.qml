@@ -21,7 +21,7 @@ Page {
             ToolButton {
                 text: "‹"
 
-                font.pixelSize: 22
+                font.pointSize: Theme.fontHuge
                 enabled: !settingsController.busy
 
                 ToolTip.visible: hovered
@@ -32,11 +32,11 @@ Page {
             Label {
                 text: root.stickLabel + " -- Device Settings"
                 font.bold: true
-                font.pointSize: 14
+                font.pointSize: Theme.fontLarge
             }
             ToolButton {
                 text: "ⓘ"
-                font.pointSize: 12
+                font.pointSize: Theme.baseFontPointSize * 1.2
                 ToolTip.visible: hovered
                 ToolTip.text: "These are the player/mixer preference files Rekordbox (Pioneer hardware) "
                     + "writes to the stick -- tempo range, quantize, auto cue level and similar. Denon "
@@ -90,14 +90,14 @@ Page {
             Label {
                 visible: settingsController.errorMessage.length > 0
                 text: settingsController.errorMessage
-                color: "#ff8080"
+                color: Theme.danger
                 wrapMode: Text.WordWrap
                 Layout.fillWidth: true
             }
             Label {
                 visible: settingsController.statusMessage.length > 0
                 text: settingsController.statusMessage
-                color: "#8fce8f"
+                color: Theme.good
                 wrapMode: Text.WordWrap
                 Layout.fillWidth: true
             }
@@ -120,7 +120,7 @@ Page {
                                 id: fieldRow
                                 required property var modelData
                                 Layout.fillWidth: true
-                                Label { text: fieldRow.modelData.label + ":"; color: "gray"; Layout.preferredWidth: 180 }
+                                Label { text: fieldRow.modelData.label + ":"; color: Theme.textMuted; Layout.preferredWidth: 180 }
                                 ComboBox {
                                     id: valueCombo
                                     Layout.preferredWidth: 220

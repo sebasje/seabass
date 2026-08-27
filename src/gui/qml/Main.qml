@@ -12,13 +12,12 @@ ApplicationWindow {
     title: "djconvert"
 
     // "seabass" palette (see the app icon/watermark's source artifact):
-    // Current is the accent, Abyss is the app-bar primary.
-    readonly property color paletteCurrent: "#3daee9"
-    readonly property color paletteAbyss: "#123a52"
-
+    // Current is the accent, Abyss is the app-bar primary -- both fixed
+    // brand colors, deliberately not theme-dependent (see Theme.qml).
     Material.theme: appSettingsCtrl.useSystemTheme ? Material.System : Material.Dark
-    Material.accent: paletteCurrent
-    Material.primary: paletteAbyss
+    Material.accent: Theme.accent
+    Material.primary: Theme.primary
+    color: Theme.background
 
     MediaController {
         id: mediaCtrl
@@ -34,6 +33,27 @@ ApplicationWindow {
 
     RekordboxGuardController {
         id: rekordboxGuardCtrl
+    }
+
+    // Pushes the resolved Material colors + the theme toggle into the
+    // Theme singleton -- a pure-QML singleton has no place in the visual
+    // tree of its own, so it can't read the Material attached properties
+    // itself (they're resolved relative to an Item's ancestors); `window`
+    // here is the one Item that actually has Material.theme set, so its
+    // resolved values are correct and just get copied across as data.
+    Binding { target: Theme; property: "useSystemTheme"; value: appSettingsCtrl.useSystemTheme }
+    Binding { target: Theme; property: "materialBackground"; value: window.Material.background }
+    Binding { target: Theme; property: "materialForeground"; value: window.Material.foreground }
+    Binding { target: Theme; property: "materialDivider"; value: window.Material.dividerColor }
+
+    // Explicit, guaranteed background fill -- the Material style's own
+    // window-background handling doesn't reliably respect a plain
+    // `color:` on ApplicationWindow (observed: it kept rendering the
+    // Qt default white regardless), so paint it ourselves instead of
+    // depending on that interaction.
+    Rectangle {
+        anchors.fill: parent
+        color: Theme.background
     }
 
     ColumnLayout {

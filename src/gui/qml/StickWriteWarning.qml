@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import DjConvertGui
 
 // Shown while a controller is actively writing to the stick (not merely
 // scanning it) -- unplugging mid-write can corrupt the very file being
@@ -12,8 +13,8 @@ Rectangle {
     visible: false
     Layout.fillWidth: true
     implicitHeight: visible ? contentRow.implicitHeight + 16 : 0
-    color: "#4a3510"
-    border.color: "#c99a2e"
+    color: Theme.warnBg
+    border.color: Theme.warnBorder
     radius: 4
 
     RowLayout {
@@ -25,14 +26,14 @@ Rectangle {
         Label {
             text: "⚠"
             font.family: "Noto Sans Symbols2"
-            font.pointSize: 16
-            color: "#f0c040"
+            font.pointSize: Theme.fontMedium
+            color: Theme.warnIcon
         }
         Label {
             id: label
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
-            color: "#f0d080"
+            color: Theme.warnText
             text: "Writing to the stick -- do not remove it until this finishes."
         }
     }

@@ -51,7 +51,7 @@ Page {
             ToolButton {
                 text: "‹"
 
-                font.pixelSize: 22
+                font.pointSize: Theme.fontHuge
                 enabled: !backupsController.busy
 
                 ToolTip.visible: hovered
@@ -62,7 +62,7 @@ Page {
             Label {
                 text: root.stickLabel + " -- Backups"
                 font.bold: true
-                font.pointSize: 14
+                font.pointSize: Theme.fontLarge
             }
             Item { Layout.fillWidth: true }
             Label { text: "Keep:" }
@@ -154,20 +154,20 @@ Page {
         Label {
             visible: backupsController.errorMessage.length > 0
             text: backupsController.errorMessage
-            color: "red"
+            color: Theme.danger
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
         }
         Label {
             visible: backupsController.statusMessage.length > 0
             text: backupsController.statusMessage
-            color: "#8fce8f"
+            color: Theme.good
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
         }
         Label {
             text: backupsListView.count + " backup(s), " + backupsController.totalSizeHuman + " total -- " + backupsController.backupDir
-            color: "gray"
+            color: Theme.textMuted
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
         }
@@ -212,13 +212,13 @@ Page {
                         text: backupDelegate.description
                         background: Rectangle {
                             radius: 4
-                            color: descriptionField.activeFocus ? Qt.rgba(1, 1, 1, 0.08) : "transparent"
+                            color: descriptionField.activeFocus ? Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.08) : "transparent"
                             border.width: descriptionField.activeFocus ? 1 : 0
-                            border.color: "#3daee9"
+                            border.color: Theme.accent
                         }
                         onEditingFinished: backupsController.setDescription(backupDelegate.id, text)
                     }
-                    Label { text: backupDelegate.sizeHuman; color: "gray"; Layout.preferredWidth: 70 }
+                    Label { text: backupDelegate.sizeHuman; color: Theme.textMuted; Layout.preferredWidth: 70 }
                     Button {
                         text: "Restore"
                         enabled: !backupsController.busy
@@ -253,7 +253,7 @@ Page {
                 anchors.centerIn: parent
                 visible: backupsListView.count === 0
                 text: "No backups found for this stick."
-                color: "gray"
+                color: Theme.textMuted
             }
         }
     }

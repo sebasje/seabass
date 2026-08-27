@@ -53,7 +53,7 @@ Page {
                 ToolButton {
                     text: "‹"
 
-                    font.pixelSize: 22
+                    font.pointSize: Theme.fontHuge
                     enabled: !duplicatesController.writing
 
                     ToolTip.visible: hovered
@@ -65,7 +65,7 @@ Page {
                 Label {
                     text: root.stickLabel + " -- Duplicate Tracks"
                     font.bold: true
-                    font.pointSize: 14
+                    font.pointSize: Theme.fontLarge
                 }
                 Item { Layout.fillWidth: true }
                 FormatToggle {
@@ -83,7 +83,7 @@ Page {
                 Label {
                     visible: duplicatesController.busy && duplicatesController.scanTotal > 0
                     text: duplicatesController.scanCurrent + " / " + duplicatesController.scanTotal
-                    color: "gray"
+                    color: Theme.textMuted
                 }
             }
 
@@ -92,7 +92,7 @@ Page {
                 spacing: 12
                 Label {
                     text: plansListView.count + " duplicate group(s) need attention"
-                    color: "gray"
+                    color: Theme.textMuted
                 }
                 Item { Layout.fillWidth: true }
                 Button {
@@ -127,14 +127,14 @@ Page {
         Label {
             visible: duplicatesController.errorMessage.length > 0
             text: duplicatesController.errorMessage
-            color: "red"
+            color: Theme.danger
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
         }
         Label {
             visible: duplicatesController.statusMessage.length > 0
             text: duplicatesController.statusMessage
-            color: "#8fce8f"
+            color: Theme.good
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
         }
@@ -183,7 +183,7 @@ Page {
                             }
                             Label {
                                 text: delegateRoot.kind === "unambiguous" ? "  (fixable)" : "  (conflict)"
-                                color: delegateRoot.kind === "unambiguous" ? "#8fce8f" : "orange"
+                                color: delegateRoot.kind === "unambiguous" ? Theme.good : Theme.conflictText
                             }
                             Item { Layout.fillWidth: true }
                             Button {
@@ -196,10 +196,10 @@ Page {
                             }
                             Label {
                                 text: delegateRoot.expanded ? "▾" : "▸"
-                                color: "gray"
+                                color: Theme.textMuted
                             }
                         }
-                        Label { text: delegateRoot.description; color: "gray" }
+                        Label { text: delegateRoot.description; color: Theme.textMuted }
                     }
                 }
 
@@ -211,8 +211,8 @@ Page {
                     width: parent.width
                     visible: delegateRoot.expanded
                     height: delegateRoot.expanded ? groupColumn.implicitHeight + 16 : 0
-                    color: "#161a1e"
-                    border.color: "#2c3238"
+                    color: Theme.groupBackground
+                    border.color: Theme.borderSubtle
                     radius: 4
 
                     ColumnLayout {
@@ -271,7 +271,7 @@ Page {
                                     text: modelData.playlists.length > 0
                                         ? "Playlists: " + modelData.playlists.join(", ")
                                         : "Playlists: (none)"
-                                    color: "gray"
+                                    color: Theme.textMuted
                                     wrapMode: Text.WordWrap
                                     Layout.fillWidth: true
                                 }
@@ -281,20 +281,6 @@ Page {
                                     waveformData: modelData.waveform
                                     cueData: modelData.cues
                                     trackDurationMs: modelData.durationMs
-                                }
-                                Label {
-                                    text: modelData.cues.length > 0 ? "Cues:" : "Cues: (none)"
-                                    color: "gray"
-                                }
-                                Repeater {
-                                    model: modelData.cues
-                                    delegate: Label {
-                                        required property var modelData
-                                        leftPadding: 12
-                                        text: "- " + (modelData.kind === "hot" ? ("hot " + modelData.hotCueNumber) : "memory")
-                                            + " @ " + (modelData.positionMs / 1000).toFixed(1) + "s"
-                                            + (modelData.color ? "  " + modelData.color : "")
-                                    }
                                 }
                             }
                         }
@@ -307,7 +293,7 @@ Page {
                 anchors.centerIn: parent
                 visible: plansListView.count === 0 && !duplicatesController.busy
                 text: "No duplicate tracks needing attention."
-                color: "gray"
+                color: Theme.textMuted
             }
         }
     }

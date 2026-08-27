@@ -27,7 +27,7 @@ Frame {
             Layout.preferredHeight: 64
             radius: width / 2
             color: playMouseArea.pressed ? Qt.darker(Material.accent, 1.4) : Material.accent
-            border.color: "#1a1a1a"
+            border.color: Theme.background
             border.width: 2
 
             // Hand-drawn rather than a font glyph: icon-font play/pause
@@ -95,14 +95,14 @@ Frame {
                 }
                 Label {
                     text: root.formatTime(root.controller.position) + " / " + root.formatTime(root.controller.duration)
-                    color: "gray"
+                    color: Theme.textMuted
                 }
             }
 
             Label {
                 visible: root.controller.errorMessage.length > 0
                 text: root.controller.errorMessage
-                color: "red"
+                color: Theme.danger
                 elide: Text.ElideRight
                 Layout.fillWidth: true
             }
@@ -118,10 +118,30 @@ Frame {
             }
         }
 
+        RowLayout {
+            Layout.alignment: Qt.AlignVCenter
+            spacing: 4
+
+            Label {
+                text: root.controller.volume <= 0.0 ? "🔇" : (root.controller.volume < 0.5 ? "🔉" : "🔊")
+                font.family: "Noto Sans Symbols2"
+            }
+            Slider {
+                id: volumeSlider
+                Layout.preferredWidth: 90
+                from: 0.0
+                to: 1.0
+                value: root.controller.volume
+                onMoved: root.controller.volume = value
+                ToolTip.visible: pressed
+                ToolTip.text: Math.round(value * 100) + "%"
+            }
+        }
+
         ToolButton {
             text: "✕"
             font.family: "Noto Sans Symbols2"
-            font.pixelSize: 18
+            font.pointSize: Theme.fontMedium
             Layout.preferredWidth: 40
             Layout.preferredHeight: 40
             Layout.alignment: Qt.AlignVCenter

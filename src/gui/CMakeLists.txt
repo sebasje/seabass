@@ -2,10 +2,26 @@ qt_add_executable(djconvert-gui
     main.cpp
 )
 
+# `pragma Singleton` alone isn't enough for this Qt version's
+# qt_add_qml_module to register Theme.qml as an actual QML singleton --
+# without this, the generated qmldir lists it as a plain component type
+# ("Theme 1.0 qml/Theme.qml" instead of "singleton Theme 1.0 ..."), so
+# every `Theme.xxx` property access anywhere in the app silently
+# evaluates to `undefined` at runtime (QML logs "Unable to assign
+# [undefined] to ..." rather than a hard error) instead of throwing a
+# clear "Theme is not a type" error -- verified via the generated qmldir
+# and confirmed live via journalctl. Must be set *before*
+# qt_add_qml_module() is called -- it reads source file properties at
+# call time, not deferred, so setting this afterward has no effect
+# (confirmed: moving it after here silently produced the same broken
+# non-singleton qmldir entry even after a full clean rebuild).
+set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+
 qt_add_qml_module(djconvert-gui
     URI DjConvertGui
     VERSION 1.0
     QML_FILES
+        qml/Theme.qml
         qml/Main.qml
         qml/StickListPage.qml
         qml/ScanPage.qml
