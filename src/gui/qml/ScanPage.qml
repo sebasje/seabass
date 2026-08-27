@@ -35,7 +35,7 @@ Page {
                 onClicked: root.StackView.view.pop()
             }
             Label {
-                text: root.stickLabel + " -- " + (root.format === "rekordbox" ? "rekordbox" : "Engine") + " library"
+                text: root.stickLabel + " -- " + (root.format === "rekordbox" ? "Rekordbox" : "Engine") + " Library"
                 font.bold: true
                 font.pointSize: 14
             }
@@ -53,7 +53,7 @@ Page {
                 textRole: "text"
                 valueRole: "value"
                 model: [
-                    { text: "Playlist order", value: "playlist" },
+                    { text: "Playlist Order", value: "playlist" },
                     { text: "Title", value: "title" },
                     { text: "Artist", value: "artist" },
                     { text: "Key", value: "key" },

@@ -25,13 +25,13 @@ Page {
                 onClicked: root.StackView.view.pop()
             }
             Label {
-                text: root.stickLabel + " -- " + (root.format === "rekordbox" ? "rekordbox" : "Engine") + " duplicate tracks"
+                text: root.stickLabel + " -- " + (root.format === "rekordbox" ? "Rekordbox" : "Engine") + " Duplicate Tracks"
                 font.bold: true
                 font.pointSize: 14
             }
             Item { Layout.fillWidth: true }
             Button {
-                text: "Apply all fixable"
+                text: "Apply All Fixable"
                 enabled: !duplicatesController.busy
                 onClicked: duplicatesController.applyAllUnambiguous()
             }
@@ -107,7 +107,7 @@ Page {
                             }
                             Item { Layout.fillWidth: true }
                             Button {
-                                text: "Copy cues"
+                                text: "Copy Cues"
                                 visible: delegateRoot.actionable
                                 onClicked: duplicatesController.applyOne(delegateRoot.index)
                             }

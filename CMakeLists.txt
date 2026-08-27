@@ -74,7 +74,7 @@ target_link_libraries(djconvert PRIVATE djconvert_core)
 # --- djconvert-gui: the Qt Quick composition root (opt-in: only built ---
 # --- when Qt6 is available, so machines without Qt still get the CLI) ---
 
-find_package(Qt6 QUIET COMPONENTS Core Gui Qml Quick QuickControls2 QuickLayouts Multimedia Concurrent)
+find_package(Qt6 QUIET COMPONENTS Core Gui Qml Quick QuickControls2 QuickLayouts Multimedia Concurrent Svg)
 if(Qt6_FOUND)
     qt_standard_project_setup(REQUIRES 6.5)
     # BUILD_SHARED_LIBS was forced OFF above for our own vendored static
