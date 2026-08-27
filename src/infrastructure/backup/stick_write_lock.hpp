@@ -44,7 +44,14 @@ public:
     StickWriteLock &operator=(const StickWriteLock &) = delete;
 
 private:
+#if defined(_WIN32)
+    // Really a HANDLE (void*) -- kept as void* here so <windows.h> doesn't
+    // leak into every includer of this header; stick_write_lock.cpp casts
+    // it back.
+    void *m_handle;
+#else
     int m_fd;
+#endif
     std::string m_path;
 };
 
