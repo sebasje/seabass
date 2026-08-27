@@ -104,20 +104,21 @@ Page {
 
                     ItemDelegate {
                         Layout.fillWidth: true
-                        // hoverEnabled (not the broader `enabled`) once
-                        // mounted -- a mounted stick's row isn't clickable
-                        // for anything, so it shouldn't hover-highlight as
-                        // if it were, but `enabled: false` would also dim
-                        // its own label/info text as a side effect, which
-                        // is still perfectly meaningful to read.
-                        hoverEnabled: !delegateRoot.mounted
+                        // A mounted stick's row isn't clickable for
+                        // anything, so it must not behave like it is --
+                        // `enabled: false` kills hover, click/press, and
+                        // focus all at once (ItemDelegate has no public
+                        // acceptedButtons/hoverEnabled-only way to disable
+                        // just the pointer handling). That also dims
+                        // Material's disabled palette onto any Label here
+                        // with no explicit color of its own, which is why
+                        // both Labels below now pin their color to
+                        // Theme.text explicitly -- still perfectly
+                        // meaningful info, not something to grey out.
+                        enabled: !delegateRoot.mounted
                         ToolTip.visible: hovered
                         ToolTip.text: "Click to mount " + delegateRoot.label
-                        onClicked: {
-                            if (!delegateRoot.mounted) {
-                                root.mediaController.mountStick(delegateRoot.devicePath);
-                            }
-                        }
+                        onClicked: root.mediaController.mountStick(delegateRoot.devicePath)
 
                         contentItem: RowLayout {
                             spacing: 12
@@ -135,6 +136,7 @@ Page {
                                     Layout.fillWidth: true
                                     Label {
                                         text: delegateRoot.label
+                                        color: Theme.text
                                         font.bold: true
                                         font.pointSize: Theme.baseFontPointSize * 1.2
                                     }
@@ -151,8 +153,8 @@ Page {
                                 }
                                 RowLayout {
                                     visible: delegateRoot.mounted
-                                    Label { text: "Rekordbox: " + (delegateRoot.hasRekordbox ? "yes" : "no") }
-                                    Label { text: "  Engine: " + (delegateRoot.hasEngine ? "yes" : "no") }
+                                    Label { text: "Rekordbox: " + (delegateRoot.hasRekordbox ? "yes" : "no"); color: Theme.text }
+                                    Label { text: "  Engine: " + (delegateRoot.hasEngine ? "yes" : "no"); color: Theme.text }
                                 }
                             }
                         }
