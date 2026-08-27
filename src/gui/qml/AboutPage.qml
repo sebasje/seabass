@@ -1,0 +1,114 @@
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+
+Page {
+    id: root
+
+    header: ToolBar {
+        RowLayout {
+            anchors.fill: parent
+            anchors.margins: 10
+            ToolButton {
+                text: "< Back"
+                onClicked: root.StackView.view.pop()
+            }
+            Label {
+                text: "About"
+                font.bold: true
+                font.pointSize: 14
+            }
+            Item { Layout.fillWidth: true }
+        }
+    }
+
+    Flickable {
+        anchors.fill: parent
+        contentWidth: width
+        contentHeight: content.implicitHeight + 64
+        clip: true
+
+        ColumnLayout {
+            id: content
+            x: Math.max(32, (parent.width - width) / 2)
+            width: Math.min(parent.width - 64, 640)
+            y: 32
+            spacing: 20
+
+            Image {
+                source: "qrc:/qt/qml/DjConvertGui/qml/icons/seabass_soundbass.svg"
+                Layout.preferredWidth: 96
+                Layout.preferredHeight: 96
+                Layout.alignment: Qt.AlignHCenter
+                fillMode: Image.PreserveAspectFit
+            }
+
+            ColumnLayout {
+                Layout.alignment: Qt.AlignHCenter
+                spacing: 2
+                Label {
+                    text: "Seabass"
+                    font.bold: true
+                    font.pointSize: 26
+                    Layout.alignment: Qt.AlignHCenter
+                }
+                Label {
+                    text: "DJ USB Stick Management"
+                    font.pointSize: 13
+                    color: "#6cc7f2"
+                    Layout.alignment: Qt.AlignHCenter
+                }
+            }
+
+            Label {
+                text: "Seabass reads and writes the DJ data already on a rekordbox or Denon Engine "
+                    + "USB stick -- cue points, playlists, and the metadata your DJ software already "
+                    + "computed -- so you can inspect it, fix it up, and keep the two formats in sync."
+                wrapMode: Text.WordWrap
+                font.pointSize: 11
+                Layout.fillWidth: true
+            }
+
+            ColumnLayout {
+                spacing: 6
+                Layout.fillWidth: true
+                Label { text: "What Seabass does"; font.bold: true; font.pointSize: 12 }
+                Label {
+                    text: "• Browses tracks, playlists and cue points on rekordbox and Engine sticks\n"
+                        + "• Finds duplicate tracks and consolidates their cue points onto every copy\n"
+                        + "• Syncs hot cues between the rekordbox and Engine copies of the same stick\n"
+                        + "• Lists and cleans up the automatic backups made before every write\n"
+                        + "• Backs up cues to this computer and restores them if a stick's cues are lost"
+                    wrapMode: Text.WordWrap
+                    font.pointSize: 11
+                    color: "#c8c8c8"
+                    Layout.fillWidth: true
+                }
+            }
+
+            ColumnLayout {
+                spacing: 6
+                Layout.fillWidth: true
+                Label { text: "What Seabass doesn't do"; font.bold: true; font.pointSize: 12 }
+                Label {
+                    text: "Seabass never analyzes audio. Beatgridding, BPM/key detection, and waveform "
+                        + "analysis all have to happen in rekordbox or Engine DJ software first -- "
+                        + "Seabass only ever reads and moves around the results of that analysis, "
+                        + "never recomputes it."
+                    wrapMode: Text.WordWrap
+                    font.pointSize: 11
+                    color: "#c8c8c8"
+                    Layout.fillWidth: true
+                }
+            }
+
+            Label {
+                text: "Also known as djconvert on the command line."
+                font.pointSize: 9
+                color: "gray"
+                Layout.alignment: Qt.AlignHCenter
+                Layout.topMargin: 8
+            }
+        }
+    }
+}

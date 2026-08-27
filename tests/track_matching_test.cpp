@@ -85,6 +85,47 @@ int main()
         std::cout << "case 6 (titleArtistKey normalization and missing-field handling) OK\n";
     }
 
+    // matchTracks: title+artist is primary (filenames may legitimately
+    // differ), filename is only a fallback when metadata is missing.
+    {
+        Track a1;
+        a1.sourceId = "a1";
+        a1.filename = "01 - song.mp3";
+        a1.title = "Song";
+        a1.artist = "Artist";
+        a1.durationSeconds = 200.0;
+
+        Track b1;
+        b1.sourceId = "b1";
+        b1.filename = "song (export).mp3";
+        b1.title = "Song";
+        b1.artist = "Artist";
+        b1.durationSeconds = 200.5;
+
+        auto matches = matchTracks({a1}, {b1});
+        assert(matches.size() == 1);
+        assert(matches[0].first->sourceId == "a1");
+        assert(matches[0].second->sourceId == "b1");
+        std::cout << "case 7 (matchTracks: title+artist match despite differing filenames) OK\n";
+    }
+    {
+        Track a2;
+        a2.sourceId = "a2";
+        a2.filename = "same.mp3";
+        a2.durationSeconds = 100.0;
+
+        Track b2;
+        b2.sourceId = "b2";
+        b2.filename = "same.mp3";
+        b2.durationSeconds = 100.0;
+
+        auto matches = matchTracks({a2}, {b2});
+        assert(matches.size() == 1);
+        assert(matches[0].first->sourceId == "a2");
+        assert(matches[0].second->sourceId == "b2");
+        std::cout << "case 8 (matchTracks: filename fallback when metadata missing) OK\n";
+    }
+
     std::cout << "all cases passed\n";
     return 0;
 }

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <map>
 
 namespace djconvert::domain
 {
@@ -11,6 +12,7 @@ namespace
 {
 
 constexpr double PositionToleranceMs = 1000.0;
+constexpr double DurationToleranceSeconds = 2.0;
 
 std::vector<CuePoint> sortedCues(std::vector<CuePoint> cues)
 {
@@ -46,6 +48,48 @@ std::optional<std::string> titleArtistKey(const Track &track)
         return std::nullopt;
     }
     return normalizeFilename(track.title + "|" + track.artist);
+}
+
+std::vector<std::pair<const Track *, const Track *>> matchTracks(const std::vector<Track> &a,
+                                                                   const std::vector<Track> &b)
+{
+    std::map<std::string, std::vector<const Track *>> bByTitleArtist;
+    std::map<std::string, std::vector<const Track *>> bByFilename;
+    for (const auto &track : b) {
+        if (auto key = titleArtistKey(track)) {
+            bByTitleArtist[*key].push_back(&track);
+        }
+        bByFilename[normalizeFilename(track.filename)].push_back(&track);
+    }
+
+    std::vector<std::pair<const Track *, const Track *>> matches;
+    for (const auto &trackA : a) {
+        const std::vector<const Track *> *candidates = nullptr;
+
+        if (auto key = titleArtistKey(trackA)) {
+            auto it = bByTitleArtist.find(*key);
+            if (it != bByTitleArtist.end()) {
+                candidates = &it->second;
+            }
+        }
+        if (!candidates) {
+            auto it = bByFilename.find(normalizeFilename(trackA.filename));
+            if (it != bByFilename.end()) {
+                candidates = &it->second;
+            }
+        }
+        if (!candidates) {
+            continue;
+        }
+
+        for (const auto *trackB : *candidates) {
+            if (std::abs(trackA.durationSeconds - trackB->durationSeconds) <= DurationToleranceSeconds) {
+                matches.emplace_back(&trackA, trackB);
+                break;  // one match per `a` track is enough for propagating cues
+            }
+        }
+    }
+    return matches;
 }
 
 bool cueSetsEqual(const std::vector<CuePoint> &a, const std::vector<CuePoint> &b)
