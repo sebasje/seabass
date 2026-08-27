@@ -114,7 +114,17 @@ Page {
 
                 ItemDelegate {
                     Layout.fillWidth: true
+                    ToolTip.visible: hovered && !delegateRoot.mounted
+                    ToolTip.text: "Click to mount " + delegateRoot.label
                     onClicked: {
+                        // An unmounted stick has nothing to expand/collapse
+                        // (no rekordbox/engine paths to show yet) -- so a
+                        // click here is unambiguously "mount it," same
+                        // action as the eject/mount button.
+                        if (!delegateRoot.mounted) {
+                            root.mediaController.mountStick(delegateRoot.devicePath);
+                            return;
+                        }
                         var next = Object.assign({}, root.collapsedDevicePaths);
                         if (delegateRoot.expanded) {
                             next[delegateRoot.devicePath] = true;
