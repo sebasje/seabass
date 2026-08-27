@@ -85,7 +85,8 @@ Page {
                         + "• Finds duplicate tracks and consolidates their cue points onto every copy\n"
                         + "• Syncs hot cues between the Rekordbox and Engine copies of the same stick\n"
                         + "• Lists and cleans up the automatic backups made before every write\n"
-                        + "• Backs up cues to this computer and restores them if a stick's cues are lost"
+                        + "• Backs up cues to this computer and restores them if a stick's cues are lost\n"
+                        + "• Shows a stick's saved Rekordbox player settings"
                     wrapMode: Text.WordWrap
                     font.pointSize: Theme.baseFontPointSize * 1.1
                     color: Theme.textMuted
