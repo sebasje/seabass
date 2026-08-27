@@ -158,10 +158,6 @@ Page {
                                     color: Theme.textMuted
                                 }
                                 Item { Layout.fillWidth: true }
-                                Label {
-                                    text: delegateRoot.expanded ? "▾" : "▸"
-                                    color: Theme.textMuted
-                                }
                             }
                             Label {
                                 text: delegateRoot.mounted ? delegateRoot.mountPoint : delegateRoot.devicePath
@@ -200,6 +196,18 @@ Page {
                                     root.mediaController.mountStick(delegateRoot.devicePath);
                                 }
                             }
+                        }
+
+                        // Expand/collapse indicator -- grouped with the
+                        // eject button (both live at the end of the row,
+                        // vertically centered) rather than floating alone
+                        // in the title row above, where it read as
+                        // unexplained clutter disconnected from anything.
+                        Label {
+                            visible: delegateRoot.mounted
+                            text: delegateRoot.expanded ? "▾" : "▸"
+                            color: Theme.textMuted
+                            Layout.alignment: Qt.AlignVCenter
                         }
                     }
                 }
