@@ -71,11 +71,17 @@ Page {
                 text: checked ? "▲" : "▼"
                 onCheckedChanged: scanController.setSort(sortCombo.currentValue, checked)
             }
-            BusyIndicator {
-                running: scanController.busy
+            ProgressBar {
                 visible: scanController.busy
-                implicitWidth: 24
-                implicitHeight: 24
+                indeterminate: scanController.scanTotal === 0
+                value: scanController.scanTotal > 0
+                    ? scanController.scanCurrent / scanController.scanTotal : 0
+                Layout.preferredWidth: 140
+            }
+            Label {
+                visible: scanController.busy && scanController.scanTotal > 0
+                text: scanController.scanCurrent + " / " + scanController.scanTotal
+                color: "gray"
             }
         }
     }

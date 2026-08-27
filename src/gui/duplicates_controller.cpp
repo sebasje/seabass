@@ -1,5 +1,7 @@
 #include "duplicates_controller.hpp"
 
+#include <QtConcurrent/QtConcurrentRun>
+
 #include <algorithm>
 #include <filesystem>
 #include <functional>
@@ -11,6 +13,7 @@
 #include "application/ports/operation_log.hpp"
 #include "application/use_cases/consolidate_duplicate_cues.hpp"
 #include "application/use_cases/scan_library.hpp"
+#include "gui/qt_progress_reporter.hpp"
 #include "infrastructure/backup/filesystem_backup_store.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cue_writer.hpp"
 #include "infrastructure/engine/libdjinterop_engine_reader.hpp"
@@ -192,27 +195,23 @@ void copyCuesToTargets(const domain::Track &source, const std::vector<domain::Tr
 
 }  // namespace
 
-DuplicatesController::DuplicatesController(QObject *parent) : QObject(parent) {}
-
-void DuplicatesController::scan(const QString &format, const QString &path)
+namespace
 {
-    m_format = format;
-    m_path = path;
-    rescan();
-}
 
-void DuplicatesController::rescan()
+// Runs entirely on a background thread (see DuplicatesController::
+// rescan()) -- no access to the controller itself.
+DuplicatesTaskResult runRescanTask(QString format, QString path, std::shared_ptr<QtProgressReporter> reporter)
 {
-    setErrorMessage({});
-    setBusy(true);
-
+    DuplicatesTaskResult result;
     try {
         std::vector<domain::Track> tracks;
-        if (m_format == "rekordbox") {
-            infrastructure::rekordbox::KaitaiRekordboxReader reader(m_path.toStdString());
+        if (format == "rekordbox") {
+            infrastructure::rekordbox::KaitaiRekordboxReader reader(path.toStdString());
+            reader.setProgressReporter(*reporter);
             tracks = application::ScanLibrary(reader).execute();
         } else {
-            infrastructure::engine::LibdjinteropEngineReader reader(m_path.toStdString());
+            infrastructure::engine::LibdjinteropEngineReader reader(path.toStdString());
+            reader.setProgressReporter(*reporter);
             tracks = application::ScanLibrary(reader).execute();
         }
 
@@ -233,20 +232,69 @@ void DuplicatesController::rescan()
                     continue;
                 }
                 std::vector<double> waveform;
-                if (m_format == "rekordbox") {
-                    waveform = infrastructure::rekordbox::readWaveformPreview(m_path.toStdString(), track.sourceId);
+                if (format == "rekordbox") {
+                    waveform = infrastructure::rekordbox::readWaveformPreview(path.toStdString(), track.sourceId);
                 } else {
-                    waveform = infrastructure::engine::readWaveformPreview(m_path.toStdString(), track.sourceId);
+                    waveform = infrastructure::engine::readWaveformPreview(path.toStdString(), track.sourceId);
                 }
                 waveformsBySourceId[track.sourceId] = std::move(waveform);
             }
         }
 
-        m_model.setPlans(std::move(actionable), std::move(waveformsBySourceId));
+        result.plans = std::move(actionable);
+        result.waveformsBySourceId = std::move(waveformsBySourceId);
     } catch (const std::exception &e) {
-        setErrorMessage(QString::fromStdString(e.what()));
+        result.errorMessage = QString::fromStdString(e.what());
+    }
+    return result;
+}
+
+}  // namespace
+
+DuplicatesController::DuplicatesController(QObject *parent) : QObject(parent)
+{
+    connect(&m_watcher, &QFutureWatcher<DuplicatesTaskResult>::finished, this,
+            &DuplicatesController::onRescanFinished);
+}
+
+void DuplicatesController::scan(const QString &format, const QString &path)
+{
+    m_format = format;
+    m_path = path;
+    rescan();
+}
+
+void DuplicatesController::rescan()
+{
+    if (m_busy) {
+        return;  // never overlap two rescans
+    }
+    setErrorMessage({});
+    setScanProgress(0, 0);
+    setBusy(true);
+
+    // See ScanController::scan() for why the reporter is owned by the task
+    // (via shared_ptr) rather than by this controller.
+    auto reporter = std::make_shared<QtProgressReporter>();
+    connect(reporter.get(), &QtProgressReporter::started, this,
+            [this](const QString &, int total) { setScanProgress(0, total); });
+    connect(reporter.get(), &QtProgressReporter::progressed, this,
+            [this](int current) { setScanProgress(current, m_scanTotal); });
+
+    m_watcher.setFuture(QtConcurrent::run(runRescanTask, m_format, m_path, reporter));
+}
+
+void DuplicatesController::onRescanFinished()
+{
+    DuplicatesTaskResult result = m_watcher.result();
+
+    if (!result.errorMessage.isEmpty()) {
+        setErrorMessage(result.errorMessage);
+        setBusy(false);
+        return;
     }
 
+    m_model.setPlans(std::move(result.plans), std::move(result.waveformsBySourceId));
     setBusy(false);
 }
 
@@ -364,6 +412,16 @@ void DuplicatesController::setBusy(bool busy)
     }
     m_busy = busy;
     emit busyChanged();
+}
+
+void DuplicatesController::setScanProgress(int current, int total)
+{
+    if (m_scanCurrent == current && m_scanTotal == total) {
+        return;
+    }
+    m_scanCurrent = current;
+    m_scanTotal = total;
+    emit scanProgressChanged();
 }
 
 void DuplicatesController::setErrorMessage(const QString &message)

@@ -35,11 +35,17 @@ Page {
                 enabled: !duplicatesController.busy
                 onClicked: duplicatesController.applyAllUnambiguous()
             }
-            BusyIndicator {
-                running: duplicatesController.busy
+            ProgressBar {
                 visible: duplicatesController.busy
-                implicitWidth: 24
-                implicitHeight: 24
+                indeterminate: duplicatesController.scanTotal === 0
+                value: duplicatesController.scanTotal > 0
+                    ? duplicatesController.scanCurrent / duplicatesController.scanTotal : 0
+                Layout.preferredWidth: 140
+            }
+            Label {
+                visible: duplicatesController.busy && duplicatesController.scanTotal > 0
+                text: duplicatesController.scanCurrent + " / " + duplicatesController.scanTotal
+                color: "gray"
             }
         }
     }
