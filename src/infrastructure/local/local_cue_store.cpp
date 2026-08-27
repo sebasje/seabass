@@ -29,7 +29,14 @@ std::string isoTimestampUtc()
 {
     std::time_t t = std::time(nullptr);
     std::tm tm{};
+#if defined(_WIN32)
+    // gmtime_s takes its arguments in the opposite order from POSIX's
+    // gmtime_r (destination first) and returns errno_t rather than a
+    // struct tm* -- not just a rename.
+    gmtime_s(&tm, &t);
+#else
     gmtime_r(&t, &tm);
+#endif
     char buf[32];
     std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm);
     return buf;
