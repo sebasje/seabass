@@ -171,8 +171,12 @@ if(WIN32)
     # A portable single-file .exe -- without these, mingw links
     # libgcc_s_seh-1.dll/libstdc++-6.dll dynamically, which aren't
     # present next to the exe (or anywhere in a real Windows install)
-    # unless separately deployed.
-    target_link_options(djconvert PRIVATE -static-libgcc -static-libstdc++)
+    # unless separately deployed. -static-libgcc/-static-libstdc++
+    # aren't enough on their own with the posix-threading mingw
+    # variant (required to match Qt's prebuilt win64_mingw binaries,
+    # see cmake/mingw-w64-toolchain.cmake) -- that variant also pulls
+    # in libwinpthread-1.dll dynamically unless -static covers it too.
+    target_link_options(djconvert PRIVATE -static-libgcc -static-libstdc++ -static)
 endif()
 
 # --- djconvert-gui: the Qt Quick composition root (opt-in: only built ---
