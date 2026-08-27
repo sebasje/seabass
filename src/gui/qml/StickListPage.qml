@@ -102,25 +102,44 @@ Page {
                     Layout.fillWidth: true
                     spacing: 12
 
-                    ItemDelegate {
+                    // A plain Item + explicit MouseArea, not an ItemDelegate
+                    // -- ItemDelegate's own hover/press background isn't
+                    // reliably gated by `enabled` in this KDE-Breeze/Material
+                    // style mashup (confirmed: `enabled: !mounted` still left
+                    // the row hover-highlighting and accepting clicks once
+                    // mounted). ScanPage.qml's track rows already hit the
+                    // exact same class of Material-Control-chrome issue and
+                    // settled on this same Rectangle+MouseArea sidestep --
+                    // see its comment for the fuller story.
+                    Item {
                         Layout.fillWidth: true
-                        // A mounted stick's row isn't clickable for
-                        // anything, so it must not behave like it is --
-                        // `enabled: false` kills hover, click/press, and
-                        // focus all at once (ItemDelegate has no public
-                        // acceptedButtons/hoverEnabled-only way to disable
-                        // just the pointer handling). That also dims
-                        // Material's disabled palette onto any Label here
-                        // with no explicit color of its own, which is why
-                        // both Labels below now pin their color to
-                        // Theme.text explicitly -- still perfectly
-                        // meaningful info, not something to grey out.
-                        enabled: !delegateRoot.mounted
-                        ToolTip.visible: hovered
-                        ToolTip.text: "Click to mount " + delegateRoot.label
-                        onClicked: root.mediaController.mountStick(delegateRoot.devicePath)
+                        implicitHeight: rowContent.implicitHeight
 
-                        contentItem: RowLayout {
+                        Rectangle {
+                            anchors.fill: parent
+                            anchors.margins: -6
+                            radius: 4
+                            visible: !delegateRoot.mounted
+                            color: rowMouseArea.pressed ? Theme.rowPressed
+                                : rowMouseArea.containsMouse ? Theme.rowHover
+                                : "transparent"
+                        }
+
+                        MouseArea {
+                            id: rowMouseArea
+                            anchors.fill: parent
+                            enabled: !delegateRoot.mounted
+                            hoverEnabled: !delegateRoot.mounted
+                            ToolTip.visible: containsMouse
+                            ToolTip.text: "Click to mount " + delegateRoot.label
+                            onClicked: root.mediaController.mountStick(delegateRoot.devicePath)
+                        }
+
+                        RowLayout {
+                            id: rowContent
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
                             spacing: 12
 
                             UsbStickIcon {
