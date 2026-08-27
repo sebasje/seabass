@@ -72,16 +72,16 @@ ApplicationWindow {
         StickListPage {
             mediaController: mediaCtrl
             playbackController: playbackCtrl
-            onBrowseRequested: (stickLabel, format, path, siblingRekordboxPath) => stackView.push(scanPageComponent, {
+            appSettingsController: appSettingsCtrl
+            onBrowseRequested: (stickLabel, rekordboxPath, enginePath) => stackView.push(scanPageComponent, {
                 stickLabel: stickLabel,
-                format: format,
-                path: path,
-                siblingRekordboxPath: siblingRekordboxPath,
+                rekordboxPath: rekordboxPath,
+                enginePath: enginePath,
             })
-            onDuplicatesRequested: (stickLabel, format, path) => stackView.push(duplicatesPageComponent, {
+            onDuplicatesRequested: (stickLabel, rekordboxPath, enginePath) => stackView.push(duplicatesPageComponent, {
                 stickLabel: stickLabel,
-                format: format,
-                path: path,
+                rekordboxPath: rekordboxPath,
+                enginePath: enginePath,
             })
             onSettingsRequested: (stickLabel, pioneerRoot) => stackView.push(settingsPageComponent, {
                 stickLabel: stickLabel,
@@ -98,6 +98,12 @@ ApplicationWindow {
                 rekordboxPath: rekordboxPath,
                 enginePath: enginePath,
             })
+            onLocalCueRequested: (stickLabel, rekordboxPath, enginePath) => stackView.push(localCuePageComponent, {
+                stickLabel: stickLabel,
+                rekordboxPath: rekordboxPath,
+                enginePath: enginePath,
+            })
+            onAboutRequested: stackView.push(aboutPageComponent)
         }
     }
 
@@ -105,6 +111,7 @@ ApplicationWindow {
         id: scanPageComponent
         ScanPage {
             playbackController: playbackCtrl
+            appSettingsController: appSettingsCtrl
         }
     }
 
@@ -112,6 +119,7 @@ ApplicationWindow {
         id: duplicatesPageComponent
         DuplicatesPage {
             playbackController: playbackCtrl
+            appSettingsController: appSettingsCtrl
         }
     }
 
@@ -137,5 +145,17 @@ ApplicationWindow {
     Component {
         id: backupsPageComponent
         BackupsPage {}
+    }
+
+    Component {
+        id: localCuePageComponent
+        LocalCuePage {
+            appSettingsController: appSettingsCtrl
+        }
+    }
+
+    Component {
+        id: aboutPageComponent
+        AboutPage {}
     }
 }

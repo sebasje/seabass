@@ -5,31 +5,49 @@ import DjConvertGui
 
 Page {
     id: root
-    required property string format
-    required property string path
     required property string stickLabel
+    required property string rekordboxPath
+    required property string enginePath
     required property var playbackController
+    required property var appSettingsController
+
+    readonly property bool hasRekordbox: rekordboxPath.length > 0
+    readonly property bool hasEngine: enginePath.length > 0
+    readonly property string format: {
+        var pref = appSettingsController.preferredFormat;
+        if (pref === "engine" && hasEngine) return "engine";
+        if (pref === "rekordbox" && hasRekordbox) return "rekordbox";
+        return hasEngine ? "engine" : "rekordbox";
+    }
+    readonly property string path: format === "engine" ? enginePath : rekordboxPath
 
     DuplicatesController {
         id: duplicatesController
     }
 
     Component.onCompleted: duplicatesController.scan(root.format, root.path)
+    onFormatChanged: duplicatesController.scan(root.format, root.path)
 
     header: ToolBar {
         RowLayout {
             anchors.fill: parent
-            anchors.margins: 8
+            anchors.margins: 10
+            spacing: 12
             ToolButton {
                 text: "< Back"
                 onClicked: root.StackView.view.pop()
             }
             Label {
-                text: root.stickLabel + " -- " + (root.format === "rekordbox" ? "Rekordbox" : "Engine") + " Duplicate Tracks"
+                text: root.stickLabel + " -- Duplicate Tracks"
                 font.bold: true
                 font.pointSize: 14
             }
             Item { Layout.fillWidth: true }
+            FormatToggle {
+                appSettingsController: root.appSettingsController
+                hasRekordbox: root.hasRekordbox
+                hasEngine: root.hasEngine
+            }
             Button {
                 text: "Apply All Fixable"
                 enabled: !duplicatesController.busy

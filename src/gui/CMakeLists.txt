@@ -12,6 +12,9 @@ qt_add_qml_module(djconvert-gui
         qml/DuplicatesPage.qml
         qml/SyncPage.qml
         qml/BackupsPage.qml
+        qml/LocalCuePage.qml
+        qml/FormatToggle.qml
+        qml/AboutPage.qml
         qml/PlayerBar.qml
         qml/WaveformView.qml
         qml/SettingsPage.qml
@@ -30,6 +33,8 @@ qt_add_qml_module(djconvert-gui
         sync_controller.cpp
         backups_controller.hpp
         backups_controller.cpp
+        local_cue_controller.hpp
+        local_cue_controller.cpp
         playback_controller.hpp
         playback_controller.cpp
         settings_controller.hpp

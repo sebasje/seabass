@@ -13,6 +13,11 @@ set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(BUILD_DOC OFF CACHE BOOL "" FORCE)
 add_subdirectory(third_party/libdjinterop)
 
+# System SQLite3 -- already required to build libdjinterop (Engine's
+# library format is itself SQLite), so LocalCueStore reuses it rather
+# than vendoring a JSON library for the same job.
+find_package(SQLite3 REQUIRED)
+
 add_library(kaitai_cpp_stl_runtime STATIC
     third_party/kaitai_struct_cpp_stl_runtime/kaitai/kaitaistream.cpp
 )
@@ -38,6 +43,7 @@ target_link_libraries(rekordbox_format PUBLIC kaitai_cpp_stl_runtime)
 add_library(djconvert_core STATIC
     src/domain/duplicate_cue_consolidation.cpp
     src/domain/fuzzy_matcher.cpp
+    src/domain/local_restore.cpp
     src/domain/sync_planning.cpp
     src/domain/track_matching.cpp
     src/domain/track_queries.cpp
@@ -57,9 +63,10 @@ add_library(djconvert_core STATIC
     src/infrastructure/media/udisksctl_media_mounter.cpp
     src/infrastructure/backup/filesystem_backup_store.cpp
     src/infrastructure/logging/file_operation_log.cpp
+    src/infrastructure/local/local_cue_store.cpp
 )
 target_include_directories(djconvert_core PUBLIC src)
-target_link_libraries(djconvert_core PUBLIC rekordbox_format DjInterop udev)
+target_link_libraries(djconvert_core PUBLIC rekordbox_format DjInterop udev SQLite::SQLite3)
 
 # --- djconvert: the terminal composition root ---
 
@@ -135,3 +142,22 @@ add_executable(anlz_cue_codec_test
 )
 target_include_directories(anlz_cue_codec_test PRIVATE src)
 add_test(NAME anlz_cue_codec_test COMMAND anlz_cue_codec_test)
+
+add_executable(local_restore_test
+    src/domain/local_restore.cpp
+    tests/local_restore_test.cpp
+)
+target_include_directories(local_restore_test PRIVATE src)
+add_test(NAME local_restore_test COMMAND local_restore_test)
+
+# --- infrastructure-layer test needing a real (temp-file) SQLite db ---
+
+add_executable(local_cue_store_test
+    src/domain/track_matching.cpp
+    src/application/ports/progress_reporter.cpp
+    src/infrastructure/local/local_cue_store.cpp
+    tests/local_cue_store_test.cpp
+)
+target_include_directories(local_cue_store_test PRIVATE src)
+target_link_libraries(local_cue_store_test PRIVATE SQLite::SQLite3)
+add_test(NAME local_cue_store_test COMMAND local_cue_store_test)

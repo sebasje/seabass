@@ -1,17 +1,21 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import DjConvertGui
 
 Item {
     id: root
     required property var mediaController
     required property var playbackController
-    signal browseRequested(string stickLabel, string format, string path, string siblingRekordboxPath)
-    signal duplicatesRequested(string stickLabel, string format, string path)
+    required property var appSettingsController
+    signal browseRequested(string stickLabel, string rekordboxPath, string enginePath)
+    signal duplicatesRequested(string stickLabel, string rekordboxPath, string enginePath)
     signal settingsRequested(string stickLabel, string pioneerRoot)
     signal syncRequested(string stickLabel, string rekordboxPath, string enginePath)
     signal appSettingsRequested()
     signal backupsRequested(string stickLabel, string rekordboxPath, string enginePath)
+    signal localCueRequested(string stickLabel, string rekordboxPath, string enginePath)
+    signal aboutRequested()
 
     // Keyed by devicePath (stable across mount state changes) rather than
     // stored per-delegate: mounting/unmounting refreshes the whole sticks
@@ -32,11 +36,12 @@ Item {
                 font.pointSize: 16
             }
             Item { Layout.fillWidth: true }
-            Button {
-                text: "Refresh"
+            ToolButton {
+                text: "ⓘ"
+                font.pointSize: 14
                 ToolTip.visible: hovered
-                ToolTip.text: "Re-scan for USB sticks"
-                onClicked: root.mediaController.detect()
+                ToolTip.text: "About Seabass"
+                onClicked: root.aboutRequested()
             }
             ToolButton {
                 text: "⚙"
@@ -152,61 +157,77 @@ Item {
                 ColumnLayout {
                     width: parent.width
                     visible: delegateRoot.expanded
-                    spacing: 8
 
-                    RowLayout {
-                        spacing: 8
-                        Button {
-                            text: "Browse Rekordbox Library"
-                            enabled: delegateRoot.hasRekordbox
+                    GridLayout {
+                        Layout.fillWidth: true
+                        Layout.topMargin: 8
+                        Layout.bottomMargin: 8
+                        columns: 3
+                        columnSpacing: 12
+                        rowSpacing: 12
+
+                        component ActionCard: Button {
+                            id: card
+                            property string cardTitle
+                            property string cardSubtitle
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 68
                             ToolTip.visible: hovered
-                            ToolTip.text: "Browse tracks and playlists on the Rekordbox side of this stick"
-                            onClicked: root.browseRequested(delegateRoot.label, "rekordbox", delegateRoot.rekordboxPath, "")
+                            ToolTip.text: cardSubtitle
+
+                            contentItem: ColumnLayout {
+                                spacing: 2
+                                Label {
+                                    text: card.cardTitle
+                                    font.bold: true
+                                    Layout.fillWidth: true
+                                    elide: Text.ElideRight
+                                }
+                                Label {
+                                    text: card.cardSubtitle
+                                    color: card.enabled ? "gray" : "#5a5a5a"
+                                    font.pointSize: 9
+                                    wrapMode: Text.WordWrap
+                                    Layout.fillWidth: true
+                                }
+                            }
                         }
-                        Button {
-                            text: "Browse Engine Library"
-                            enabled: delegateRoot.hasEngine
-                            ToolTip.visible: hovered
-                            ToolTip.text: "Browse tracks and playlists on the Engine side of this stick"
-                            onClicked: root.browseRequested(delegateRoot.label, "engine", delegateRoot.enginePath, delegateRoot.rekordboxPath)
+
+                        ActionCard {
+                            cardTitle: "Browse Library"
+                            cardSubtitle: "View tracks, playlists and cues"
+                            enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
+                            onClicked: root.browseRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
                         }
-                    }
-                    RowLayout {
-                        spacing: 8
-                        Button {
-                            text: "Duplicate Tracks (Rekordbox)"
-                            enabled: delegateRoot.hasRekordbox
-                            ToolTip.visible: hovered
-                            ToolTip.text: "Find tracks that appear more than once and consolidate their cue points"
-                            onClicked: root.duplicatesRequested(delegateRoot.label, "rekordbox", delegateRoot.rekordboxPath)
+                        ActionCard {
+                            cardTitle: "Duplicate Tracks"
+                            cardSubtitle: "Find and consolidate repeated tracks"
+                            enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
+                            onClicked: root.duplicatesRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
                         }
-                        Button {
-                            text: "Duplicate Tracks (Engine)"
-                            enabled: delegateRoot.hasEngine
-                            ToolTip.visible: hovered
-                            ToolTip.text: "Find tracks that appear more than once and consolidate their cue points"
-                            onClicked: root.duplicatesRequested(delegateRoot.label, "engine", delegateRoot.enginePath)
-                        }
-                        Button {
-                            text: "Device Settings"
-                            enabled: delegateRoot.hasRekordbox
-                            ToolTip.visible: hovered
-                            ToolTip.text: "View this stick's saved Rekordbox player/device settings"
-                            onClicked: root.settingsRequested(delegateRoot.label, delegateRoot.rekordboxPath)
-                        }
-                        Button {
-                            text: "Sync Cues Between Formats"
+                        ActionCard {
+                            cardTitle: "Sync Cues Between Formats"
+                            cardSubtitle: "Copy cues between Rekordbox and Engine"
                             enabled: delegateRoot.hasRekordbox && delegateRoot.hasEngine
-                            ToolTip.visible: hovered
-                            ToolTip.text: "Copy cue points between Rekordbox and Engine for tracks present on both sides"
                             onClicked: root.syncRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
                         }
-                        Button {
-                            text: "Manage Backups"
+                        ActionCard {
+                            cardTitle: "Local Cue Backup"
+                            cardSubtitle: "Back up or restore cues on this computer"
                             enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
-                            ToolTip.visible: hovered
-                            ToolTip.text: "List and clean up automatic backups made before cue writes"
+                            onClicked: root.localCueRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
+                        }
+                        ActionCard {
+                            cardTitle: "Manage Backups"
+                            cardSubtitle: "List and clean up automatic write backups"
+                            enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
                             onClicked: root.backupsRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
+                        }
+                        ActionCard {
+                            cardTitle: "Device Settings"
+                            cardSubtitle: "View this stick's saved Rekordbox player settings"
+                            enabled: delegateRoot.hasRekordbox
+                            onClicked: root.settingsRequested(delegateRoot.label, delegateRoot.rekordboxPath)
                         }
                     }
                 }
@@ -215,8 +236,9 @@ Item {
             Label {
                 anchors.centerIn: parent
                 visible: parent.count === 0
-                text: "No USB sticks detected. Insert one -- this list updates automatically."
-                color: "gray"
+                text: "No USB sticks detected. Insert one to get started."
+                font.pointSize: 14
+                color: "#999"
             }
         }
     }

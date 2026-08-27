@@ -5,11 +5,21 @@ import DjConvertGui
 
 Page {
     id: root
-    required property string format
-    required property string path
     required property string stickLabel
+    required property string rekordboxPath
+    required property string enginePath
     required property var playbackController
-    property string siblingRekordboxPath: ""
+    required property var appSettingsController
+
+    readonly property bool hasRekordbox: rekordboxPath.length > 0
+    readonly property bool hasEngine: enginePath.length > 0
+    readonly property string format: {
+        var pref = appSettingsController.preferredFormat;
+        if (pref === "engine" && hasEngine) return "engine";
+        if (pref === "rekordbox" && hasRekordbox) return "rekordbox";
+        return hasEngine ? "engine" : "rekordbox";
+    }
+    readonly property string path: format === "engine" ? enginePath : rekordboxPath
 
     ScanController {
         id: scanController
@@ -17,7 +27,13 @@ Page {
 
     property int selectedPlaylistIndex: 0
 
-    Component.onCompleted: scanController.scan(root.format, root.path, root.siblingRekordboxPath)
+    function rescan() {
+        selectedPlaylistIndex = 0;
+        scanController.scan(root.format, root.path, root.format === "engine" ? root.rekordboxPath : "");
+    }
+
+    Component.onCompleted: rescan()
+    onFormatChanged: rescan()
 
     function formatDuration(seconds) {
         var total = Math.round(seconds);
@@ -27,61 +43,78 @@ Page {
     }
 
     header: ToolBar {
-        RowLayout {
+        ColumnLayout {
             anchors.fill: parent
-            anchors.margins: 8
-            ToolButton {
-                text: "< Back"
-                onClicked: root.StackView.view.pop()
+            anchors.margins: 10
+            spacing: 8
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 12
+                ToolButton {
+                    text: "< Back"
+                    onClicked: root.StackView.view.pop()
+                }
+                Label {
+                    text: root.stickLabel + " -- Library"
+                    font.bold: true
+                    font.pointSize: 14
+                }
+                Item { Layout.fillWidth: true }
+                FormatToggle {
+                    appSettingsController: root.appSettingsController
+                    hasRekordbox: root.hasRekordbox
+                    hasEngine: root.hasEngine
+                }
+                ProgressBar {
+                    visible: scanController.busy
+                    indeterminate: scanController.scanTotal === 0
+                    value: scanController.scanTotal > 0
+                        ? scanController.scanCurrent / scanController.scanTotal : 0
+                    Layout.preferredWidth: 140
+                }
+                Label {
+                    visible: scanController.busy && scanController.scanTotal > 0
+                    text: scanController.scanCurrent + " / " + scanController.scanTotal
+                    color: "gray"
+                }
             }
-            Label {
-                text: root.stickLabel + " -- " + (root.format === "rekordbox" ? "Rekordbox" : "Engine") + " Library"
-                font.bold: true
-                font.pointSize: 14
-            }
-            Item { Layout.fillWidth: true }
-            TextField {
-                id: searchField
-                Layout.preferredWidth: 220
-                placeholderText: "Search title or artist..."
-                onTextChanged: scanController.search(text)
-            }
-            Label { text: "Sort:" }
-            ComboBox {
-                id: sortCombo
-                Layout.preferredWidth: 130
-                textRole: "text"
-                valueRole: "value"
-                model: [
-                    { text: "Playlist Order", value: "playlist" },
-                    { text: "Title", value: "title" },
-                    { text: "Artist", value: "artist" },
-                    { text: "Key", value: "key" },
-                    { text: "BPM", value: "bpm" },
-                    { text: "Duration", value: "duration" },
-                    { text: "Cues", value: "cues" },
-                    { text: "Plays", value: "plays" },
-                ]
-                onActivated: scanController.setSort(currentValue, sortDirectionButton.checked)
-            }
-            ToolButton {
-                id: sortDirectionButton
-                checkable: true
-                checked: true
-                text: checked ? "▲" : "▼"
-                onCheckedChanged: scanController.setSort(sortCombo.currentValue, checked)
-            }
-            ProgressBar {
-                visible: scanController.busy
-                indeterminate: scanController.scanTotal === 0
-                value: scanController.scanTotal > 0
-                    ? scanController.scanCurrent / scanController.scanTotal : 0
-                Layout.preferredWidth: 140
-            }
-            Label {
-                visible: scanController.busy && scanController.scanTotal > 0
-                text: scanController.scanCurrent + " / " + scanController.scanTotal
-                color: "gray"
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 12
+                TextField {
+                    id: searchField
+                    Layout.preferredWidth: 260
+                    placeholderText: "Search title or artist..."
+                    onTextChanged: scanController.search(text)
+                }
+                Item { Layout.fillWidth: true }
+                Label { text: "Sort by" }
+                ComboBox {
+                    id: sortCombo
+                    Layout.preferredWidth: 140
+                    textRole: "text"
+                    valueRole: "value"
+                    model: [
+                        { text: "Playlist Order", value: "playlist" },
+                        { text: "Title", value: "title" },
+                        { text: "Artist", value: "artist" },
+                        { text: "Key", value: "key" },
+                        { text: "BPM", value: "bpm" },
+                        { text: "Duration", value: "duration" },
+                        { text: "Cues", value: "cues" },
+                        { text: "Plays", value: "plays" },
+                    ]
+                    onActivated: scanController.setSort(currentValue, sortDirectionButton.checked)
+                }
+                ToolButton {
+                    id: sortDirectionButton
+                    checkable: true
+                    checked: true
+                    text: checked ? "▲ Ascending" : "▼ Descending"
+                    onCheckedChanged: scanController.setSort(sortCombo.currentValue, checked)
+                }
             }
         }
     }
