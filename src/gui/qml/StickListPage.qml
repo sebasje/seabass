@@ -98,81 +98,89 @@ Page {
                     anchors.margins: 12
                     spacing: 4
 
-                ItemDelegate {
+                RowLayout {
                     Layout.fillWidth: true
-                    ToolTip.visible: hovered && !delegateRoot.mounted
-                    ToolTip.text: "Click to mount " + delegateRoot.label
-                    // Nothing to collapse anymore -- a mounted stick's
-                    // actions are always shown, so a click here only does
-                    // something for an unmounted one (mounts it, same
-                    // action as the eject/mount button).
-                    onClicked: {
-                        if (!delegateRoot.mounted) {
-                            root.mediaController.mountStick(delegateRoot.devicePath);
+                    spacing: 12
+
+                    ItemDelegate {
+                        Layout.fillWidth: true
+                        // hoverEnabled (not the broader `enabled`) once
+                        // mounted -- a mounted stick's row isn't clickable
+                        // for anything, so it shouldn't hover-highlight as
+                        // if it were, but `enabled: false` would also dim
+                        // its own label/info text as a side effect, which
+                        // is still perfectly meaningful to read.
+                        hoverEnabled: !delegateRoot.mounted
+                        ToolTip.visible: hovered
+                        ToolTip.text: "Click to mount " + delegateRoot.label
+                        onClicked: {
+                            if (!delegateRoot.mounted) {
+                                root.mediaController.mountStick(delegateRoot.devicePath);
+                            }
+                        }
+
+                        contentItem: RowLayout {
+                            spacing: 12
+
+                            UsbStickIcon {
+                                Layout.preferredWidth: 40
+                                Layout.preferredHeight: 40
+                                Layout.alignment: Qt.AlignVCenter
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 2
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Label {
+                                        text: delegateRoot.label
+                                        font.bold: true
+                                        font.pointSize: Theme.baseFontPointSize * 1.2
+                                    }
+                                    Label {
+                                        text: delegateRoot.mounted ? "" : "(not mounted)"
+                                        color: Theme.textMuted
+                                    }
+                                    Item { Layout.fillWidth: true }
+                                }
+                                Label {
+                                    text: delegateRoot.mounted ? delegateRoot.mountPoint : delegateRoot.devicePath
+                                    color: Theme.textMuted
+                                    font.pointSize: Theme.baseFontPointSize * 0.9
+                                }
+                                RowLayout {
+                                    visible: delegateRoot.mounted
+                                    Label { text: "Rekordbox: " + (delegateRoot.hasRekordbox ? "yes" : "no") }
+                                    Label { text: "  Engine: " + (delegateRoot.hasEngine ? "yes" : "no") }
+                                }
+                            }
                         }
                     }
 
-                    contentItem: RowLayout {
-                        spacing: 12
-
-                        UsbStickIcon {
-                            Layout.preferredWidth: 40
-                            Layout.preferredHeight: 40
-                            Layout.alignment: Qt.AlignVCenter
-                        }
-
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: 2
-                            RowLayout {
-                                Layout.fillWidth: true
-                                Label {
-                                    text: delegateRoot.label
-                                    font.bold: true
-                                    font.pointSize: Theme.baseFontPointSize * 1.2
-                                }
-                                Label {
-                                    text: delegateRoot.mounted ? "" : "(not mounted)"
-                                    color: Theme.textMuted
-                                }
-                                Item { Layout.fillWidth: true }
-                            }
-                            Label {
-                                text: delegateRoot.mounted ? delegateRoot.mountPoint : delegateRoot.devicePath
-                                color: Theme.textMuted
-                                font.pointSize: Theme.baseFontPointSize * 0.9
-                            }
-                            RowLayout {
-                                visible: delegateRoot.mounted
-                                Label { text: "Rekordbox: " + (delegateRoot.hasRekordbox ? "yes" : "no") }
-                                Label { text: "  Engine: " + (delegateRoot.hasEngine ? "yes" : "no") }
-                            }
-                        }
-
-                        ToolButton {
-                            text: "⏏"
-                            font.family: "Noto Sans Symbols2"
-                            font.pointSize: Theme.fontHuge
-                            // Rotating the eject glyph 180° to mean "mount"
-                            // isn't a real convention -- it just reads as
-                            // an upside-down (broken-looking) eject icon.
-                            // Kept upright always; the tooltip (and now
-                            // click-anywhere-on-the-row) carry the "mount"
-                            // meaning instead.
-                            Layout.preferredWidth: 48
-                            Layout.preferredHeight: 48
-                            Layout.alignment: Qt.AlignVCenter
-                            ToolTip.visible: hovered
-                            ToolTip.text: delegateRoot.mounted ? "Eject " + delegateRoot.label : "Mount " + delegateRoot.label
-                            onClicked: {
-                                if (delegateRoot.mounted) {
-                                    // Stop first -- unmounting out from under an open
-                                    // file handle on the playing track would be bad.
-                                    root.playbackController.stop();
-                                    root.mediaController.unmountStick(delegateRoot.devicePath);
-                                } else {
-                                    root.mediaController.mountStick(delegateRoot.devicePath);
-                                }
+                    ToolButton {
+                        text: "⏏"
+                        font.family: "Noto Sans Symbols2"
+                        font.pointSize: Theme.fontHuge
+                        // Rotating the eject glyph 180° to mean "mount"
+                        // isn't a real convention -- it just reads as
+                        // an upside-down (broken-looking) eject icon.
+                        // Kept upright always; the tooltip (and now
+                        // click-anywhere-on-the-row) carry the "mount"
+                        // meaning instead.
+                        Layout.preferredWidth: 48
+                        Layout.preferredHeight: 48
+                        Layout.alignment: Qt.AlignVCenter
+                        ToolTip.visible: hovered
+                        ToolTip.text: delegateRoot.mounted ? "Eject " + delegateRoot.label : "Mount " + delegateRoot.label
+                        onClicked: {
+                            if (delegateRoot.mounted) {
+                                // Stop first -- unmounting out from under an open
+                                // file handle on the playing track would be bad.
+                                root.playbackController.stop();
+                                root.mediaController.unmountStick(delegateRoot.devicePath);
+                            } else {
+                                root.mediaController.mountStick(delegateRoot.devicePath);
                             }
                         }
                     }
