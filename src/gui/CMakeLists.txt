@@ -11,6 +11,7 @@ qt_add_qml_module(djconvert-gui
         qml/ScanPage.qml
         qml/DuplicatesPage.qml
         qml/SyncPage.qml
+        qml/BackupsPage.qml
         qml/PlayerBar.qml
         qml/WaveformView.qml
         qml/SettingsPage.qml
@@ -27,6 +28,8 @@ qt_add_qml_module(djconvert-gui
         duplicates_controller.cpp
         sync_controller.hpp
         sync_controller.cpp
+        backups_controller.hpp
+        backups_controller.cpp
         playback_controller.hpp
         playback_controller.cpp
         settings_controller.hpp

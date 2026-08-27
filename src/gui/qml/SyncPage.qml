@@ -151,7 +151,7 @@ Page {
                         RowLayout {
                             Layout.fillWidth: true
                             Label {
-                                text: delegateRoot.direction === "toEngine" ? "-> Engine" : "-> rekordbox"
+                                text: delegateRoot.direction === "toEngine" ? "-> Engine" : "-> Rekordbox"
                                 font.bold: true
                                 color: delegateRoot.direction === "toEngine" ? "#8fce8f" : "#8ab4f8"
                                 Layout.preferredWidth: 100
