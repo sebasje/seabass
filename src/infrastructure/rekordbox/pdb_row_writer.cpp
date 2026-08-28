@@ -4,9 +4,11 @@
 #include <fstream>
 #include <functional>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <system_error>
+#include <vector>
 
 #include "infrastructure/durable_file_write.hpp"
 #include "infrastructure/rekordbox/generated/rekordbox_pdb.h"
@@ -168,6 +170,53 @@ std::optional<FoundRow> findRow(const std::string &buffer, Pdb::page_type_t want
     return found;
 }
 
+// One playlist_entry row matching a given track id, plus which
+// playlist it's in -- what reassignPlaylistMemberships() needs to
+// decide repoint-vs-remove per row. Unlike findRow(), collects every
+// match in one page-walk rather than stopping at the first.
+struct PlaylistEntryMatch
+{
+    uint32_t playlistId = 0;
+    FoundRow row;
+};
+
+std::vector<PlaylistEntryMatch> findAllPlaylistEntriesForTrack(const std::string &buffer, uint32_t trackId)
+{
+    std::vector<PlaylistEntryMatch> matches;
+    std::istringstream iss(buffer);
+    kaitai::kstream ks(&iss);
+    Pdb pdb(false, &ks);
+
+    for (const auto &table : *pdb.tables()) {
+        if (table->type() != Pdb::PAGE_TYPE_PLAYLIST_ENTRIES) {
+            continue;
+        }
+        forEachDataPage(*table, [&](Pdb::page_t *page) {
+            for (const auto &group : *page->row_groups()) {
+                for (const auto &row : *group->rows()) {
+                    if (!row->present()) {
+                        continue;
+                    }
+                    auto *e = dynamic_cast<Pdb::playlist_entry_row_t *>(row->body());
+                    if (!e || e->track_id() != trackId) {
+                        continue;
+                    }
+                    PlaylistEntryMatch m;
+                    m.playlistId = e->playlist_id();
+                    m.row.pageIndex = page->page_index();
+                    m.row.presentFlagsOffset =
+                        static_cast<size_t>(pdb.len_page()) * page->page_index() + static_cast<size_t>(group->base()) - 4;
+                    m.row.rowIndexBit = row->row_index();
+                    m.row.rowBodyOffset =
+                        static_cast<size_t>(pdb.len_page()) * page->page_index() + static_cast<size_t>(row->row_base());
+                    matches.push_back(m);
+                }
+            }
+        });
+    }
+    return matches;
+}
+
 }  // namespace
 
 PdbRowWriter::PdbRowWriter(std::string pdbPath) : m_pdbPath(std::move(pdbPath)), m_buffer(readWholeFile(m_pdbPath))
@@ -175,6 +224,14 @@ PdbRowWriter::PdbRowWriter(std::string pdbPath) : m_pdbPath(std::move(pdbPath)),
     validateLooksLikeRealPdb(m_buffer);
     m_originalFileSize = fs::file_size(m_pdbPath);
     m_originalMtime = fs::last_write_time(m_pdbPath);
+}
+
+bool PdbRowWriter::trackExists(uint32_t trackId) const
+{
+    return findRow(m_buffer, Pdb::PAGE_TYPE_TRACKS, [&](kaitai::kstruct *body) {
+               auto *t = dynamic_cast<Pdb::track_row_t *>(body);
+               return t != nullptr && t->id() == trackId;
+           }).has_value();
 }
 
 bool PdbRowWriter::removeTrack(uint32_t trackId)
@@ -221,6 +278,39 @@ bool PdbRowWriter::repointPlaylistEntry(uint32_t playlistId, uint32_t oldTrackId
     writeU32LE(m_buffer, found->rowBodyOffset + PlaylistEntryTrackIdOffset, newTrackId);
     m_editedPageIndices.insert(found->pageIndex);
     return true;
+}
+
+size_t PdbRowWriter::reassignPlaylistMemberships(uint32_t oldTrackId, uint32_t newTrackId)
+{
+    auto oldEntries = findAllPlaylistEntriesForTrack(m_buffer, oldTrackId);
+    if (oldEntries.empty()) {
+        return 0;
+    }
+
+    std::set<uint32_t> newTrackAlreadyIn;
+    for (const auto &m : findAllPlaylistEntriesForTrack(m_buffer, newTrackId)) {
+        newTrackAlreadyIn.insert(m.playlistId);
+    }
+
+    size_t affected = 0;
+    for (const auto &m : oldEntries) {
+        if (newTrackAlreadyIn.count(m.playlistId)) {
+            // newTrackId is already in this playlist -- just drop the
+            // oldTrackId entry rather than create a duplicate.
+            uint16_t flags = readU16LE(m_buffer, m.row.presentFlagsOffset);
+            flags &= static_cast<uint16_t>(~(static_cast<uint16_t>(1) << m.row.rowIndexBit));
+            writeU16LE(m_buffer, m.row.presentFlagsOffset, flags);
+        } else {
+            writeU32LE(m_buffer, m.row.rowBodyOffset + PlaylistEntryTrackIdOffset, newTrackId);
+            // If oldTrackId somehow had more than one entry in the same
+            // playlist, don't repoint the second one too -- one is
+            // enough to preserve membership, the rest would be dupes.
+            newTrackAlreadyIn.insert(m.playlistId);
+        }
+        m_editedPageIndices.insert(m.row.pageIndex);
+        ++affected;
+    }
+    return affected;
 }
 
 bool PdbRowWriter::commit()

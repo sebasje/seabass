@@ -106,6 +106,7 @@ add_library(djconvert_core STATIC
     src/infrastructure/rekordbox/anlz_file.cpp
     src/infrastructure/rekordbox/pdb_lookup.cpp
     src/infrastructure/rekordbox/pdb_row_writer.cpp
+    src/infrastructure/rekordbox/rekordbox_cleanup_writer.cpp
     src/infrastructure/rekordbox/rekordbox_cue_writer.cpp
     src/infrastructure/rekordbox/kaitai_rekordbox_reader.cpp
     src/infrastructure/rekordbox/rekordbox_waveform_reader.cpp
@@ -331,6 +332,16 @@ add_executable(pdb_row_writer_test
 target_include_directories(pdb_row_writer_test PRIVATE src)
 target_link_libraries(pdb_row_writer_test PRIVATE rekordbox_format)
 add_test(NAME pdb_row_writer_test COMMAND pdb_row_writer_test)
+
+add_executable(rekordbox_cleanup_writer_test
+    src/infrastructure/durable_file_write.cpp
+    src/infrastructure/rekordbox/pdb_row_writer.cpp
+    src/infrastructure/rekordbox/rekordbox_cleanup_writer.cpp
+    tests/rekordbox_cleanup_writer_test.cpp
+)
+target_include_directories(rekordbox_cleanup_writer_test PRIVATE src)
+target_link_libraries(rekordbox_cleanup_writer_test PRIVATE rekordbox_format)
+add_test(NAME rekordbox_cleanup_writer_test COMMAND rekordbox_cleanup_writer_test)
 
 add_executable(libdjinterop_engine_cleanup_writer_test
     src/infrastructure/engine/libdjinterop_engine_cleanup_writer.cpp
