@@ -13,6 +13,7 @@
 #include "application/ports/operation_log.hpp"
 #include "application/use_cases/consolidate_duplicate_cues.hpp"
 #include "application/use_cases/scan_library.hpp"
+#include "gui/local_file_url.hpp"
 #include "gui/qt_progress_reporter.hpp"
 #include "gui/write_guard.hpp"
 #include "infrastructure/backup/filesystem_backup_store.hpp"
@@ -110,7 +111,7 @@ QVariant ConsolidationPlanListModel::data(const QModelIndex &index, int role) co
             trackMap["title"] = QString::fromStdString(t.title);
             trackMap["artist"] = QString::fromStdString(t.artist);
             trackMap["filePath"] = QString::fromStdString(t.filePath);
-            trackMap["artworkPath"] = QString::fromStdString(t.artworkPath);
+            trackMap["artworkPath"] = toLocalFileUrl(t.artworkPath);
             trackMap["sizeBytes"] = static_cast<qulonglong>(t.fileSizeBytes);
 
             QStringList playlists;

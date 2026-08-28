@@ -11,6 +11,7 @@
 
 #include "application/use_cases/scan_library.hpp"
 #include "domain/track_matching.hpp"
+#include "gui/local_file_url.hpp"
 #include "gui/qt_progress_reporter.hpp"
 #include "infrastructure/engine/libdjinterop_engine_reader.hpp"
 #include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
@@ -50,7 +51,7 @@ QVariant TrackListModel::data(const QModelIndex &index, int role) const
     case FilePathRole:
         return QString::fromStdString(track.filePath);
     case ArtworkPathRole:
-        return QString::fromStdString(track.artworkPath);
+        return toLocalFileUrl(track.artworkPath);
     case BpmRole:
         return track.bpm;
     case KeyRole:

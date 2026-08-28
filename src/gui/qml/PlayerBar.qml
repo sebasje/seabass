@@ -78,7 +78,7 @@ Frame {
             Layout.preferredHeight: 64
             fillMode: Image.PreserveAspectFit
             visible: root.controller.artworkPath.length > 0
-            source: root.controller.artworkPath.length > 0 ? "file://" + root.controller.artworkPath : ""
+            source: root.controller.artworkPath
         }
 
         ColumnLayout {

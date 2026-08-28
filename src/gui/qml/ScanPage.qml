@@ -295,7 +295,7 @@ Page {
                             Image {
                                 anchors.fill: parent
                                 visible: artworkPath.length > 0
-                                source: artworkPath.length > 0 ? "file://" + artworkPath : ""
+                                source: artworkPath
                                 fillMode: Image.PreserveAspectCrop
                             }
                         }
