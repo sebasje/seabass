@@ -32,6 +32,9 @@ qt_add_qml_module(djconvert-gui
         qml/Theme.qml
         qml/Main.qml
         qml/StickListPage.qml
+        qml/ActionCard.qml
+        qml/DuplicatesHubPage.qml
+        qml/BackupsHubPage.qml
         qml/ScanPage.qml
         qml/DuplicatesPage.qml
         qml/CleanupPage.qml
@@ -49,6 +52,7 @@ qt_add_qml_module(djconvert-gui
         qml/RekordboxRunningWarning.qml
         qml/CueFallbackNotice.qml
         qml/BigScrollBar.qml
+        qml/BusyOverlay.qml
     RESOURCES
         qml/icons/seabass_soundbass.svg
     SOURCES

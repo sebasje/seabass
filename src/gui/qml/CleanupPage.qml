@@ -37,6 +37,14 @@ Page {
     }
 
     header: ToolBar {
+        // Opaque background override -- see AppSettingsPage.qml's header
+        // for why (KDE's Breeze style bleeds the window behind Seabass
+        // through an unstyled ToolBar). This page is the one that made the
+        // bug visible: with real "pending deletions" content behind a
+        // translucent header, System Settings text bled through the top
+        // strip of the window.
+        background: Rectangle { color: Theme.surface }
+
         implicitHeight: headerLayout.implicitHeight + 20
 
         ColumnLayout {
@@ -67,18 +75,6 @@ Page {
                     appSettingsController: root.appSettingsController
                     hasRekordbox: root.hasRekordbox
                     hasEngine: root.hasEngine
-                }
-                ProgressBar {
-                    visible: cleanupController.busy
-                    indeterminate: cleanupController.scanTotal === 0
-                    value: cleanupController.scanTotal > 0
-                        ? cleanupController.scanCurrent / cleanupController.scanTotal : 0
-                    Layout.preferredWidth: 140
-                }
-                Label {
-                    visible: cleanupController.busy && cleanupController.scanTotal > 0
-                    text: cleanupController.scanCurrent + " / " + cleanupController.scanTotal
-                    color: Theme.textMuted
                 }
             }
 
@@ -477,5 +473,13 @@ Page {
                 color: Theme.textMuted
             }
         }
+    }
+
+    BusyOverlay {
+        anchors.fill: parent
+        busy: cleanupController.busy
+        current: cleanupController.scanCurrent
+        total: cleanupController.scanTotal
+        label: cleanupController.writing ? "Cleaning up duplicates..." : "Scanning for duplicates..."
     }
 }

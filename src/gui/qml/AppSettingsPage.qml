@@ -8,6 +8,17 @@ Page {
     required property var appSettingsController
 
     header: ToolBar {
+        // Explicit opaque background -- KDE's platform theme integration
+        // resolves ToolBar to its own "org.kde.breeze" style regardless of
+        // this app's Material palette (see main.cpp's exportMaterialPalette()
+        // comment for the fuller story of why that isn't forced away
+        // globally), and Breeze's own ToolBar background can render
+        // translucent/blurred, letting whatever window is behind Seabass
+        // show through the header. A plain opaque Rectangle sidesteps
+        // whichever style actually resolves, same fix class as
+        // StickListPage.qml's Frame-vs-Rectangle precedent.
+        background: Rectangle { color: Theme.surface }
+
         RowLayout {
             anchors.fill: parent
             anchors.margins: 8

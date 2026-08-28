@@ -56,6 +56,11 @@ Page {
     }
 
     header: ToolBar {
+        // Opaque background override -- see AppSettingsPage.qml's header
+        // for why (KDE's Breeze style bleeds the window behind Seabass
+        // through an unstyled ToolBar).
+        background: Rectangle { color: Theme.surface }
+
         RowLayout {
             anchors.fill: parent
             anchors.margins: 10
@@ -79,18 +84,6 @@ Page {
                 appSettingsController: root.appSettingsController
                 hasRekordbox: root.hasRekordbox
                 hasEngine: root.hasEngine
-            }
-            ProgressBar {
-                visible: localCueController.busy
-                indeterminate: localCueController.scanTotal === 0
-                value: localCueController.scanTotal > 0
-                    ? localCueController.scanCurrent / localCueController.scanTotal : 0
-                Layout.preferredWidth: 140
-            }
-            Label {
-                visible: localCueController.busy && localCueController.scanTotal > 0
-                text: localCueController.scanCurrent + " / " + localCueController.scanTotal
-                color: Theme.textMuted
             }
         }
     }
@@ -384,5 +377,13 @@ Page {
                 }
             }
         }
+    }
+
+    BusyOverlay {
+        anchors.fill: parent
+        busy: localCueController.busy
+        current: localCueController.scanCurrent
+        total: localCueController.scanTotal
+        label: localCueController.writing ? "Restoring cues..." : "Analyzing backups..."
     }
 }
