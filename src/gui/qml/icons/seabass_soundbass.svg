@@ -30,7 +30,7 @@
     <rect x="164" y="90" width="12" height="20" fill="url(#gradKelp)"/>
   </g>
   <g transform="translate(100,100) scale(4.3)">
-    <circle cx="10" cy="-2.4" r="1.6" fill="#eef6fb"/>
-    <circle cx="10.6" cy="-2.4" r="0.75" fill="#0d2b36"/>
+    <circle cx="10" cy="-2.4" r="4.2" fill="#eef6fb"/>
+    <circle cx="11.575" cy="-2.4" r="2.0" fill="#0d2b36"/>
   </g>
 </svg>
