@@ -33,6 +33,7 @@ public:
         BpmRole,
         KeyRole,
         CuesRole,
+        PlaylistNamesRole,
     };
 
     explicit TrackListModel(QObject *parent = nullptr);

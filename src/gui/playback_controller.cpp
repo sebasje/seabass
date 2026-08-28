@@ -10,6 +10,30 @@
 namespace djconvert::gui
 {
 
+namespace
+{
+
+QVariantList readWaveform(const QString &format, const QString &libraryPath, const QString &sourceId)
+{
+    std::vector<domain::WaveformColumn> points;
+    if (format == "rekordbox") {
+        points = infrastructure::rekordbox::readWaveformPreview(libraryPath.toStdString(), sourceId.toStdString());
+    } else {
+        points = infrastructure::engine::readWaveformPreview(libraryPath.toStdString(), sourceId.toStdString());
+    }
+    QVariantList waveform;
+    for (const auto &col : points) {
+        QVariantMap m;
+        m["low"] = col.low;
+        m["mid"] = col.mid;
+        m["high"] = col.high;
+        waveform.append(m);
+    }
+    return waveform;
+}
+
+}  // namespace
+
 PlaybackController::PlaybackController(QObject *parent) : QObject(parent)
 {
     m_player.setAudioOutput(&m_audioOutput);
@@ -45,25 +69,18 @@ void PlaybackController::load(const QString &format, const QString &libraryPath,
     if (filePath.isEmpty() || !QFile::exists(filePath)) {
         setErrorMessage("audio file not found" + (filePath.isEmpty() ? QString() : (": " + filePath)));
     } else {
-        std::vector<domain::WaveformColumn> points;
-        if (format == "rekordbox") {
-            points = infrastructure::rekordbox::readWaveformPreview(libraryPath.toStdString(), sourceId.toStdString());
-        } else {
-            points = infrastructure::engine::readWaveformPreview(libraryPath.toStdString(), sourceId.toStdString());
-        }
-        for (const auto &col : points) {
-            QVariantMap m;
-            m["low"] = col.low;
-            m["mid"] = col.mid;
-            m["high"] = col.high;
-            m_waveform.append(m);
-        }
-
+        m_waveform = readWaveform(format, libraryPath, sourceId);
         m_player.setSource(QUrl::fromLocalFile(filePath));
         m_player.play();
     }
 
     emit trackChanged();
+}
+
+QVariantList PlaybackController::waveformFor(const QString &format, const QString &libraryPath,
+                                              const QString &sourceId) const
+{
+    return readWaveform(format, libraryPath, sourceId);
 }
 
 void PlaybackController::togglePlay()
