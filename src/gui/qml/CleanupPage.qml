@@ -141,6 +141,29 @@ Page {
         }
     }
 
+    Dialog {
+        id: confirmDeletePendingDialog
+        anchors.centerIn: parent
+        modal: true
+        width: 480
+        title: "Delete " + cleanupController.pendingDeletionsIncludedCount + " File(s) From Disk?"
+        footer: DialogButtonBox {
+            Button { text: "Delete"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
+            Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
+        }
+        onAccepted: cleanupController.deleteSelectedPendingFiles()
+
+        Label {
+            width: parent.width
+            wrapMode: Text.WordWrap
+            text: "Each selected file is re-verified against the current library right before deletion -- "
+                + "if anything still references it, it's left alone and reported instead of deleted.\n\n"
+                + "This step is irreversible: a deleted file is gone. The library-database edit that "
+                + "originally orphaned it was already backed up separately, when the duplicate was first "
+                + "cleaned up above -- that backup restores the database entry, not this file."
+        }
+    }
+
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: 16
@@ -164,6 +187,92 @@ Page {
             color: Theme.good
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
+        }
+
+        ColumnLayout {
+            id: pendingPanel
+            visible: pendingListView.count > 0
+            Layout.fillWidth: true
+            spacing: 4
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: pendingContent.implicitHeight + 16
+                color: Theme.groupBackground
+                border.color: Theme.borderSubtle
+                radius: 4
+
+                ColumnLayout {
+                    id: pendingContent
+                    anchors.fill: parent
+                    anchors.margins: 8
+                    spacing: 6
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 12
+                        Label {
+                            text: pendingListView.count + " file(s) from earlier cleanups are orphaned but still on disk"
+                            font.bold: true
+                        }
+                        Item { Layout.fillWidth: true }
+                        Label {
+                            visible: cleanupController.pendingDeletionsIncludedCount > 0
+                            text: cleanupController.pendingDeletionsIncludedCount + " selected"
+                            color: Theme.textMuted
+                        }
+                        Button {
+                            text: "Delete Selected Files"
+                            enabled: !cleanupController.busy && cleanupController.pendingDeletionsIncludedCount > 0
+                            onClicked: confirmDeletePendingDialog.open()
+                        }
+                    }
+
+                    ListView {
+                        id: pendingListView
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Math.min(contentHeight, 160)
+                        clip: true
+                        model: cleanupController.pendingDeletions
+                        spacing: 2
+
+                        ScrollBar.vertical: BigScrollBar {}
+
+                        delegate: ItemDelegate {
+                            id: pendingDelegate
+                            width: ListView.view.width
+                            hoverEnabled: false
+
+                            required property int index
+                            required property string title
+                            required property string artist
+                            required property string filePath
+                            required property bool included
+
+                            contentItem: RowLayout {
+                                spacing: 8
+                                CheckBox {
+                                    checked: pendingDelegate.included
+                                    onToggled: cleanupController.setPendingDeletionIncluded(pendingDelegate.index, checked)
+                                    ToolTip.visible: hovered
+                                    ToolTip.text: "Include this file in the next deletion"
+                                }
+                                Label {
+                                    text: pendingDelegate.title + " -- " + pendingDelegate.artist
+                                    elide: Text.ElideRight
+                                    Layout.preferredWidth: 260
+                                }
+                                Label {
+                                    text: pendingDelegate.filePath
+                                    elide: Text.ElideMiddle
+                                    color: Theme.textMuted
+                                    Layout.fillWidth: true
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         ListView {
