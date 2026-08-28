@@ -115,6 +115,7 @@ add_library(djconvert_core STATIC
     src/infrastructure/engine/libdjinterop_engine_reader.cpp
     src/infrastructure/engine/libdjinterop_waveform_reader.cpp
     src/infrastructure/engine/libdjinterop_engine_cue_writer.cpp
+    src/infrastructure/engine/libdjinterop_engine_cleanup_writer.cpp
     src/infrastructure/media/media_factory.cpp
     src/infrastructure/media/stick_root_scan.cpp
     src/infrastructure/backup/filesystem_backup_store.cpp
@@ -330,6 +331,14 @@ add_executable(pdb_row_writer_test
 target_include_directories(pdb_row_writer_test PRIVATE src)
 target_link_libraries(pdb_row_writer_test PRIVATE rekordbox_format)
 add_test(NAME pdb_row_writer_test COMMAND pdb_row_writer_test)
+
+add_executable(libdjinterop_engine_cleanup_writer_test
+    src/infrastructure/engine/libdjinterop_engine_cleanup_writer.cpp
+    tests/libdjinterop_engine_cleanup_writer_test.cpp
+)
+target_include_directories(libdjinterop_engine_cleanup_writer_test PRIVATE src)
+target_link_libraries(libdjinterop_engine_cleanup_writer_test PRIVATE DjInterop)
+add_test(NAME libdjinterop_engine_cleanup_writer_test COMMAND libdjinterop_engine_cleanup_writer_test)
 
 add_executable(pending_deletion_manifest_test
     src/infrastructure/cleanup/pending_deletion_manifest.cpp
