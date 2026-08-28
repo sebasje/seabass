@@ -30,12 +30,17 @@ if(WIN32)
 endif()
 add_subdirectory(third_party/libdjinterop)
 
-if(NOT WIN32)
-    # System SQLite3 -- already required to build libdjinterop (Engine's
-    # library format is itself SQLite), so LocalCueStore reuses it rather
-    # than vendoring a JSON library for the same job.
-    find_package(SQLite3 REQUIRED)
-endif()
+# System SQLite3 -- already required to build libdjinterop (Engine's
+# library format is itself SQLite), so LocalCueStore reuses it rather
+# than vendoring a JSON library for the same job. djconvert_core itself
+# doesn't use this on WIN32 (it compiles libdjinterop's bundled
+# amalgamation directly instead, see the WIN32 branch below) -- this
+# find_package call now runs unconditionally purely so local_cue_store_test
+# (which links SQLite::SQLite3 directly, see tests/ below) has something
+# to link against on Windows too. MSYS2's UCRT64 environment ships a real
+# sqlite3 package with proper find_package support, unlike the old
+# Ubuntu-hosted mingw cross-compile setup this project used before.
+find_package(SQLite3 REQUIRED)
 
 # System zlib -- used to compress local cue-backup snapshots and full
 # metadata backups before they hit disk (see infrastructure/compression/).
@@ -209,12 +214,7 @@ else()
 endif()
 
 # --- domain-layer unit tests (no infrastructure deps, no fixtures needed) ---
-# --- -- gated on NOT WIN32 for now: several link SQLite::SQLite3/ ---
-# --- ZLIB::ZLIB directly (not through djconvert_core, which handles the ---
-# --- WIN32 case above), and Windows test coverage is genuinely not yet ---
-# --- wired up -- tracked as real follow-up work, not silently skipped. ---
 
-if(NOT WIN32)
 enable_testing()
 add_executable(duplicate_cue_consolidation_test
     src/domain/duplicate_cue_consolidation.cpp
@@ -363,5 +363,3 @@ add_executable(pending_deletion_manifest_test
 )
 target_include_directories(pending_deletion_manifest_test PRIVATE src)
 add_test(NAME pending_deletion_manifest_test COMMAND pending_deletion_manifest_test)
-
-endif()  # NOT WIN32
