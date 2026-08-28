@@ -287,6 +287,7 @@ std::vector<domain::Track> KaitaiRekordboxReader::readAll()
 
                     domain::Track track;
                     track.sourceId = std::to_string(rowTrack->id());
+                    track.format = "rekordbox";
                     track.title = sqlText(rowTrack->title());
                     track.filename = sqlText(rowTrack->filename());
                     auto artistIt = artistNameById.find(rowTrack->artist_id());

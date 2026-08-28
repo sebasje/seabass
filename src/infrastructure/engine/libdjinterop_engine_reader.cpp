@@ -94,6 +94,7 @@ std::vector<domain::Track> LibdjinteropEngineReader::readAll()
         int64_t id = tr.id();
         domain::Track track;
         track.sourceId = std::to_string(id);
+        track.format = "engine";
         track.title = safeGet<std::string>(*m_progress, id, "title", [&] { return tr.title().value_or(""); });
         track.artist = safeGet<std::string>(*m_progress, id, "artist", [&] { return tr.artist().value_or(""); });
         track.filename = safeGet<std::string>(*m_progress, id, "filename", [&] { return tr.filename(); });

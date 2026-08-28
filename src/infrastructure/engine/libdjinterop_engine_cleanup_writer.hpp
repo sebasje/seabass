@@ -3,6 +3,7 @@
 #include <string>
 
 #include "application/ports/library_cleanup_writer.hpp"
+#include "domain/track.hpp"
 
 namespace djconvert::infrastructure::engine
 {
@@ -22,6 +23,22 @@ public:
     explicit LibdjinteropEngineCleanupWriter(std::string engineLibraryPath);
 
     void removeTrackReplacingWith(const std::string &doomedTrackId, const std::string &survivorTrackId) override;
+
+    // Ensures the Engine library has a track for desc's file, returning
+    // its Engine track id -- for the cross-library Clean Up case where
+    // the chosen survivor is a rekordbox-only copy and this catalog
+    // needs its own row for it. Looks up by relative path first
+    // (database::tracks_by_relative_path()) and reuses an existing row
+    // if one's already there, both to avoid ever hitting Track's
+    // UNIQUE(path) constraint and to avoid a redundant row if this
+    // exact file happens to already be Engine-cataloged under a track
+    // duplicate-detection didn't independently match. Otherwise builds
+    // a djinterop::track_snapshot from desc's title/artist/
+    // relative_path/duration/bpm/key/bitrate and calls
+    // database::create_track(). Does NOT write cues -- the caller does
+    // that afterward via the normal CueWriter path, same separation of
+    // concerns as everywhere else in this codebase.
+    std::string ensureTrackForFile(const domain::Track &desc);
 
 private:
     std::string m_engineLibraryPath;

@@ -152,6 +152,8 @@ Page {
             model: duplicatesController.plans
             spacing: 4
 
+            ScrollBar.vertical: BigScrollBar {}
+
             delegate: Column {
                 id: delegateRoot
                 width: ListView.view.width
@@ -202,11 +204,23 @@ Page {
                             }
                             Label {
                                 text: delegateRoot.expanded ? "▾" : "▸"
+                                font.pointSize: Theme.fontHuge
+                                font.bold: true
                                 color: Theme.textMuted
                             }
                         }
                         Label { text: delegateRoot.description; color: Theme.textMuted }
                         Label { text: delegateRoot.wastedBytesDescription; color: Theme.textMuted }
+                        Label {
+                            Layout.fillWidth: true
+                            wrapMode: Text.WordWrap
+                            text: delegateRoot.actionable
+                                ? "Conserved: only cues are copied onto the copies missing them -- files, playlists and other metadata are untouched."
+                                : "Nothing is copied automatically here -- the copies disagree, so you decide per-track with the Copy buttons below."
+                            color: Theme.textMuted
+                            font.italic: true
+                            font.pointSize: Theme.fontSmall
+                        }
                     }
                 }
 

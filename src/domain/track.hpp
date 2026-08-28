@@ -37,6 +37,7 @@ struct PlaylistMembership
 struct Track
 {
     std::string sourceId;  // adapter-specific unique id (e.g. rekordbox track id, engine track id)
+    std::string format;    // "rekordbox" or "engine" -- which catalog this copy was read from
     std::string title;
     std::string artist;
     std::string filename;
