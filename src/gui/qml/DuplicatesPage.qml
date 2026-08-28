@@ -35,6 +35,11 @@ Page {
     onFormatChanged: duplicatesController.scan(root.format, root.currentPath())
 
     header: ToolBar {
+        // Opaque background override -- see AppSettingsPage.qml's header
+        // for why (KDE's Breeze style bleeds the window behind Seabass
+        // through an unstyled ToolBar).
+        background: Rectangle { color: Theme.surface }
+
         // See ScanPage.qml's header for why this is needed: a ColumnLayout
         // child sized via anchors.fill doesn't feed its implicit size back
         // up, so without this the second row renders past the ToolBar's
@@ -72,18 +77,6 @@ Page {
                     appSettingsController: root.appSettingsController
                     hasRekordbox: root.hasRekordbox
                     hasEngine: root.hasEngine
-                }
-                ProgressBar {
-                    visible: duplicatesController.busy
-                    indeterminate: duplicatesController.scanTotal === 0
-                    value: duplicatesController.scanTotal > 0
-                        ? duplicatesController.scanCurrent / duplicatesController.scanTotal : 0
-                    Layout.preferredWidth: 140
-                }
-                Label {
-                    visible: duplicatesController.busy && duplicatesController.scanTotal > 0
-                    text: duplicatesController.scanCurrent + " / " + duplicatesController.scanTotal
-                    color: Theme.textMuted
                 }
             }
 
@@ -321,5 +314,13 @@ Page {
                 color: Theme.textMuted
             }
         }
+    }
+
+    BusyOverlay {
+        anchors.fill: parent
+        busy: duplicatesController.busy
+        current: duplicatesController.scanCurrent
+        total: duplicatesController.scanTotal
+        label: duplicatesController.writing ? "Writing cues..." : "Scanning for duplicates..."
     }
 }

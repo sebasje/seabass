@@ -15,13 +15,16 @@ Page {
     required property var playbackController
     required property var appSettingsController
     signal browseRequested(string stickLabel, string rekordboxPath, string enginePath)
-    signal duplicatesRequested(string stickLabel, string rekordboxPath, string enginePath)
-    signal cleanupRequested(string stickLabel, string rekordboxPath, string enginePath)
+    // Duplicate Tracks and Backups are hub pages now (see
+    // DuplicatesHubPage.qml / BackupsHubPage.qml) -- each fans out to two
+    // sub-pages that used to be separate top-level cards here
+    // (Duplicate Tracks + Clean Up Duplicates; Local Cue Backup + Manage
+    // Backups).
+    signal duplicateTracksHubRequested(string stickLabel, string rekordboxPath, string enginePath)
     signal settingsRequested(string stickLabel, string pioneerRoot)
     signal syncRequested(string stickLabel, string rekordboxPath, string enginePath)
     signal appSettingsRequested()
-    signal backupsRequested(string stickLabel, string rekordboxPath, string enginePath)
-    signal localCueRequested(string stickLabel, string rekordboxPath, string enginePath)
+    signal backupsHubRequested(string stickLabel, string rekordboxPath, string enginePath)
     signal aboutRequested()
 
     // A subtle brand watermark in the corner of the very first page shown --
@@ -245,45 +248,6 @@ Page {
                         columnSpacing: 12
                         rowSpacing: 12
 
-                        component ActionCard: Button {
-                            id: card
-                            property string cardTitle
-                            property string cardSubtitle
-                            property string cardIcon
-                            property string cardIconFont: "Noto Sans Symbols2"
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: 68
-
-                            contentItem: RowLayout {
-                                spacing: 10
-                                Label {
-                                    text: card.cardIcon
-                                    font.family: card.cardIconFont
-                                    font.pointSize: Theme.fontHuge
-                                    color: card.enabled ? Theme.textMuted : Qt.darker(Theme.textMuted, 1.6)
-                                    Layout.preferredWidth: 30
-                                    horizontalAlignment: Text.AlignHCenter
-                                }
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 2
-                                    Label {
-                                        text: card.cardTitle
-                                        font.bold: true
-                                        Layout.fillWidth: true
-                                        elide: Text.ElideRight
-                                    }
-                                    Label {
-                                        text: card.cardSubtitle
-                                        color: card.enabled ? Theme.textMuted : Qt.darker(Theme.textMuted, 1.6)
-                                        font.pointSize: Theme.baseFontPointSize * 0.9
-                                        wrapMode: Text.WordWrap
-                                        Layout.fillWidth: true
-                                    }
-                                }
-                            }
-                        }
-
                         ActionCard {
                             cardTitle: "Browse Library"
                             cardSubtitle: "View tracks, playlists and cues"
@@ -293,20 +257,13 @@ Page {
                         }
                         ActionCard {
                             cardTitle: "Duplicate Tracks"
-                            cardSubtitle: "Find and consolidate repeated tracks"
+                            cardSubtitle: "Stats, sync metadata across copies, and clean up"
                             cardIcon: "▣"
                             enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
-                            onClicked: root.duplicatesRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
+                            onClicked: root.duplicateTracksHubRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
                         }
                         ActionCard {
-                            cardTitle: "Clean Up Duplicates"
-                            cardSubtitle: "Remove redundant copies, keep the best one"
-                            cardIcon: "🧹"
-                            enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
-                            onClicked: root.cleanupRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
-                        }
-                        ActionCard {
-                            cardTitle: "Sync Cues Between Formats"
+                            cardTitle: "Sync Cue Points"
                             cardSubtitle: "Copy cues between Rekordbox and Engine"
                             cardIcon: "⇄"
                             cardIconFont: "Noto Sans Math"
@@ -314,18 +271,11 @@ Page {
                             onClicked: root.syncRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
                         }
                         ActionCard {
-                            cardTitle: "Local Cue Backup"
-                            cardSubtitle: "Back up or restore cues on this computer"
-                            cardIcon: "💿"
-                            enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
-                            onClicked: root.localCueRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
-                        }
-                        ActionCard {
-                            cardTitle: "Manage Backups"
-                            cardSubtitle: "List and clean up automatic write backups"
+                            cardTitle: "Backups"
+                            cardSubtitle: "Local cue backup/restore and automatic write backups"
                             cardIcon: "🗄"
                             enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
-                            onClicked: root.backupsRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
+                            onClicked: root.backupsHubRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
                         }
                         ActionCard {
                             cardTitle: "Device Settings"

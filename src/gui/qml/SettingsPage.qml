@@ -15,6 +15,11 @@ Page {
     Component.onCompleted: settingsController.load(root.pioneerRoot)
 
     header: ToolBar {
+        // Opaque background override -- see AppSettingsPage.qml's header
+        // for why (KDE's Breeze style bleeds the window behind Seabass
+        // through an unstyled ToolBar).
+        background: Rectangle { color: Theme.surface }
+
         RowLayout {
             anchors.fill: parent
             anchors.margins: 8

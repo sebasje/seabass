@@ -106,12 +106,7 @@ ApplicationWindow {
                 rekordboxPath: rekordboxPath,
                 enginePath: enginePath,
             })
-            onDuplicatesRequested: (stickLabel, rekordboxPath, enginePath) => stackView.push(duplicatesPageComponent, {
-                stickLabel: stickLabel,
-                rekordboxPath: rekordboxPath,
-                enginePath: enginePath,
-            })
-            onCleanupRequested: (stickLabel, rekordboxPath, enginePath) => stackView.push(cleanupPageComponent, {
+            onDuplicateTracksHubRequested: (stickLabel, rekordboxPath, enginePath) => stackView.push(duplicatesHubPageComponent, {
                 stickLabel: stickLabel,
                 rekordboxPath: rekordboxPath,
                 enginePath: enginePath,
@@ -126,12 +121,7 @@ ApplicationWindow {
                 enginePath: enginePath,
             })
             onAppSettingsRequested: stackView.push(appSettingsPageComponent)
-            onBackupsRequested: (stickLabel, rekordboxPath, enginePath) => stackView.push(backupsPageComponent, {
-                stickLabel: stickLabel,
-                rekordboxPath: rekordboxPath,
-                enginePath: enginePath,
-            })
-            onLocalCueRequested: (stickLabel, rekordboxPath, enginePath) => stackView.push(localCuePageComponent, {
+            onBackupsHubRequested: (stickLabel, rekordboxPath, enginePath) => stackView.push(backupsHubPageComponent, {
                 stickLabel: stickLabel,
                 rekordboxPath: rekordboxPath,
                 enginePath: enginePath,
@@ -145,6 +135,22 @@ ApplicationWindow {
         ScanPage {
             playbackController: playbackCtrl
             appSettingsController: appSettingsCtrl
+        }
+    }
+
+    Component {
+        id: duplicatesHubPageComponent
+        DuplicatesHubPage {
+            onDuplicatesStatsRequested: (stickLabel, rekordboxPath, enginePath) => stackView.push(duplicatesPageComponent, {
+                stickLabel: stickLabel,
+                rekordboxPath: rekordboxPath,
+                enginePath: enginePath,
+            })
+            onCleanupRequested: (stickLabel, rekordboxPath, enginePath) => stackView.push(cleanupPageComponent, {
+                stickLabel: stickLabel,
+                rekordboxPath: rekordboxPath,
+                enginePath: enginePath,
+            })
         }
     }
 
@@ -179,6 +185,22 @@ ApplicationWindow {
         id: appSettingsPageComponent
         AppSettingsPage {
             appSettingsController: appSettingsCtrl
+        }
+    }
+
+    Component {
+        id: backupsHubPageComponent
+        BackupsHubPage {
+            onLocalCueRequested: (stickLabel, rekordboxPath, enginePath) => stackView.push(localCuePageComponent, {
+                stickLabel: stickLabel,
+                rekordboxPath: rekordboxPath,
+                enginePath: enginePath,
+            })
+            onManageBackupsRequested: (stickLabel, rekordboxPath, enginePath) => stackView.push(backupsPageComponent, {
+                stickLabel: stickLabel,
+                rekordboxPath: rekordboxPath,
+                enginePath: enginePath,
+            })
         }
     }
 

@@ -17,6 +17,11 @@ Page {
     Component.onCompleted: syncController.analyze(root.rekordboxPath, root.enginePath)
 
     header: ToolBar {
+        // Opaque background override -- see AppSettingsPage.qml's header
+        // for why (KDE's Breeze style bleeds the window behind Seabass
+        // through an unstyled ToolBar).
+        background: Rectangle { color: Theme.surface }
+
         RowLayout {
             anchors.fill: parent
             anchors.margins: 8
@@ -58,18 +63,6 @@ Page {
                 ToolTip.visible: hovered
                 ToolTip.text: "Revert the last sync -- restores every file it touched to what it was before"
                 onClicked: syncController.undoLastOperation()
-            }
-            ProgressBar {
-                visible: syncController.busy
-                indeterminate: syncController.scanTotal === 0
-                value: syncController.scanTotal > 0
-                    ? syncController.scanCurrent / syncController.scanTotal : 0
-                Layout.preferredWidth: 140
-            }
-            Label {
-                visible: syncController.busy && syncController.scanTotal > 0
-                text: syncController.scanCurrent + " / " + syncController.scanTotal
-                color: Theme.textMuted
             }
         }
     }
@@ -296,5 +289,13 @@ Page {
                 color: Theme.textMuted
             }
         }
+    }
+
+    BusyOverlay {
+        anchors.fill: parent
+        busy: syncController.busy
+        current: syncController.scanCurrent
+        total: syncController.scanTotal
+        label: syncController.writing ? "Syncing cues..." : "Scanning for sync differences..."
     }
 }

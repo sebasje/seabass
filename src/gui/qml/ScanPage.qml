@@ -49,6 +49,11 @@ Page {
     }
 
     header: ToolBar {
+        // Opaque background override -- see AppSettingsPage.qml's header
+        // for why (KDE's Breeze style bleeds the window behind Seabass
+        // through an unstyled ToolBar).
+        background: Rectangle { color: Theme.surface }
+
         // A ColumnLayout child sized purely by anchors.fill doesn't feed its
         // own implicit size back up to the ToolBar, so without this the
         // ToolBar stays single-row tall and the second row of controls
@@ -84,18 +89,6 @@ Page {
                     appSettingsController: root.appSettingsController
                     hasRekordbox: root.hasRekordbox
                     hasEngine: root.hasEngine
-                }
-                ProgressBar {
-                    visible: scanController.busy
-                    indeterminate: scanController.scanTotal === 0
-                    value: scanController.scanTotal > 0
-                        ? scanController.scanCurrent / scanController.scanTotal : 0
-                    Layout.preferredWidth: 140
-                }
-                Label {
-                    visible: scanController.busy && scanController.scanTotal > 0
-                    text: scanController.scanCurrent + " / " + scanController.scanTotal
-                    color: Theme.textMuted
                 }
             }
 
@@ -424,5 +417,13 @@ Page {
                 color: Theme.textMuted
             }
         }
+    }
+
+    BusyOverlay {
+        anchors.fill: parent
+        busy: scanController.busy
+        current: scanController.scanCurrent
+        total: scanController.scanTotal
+        label: "Scanning library..."
     }
 }
