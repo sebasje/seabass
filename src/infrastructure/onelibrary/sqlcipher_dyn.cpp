@@ -1,6 +1,10 @@
 #include "infrastructure/onelibrary/sqlcipher_dyn.hpp"
 
+#ifdef _WIN32
 #include <windows.h>
+#else
+#include <dlfcn.h>
+#endif
 
 namespace djconvert::infrastructure::onelibrary
 {
@@ -26,12 +30,59 @@ using ErrmsgFn = const char *(*)(sqlite3 *);
 // of this call -- make your own copy" (as opposed to SQLITE_STATIC).
 void *const SqliteTransient = reinterpret_cast<void *>(-1);
 
-template<typename Fn>
-Fn resolve(HMODULE mod, const char *name)
+#ifdef _WIN32
+void *loadLibrary()
 {
-    auto fn = reinterpret_cast<Fn>(reinterpret_cast<void *>(GetProcAddress(mod, name)));
+    return LoadLibraryA("libsqlcipher-0.dll");
+}
+void *resolveSymbol(void *mod, const char *name)
+{
+    return reinterpret_cast<void *>(GetProcAddress(static_cast<HMODULE>(mod), name));
+}
+void unloadLibrary(void *mod)
+{
+    FreeLibrary(static_cast<HMODULE>(mod));
+}
+const char *libraryNotFoundHint()
+{
+    return "could not load libsqlcipher-0.dll -- is the mingw-w64-ucrt-x86_64-sqlcipher package's "
+           "DLL on PATH or next to the executable?";
+}
+#else
+// Distros disagree on the installed soname (Debian/Ubuntu's libsqlcipher1
+// package ships "libsqlcipher.so.1"; other packagings use ".so.0"; the
+// unversioned "libsqlcipher.so" symlink only exists if the *-dev package
+// is installed) -- try each in turn rather than hard-coding one.
+void *loadLibrary()
+{
+    for (const char *name : {"libsqlcipher.so.0", "libsqlcipher.so.1", "libsqlcipher.so"}) {
+        if (void *mod = dlopen(name, RTLD_NOW)) {
+            return mod;
+        }
+    }
+    return nullptr;
+}
+void *resolveSymbol(void *mod, const char *name)
+{
+    return dlsym(mod, name);
+}
+void unloadLibrary(void *mod)
+{
+    dlclose(mod);
+}
+const char *libraryNotFoundHint()
+{
+    return "could not load libsqlcipher (tried libsqlcipher.so.0/.so.1/.so) -- is the libsqlcipher1 "
+           "(or equivalent) package installed?";
+}
+#endif
+
+template<typename Fn>
+Fn resolve(void *mod, const char *name)
+{
+    auto fn = reinterpret_cast<Fn>(resolveSymbol(mod, name));
     if (!fn) {
-        throw std::runtime_error(std::string("libsqlcipher-0.dll is missing expected symbol: ") + name);
+        throw std::runtime_error(std::string("libsqlcipher is missing expected symbol: ") + name);
     }
     return fn;
 }
@@ -57,11 +108,9 @@ struct SqlCipherLibrary::Fns
 
 SqlCipherLibrary::SqlCipherLibrary()
 {
-    HMODULE mod = LoadLibraryA("libsqlcipher-0.dll");
+    void *mod = loadLibrary();
     if (!mod) {
-        throw std::runtime_error(
-            "could not load libsqlcipher-0.dll -- is the mingw-w64-ucrt-x86_64-sqlcipher package's "
-            "DLL on PATH or next to the executable?");
+        throw std::runtime_error(libraryNotFoundHint());
     }
     m_module = mod;
     m_fns = new Fns{
@@ -85,7 +134,7 @@ SqlCipherLibrary::~SqlCipherLibrary()
 {
     delete m_fns;
     if (m_module) {
-        FreeLibrary(static_cast<HMODULE>(m_module));
+        unloadLibrary(m_module);
     }
 }
 

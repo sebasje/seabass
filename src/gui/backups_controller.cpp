@@ -71,6 +71,16 @@ QVariant BackupListModel::data(const QModelIndex &index, int role) const
         return humanSize(record.sizeBytes);
     case SizeBytesRole:
         return QVariant::fromValue<qulonglong>(record.sizeBytes);
+    case FileNamesRole: {
+        // Basenames only, not full paths -- this is a "what did this
+        // backup touch" glance (e.g. is OneLibrary's exportLibrary.db in
+        // here alongside export.pdb?), not a restore-path browser.
+        QStringList names;
+        for (const auto &path : record.filePaths) {
+            names << QString::fromStdString(fs::path(path).filename().string());
+        }
+        return names;
+    }
     default:
         return {};
     }
@@ -84,6 +94,7 @@ QHash<int, QByteArray> BackupListModel::roleNames() const
         {DescriptionRole, "description"},
         {SizeHumanRole, "sizeHuman"},
         {SizeBytesRole, "sizeBytes"},
+        {FileNamesRole, "fileNames"},
     };
 }
 

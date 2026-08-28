@@ -44,7 +44,25 @@ Page {
         return stripped.split("-").map((w) => w.length > 0 ? w[0].toUpperCase() + w.slice(1) : w).join(" ");
     }
 
+    // "What's actually in this backup" -- export.pdb/m.db give no hint by
+    // themselves that OneLibrary's exportLibrary.db was (or wasn't)
+    // included alongside them, which is exactly what was invisible here
+    // before this list existed at all.
+    readonly property var fileDisplayNames: ({
+        "exportLibrary.db": "OneLibrary",
+        "export.pdb": "export.pdb (Rekordbox device library)",
+        "m.db": "m.db (Engine library)",
+    })
+    function friendlyFileNames(names) {
+        return names.map((n) => root.fileDisplayNames[n] !== undefined ? root.fileDisplayNames[n] : n).join(", ");
+    }
+
     header: ToolBar {
+        // Opaque background override -- see AppSettingsPage.qml's header
+        // for why (KDE's Breeze style bleeds the window behind Seabass
+        // through an unstyled ToolBar).
+        background: Rectangle { color: Theme.surface }
+
         RowLayout {
             anchors.fill: parent
             anchors.margins: 8
@@ -183,68 +201,84 @@ Page {
             delegate: ItemDelegate {
                 id: backupDelegate
                 width: ListView.view.width
-                height: 44
+                height: 60
                 hoverEnabled: true
 
                 required property string id
                 required property string label
                 required property string description
                 required property string sizeHuman
+                required property var fileNames
 
                 ToolTip.visible: hovered
                 ToolTip.text: "ID: " + backupDelegate.id + "\nReason: " + backupDelegate.label
+                    + "\nFiles: " + (backupDelegate.fileNames.length > 0
+                        ? root.friendlyFileNames(backupDelegate.fileNames) : "(unknown -- predates file tracking)")
 
-                contentItem: RowLayout {
-                    spacing: 8
-                    Label {
-                        text: root.friendlyTimestamp(backupDelegate.id) + "  --  " + root.friendlyReason(backupDelegate.label)
-                        Layout.preferredWidth: 320
-                        elide: Text.ElideRight
-                    }
-                    // Reads as plain text until clicked -- a border and
-                    // background only appear while actually editing, so the
-                    // row doesn't look like a form when you're just scanning
-                    // the list for a backup.
-                    TextField {
-                        id: descriptionField
+                contentItem: ColumnLayout {
+                    spacing: 2
+                    RowLayout {
                         Layout.fillWidth: true
-                        placeholderText: "Click to add a note (e.g. \"before Berlin gig\")..."
-                        text: backupDelegate.description
-                        background: Rectangle {
-                            radius: 4
-                            color: descriptionField.activeFocus ? Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.08) : "transparent"
-                            border.width: descriptionField.activeFocus ? 1 : 0
-                            border.color: Theme.accent
+                        spacing: 8
+                        Label {
+                            text: root.friendlyTimestamp(backupDelegate.id) + "  --  " + root.friendlyReason(backupDelegate.label)
+                            Layout.preferredWidth: 320
+                            elide: Text.ElideRight
                         }
-                        onEditingFinished: backupsController.setDescription(backupDelegate.id, text)
+                        // Reads as plain text until clicked -- a border and
+                        // background only appear while actually editing, so the
+                        // row doesn't look like a form when you're just scanning
+                        // the list for a backup.
+                        TextField {
+                            id: descriptionField
+                            Layout.fillWidth: true
+                            placeholderText: "Click to add a note (e.g. \"before Berlin gig\")..."
+                            text: backupDelegate.description
+                            background: Rectangle {
+                                radius: 4
+                                color: descriptionField.activeFocus ? Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.08) : "transparent"
+                                border.width: descriptionField.activeFocus ? 1 : 0
+                                border.color: Theme.accent
+                            }
+                            onEditingFinished: backupsController.setDescription(backupDelegate.id, text)
+                        }
+                        Label { text: backupDelegate.sizeHuman; color: Theme.textMuted; Layout.preferredWidth: 70 }
+                        Button {
+                            text: "Restore"
+                            enabled: !backupsController.busy
+                            ToolTip.visible: hovered
+                            ToolTip.text: "Copy this backup's files back to where they came from"
+                            onClicked: {
+                                confirmRestoreDialog.targetId = backupDelegate.id;
+                                confirmRestoreDialog.open();
+                            }
+                        }
+                        // Deliberately understated (flat, dim, icon-only) --
+                        // deleting a single backup is rarer and less reversible
+                        // than "Clean Up," so it shouldn't compete visually
+                        // with Restore.
+                        ToolButton {
+                            text: "🗑"
+                            font.family: "Noto Sans Symbols2"
+                            opacity: 0.55
+                            enabled: !backupsController.busy
+                            Layout.preferredWidth: 32
+                            ToolTip.visible: hovered
+                            ToolTip.text: "Delete this backup permanently"
+                            onClicked: {
+                                confirmDeleteDialog.targetId = backupDelegate.id;
+                                confirmDeleteDialog.open();
+                            }
+                        }
                     }
-                    Label { text: backupDelegate.sizeHuman; color: Theme.textMuted; Layout.preferredWidth: 70 }
-                    Button {
-                        text: "Restore"
-                        enabled: !backupsController.busy
-                        ToolTip.visible: hovered
-                        ToolTip.text: "Copy this backup's files back to where they came from"
-                        onClicked: {
-                            confirmRestoreDialog.targetId = backupDelegate.id;
-                            confirmRestoreDialog.open();
-                        }
-                    }
-                    // Deliberately understated (flat, dim, icon-only) --
-                    // deleting a single backup is rarer and less reversible
-                    // than "Clean Up," so it shouldn't compete visually
-                    // with Restore.
-                    ToolButton {
-                        text: "🗑"
-                        font.family: "Noto Sans Symbols2"
-                        opacity: 0.55
-                        enabled: !backupsController.busy
-                        Layout.preferredWidth: 32
-                        ToolTip.visible: hovered
-                        ToolTip.text: "Delete this backup permanently"
-                        onClicked: {
-                            confirmDeleteDialog.targetId = backupDelegate.id;
-                            confirmDeleteDialog.open();
-                        }
+                    Label {
+                        Layout.fillWidth: true
+                        Layout.leftMargin: 2
+                        text: "Files: " + (backupDelegate.fileNames.length > 0
+                            ? root.friendlyFileNames(backupDelegate.fileNames) : "unknown (predates file tracking)")
+                        color: Theme.textMuted
+                        font.pointSize: Theme.fontSmall
+                        elide: Text.ElideRight
                     }
                 }
             }

@@ -183,6 +183,9 @@ std::vector<BackupRecord> FilesystemBackupStore::list()
         record.label = dash == std::string::npos ? "" : record.id.substr(dash + 1);
         record.description = readWholeFile(entry.path() / DescriptionFileName);
         record.sizeBytes = directorySize(entry.path());
+        for (const auto &[onDisk, originalPath] : readManifest(entry.path()).entries) {
+            record.filePaths.push_back(originalPath);
+        }
         records.push_back(std::move(record));
     }
 

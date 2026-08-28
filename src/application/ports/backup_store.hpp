@@ -14,6 +14,11 @@ struct BackupRecord
     std::string label;
     std::string description;  // user-editable free text, empty unless set via setDescription()
     std::uint64_t sizeBytes = 0;
+    // Original absolute paths of every file this backup holds a copy of
+    // (from the backup's manifest) -- e.g. lets a caller tell whether a
+    // given backup included OneLibrary's exportLibrary.db alongside
+    // export.pdb. Empty for a backup that predates manifest support.
+    std::vector<std::string> filePaths;
 };
 
 // Port for keeping "undo" copies of files before a mutating write touches
