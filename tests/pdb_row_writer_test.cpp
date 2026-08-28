@@ -5,6 +5,7 @@
 #include <iostream>
 #include <optional>
 #include <sstream>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -317,6 +318,51 @@ int main()
         }
         assert(readFile(pdbPath) == pristine);
         std::cout << "case 6 (no commit() -> original file untouched) OK\n";
+    }
+
+    // Format sanity check: a file too small, or with implausible
+    // header values, is rejected at construction rather than trusted
+    // for offset math.
+    {
+        writeFile(pdbPath, "too small");
+        bool threw = false;
+        try {
+            PdbRowWriter writer(pdbPath.string());
+        } catch (const std::exception &) {
+            threw = true;
+        }
+        assert(threw);
+
+        std::string garbage = pristine;
+        writeU32LE(garbage, 4, 0xFFFFFFFF);  // implausible len_page
+        writeFile(pdbPath, garbage);
+        threw = false;
+        try {
+            PdbRowWriter writer(pdbPath.string());
+        } catch (const std::exception &) {
+            threw = true;
+        }
+        assert(threw);
+        std::cout << "case 7 (implausible/too-small file rejected at construction) OK\n";
+    }
+
+    // Staleness check: if the file on disk changes between construction
+    // and commit() -- something else touched it in the meantime -- the
+    // writer must refuse rather than clobber that change with its own
+    // now-stale in-memory copy.
+    {
+        writeFile(pdbPath, pristine);
+        PdbRowWriter writer(pdbPath.string());
+        assert(writer.removeTrack(100));
+
+        // Simulate an external modification (different size, so this
+        // doesn't depend on filesystem mtime resolution).
+        std::string externallyModified = pristine + "X";
+        writeFile(pdbPath, externallyModified);
+
+        assert(!writer.commit());
+        assert(readFile(pdbPath) == externallyModified);
+        std::cout << "case 8 (file changed since construction -> commit() refuses) OK\n";
     }
 
     std::cout << "all cases passed\n";
