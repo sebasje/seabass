@@ -5,24 +5,23 @@
 namespace djconvert::application
 {
 
-// Port for permanently removing a track -- including its membership in
-// every playlist/crate -- from a library. This is the destructive half
-// of the "Clean Up" duplicate-removal feature, so it's only implemented
-// where a genuinely safe removal path exists: Engine, via libdjinterop's
-// own real, tested database::remove_track() (which relies on the
-// database's actual ON DELETE CASCADE foreign keys to clean up every
-// playlist/crate reference -- not something this project reimplements).
-// rekordbox has no implementation yet: PdbRowWriter implements the
-// low-level export.pdb row-mutation primitives this would need, but
-// nothing wires it to an actual removal decision yet.
+// Port for permanently removing a duplicate track from a library, as
+// part of the "Clean Up" duplicate-removal feature. Implemented for
+// Engine (libdjinterop) and rekordbox (PdbRowWriter) -- both are
+// destructive, so the caller is responsible for backing up the
+// library's files before constructing an implementation.
 class LibraryCleanupWriter
 {
 public:
     virtual ~LibraryCleanupWriter() = default;
 
-    // Permanently removes the track with this id from the library.
-    // Throws std::runtime_error if no such track exists.
-    virtual void removeTrack(const std::string &trackSourceId) = 0;
+    // Permanently removes doomedTrackId from the library. Before doing
+    // so, ensures every playlist doomedTrackId belonged to also
+    // contains survivorTrackId (adding/repointing it in if it doesn't
+    // already) -- so a playlist never silently loses a song just
+    // because the specific copy it referenced was the one removed.
+    // Throws std::runtime_error if either track doesn't exist.
+    virtual void removeTrackReplacingWith(const std::string &doomedTrackId, const std::string &survivorTrackId) = 0;
 };
 
 }  // namespace djconvert::application
