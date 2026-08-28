@@ -48,6 +48,8 @@ public:
     const std::vector<domain::DuplicateCleanupPlan> &plans() const { return m_plans; }
     bool included(size_t index) const;
     int includedCount() const;
+    // Sets every row's included flag at once (select all / deselect all).
+    void setAllIncluded(bool included);
 
 private:
     std::vector<domain::DuplicateCleanupPlan> m_plans;
@@ -90,6 +92,8 @@ public:
     // Only the rows currently checked -- what deleteSelectedPendingFiles() acts on.
     std::vector<infrastructure::cleanup::PendingDeletion> includedEntries() const;
     int includedCount() const;
+    // Sets every row's included flag at once (select all / deselect all).
+    void setAllIncluded(bool included);
 
 private:
     std::vector<infrastructure::cleanup::PendingDeletion> m_entries;
@@ -179,6 +183,7 @@ public:
     Q_INVOKABLE void scan(const QString &format, const QString &path);
 
     Q_INVOKABLE void setIncluded(int index, bool included);
+    Q_INVOKABLE void setAllIncluded(bool included);
 
     // Removes every doomed track in every currently-included group:
     // merges cues onto the survivor, fixes up playlist membership on
@@ -199,6 +204,7 @@ public:
     Q_INVOKABLE void refreshPendingDeletions();
 
     Q_INVOKABLE void setPendingDeletionIncluded(int index, bool included);
+    Q_INVOKABLE void setAllPendingDeletionIncluded(bool included);
 
     // For every currently-checked pendingDeletions entry: re-scans the
     // library fresh and, ONLY for entries resolvePendingDeletions()

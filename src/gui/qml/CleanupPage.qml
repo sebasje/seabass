@@ -101,6 +101,16 @@ Page {
                     color: Theme.textMuted
                 }
                 Button {
+                    text: "Select All"
+                    enabled: !cleanupController.busy && plansListView.count > 0
+                    onClicked: cleanupController.setAllIncluded(true)
+                }
+                Button {
+                    text: "Deselect All"
+                    enabled: !cleanupController.busy && plansListView.count > 0
+                    onClicked: cleanupController.setAllIncluded(false)
+                }
+                Button {
                     text: "Clean Up Selected"
                     enabled: !cleanupController.busy && cleanupController.includedCount > 0
                     onClicked: confirmCleanupDialog.open()
@@ -220,6 +230,16 @@ Page {
                             visible: cleanupController.pendingDeletionsIncludedCount > 0
                             text: cleanupController.pendingDeletionsIncludedCount + " selected"
                             color: Theme.textMuted
+                        }
+                        Button {
+                            text: "Select All"
+                            enabled: !cleanupController.busy && pendingListView.count > 0
+                            onClicked: cleanupController.setAllPendingDeletionIncluded(true)
+                        }
+                        Button {
+                            text: "Deselect All"
+                            enabled: !cleanupController.busy && pendingListView.count > 0
+                            onClicked: cleanupController.setAllPendingDeletionIncluded(false)
                         }
                         Button {
                             text: "Delete Selected Files"

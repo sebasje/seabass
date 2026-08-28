@@ -72,6 +72,16 @@ included at least: `zlib1.dll`, `libgcc_s_seh-1.dll`, `libstdc++-6.dll`,
 don't assume this list is exhaustive; always re-walk the closure after an
 MSYS2 package update.
 
+One DLL this `objdump -p` walk will never find: `libsqlcipher-0.dll`
+(needed by the OneLibrary cue writer, see docs/onelibrary-format.md).
+It's loaded at runtime via `LoadLibrary`, deliberately not linked at
+build time (see `sqlcipher_dyn.hpp`'s doc comment for why), so it never
+appears in any binary's import table for the walk to discover. Copy it
+from `C:\msys64\ucrt64\bin` alongside the rest of the closure -- without
+it, the exe still builds and runs fine, but every OneLibrary write
+silently fails (throws, caught as the best-effort failure it's designed
+to be) with "could not load libsqlcipher-0.dll".
+
 This whole deploy step (windeployqt + DLL closure copy) isn't yet automated
 into the CMake build or packaged into an installer (no CPack/NSIS/WiX step)
 — real follow-up work, tracked here rather than silently skipped.

@@ -25,6 +25,9 @@
 #include "infrastructure/engine/libdjinterop_engine_cue_writer.hpp"
 #include "infrastructure/engine/libdjinterop_engine_reader.hpp"
 #include "infrastructure/logging/file_operation_log.hpp"
+#if defined(_WIN32)
+#include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
+#endif
 #include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 #include "infrastructure/rekordbox/rekordbox_cleanup_writer.hpp"
@@ -162,6 +165,15 @@ bool CleanupPlanListModel::included(size_t index) const
     return index < m_included.size() && m_included[index];
 }
 
+void CleanupPlanListModel::setAllIncluded(bool included)
+{
+    if (m_included.empty()) {
+        return;
+    }
+    m_included.assign(m_included.size(), included);
+    emit dataChanged(index(0), index(static_cast<int>(m_included.size()) - 1), {IncludedRole});
+}
+
 int CleanupPlanListModel::includedCount() const
 {
     return static_cast<int>(std::count(m_included.begin(), m_included.end(), true));
@@ -253,6 +265,15 @@ int PendingDeletionListModel::includedCount() const
     return static_cast<int>(std::count(m_included.begin(), m_included.end(), true));
 }
 
+void PendingDeletionListModel::setAllIncluded(bool included)
+{
+    if (m_included.empty()) {
+        return;
+    }
+    m_included.assign(m_included.size(), included);
+    emit dataChanged(index(0), index(static_cast<int>(m_included.size()) - 1), {IncludedRole});
+}
+
 namespace
 {
 
@@ -271,6 +292,10 @@ struct FormatContext
     std::function<std::vector<std::string>(const std::string &)> filesToBackUpFor;
     std::vector<std::string> extraFilesToBackUp;
     std::string pendingDeletionManifestPath;
+    // Non-empty only for rekordbox -- used to best-effort also write
+    // cues into OneLibrary/exportLibrary.db (see runApplyTask()) if it
+    // exists alongside export.pdb on this stick.
+    std::string pioneerRoot;
 };
 
 FormatContext makeContext(const QString &format, const QString &path)
@@ -296,6 +321,12 @@ FormatContext makeContext(const QString &format, const QString &path)
             return {infrastructure::rekordbox::extAnlzPath(pioneerRoot, *analyzePath)};
         };
         ctx.extraFilesToBackUp = {pioneerRoot + "/rekordbox/export.pdb"};
+        ctx.pioneerRoot = pioneerRoot;
+#if defined(_WIN32)
+        if (infrastructure::onelibrary::OneLibraryCueWriter::existsFor(pioneerRoot)) {
+            ctx.extraFilesToBackUp.push_back(infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(pioneerRoot));
+        }
+#endif
     } else {
         std::string engineLibraryPath = path.toStdString();
         ctx.cueWriter = std::make_unique<infrastructure::engine::LibdjinteropEngineCueWriter>(engineLibraryPath);
@@ -353,6 +384,7 @@ CleanupWriteResult runApplyTask(QString format, QString path, std::vector<domain
         int groupsProcessed = 0;
         int filesRemoved = 0;
         int cuesPreserved = 0;
+        QStringList oneLibraryWarnings;
 
         for (const auto &plan : includedPlans) {
             for (const auto &f : ctx.filesToBackUpFor(plan.survivor.sourceId)) {
@@ -363,6 +395,29 @@ CleanupWriteResult runApplyTask(QString format, QString path, std::vector<domain
                 ctx.cueWriter->writeHotCues(plan.survivor.sourceId, plan.mergedCuesForSurvivor);
                 cuesPreserved += static_cast<int>(plan.mergedCuesForSurvivor.size() - plan.survivor.cues.size());
                 ctx.log->record("cleanup: wrote merged cues onto survivor track id=" + plan.survivor.sourceId);
+
+#if defined(_WIN32)
+                // Best-effort secondary write, alongside the primary
+                // export.pdb write above -- never fatal to this
+                // operation, and never rolls back the export.pdb write
+                // that already succeeded. See OneLibraryCueWriter's own
+                // class comment and docs/onelibrary-format.md.
+                if (!ctx.pioneerRoot.empty() && !plan.survivor.filePath.empty() &&
+                    infrastructure::onelibrary::OneLibraryCueWriter::existsFor(ctx.pioneerRoot)) {
+                    try {
+                        infrastructure::onelibrary::OneLibraryCueWriter oneLibWriter(ctx.pioneerRoot);
+                        oneLibWriter.writeCuesForPath(plan.survivor.filePath, plan.mergedCuesForSurvivor);
+                        ctx.log->record("cleanup: also wrote merged cues onto survivor into OneLibrary (id=" +
+                                         plan.survivor.sourceId + ")");
+                    } catch (const std::exception &e) {
+                        QString warning = QString("OneLibrary cue write failed for \"%1\": %2")
+                                               .arg(QString::fromStdString(plan.survivor.title))
+                                               .arg(QString::fromStdString(e.what()));
+                        oneLibraryWarnings << warning;
+                        ctx.log->record("cleanup: " + warning.toStdString());
+                    }
+                }
+#endif
             }
 
             for (const auto &doomed : plan.toRemove) {
@@ -392,6 +447,12 @@ CleanupWriteResult runApplyTask(QString format, QString path, std::vector<domain
                                     .arg(groupsProcessed)
                                     .arg(filesRemoved)
                                     .arg(cuesPreserved);
+        if (!oneLibraryWarnings.isEmpty()) {
+            result.statusMessage += QString(" (%1 OneLibrary cue write(s) failed -- the primary library write "
+                                             "above still succeeded and was not affected: %2)")
+                                         .arg(oneLibraryWarnings.size())
+                                         .arg(oneLibraryWarnings.join("; "));
+        }
     } catch (const std::exception &e) {
         result.errorMessage = QString::fromStdString(e.what());
     }
@@ -593,6 +654,12 @@ void CleanupController::setIncluded(int index, bool included)
     emit includedChanged();
 }
 
+void CleanupController::setAllIncluded(bool included)
+{
+    m_model.setAllIncluded(included);
+    emit includedChanged();
+}
+
 std::shared_ptr<QtProgressReporter> CleanupController::makeReporter()
 {
     auto reporter = std::make_shared<QtProgressReporter>();
@@ -704,6 +771,12 @@ void CleanupController::refreshPendingDeletions()
 void CleanupController::setPendingDeletionIncluded(int index, bool included)
 {
     m_pendingModel.setData(m_pendingModel.index(index), included, PendingDeletionListModel::IncludedRole);
+    emit pendingDeletionsChanged();
+}
+
+void CleanupController::setAllPendingDeletionIncluded(bool included)
+{
+    m_pendingModel.setAllIncluded(included);
     emit pendingDeletionsChanged();
 }
 
