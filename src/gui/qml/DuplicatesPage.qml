@@ -94,6 +94,11 @@ Page {
                     text: plansListView.count + " duplicate group(s) need attention"
                     color: Theme.textMuted
                 }
+                Label {
+                    visible: plansListView.count > 0
+                    text: "-- " + duplicatesController.totalWastedBytesHuman + " could be freed if each were on the stick once"
+                    color: Theme.textMuted
+                }
                 Item { Layout.fillWidth: true }
                 Button {
                     text: "Apply All Fixable"
@@ -158,6 +163,7 @@ Page {
                 required property string description
                 required property bool actionable
                 required property var tracks
+                required property string wastedBytesDescription
 
                 property bool expanded: false
 
@@ -200,6 +206,7 @@ Page {
                             }
                         }
                         Label { text: delegateRoot.description; color: Theme.textMuted }
+                        Label { text: delegateRoot.wastedBytesDescription; color: Theme.textMuted }
                     }
                 }
 

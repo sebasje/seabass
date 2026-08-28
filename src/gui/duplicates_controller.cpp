@@ -32,6 +32,45 @@ namespace djconvert::gui
 namespace fs = std::filesystem;
 using domain::ConsolidationPlan;
 
+namespace
+{
+
+// Mirrors cli/main.cpp's humanSize() exactly.
+QString humanSize(std::uint64_t bytes)
+{
+    static const char *units[] = {"B", "KB", "MB", "GB"};
+    double value = static_cast<double>(bytes);
+    size_t unit = 0;
+    while (value >= 1024.0 && unit + 1 < std::size(units)) {
+        value /= 1024.0;
+        unit++;
+    }
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%.1f %s", value, units[unit]);
+    return QString::fromUtf8(buf);
+}
+
+// Bytes that would be freed if this group kept only its single largest
+// file instead of every copy -- 0 if fewer than two tracks have a known
+// size (nothing meaningful to compare).
+std::uint64_t wastedBytes(const ConsolidationPlan &plan)
+{
+    std::uint64_t total = 0;
+    std::uint64_t largest = 0;
+    int known = 0;
+    for (const auto &t : plan.group.tracks) {
+        if (t.fileSizeBytes == 0) {
+            continue;
+        }
+        known++;
+        total += t.fileSizeBytes;
+        largest = std::max(largest, t.fileSizeBytes);
+    }
+    return known >= 2 ? total - largest : 0;
+}
+
+}  // namespace
+
 ConsolidationPlanListModel::ConsolidationPlanListModel(QObject *parent) : QAbstractListModel(parent) {}
 
 int ConsolidationPlanListModel::rowCount(const QModelIndex &parent) const
@@ -72,6 +111,7 @@ QVariant ConsolidationPlanListModel::data(const QModelIndex &index, int role) co
             trackMap["artist"] = QString::fromStdString(t.artist);
             trackMap["filePath"] = QString::fromStdString(t.filePath);
             trackMap["artworkPath"] = QString::fromStdString(t.artworkPath);
+            trackMap["sizeBytes"] = static_cast<qulonglong>(t.fileSizeBytes);
 
             QStringList playlists;
             for (const auto &p : t.playlists) {
@@ -108,6 +148,8 @@ QVariant ConsolidationPlanListModel::data(const QModelIndex &index, int role) co
         }
         return result;
     }
+    case WastedBytesRole:
+        return QString("%1 could be freed if this were on the stick once").arg(humanSize(wastedBytes(plan)));
     default:
         return {};
     }
@@ -121,6 +163,7 @@ QHash<int, QByteArray> ConsolidationPlanListModel::roleNames() const
         {DescriptionRole, "description"},
         {ActionableRole, "actionable"},
         {TracksRole, "tracks"},
+        {WastedBytesRole, "wastedBytesDescription"},
     };
 }
 
@@ -376,6 +419,15 @@ DuplicatesController::DuplicatesController(QObject *parent) : QObject(parent)
             &DuplicatesController::onWriteFinished);
 }
 
+QString DuplicatesController::totalWastedBytesHuman() const
+{
+    std::uint64_t total = 0;
+    for (const auto &plan : m_model.plans()) {
+        total += wastedBytes(plan);
+    }
+    return humanSize(total);
+}
+
 void DuplicatesController::scan(const QString &format, const QString &path)
 {
     m_format = format;
@@ -419,6 +471,7 @@ void DuplicatesController::onRescanFinished()
 
     m_model.setPlans(std::move(result.plans), std::move(result.waveformsBySourceId));
     setBusy(false);
+    emit plansChanged();
 }
 
 void DuplicatesController::applyOne(int index)
