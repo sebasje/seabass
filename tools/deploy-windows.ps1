@@ -1,0 +1,94 @@
+# Deploys djconvert-gui.exe as a standalone Windows build: runs windeployqt,
+# then copies the *full* transitive DLL closure (Qt's own non-Qt deps, the
+# mingw-w64 runtime, and every plugin's own dependencies -- notably the
+# multimedia backend's FFmpeg codec libraries and the image-format plugins'
+# codec libraries, neither of which windeployqt or a shallow one-off DLL list
+# can predict). See docs/windows-build.md's "Deploying the GUI" section for
+# why this can't just be a fixed list: it must be re-walked after any
+# Qt/MSYS2 package update, since the exact set of transitive dependencies
+# drifts with upstream package versions.
+#
+# Usage: run from anywhere, with MSYS2 UCRT64 installed at C:\msys64:
+#   .\tools\deploy-windows.ps1 [-BuildDir build-win]
+
+param(
+    [string]$BuildDir = "build-win"
+)
+
+$ErrorActionPreference = "Stop"
+$RepoRoot = Split-Path -Parent $PSScriptRoot
+$BuildPath = Join-Path $RepoRoot $BuildDir
+$UcrtBin = "C:\msys64\ucrt64\bin"
+$env:PATH = "$UcrtBin;" + $env:PATH
+
+$exePath = Join-Path $BuildPath "djconvert-gui.exe"
+if (-not (Test-Path $exePath)) {
+    throw "djconvert-gui.exe not found at $exePath -- build it first."
+}
+
+Write-Output "=== windeployqt ==="
+& windeployqt.exe --qmldir (Join-Path $RepoRoot "src\gui\qml") $exePath
+
+Write-Output "`n=== walking full transitive DLL closure ==="
+# Virtual API sets Windows itself resolves (never real files to copy) plus
+# real system DLLs that ship with Windows -- anything NOT in these lists and
+# not already found is assumed to be an MSYS2-provided DLL to copy across.
+$ignorePrefixes = @("api-ms-win", "ext-ms-")
+$ignoreExact = @(
+    "KERNEL32.dll", "USER32.dll", "ADVAPI32.dll", "GDI32.dll", "ole32.dll", "OLEAUT32.dll", "SHELL32.dll",
+    "WS2_32.dll", "BCRYPT.dll", "SECUR32.dll", "CRYPT32.dll", "VERSION.dll", "WINMM.dll", "ncrypt.dll",
+    "d3d9.dll", "d3d11.dll", "d3d12.dll", "dwmapi.dll", "dxgi.dll", "dxva2.dll",
+    "MF.dll", "MFPlat.DLL", "MFReadWrite.dll", "COMDLG32.dll", "IMM32.dll", "SHLWAPI.dll", "SHCORE.dll",
+    "dwrite.dll", "d2d1.dll", "WINSPOOL.DRV", "uxtheme.dll", "NETAPI32.dll", "USERENV.dll", "MPR.dll",
+    "CRYPTBASE.DLL", "bcryptprimitives.dll", "NTDLL.DLL", "RPCRT4.dll", "USP10.dll", "AUTHZ.dll", "AVRT.dll",
+    "PROPSYS.dll", "DNSAPI.dll", "IPHLPAPI.DLL", "WINHTTP.dll", "SETUPAPI.dll", "WTSAPI32.dll", "MSIMG32.dll",
+    "WSOCK32.dll", "gdiplus.dll"
+)
+
+function Get-Deps($dllPath) {
+    (& objdump -p $dllPath 2>$null | Select-String "DLL Name") | ForEach-Object { ($_ -split "DLL Name: ")[1].Trim() }
+}
+
+$queue = [System.Collections.Generic.Queue[string]]::new()
+Get-ChildItem -Path $BuildPath -Recurse -Filter "*.dll" | ForEach-Object { $queue.Enqueue($_.Name) }
+Get-ChildItem -Path $BuildPath -Filter "*.exe" | ForEach-Object { $queue.Enqueue($_.Name) }
+
+$copied = @()
+$notFound = @()
+while ($queue.Count -gt 0) {
+    $name = $queue.Dequeue()
+    $localPath = Get-ChildItem -Path $BuildPath -Recurse -Filter $name -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $localPath) { continue }
+    foreach ($d in Get-Deps $localPath.FullName) {
+        if ($ignoreExact -contains $d) { continue }
+        if ($ignorePrefixes | Where-Object { $d -like "$_*" }) { continue }
+        if (Get-ChildItem -Path $BuildPath -Recurse -Filter $d -ErrorAction SilentlyContinue) { continue }
+        $src = Join-Path $UcrtBin $d
+        if (Test-Path $src) {
+            Copy-Item $src (Join-Path $BuildPath $d) -Force
+            $copied += $d
+            $queue.Enqueue($d)
+        } else {
+            $notFound += "$d (needed by $name)"
+        }
+    }
+}
+
+Write-Output "Copied $($copied.Count) DLL(s):"
+$copied | Sort-Object -Unique | ForEach-Object { Write-Output "  $_" }
+if ($notFound.Count -gt 0) {
+    Write-Output "`nCould not resolve (verify these are genuinely part of the base OS, not a missing MSYS2 package):"
+    $notFound | Sort-Object -Unique | ForEach-Object { Write-Output "  $_" }
+}
+
+# libsqlcipher-0.dll is loaded via LoadLibrary at runtime (see
+# sqlcipher_dyn.hpp's doc comment), never appears in any import table, so
+# the closure walk above can never find it -- copy it explicitly.
+$sqlcipherSrc = Join-Path $UcrtBin "libsqlcipher-0.dll"
+$sqlcipherDst = Join-Path $BuildPath "libsqlcipher-0.dll"
+if ((Test-Path $sqlcipherSrc) -and -not (Test-Path $sqlcipherDst)) {
+    Copy-Item $sqlcipherSrc $sqlcipherDst -Force
+    Write-Output "`nAlso copied libsqlcipher-0.dll (runtime-loaded, never appears in any import table)."
+}
+
+Write-Output "`nDone. $exePath should now run standalone on a machine without MSYS2 installed."
