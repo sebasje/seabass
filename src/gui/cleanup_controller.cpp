@@ -1,5 +1,6 @@
 #include "cleanup_controller.hpp"
 
+#include <QStringList>
 #include <QtConcurrent/QtConcurrentRun>
 
 #include <algorithm>
@@ -19,6 +20,7 @@
 #include "infrastructure/backup/filesystem_backup_store.hpp"
 #include "infrastructure/backup/stick_write_lock.hpp"
 #include "infrastructure/cleanup/pending_deletion_manifest.hpp"
+#include "infrastructure/cleanup/pending_deletion_resolver.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cleanup_writer.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cue_writer.hpp"
 #include "infrastructure/engine/libdjinterop_engine_reader.hpp"
@@ -161,6 +163,92 @@ bool CleanupPlanListModel::included(size_t index) const
 }
 
 int CleanupPlanListModel::includedCount() const
+{
+    return static_cast<int>(std::count(m_included.begin(), m_included.end(), true));
+}
+
+PendingDeletionListModel::PendingDeletionListModel(QObject *parent) : QAbstractListModel(parent) {}
+
+int PendingDeletionListModel::rowCount(const QModelIndex &parent) const
+{
+    if (parent.isValid()) {
+        return 0;
+    }
+    return static_cast<int>(m_entries.size());
+}
+
+QVariant PendingDeletionListModel::data(const QModelIndex &index, int role) const
+{
+    if (!index.isValid() || index.row() < 0 || static_cast<size_t>(index.row()) >= m_entries.size()) {
+        return {};
+    }
+    const auto &entry = m_entries[static_cast<size_t>(index.row())];
+    switch (role) {
+    case FormatRole:
+        return QString::fromStdString(entry.format);
+    case TitleRole:
+        return QString::fromStdString(entry.title);
+    case ArtistRole:
+        return QString::fromStdString(entry.artist);
+    case FilePathRole:
+        return QString::fromStdString(entry.filePath);
+    case BackupIdRole:
+        return QString::fromStdString(entry.backupId);
+    case TimestampRole:
+        return QString::fromStdString(entry.timestampUtc);
+    case IncludedRole:
+        return m_included[static_cast<size_t>(index.row())];
+    default:
+        return {};
+    }
+}
+
+bool PendingDeletionListModel::setData(const QModelIndex &index, const QVariant &value, int role)
+{
+    if (!index.isValid() || index.row() < 0 || static_cast<size_t>(index.row()) >= m_entries.size()) {
+        return false;
+    }
+    if (role != IncludedRole) {
+        return false;
+    }
+    m_included[static_cast<size_t>(index.row())] = value.toBool();
+    emit dataChanged(index, index, {IncludedRole});
+    return true;
+}
+
+QHash<int, QByteArray> PendingDeletionListModel::roleNames() const
+{
+    return {
+        {FormatRole, "format"},
+        {TitleRole, "title"},
+        {ArtistRole, "artist"},
+        {FilePathRole, "filePath"},
+        {BackupIdRole, "backupId"},
+        {TimestampRole, "timestampUtc"},
+        {IncludedRole, "included"},
+    };
+}
+
+void PendingDeletionListModel::setEntries(std::vector<infrastructure::cleanup::PendingDeletion> entries)
+{
+    beginResetModel();
+    m_entries = std::move(entries);
+    m_included.assign(m_entries.size(), true);
+    endResetModel();
+}
+
+std::vector<infrastructure::cleanup::PendingDeletion> PendingDeletionListModel::includedEntries() const
+{
+    std::vector<infrastructure::cleanup::PendingDeletion> result;
+    for (size_t i = 0; i < m_entries.size(); ++i) {
+        if (m_included[i]) {
+            result.push_back(m_entries[i]);
+        }
+    }
+    return result;
+}
+
+int PendingDeletionListModel::includedCount() const
 {
     return static_cast<int>(std::count(m_included.begin(), m_included.end(), true));
 }
@@ -351,6 +439,87 @@ CleanupWriteResult runUndoTask(std::vector<UndoableBackup> backups, std::shared_
     return result;
 }
 
+// Runs entirely on a background thread (see CleanupController::
+// deleteSelectedPendingFiles()). Re-scans the library fresh -- never
+// trusts the manifest alone, see resolvePendingDeletions()'s own doc
+// comment -- deletes every `selected` entry resolvePendingDeletions()
+// confirms is genuinely orphaned, and clears exactly those from the
+// pending-deletions manifest. Entries still referenced are left
+// untouched on disk and in the manifest either way.
+PendingDeletionApplyResult runDeletePendingTask(QString format, QString path,
+                                                 std::vector<infrastructure::cleanup::PendingDeletion> selected,
+                                                 std::shared_ptr<QtProgressReporter> reporter)
+{
+    PendingDeletionApplyResult result;
+    QString refusal = refuseIfRekordboxRunning();
+    if (!refusal.isEmpty()) {
+        result.errorMessage = refusal;
+        return result;
+    }
+    try {
+        fs::path stickRoot = fs::path(path.toStdString()).parent_path();
+        infrastructure::backup::StickWriteLock lock((stickRoot / ".djconvert-backups" / ".write.lock").string());
+        infrastructure::cleanup::PendingDeletionManifest manifest(
+            (stickRoot / ".djconvert-pending-deletions.jsonl").string());
+        infrastructure::logging::FileOperationLog log((stickRoot / ".djconvert.log").string());
+
+        std::vector<domain::Track> tracks;
+        if (format == "rekordbox") {
+            infrastructure::rekordbox::KaitaiRekordboxReader reader(path.toStdString());
+            reader.setProgressReporter(*reporter);
+            tracks = application::ScanLibrary(reader).execute();
+        } else {
+            infrastructure::engine::LibdjinteropEngineReader reader(path.toStdString());
+            reader.setProgressReporter(*reporter);
+            tracks = application::ScanLibrary(reader).execute();
+        }
+
+        auto resolution = infrastructure::cleanup::resolvePendingDeletions(selected, tracks);
+
+        std::set<std::string> processed;
+        int deleted = 0;
+        int failed = 0;
+        for (const auto &entry : resolution.safeToDelete) {
+            std::error_code ec;
+            bool existed = fs::exists(entry.filePath, ec);
+            if (!existed) {
+                // Already gone from disk (e.g. removed by hand since) --
+                // still clear it from the manifest, nothing left to do.
+                processed.insert(entry.filePath);
+                deleted++;
+                log.record("cleanup: pending deletion already absent from disk, clearing from manifest -> " +
+                            entry.filePath);
+                continue;
+            }
+            if (fs::remove(entry.filePath, ec)) {
+                processed.insert(entry.filePath);
+                deleted++;
+                log.record("cleanup: deleted orphaned duplicate file (backup " + entry.backupId + ") -> " +
+                            entry.filePath);
+            } else {
+                failed++;
+                log.record("cleanup: failed to delete orphaned duplicate file -> " + entry.filePath + " (" +
+                            ec.message() + ")");
+            }
+        }
+        manifest.removeProcessed(processed);
+
+        QStringList parts;
+        parts << QString("deleted %1 file(s) from disk").arg(deleted);
+        if (!resolution.stillReferenced.empty()) {
+            parts << QString("%1 file(s) still referenced by a current track -- left alone, not deleted")
+                         .arg(static_cast<int>(resolution.stillReferenced.size()));
+        }
+        if (failed > 0) {
+            parts << QString("%1 failed to delete").arg(failed);
+        }
+        result.statusMessage = parts.join("; ");
+    } catch (const std::exception &e) {
+        result.errorMessage = QString::fromStdString(e.what());
+    }
+    return result;
+}
+
 CleanupTaskResult runRescanTask(QString format, QString path, std::shared_ptr<QtProgressReporter> reporter)
 {
     CleanupTaskResult result;
@@ -386,6 +555,8 @@ CleanupController::CleanupController(QObject *parent) : QObject(parent)
 {
     connect(&m_watcher, &QFutureWatcher<CleanupTaskResult>::finished, this, &CleanupController::onRescanFinished);
     connect(&m_writeWatcher, &QFutureWatcher<CleanupWriteResult>::finished, this, &CleanupController::onWriteFinished);
+    connect(&m_pendingWriteWatcher, &QFutureWatcher<PendingDeletionApplyResult>::finished, this,
+            &CleanupController::onDeletePendingFinished);
 }
 
 QString CleanupController::totalWastedBytesHuman() const
@@ -446,6 +617,7 @@ void CleanupController::onRescanFinished()
     setBusy(false);
     emit plansChanged();
     emit includedChanged();
+    refreshPendingDeletions();
 }
 
 void CleanupController::apply()
@@ -504,6 +676,69 @@ void CleanupController::undoLastOperation()
     setWriting(true);
 
     m_writeWatcher.setFuture(QtConcurrent::run(runUndoTask, m_lastBackups, makeReporter()));
+}
+
+void CleanupController::refreshPendingDeletions()
+{
+    if (m_path.isEmpty()) {
+        return;
+    }
+    fs::path stickRoot = fs::path(m_path.toStdString()).parent_path();
+    infrastructure::cleanup::PendingDeletionManifest manifest(
+        (stickRoot / ".djconvert-pending-deletions.jsonl").string());
+
+    // rekordbox and Engine each accumulate their own separate pending
+    // entries (see PendingDeletion::format) -- this page only ever shows
+    // the one currently selected via the format toggle, same as
+    // everything else on it.
+    std::vector<infrastructure::cleanup::PendingDeletion> filtered;
+    for (auto &entry : manifest.list()) {
+        if (entry.format == m_format.toStdString()) {
+            filtered.push_back(std::move(entry));
+        }
+    }
+    m_pendingModel.setEntries(std::move(filtered));
+    emit pendingDeletionsChanged();
+}
+
+void CleanupController::setPendingDeletionIncluded(int index, bool included)
+{
+    m_pendingModel.setData(m_pendingModel.index(index), included, PendingDeletionListModel::IncludedRole);
+    emit pendingDeletionsChanged();
+}
+
+void CleanupController::deleteSelectedPendingFiles()
+{
+    if (m_busy) {
+        return;
+    }
+    auto selected = m_pendingModel.includedEntries();
+    if (selected.empty()) {
+        return;
+    }
+
+    setErrorMessage({});
+    setStatusMessage({});
+    setScanProgress(0, 0);
+    setBusy(true);
+    setWriting(true);
+
+    m_pendingWriteWatcher.setFuture(
+        QtConcurrent::run(runDeletePendingTask, m_format, m_path, std::move(selected), makeReporter()));
+}
+
+void CleanupController::onDeletePendingFinished()
+{
+    PendingDeletionApplyResult result = m_pendingWriteWatcher.result();
+
+    if (!result.errorMessage.isEmpty()) {
+        setErrorMessage(result.errorMessage);
+    } else {
+        setStatusMessage(result.statusMessage);
+    }
+    setBusy(false);
+    setWriting(false);
+    refreshPendingDeletions();
 }
 
 void CleanupController::setBusy(bool busy)

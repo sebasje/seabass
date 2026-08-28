@@ -12,6 +12,7 @@
 #include "domain/duplicate_cleanup.hpp"
 #include "gui/qt_progress_reporter.hpp"
 #include "gui/undo_tracking.hpp"
+#include "infrastructure/cleanup/pending_deletion_manifest.hpp"
 
 namespace djconvert::gui
 {
@@ -56,6 +57,49 @@ private:
     std::vector<bool> m_included;
 };
 
+// Read-only Qt list model over the audio files a past cleanup's DB edit
+// orphaned but hasn't deleted from disk yet (see PendingDeletionManifest's
+// own class comment). Mirrors CleanupPlanListModel's included/excluded
+// per-row selection pattern exactly, for the same reason: "act on
+// everything found" is rarely what you want to click through blind.
+class PendingDeletionListModel : public QAbstractListModel
+{
+    Q_OBJECT
+    QML_ELEMENT
+    QML_UNCREATABLE("Populated by CleanupController; not constructible from QML")
+
+public:
+    enum Roles {
+        FormatRole = Qt::UserRole + 1,
+        TitleRole,
+        ArtistRole,
+        FilePathRole,
+        BackupIdRole,
+        TimestampRole,
+        IncludedRole,
+    };
+
+    explicit PendingDeletionListModel(QObject *parent = nullptr);
+
+    int rowCount(const QModelIndex &parent = QModelIndex()) const override;
+    QVariant data(const QModelIndex &index, int role) const override;
+    bool setData(const QModelIndex &index, const QVariant &value, int role) override;
+    QHash<int, QByteArray> roleNames() const override;
+
+    void setEntries(std::vector<infrastructure::cleanup::PendingDeletion> entries);
+    // Only the rows currently checked -- what deleteSelectedPendingFiles() acts on.
+    std::vector<infrastructure::cleanup::PendingDeletion> includedEntries() const;
+    int includedCount() const;
+
+private:
+    std::vector<infrastructure::cleanup::PendingDeletion> m_entries;
+    // Parallel to m_entries -- default true (everything selected), same
+    // default-selected convention as CleanupPlanListModel except when a
+    // plan `differs` (there's no equivalent ambiguity here to default
+    // away from).
+    std::vector<bool> m_included;
+};
+
 // Result of a background scan+plan task -- see CleanupController::
 // rescan(). Built entirely on a worker thread, no access to the
 // controller.
@@ -72,6 +116,18 @@ struct CleanupWriteResult
     QString errorMessage;
     QString statusMessage;
     std::vector<UndoableBackup> backups;
+};
+
+// Result of a background pending-deletion apply task -- see
+// CleanupController::deleteSelectedPendingFiles(). Unlike
+// CleanupWriteResult there's nothing here to undo (a deleted audio file
+// is gone -- the DB edit that orphaned it was already backed up
+// separately, back when it was first removed from the library), so
+// there's no UndoableBackup list.
+struct PendingDeletionApplyResult
+{
+    QString errorMessage;
+    QString statusMessage;
 };
 
 // Wraps DuplicateCleanupPlanner + both formats' LibraryCleanupWriter
@@ -99,6 +155,8 @@ class CleanupController : public QObject
     Q_PROPERTY(bool canUndo READ canUndo NOTIFY canUndoChanged)
     Q_PROPERTY(QString totalWastedBytesHuman READ totalWastedBytesHuman NOTIFY plansChanged)
     Q_PROPERTY(int includedCount READ includedCount NOTIFY includedChanged)
+    Q_PROPERTY(djconvert::gui::PendingDeletionListModel *pendingDeletions READ pendingDeletionsModel CONSTANT)
+    Q_PROPERTY(int pendingDeletionsIncludedCount READ pendingDeletionsIncludedCount NOTIFY pendingDeletionsChanged)
 
 public:
     explicit CleanupController(QObject *parent = nullptr);
@@ -113,6 +171,8 @@ public:
     bool canUndo() const { return !m_lastBackups.empty(); }
     QString totalWastedBytesHuman() const;
     int includedCount() const { return m_model.includedCount(); }
+    PendingDeletionListModel *pendingDeletionsModel() { return &m_pendingModel; }
+    int pendingDeletionsIncludedCount() const { return m_pendingModel.includedCount(); }
 
     // format is "rekordbox" or "engine"; path is the corresponding
     // DetectedStick.rekordboxPath / .enginePath.
@@ -130,6 +190,27 @@ public:
     // immediately before. Available only right after a write (canUndo).
     Q_INVOKABLE void undoLastOperation();
 
+    // Re-reads this format's pending-deletion entries from
+    // .djconvert-pending-deletions.jsonl on the stick and repopulates
+    // pendingDeletions. Cheap (a small text file), so this runs
+    // synchronously rather than on a background thread -- called
+    // automatically after every scan()/apply(), but QML can also call it
+    // directly.
+    Q_INVOKABLE void refreshPendingDeletions();
+
+    Q_INVOKABLE void setPendingDeletionIncluded(int index, bool included);
+
+    // For every currently-checked pendingDeletions entry: re-scans the
+    // library fresh and, ONLY for entries resolvePendingDeletions()
+    // confirms are genuinely no longer referenced by any current track,
+    // deletes the file from disk and clears it from the manifest.
+    // Entries still referenced (by anything, whether checked or not) are
+    // never deleted no matter what the manifest said -- see
+    // resolvePendingDeletions()'s own doc comment for why the manifest
+    // alone is never trusted. Irreversible: unlike apply(), there is no
+    // undo for an actual file deletion.
+    Q_INVOKABLE void deleteSelectedPendingFiles();
+
 signals:
     void busyChanged();
     void writingChanged();
@@ -139,11 +220,13 @@ signals:
     void canUndoChanged();
     void plansChanged();
     void includedChanged();
+    void pendingDeletionsChanged();
 
 private:
     void rescan();
     void onRescanFinished();
     void onWriteFinished();
+    void onDeletePendingFinished();
     void setBusy(bool busy);
     void setWriting(bool writing);
     void setScanProgress(int current, int total);
@@ -152,8 +235,10 @@ private:
     std::shared_ptr<QtProgressReporter> makeReporter();
 
     CleanupPlanListModel m_model;
+    PendingDeletionListModel m_pendingModel;
     QFutureWatcher<CleanupTaskResult> m_watcher;
     QFutureWatcher<CleanupWriteResult> m_writeWatcher;
+    QFutureWatcher<PendingDeletionApplyResult> m_pendingWriteWatcher;
     QString m_format;
     QString m_path;
     bool m_busy = false;
