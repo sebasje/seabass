@@ -211,6 +211,9 @@ void printTrackDetail(const Track &track)
     if (track.lastPlayedAt) {
         Console::info("  last played: " + formatTimestamp(*track.lastPlayedAt));
     }
+    for (const auto &playlist : track.playlists) {
+        Console::info("  playlist: " + playlist.name + " (position " + std::to_string(playlist.position) + ")");
+    }
 
     if (track.cues.empty()) {
         Console::info(Console::colorize("  no cues yet", Color::Gray));
