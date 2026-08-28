@@ -1,5 +1,6 @@
 #include "infrastructure/cleanup/pending_deletion_resolver.hpp"
 
+#include <algorithm>
 #include <filesystem>
 #include <set>
 
@@ -16,7 +17,13 @@ std::string normalize(const std::string &path)
     if (path.empty()) {
         return path;
     }
-    return fs::path(path).lexically_normal().generic_string();
+    // Backslash-to-slash first, explicitly -- std::filesystem::path only
+    // treats '\' as a separator on Windows, so relying on its native
+    // parsing here would make this function's behavior (and this
+    // manifest-vs-scan safety check) depend on which OS it's running on.
+    std::string slashed = path;
+    std::replace(slashed.begin(), slashed.end(), '\\', '/');
+    return fs::path(slashed).lexically_normal().generic_string();
 }
 
 }  // namespace
