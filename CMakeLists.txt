@@ -170,6 +170,21 @@ else()
     target_link_libraries(djconvert_core PUBLIC udev)
 endif()
 
+# --- OneLibrary/Device Library Plus (exportLibrary.db) cue writer -- ---
+# --- Windows-only: talks to libsqlcipher-0.dll via runtime LoadLibrary/ ---
+# --- GetProcAddress rather than linking it, specifically to avoid a ---
+# --- real symbol collision (see sqlcipher_dyn.hpp's own doc comment) ---
+# --- with the plain, unencrypted SQLite3 djconvert_core already links ---
+# --- above. See docs/onelibrary-format.md. ---
+
+if(WIN32)
+    target_sources(djconvert_core PRIVATE
+        src/infrastructure/onelibrary/onelibrary_key.cpp
+        src/infrastructure/onelibrary/sqlcipher_dyn.cpp
+        src/infrastructure/onelibrary/onelibrary_cue_writer.cpp
+    )
+endif()
+
 # --- djconvert: the terminal composition root ---
 
 add_executable(djconvert
@@ -371,3 +386,17 @@ add_executable(pending_deletion_resolver_test
 )
 target_include_directories(pending_deletion_resolver_test PRIVATE src)
 add_test(NAME pending_deletion_resolver_test COMMAND pending_deletion_resolver_test)
+
+# Windows-only: talks to libsqlcipher-0.dll via runtime LoadLibrary, same
+# as djconvert_core's own onelibrary sources above.
+if(WIN32)
+add_executable(onelibrary_cue_writer_test
+    src/infrastructure/onelibrary/onelibrary_key.cpp
+    src/infrastructure/onelibrary/sqlcipher_dyn.cpp
+    src/infrastructure/onelibrary/onelibrary_cue_writer.cpp
+    tests/onelibrary_cue_writer_test.cpp
+)
+target_include_directories(onelibrary_cue_writer_test PRIVATE src)
+target_link_libraries(onelibrary_cue_writer_test PRIVATE ZLIB::ZLIB)
+add_test(NAME onelibrary_cue_writer_test COMMAND onelibrary_cue_writer_test)
+endif()
