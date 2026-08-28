@@ -296,6 +296,9 @@ std::vector<domain::Track> KaitaiRekordboxReader::readAll()
                     std::string trackFilePath = sqlText(rowTrack->file_path());
                     if (!trackFilePath.empty()) {
                         track.filePath = stickRoot + trackFilePath;
+                        std::error_code ec;
+                        auto size = std::filesystem::file_size(track.filePath, ec);
+                        track.fileSizeBytes = ec ? 0 : size;
                     }
                     auto artworkIt = artworkPathById.find(rowTrack->artwork_id());
                     if (artworkIt != artworkPathById.end() && !artworkIt->second.empty()) {

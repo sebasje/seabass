@@ -101,6 +101,11 @@ std::vector<domain::Track> LibdjinteropEngineReader::readAll()
             auto resolved = std::filesystem::path(m_engineLibraryPath) / tr.relative_path();
             return resolved.lexically_normal().string();
         });
+        if (!track.filePath.empty()) {
+            std::error_code ec;
+            auto size = std::filesystem::file_size(track.filePath, ec);
+            track.fileSizeBytes = ec ? 0 : size;
+        }
         track.bpm = safeGet<double>(*m_progress, id, "bpm", [&] { return tr.bpm().value_or(0.0); });
         track.key = safeGet<std::string>(*m_progress, id, "key", [&] {
             auto k = tr.key();

@@ -36,6 +36,7 @@ public:
         DescriptionRole,
         ActionableRole,
         TracksRole,
+        WastedBytesRole,
     };
 
     explicit ConsolidationPlanListModel(QObject *parent = nullptr);
@@ -108,12 +109,20 @@ class DuplicatesController : public QObject
     Q_PROPERTY(QString statusMessage READ statusMessage NOTIFY statusMessageChanged)
     Q_PROPERTY(bool canUndo READ canUndo NOTIFY canUndoChanged)
     Q_PROPERTY(bool writing READ writing NOTIFY writingChanged)
+    // Sum, across every duplicate group currently listed (Unambiguous and
+    // Conflict alike -- being a duplicate doesn't depend on cue-consolidation
+    // status), of every group's file sizes minus its single largest copy:
+    // the disk space that would be freed if each group kept only one file.
+    // Purely informational -- djconvert has no feature that deletes audio
+    // files, this is a number, not an action.
+    Q_PROPERTY(QString totalWastedBytesHuman READ totalWastedBytesHuman NOTIFY plansChanged)
 
 public:
     explicit DuplicatesController(QObject *parent = nullptr);
 
     ConsolidationPlanListModel *plansModel() { return &m_model; }
     bool busy() const { return m_busy; }
+    QString totalWastedBytesHuman() const;
     // True only while actually writing to the stick -- unlike busy(),
     // which is also true during the read-only scan().
     bool writing() const { return m_writing; }
@@ -148,6 +157,7 @@ signals:
     void statusMessageChanged();
     void canUndoChanged();
     void writingChanged();
+    void plansChanged();
 
 private:
     void rescan();
