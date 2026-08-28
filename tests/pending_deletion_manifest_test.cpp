@@ -77,6 +77,27 @@ int main()
         std::cout << "case 3 (append-only across instances) OK\n";
     }
 
+    // removeProcessed() drops only the matching entries, keeps every
+    // other entry's original timestamp untouched, and is a no-op when
+    // nothing matches.
+    {
+        PendingDeletionManifest manifest(manifestPath.string());
+        auto before = manifest.list();
+        assert(before.size() == 3);
+        std::string keptTimestamp = before[2].timestampUtc;
+
+        manifest.removeProcessed({"/Volumes/STICK/Contents/track \"one\".mp3"});
+        auto after = manifest.list();
+        assert(after.size() == 2);
+        assert(after[0].filePath == "C:\\Music\\track two.flac");
+        assert(after[1].filePath == "/Volumes/STICK/Contents/track three.mp3");
+        assert(after[1].timestampUtc == keptTimestamp);
+
+        manifest.removeProcessed({"/no/such/path"});
+        assert(manifest.list().size() == 2);
+        std::cout << "case 4 (removeProcessed drops matches, preserves timestamps, no-ops otherwise) OK\n";
+    }
+
     std::cout << "all cases passed\n";
     return 0;
 }

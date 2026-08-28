@@ -99,6 +99,16 @@ std::optional<std::string> extractField(const std::string &line, const std::stri
     return std::nullopt;  // unterminated -- malformed line
 }
 
+std::string serializeLine(const PendingDeletion &entry)
+{
+    std::ostringstream line;
+    line << "{\"timestampUtc\":\"" << jsonEscape(entry.timestampUtc) << "\",\"format\":\"" << jsonEscape(entry.format)
+         << "\",\"filePath\":\"" << jsonEscape(entry.filePath) << "\",\"title\":\"" << jsonEscape(entry.title)
+         << "\",\"artist\":\"" << jsonEscape(entry.artist) << "\",\"backupId\":\"" << jsonEscape(entry.backupId)
+         << "\"}\n";
+    return line.str();
+}
+
 }  // namespace
 
 PendingDeletionManifest::PendingDeletionManifest(std::string manifestPath) : m_manifestPath(std::move(manifestPath)) {}
@@ -107,17 +117,33 @@ void PendingDeletionManifest::append(PendingDeletion entry)
 {
     entry.timestampUtc = isoTimestampUtc();
 
-    std::ostringstream line;
-    line << "{\"timestampUtc\":\"" << jsonEscape(entry.timestampUtc) << "\",\"format\":\"" << jsonEscape(entry.format)
-         << "\",\"filePath\":\"" << jsonEscape(entry.filePath) << "\",\"title\":\"" << jsonEscape(entry.title)
-         << "\",\"artist\":\"" << jsonEscape(entry.artist) << "\",\"backupId\":\"" << jsonEscape(entry.backupId)
-         << "\"}\n";
-
     // Same "open, append, close every call" pattern as FileOperationLog,
     // so multiple djconvert processes writing to the same stick don't
     // stomp on each other's lines.
     std::ofstream ofs(m_manifestPath, std::ofstream::app);
-    ofs << line.str();
+    ofs << serializeLine(entry);
+}
+
+void PendingDeletionManifest::removeProcessed(const std::set<std::string> &processedFilePaths)
+{
+    if (processedFilePaths.empty()) {
+        return;
+    }
+    auto entries = list();
+    std::ostringstream rewritten;
+    bool anyRemoved = false;
+    for (const auto &entry : entries) {
+        if (processedFilePaths.contains(entry.filePath)) {
+            anyRemoved = true;
+            continue;
+        }
+        rewritten << serializeLine(entry);
+    }
+    if (!anyRemoved) {
+        return;
+    }
+    std::ofstream ofs(m_manifestPath, std::ofstream::trunc);
+    ofs << rewritten.str();
 }
 
 std::vector<PendingDeletion> PendingDeletionManifest::list() const
