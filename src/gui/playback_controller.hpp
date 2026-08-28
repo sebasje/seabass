@@ -53,6 +53,16 @@ public:
     Q_INVOKABLE void load(const QString &format, const QString &libraryPath, const QString &sourceId,
                            const QString &filePath, const QString &title, const QString &artist,
                            const QString &artworkPath, const QVariantList &cues);
+
+    // Reads a track's waveform preview without touching playback state --
+    // for a read-only preview (e.g. the Library page's per-track info
+    // popup) that shouldn't interrupt whatever's currently loaded/playing.
+    // Same on-demand, synchronous-on-the-UI-thread read as load() itself
+    // uses; a single track's preview blob is small enough that this
+    // hasn't needed backgrounding so far (see load()'s own doc comment).
+    Q_INVOKABLE QVariantList waveformFor(const QString &format, const QString &libraryPath,
+                                          const QString &sourceId) const;
+
     Q_INVOKABLE void togglePlay();
     Q_INVOKABLE void seek(qint64 positionMs);
     Q_INVOKABLE void stop();

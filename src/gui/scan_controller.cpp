@@ -67,6 +67,13 @@ QVariant TrackListModel::data(const QModelIndex &index, int role) const
         }
         return cues;
     }
+    case PlaylistNamesRole: {
+        QStringList names;
+        for (const auto &p : track.playlists) {
+            names << QString::fromStdString(p.name);
+        }
+        return names;
+    }
     default:
         return {};
     }
@@ -86,6 +93,7 @@ QHash<int, QByteArray> TrackListModel::roleNames() const
         {BpmRole, "bpm"},
         {KeyRole, "key"},
         {CuesRole, "cues"},
+        {PlaylistNamesRole, "playlistNames"},
     };
 }
 

@@ -229,6 +229,7 @@ Page {
                 Label { text: "Time"; font.bold: true; Layout.preferredWidth: 60 }
                 Label { text: "Cues"; font.bold: true; Layout.preferredWidth: 50 }
                 Label { text: "Plays"; font.bold: true; Layout.preferredWidth: 50 }
+                Label { text: ""; Layout.preferredWidth: 32 }
             }
 
             ListView {
@@ -261,6 +262,7 @@ Page {
                     required property double bpm
                     required property string key
                     required property var cues
+                    required property var playlistNames
 
                     // Alternating row shading -- makes it much easier to
                     // track a row across the wide, densely-columned list.
@@ -320,6 +322,15 @@ Page {
                         Label { text: root.formatDuration(durationSeconds); Layout.preferredWidth: 60 }
                         Label { text: cueCount; Layout.preferredWidth: 50 }
                         Label { text: playCount >= 0 ? playCount : "--"; Layout.preferredWidth: 50 }
+                        ToolButton {
+                            text: "ⓘ"
+                            Layout.preferredWidth: 32
+                            ToolTip.visible: hovered
+                            ToolTip.text: trackDelegate.playlistNames.length > 0
+                                ? "Playlists:\n" + trackDelegate.playlistNames.join("\n")
+                                : "Not in any playlist"
+                            onClicked: trackInfoPopup.showFor(trackDelegate)
+                        }
                     }
                 }
 
@@ -328,6 +339,82 @@ Page {
                     visible: trackListView.count === 0 && !scanController.busy
                     text: "No tracks found."
                     color: Theme.textMuted
+                }
+            }
+
+            // One shared popup, reused for whichever row's (i) button was
+            // clicked -- populated by showFor() rather than one Popup
+            // instance per delegate. The waveform is read on demand right
+            // here (never during the bulk scan that fills trackListView),
+            // same pattern playbackController.load() already uses.
+            Popup {
+                id: trackInfoPopup
+                modal: true
+                focus: true
+                x: (root.width - width) / 2
+                y: (root.height - height) / 2
+                width: 460
+
+                property string trackTitle: ""
+                property string trackArtist: ""
+                property var trackCues: []
+                property double trackDurationMs: 0
+                property var trackPlaylistNames: []
+
+                function showFor(delegate) {
+                    trackInfoPopup.trackTitle = delegate.title;
+                    trackInfoPopup.trackArtist = delegate.artist;
+                    trackInfoPopup.trackCues = delegate.cues;
+                    trackInfoPopup.trackDurationMs = delegate.durationSeconds * 1000;
+                    trackInfoPopup.trackPlaylistNames = delegate.playlistNames;
+                    waveformView.waveformData = playbackController.waveformFor(
+                        root.format, root.currentPath(), delegate.sourceId);
+                    trackInfoPopup.open();
+                }
+
+                ColumnLayout {
+                    width: parent.width
+                    spacing: 10
+
+                    ColumnLayout {
+                        spacing: 1
+                        Label {
+                            text: trackInfoPopup.trackTitle
+                            font.bold: true
+                            font.pointSize: Theme.fontMedium
+                            Layout.fillWidth: true
+                            elide: Text.ElideRight
+                        }
+                        Label {
+                            text: trackInfoPopup.trackArtist
+                            color: Theme.textMuted
+                            Layout.fillWidth: true
+                            elide: Text.ElideRight
+                        }
+                    }
+
+                    WaveformView {
+                        id: waveformView
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 80
+                        cueData: trackInfoPopup.trackCues
+                        trackDurationMs: trackInfoPopup.trackDurationMs
+                        progress: -1
+                    }
+
+                    Label {
+                        text: "Playlists"
+                        font.bold: true
+                        color: Theme.textMuted
+                        font.pointSize: Theme.fontSmall
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        text: trackInfoPopup.trackPlaylistNames.length > 0
+                            ? trackInfoPopup.trackPlaylistNames.join("\n")
+                            : "Not in any playlist"
+                    }
                 }
             }
 
