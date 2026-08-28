@@ -93,6 +93,7 @@ target_link_libraries(rekordbox_format PUBLIC kaitai_cpp_stl_runtime)
 # --- both the CLI (src/cli/) and the Qt GUI (src/gui/) composition roots ---
 
 add_library(djconvert_core STATIC
+    src/domain/duplicate_cleanup.cpp
     src/domain/duplicate_cue_consolidation.cpp
     src/domain/fuzzy_matcher.cpp
     src/domain/local_restore.cpp
@@ -214,6 +215,14 @@ add_executable(duplicate_cue_consolidation_test
 )
 target_include_directories(duplicate_cue_consolidation_test PRIVATE src)
 add_test(NAME duplicate_cue_consolidation_test COMMAND duplicate_cue_consolidation_test)
+
+add_executable(duplicate_cleanup_test
+    src/domain/duplicate_cleanup.cpp
+    src/domain/local_restore.cpp
+    tests/duplicate_cleanup_test.cpp
+)
+target_include_directories(duplicate_cleanup_test PRIVATE src)
+add_test(NAME duplicate_cleanup_test COMMAND duplicate_cleanup_test)
 
 add_executable(track_matching_test
     src/domain/track_matching.cpp
