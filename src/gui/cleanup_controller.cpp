@@ -90,15 +90,16 @@ int CleanupPlanListModel::rowCount(const QModelIndex &parent) const
     if (parent.isValid()) {
         return 0;
     }
-    return static_cast<int>(m_plans.size());
+    return static_cast<int>(m_visibleIndices.size());
 }
 
 QVariant CleanupPlanListModel::data(const QModelIndex &index, int role) const
 {
-    if (!index.isValid() || index.row() < 0 || static_cast<size_t>(index.row()) >= m_plans.size()) {
+    if (!index.isValid() || index.row() < 0 || static_cast<size_t>(index.row()) >= m_visibleIndices.size()) {
         return {};
     }
-    const auto &plan = m_plans[static_cast<size_t>(index.row())];
+    size_t realIndex = m_visibleIndices[static_cast<size_t>(index.row())];
+    const auto &plan = m_plans[realIndex];
     switch (role) {
     case SurvivorRole:
         return trackSummary(plan.survivor);
@@ -116,7 +117,7 @@ QVariant CleanupPlanListModel::data(const QModelIndex &index, int role) const
     case NewCueCountRole:
         return static_cast<int>(plan.mergedCuesForSurvivor.size()) - static_cast<int>(plan.survivor.cues.size());
     case IncludedRole:
-        return m_included[static_cast<size_t>(index.row())];
+        return m_included[realIndex];
     default:
         return {};
     }
@@ -124,13 +125,13 @@ QVariant CleanupPlanListModel::data(const QModelIndex &index, int role) const
 
 bool CleanupPlanListModel::setData(const QModelIndex &index, const QVariant &value, int role)
 {
-    if (!index.isValid() || index.row() < 0 || static_cast<size_t>(index.row()) >= m_plans.size()) {
+    if (!index.isValid() || index.row() < 0 || static_cast<size_t>(index.row()) >= m_visibleIndices.size()) {
         return false;
     }
     if (role != IncludedRole) {
         return false;
     }
-    m_included[static_cast<size_t>(index.row())] = value.toBool();
+    m_included[m_visibleIndices[static_cast<size_t>(index.row())]] = value.toBool();
     emit dataChanged(index, index, {IncludedRole});
     return true;
 }
@@ -157,6 +158,10 @@ void CleanupPlanListModel::setPlans(std::vector<domain::DuplicateCleanupPlan> pl
         // -- see DuplicateCleanupPlan::differs' own doc comment.
         m_included[i] = !m_plans[i].differs;
     }
+    m_visibleIndices.resize(m_plans.size());
+    for (size_t i = 0; i < m_plans.size(); ++i) {
+        m_visibleIndices[i] = i;
+    }
     endResetModel();
 }
 
@@ -167,16 +172,41 @@ bool CleanupPlanListModel::included(size_t index) const
 
 void CleanupPlanListModel::setAllIncluded(bool included)
 {
-    if (m_included.empty()) {
+    if (m_visibleIndices.empty()) {
         return;
     }
-    m_included.assign(m_included.size(), included);
-    emit dataChanged(index(0), index(static_cast<int>(m_included.size()) - 1), {IncludedRole});
+    for (size_t realIndex : m_visibleIndices) {
+        m_included[realIndex] = included;
+    }
+    emit dataChanged(index(0), index(static_cast<int>(m_visibleIndices.size()) - 1), {IncludedRole});
 }
 
 int CleanupPlanListModel::includedCount() const
 {
     return static_cast<int>(std::count(m_included.begin(), m_included.end(), true));
+}
+
+namespace
+{
+bool matchesQuery(const domain::Track &t, const QString &query)
+{
+    return QString::fromStdString(t.title).contains(query, Qt::CaseInsensitive) ||
+           QString::fromStdString(t.artist).contains(query, Qt::CaseInsensitive);
+}
+}  // namespace
+
+void CleanupPlanListModel::setFilter(const QString &query)
+{
+    beginResetModel();
+    m_visibleIndices.clear();
+    for (size_t i = 0; i < m_plans.size(); ++i) {
+        if (query.isEmpty() || matchesQuery(m_plans[i].survivor, query) ||
+            std::any_of(m_plans[i].toRemove.begin(), m_plans[i].toRemove.end(),
+                        [&query](const domain::Track &t) { return matchesQuery(t, query); })) {
+            m_visibleIndices.push_back(i);
+        }
+    }
+    endResetModel();
 }
 
 PendingDeletionListModel::PendingDeletionListModel(QObject *parent) : QAbstractListModel(parent) {}
@@ -658,6 +688,11 @@ void CleanupController::setAllIncluded(bool included)
 {
     m_model.setAllIncluded(included);
     emit includedChanged();
+}
+
+void CleanupController::search(const QString &query)
+{
+    m_model.setFilter(query);
 }
 
 std::shared_ptr<QtProgressReporter> CleanupController::makeReporter()

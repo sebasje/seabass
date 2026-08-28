@@ -85,6 +85,12 @@ Page {
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 12
+                TextField {
+                    id: searchField
+                    placeholderText: "Search title or artist..."
+                    Layout.preferredWidth: 220
+                    onTextChanged: cleanupController.search(text)
+                }
                 Label {
                     text: plansListView.count + " duplicate group(s) found"
                     color: Theme.textMuted
@@ -103,7 +109,7 @@ Page {
                 Button {
                     text: "Select All"
                     enabled: !cleanupController.busy && plansListView.count > 0
-                    onClicked: cleanupController.setAllIncluded(true)
+                    onClicked: confirmSelectAllDialog.open()
                 }
                 Button {
                     text: "Deselect All"
@@ -124,6 +130,34 @@ Page {
                     onClicked: cleanupController.undoLastOperation()
                 }
             }
+        }
+    }
+
+    Dialog {
+        id: confirmSelectAllDialog
+        anchors.centerIn: parent
+        modal: true
+        width: 480
+        title: "Select All " + plansListView.count + " Duplicate Group(s)?"
+        footer: DialogButtonBox {
+            Button { text: "Select All"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
+            Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
+        }
+        onAccepted: cleanupController.setAllIncluded(true)
+
+        Label {
+            width: parent.width
+            wrapMode: Text.WordWrap
+            text: "This marks all " + plansListView.count + " currently listed duplicate group(s) -- "
+                + cleanupController.totalWastedBytesHuman + " total if every copy kept only one file -- "
+                + "for the next \"Clean Up Selected\" click, including groups excluded by default because "
+                + "their copies differ in quality (marked with ⚠ below).\n\n"
+                + (searchField.text.length > 0
+                    ? "Your search (\"" + searchField.text + "\") is currently narrowing this list -- clear it "
+                        + "first if you meant to select across your whole library, or leave it as-is to select "
+                        + "only these matching groups."
+                    : "No search filter is active, so this selects every duplicate group found across your "
+                        + "whole library.")
         }
     }
 

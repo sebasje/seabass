@@ -48,8 +48,19 @@ public:
     const std::vector<domain::DuplicateCleanupPlan> &plans() const { return m_plans; }
     bool included(size_t index) const;
     int includedCount() const;
-    // Sets every row's included flag at once (select all / deselect all).
+    // Sets every row's included flag at once (select all / deselect all) --
+    // only the currently *visible* rows (see setFilter()), so selecting all
+    // while a search is active doesn't silently touch groups scrolled out
+    // of view by the filter.
     void setAllIncluded(bool included);
+
+    // Case-insensitive substring match against every track's title/artist
+    // in each group (the survivor and every copy to remove) -- a group is
+    // visible if any of them match. Filtering never touches m_included:
+    // it's purely a view over the same underlying selection state, so
+    // clearing/changing the search text never loses what was checked.
+    // Empty query shows everything.
+    void setFilter(const QString &query);
 
 private:
     std::vector<domain::DuplicateCleanupPlan> m_plans;
@@ -57,6 +68,12 @@ private:
     // DuplicateCleanupPlan::differs' own doc comment for why that
     // defaults to excluded).
     std::vector<bool> m_included;
+    // Indices into m_plans/m_included that pass the current filter, in
+    // order -- what QML's row-based data()/setData() actually iterate.
+    // included(size_t)/plans() stay index-into-m_plans-based (unfiltered)
+    // since apply() needs to act on every included group regardless of
+    // what the search box currently shows.
+    std::vector<size_t> m_visibleIndices;
 };
 
 // Read-only Qt list model over the audio files a past cleanup's DB edit
@@ -184,6 +201,12 @@ public:
 
     Q_INVOKABLE void setIncluded(int index, bool included);
     Q_INVOKABLE void setAllIncluded(bool included);
+
+    // Filters the visible duplicate groups by title/artist (see
+    // CleanupPlanListModel::setFilter()). Purely a view filter -- never
+    // changes which groups are included, and apply() still acts on every
+    // included group regardless of the current search text.
+    Q_INVOKABLE void search(const QString &query);
 
     // Removes every doomed track in every currently-included group:
     // merges cues onto the survivor, fixes up playlist membership on
