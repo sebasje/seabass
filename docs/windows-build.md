@@ -51,39 +51,38 @@ happen to have UCRT64's `bin` on `PATH` (i.e. only on a dev machine with
 MSYS2 installed).
 
 ```powershell
-$env:PATH = "C:\msys64\ucrt64\bin;" + $env:PATH
-windeployqt.exe --qmldir src\gui\qml build-win\djconvert-gui.exe
+.\tools\deploy-windows.ps1
 ```
 
-Then copy across the full transitive DLL closure. There's no single pacman
-package for this — walk `objdump -p <dll> | Select-String "DLL Name"`
-recursively starting from `djconvert-gui.exe`, and for every DLL not already
-next to the exe and not a real file under `C:\Windows\System32` (the
-`api-ms-win-crt-*`/`ext-ms-*` names are virtual API sets Windows resolves
-itself — skip those), copy it from `C:\msys64\ucrt64\bin`. As of the Qt
-6.11.2 / MSYS2 packages used in initial Windows bring-up, that closure
-included at least: `zlib1.dll`, `libgcc_s_seh-1.dll`, `libstdc++-6.dll`,
-`libwinpthread-1.dll`, `libb2-1.dll`, `libdouble-conversion.dll`,
-`libicuin78.dll`, `libicuuc78.dll`, `libicudt78.dll`, `libpcre2-16-0.dll`,
-`libpcre2-8-0.dll`, `libzstd.dll`, `libfreetype-6.dll`, `libharfbuzz-0.dll`,
-`libmd4c.dll`, `libpng16-16.dll`, `libbrotlidec.dll`, `libbrotlicommon.dll`,
-`libbz2-1.dll`, `libglib-2.0-0.dll`, `libgraphite2.dll`, `libintl-8.dll`,
-`libiconv-2.dll` — exact set will drift with Qt/MSYS2 package versions, so
-don't assume this list is exhaustive; always re-walk the closure after an
-MSYS2 package update.
+This runs `windeployqt`, then walks the full transitive DLL closure itself
+(`objdump -p <dll> | Select-String "DLL Name"`, recursively, starting from
+every `.dll`/`.exe` already in `build-win\`) and copies across anything
+missing from `C:\msys64\ucrt64\bin` -- including plugins' own dependencies
+`windeployqt` doesn't know about, which turned out to matter a lot in
+practice: the JPEG image-format plugin needs `libjpeg-8.dll` (without it,
+cover art silently fails to decode -- no crash, no error, just a blank
+image), and the FFmpeg-based multimedia backend plugin needs its *entire*
+codec dependency graph resolvable before Windows will load it at all
+(`LoadLibraryEx` fails with error 126 otherwise) -- MSYS2's ffmpeg package
+pulls in dozens of optional codec libraries (`libx264`, `libvpx`,
+`libmp3lame`, `libopus`, `libbluray`, ...) as hard DLL dependencies, none
+of which are needed for ordinary MP3/AAC playback but all of which must
+still be *present* for the plugin's import table to resolve. Re-run this
+script after any MSYS2 package update -- the exact closure drifts with
+Qt/MSYS2 versions, so don't treat any past run's file list as exhaustive.
 
-One DLL this `objdump -p` walk will never find: `libsqlcipher-0.dll`
+One DLL the closure walk can never find on its own: `libsqlcipher-0.dll`
 (needed by the OneLibrary cue writer, see docs/onelibrary-format.md).
 It's loaded at runtime via `LoadLibrary`, deliberately not linked at
 build time (see `sqlcipher_dyn.hpp`'s doc comment for why), so it never
-appears in any binary's import table for the walk to discover. Copy it
-from `C:\msys64\ucrt64\bin` alongside the rest of the closure -- without
-it, the exe still builds and runs fine, but every OneLibrary write
-silently fails (throws, caught as the best-effort failure it's designed
-to be) with "could not load libsqlcipher-0.dll".
+appears in any binary's import table for the walk to discover -- the
+script copies it as an explicit special case. Without it, the exe still
+builds and runs fine, but every OneLibrary write silently fails (throws,
+caught as the best-effort failure it's designed to be) with "could not
+load libsqlcipher-0.dll".
 
-This whole deploy step (windeployqt + DLL closure copy) isn't yet automated
-into the CMake build or packaged into an installer (no CPack/NSIS/WiX step)
+This deploy step still isn't wired into the CMake build itself or packaged
+into a real installer (no CPack/NSIS/WiX step)
 — real follow-up work, tracked here rather than silently skipped.
 
 ## Known gaps
@@ -91,7 +90,7 @@ into the CMake build or packaged into an installer (no CPack/NSIS/WiX step)
 - Unit tests: `if(NOT WIN32)`-gated, not yet ported (see above).
 - No CI (`.github/` doesn't exist).
 - No installer/packaging step (CPack, NSIS, WiX, MSIX, ...) — only the
-  manual windeployqt + DLL-closure-copy process above.
+  `tools\deploy-windows.ps1` script above.
 - `djconvert.exe` (the CLI) links `-static -static-libgcc -static-libstdc++`
   but its dependency on `zlib1.dll` (found via MSYS2's `libz.dll.a` import
   library, not a static `libz.a`) is still dynamic — so despite those flags
