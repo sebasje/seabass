@@ -49,6 +49,9 @@ class PdbRowWriter
 public:
     explicit PdbRowWriter(std::string pdbPath);
 
+    // True if a present track row with this id exists.
+    bool trackExists(uint32_t trackId) const;
+
     // Clears the presence bit for the track row with this id in the
     // tracks table. Returns false if no such (present) row is found.
     bool removeTrack(uint32_t trackId);
@@ -61,6 +64,15 @@ public:
     // place, leaving its entry_index/playlist_id untouched. Returns
     // false if no (playlistId, oldTrackId) row is found.
     bool repointPlaylistEntry(uint32_t playlistId, uint32_t oldTrackId, uint32_t newTrackId);
+
+    // For every playlist_entry row currently pointing at oldTrackId:
+    // if that same playlist already has an entry for newTrackId,
+    // removes the oldTrackId entry (avoids a duplicate); otherwise
+    // repoints it to newTrackId in place, so the playlist keeps its
+    // membership/position instead of silently losing the track. Walks
+    // every playlist_entries page exactly once. Returns the number of
+    // rows affected.
+    size_t reassignPlaylistMemberships(uint32_t oldTrackId, uint32_t newTrackId);
 
     // Bumps the sequence number for every page touched this session
     // (page.sequence <- the header's current sequence; then the header's

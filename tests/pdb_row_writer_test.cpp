@@ -291,6 +291,52 @@ int main()
         std::cout << "case 4 (repointPlaylistEntry: rewrites track_id in place) OK\n";
     }
 
+    // reassignPlaylistMemberships: track 100 is only in playlist 1;
+    // track 101 is only in playlist 2 -- neither playlist already has
+    // the other, so the (1,100) entry gets repointed to (1,101).
+    {
+        writeFile(pdbPath, pristine);
+        PdbRowWriter writer(pdbPath.string());
+        assert(writer.reassignPlaylistMemberships(100, 101) == 1);
+        assert(writer.commit());
+
+        auto rb = readBack(pdbPath);
+        assert(!containsEntry(rb.presentEntries, 1, 100));
+        assert(containsEntry(rb.presentEntries, 1, 101));  // repointed
+        assert(containsEntry(rb.presentEntries, 1, 200));  // untouched
+        assert(containsEntry(rb.presentEntries, 2, 101));  // untouched
+        assert(rb.presentEntries.size() == 3);
+        std::cout << "case 4b (reassignPlaylistMemberships: repoints when target playlist lacks the survivor) OK\n";
+    }
+
+    // reassignPlaylistMemberships: track 200 is in playlist 1; track
+    // 100 is ALSO already in playlist 1 -- so the (1,200) entry must be
+    // dropped, not repointed (no duplicate (1,100) entries).
+    {
+        writeFile(pdbPath, pristine);
+        PdbRowWriter writer(pdbPath.string());
+        assert(writer.reassignPlaylistMemberships(200, 100) == 1);
+        assert(writer.commit());
+
+        auto rb = readBack(pdbPath);
+        assert(!containsEntry(rb.presentEntries, 1, 200));
+        assert(containsEntry(rb.presentEntries, 1, 100));  // still exactly one entry, not duplicated
+        assert(containsEntry(rb.presentEntries, 2, 101));  // untouched
+        assert(rb.presentEntries.size() == 2);
+        std::cout << "case 4c (reassignPlaylistMemberships: drops rather than duplicates) OK\n";
+    }
+
+    // reassignPlaylistMemberships: no entries for the old track id ->
+    // no-op, returns 0.
+    {
+        writeFile(pdbPath, pristine);
+        PdbRowWriter writer(pdbPath.string());
+        assert(writer.reassignPlaylistMemberships(999999, 100) == 0);
+        assert(!writer.commit());
+        assert(readFile(pdbPath) == pristine);
+        std::cout << "case 4d (reassignPlaylistMemberships: no matching entries -> no-op) OK\n";
+    }
+
     // Not-found cases return false and never mark anything dirty.
     {
         writeFile(pdbPath, pristine);
