@@ -107,6 +107,7 @@ std::vector<domain::Track> LibdjinteropEngineReader::readAll()
             track.fileSizeBytes = ec ? 0 : size;
         }
         track.bpm = safeGet<double>(*m_progress, id, "bpm", [&] { return tr.bpm().value_or(0.0); });
+        track.bitrate = safeGet<int>(*m_progress, id, "bitrate", [&] { return tr.bitrate().value_or(0); });
         track.key = safeGet<std::string>(*m_progress, id, "key", [&] {
             auto k = tr.key();
             if (!k) {

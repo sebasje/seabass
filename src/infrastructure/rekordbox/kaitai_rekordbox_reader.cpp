@@ -306,6 +306,7 @@ std::vector<domain::Track> KaitaiRekordboxReader::readAll()
                     }
                     track.durationSeconds = rowTrack->duration();
                     track.bpm = rowTrack->tempo() / 100.0;
+                    track.bitrate = static_cast<int>(rowTrack->bitrate());
                     auto keyIt = keyNameById.find(rowTrack->key_id());
                     if (keyIt != keyNameById.end()) {
                         track.key = keyIt->second;

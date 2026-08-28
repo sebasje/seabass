@@ -43,6 +43,7 @@ struct Track
     std::string filePath;     // best-effort resolved absolute path to the audio file on disk, empty if unresolved
     std::string artworkPath;  // best-effort resolved path to a cover art image file, empty if unavailable
     std::uint64_t fileSizeBytes = 0;  // best-effort size of the file at filePath on disk, 0 if unresolved/unreadable
+    int bitrate = 0;  // kbps, 0 if unknown -- used as the primary "which copy is higher quality" signal
     double durationSeconds = 0.0;
     double bpm = 0.0;
     std::string key;  // human-readable, e.g. "Fm" or "F#m" -- empty if unknown
