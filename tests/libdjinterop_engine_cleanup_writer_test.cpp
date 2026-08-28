@@ -19,6 +19,11 @@ int main()
     // A real, fresh Engine database (not a synthetic byte fixture --
     // libdjinterop's own creation API, same trust level as its
     // remove_track()/playlist APIs this class relies on).
+    //
+    // Playlist "Both" already has both copies -- removing the doomed
+    // one should just drop it, no duplicate. Playlist "OnlyDoomed" has
+    // only the doomed copy -- the survivor must take over its spot
+    // rather than the playlist silently losing the song.
     {
         auto db = djinterop::engine::create_database(root.string());
 
@@ -31,77 +36,95 @@ int main()
         snapshot.relative_path = "remove.mp3";
         auto doomedTrack = db.create_track(snapshot);
 
-        auto playlist = db.create_root_playlist("Test Playlist");
-        playlist.add_track_back(survivorTrack);
-        playlist.add_track_back(doomedTrack);
+        auto both = db.create_root_playlist("Both");
+        both.add_track_back(survivorTrack);
+        both.add_track_back(doomedTrack);
 
-        assert(playlist.tracks().size() == 2);
+        auto onlyDoomed = db.create_root_playlist("OnlyDoomed");
+        onlyDoomed.add_track_back(doomedTrack);
 
         LibdjinteropEngineCleanupWriter writer(root.string());
-        writer.removeTrack(std::to_string(doomedTrack.id()));
+        writer.removeTrackReplacingWith(std::to_string(doomedTrack.id()), std::to_string(survivorTrack.id()));
 
         // Re-open fresh rather than reusing any in-memory handle -- the
         // point is confirming what's actually on disk now.
         auto dbAfter = djinterop::engine::load_database(root.string());
         assert(!dbAfter.track_by_id(doomedTrack.id()).has_value());
-        auto survivorAfter = dbAfter.track_by_id(survivorTrack.id());
-        assert(survivorAfter.has_value());
+        assert(dbAfter.track_by_id(survivorTrack.id()).has_value());
 
-        // The real point: playlist membership was actually cleaned up
-        // (this project's own explicit playlist walk -- see the .cpp for
-        // why database::remove_track() alone isn't enough), not left
-        // dangling.
-        auto playlists = dbAfter.root_playlists();
-        assert(playlists.size() == 1);
-        auto remainingTracks = playlists[0].tracks();
-        assert(remainingTracks.size() == 1);
-        assert(remainingTracks[0].id() == survivorTrack.id());
-
-        std::cout << "case 1 (removeTrack cleans up root-playlist membership) OK\n";
+        for (const auto &pl : dbAfter.root_playlists()) {
+            auto tracks = pl.tracks();
+            if (pl.name() == "Both") {
+                assert(tracks.size() == 1);
+                assert(tracks[0].id() == survivorTrack.id());
+            } else if (pl.name() == "OnlyDoomed") {
+                assert(tracks.size() == 1);
+                assert(tracks[0].id() == survivorTrack.id());  // survivor took over, not left empty
+            }
+        }
+        std::cout << "case 1 (survivor takes over doomed's playlist membership, no duplicates) OK\n";
     }
 
-    // Nested (child) playlists must be cleaned up too, not just root
+    // Nested (child) playlists must be handled too, not just root
     // ones -- exercises the recursive walk.
     {
         auto db = djinterop::engine::load_database(root.string());
 
         djinterop::track_snapshot snapshot;
-        snapshot.title = "Nested Track";
-        snapshot.relative_path = "nested.mp3";
-        auto nestedTrack = db.create_track(snapshot);
+        snapshot.title = "Nested Survivor";
+        snapshot.relative_path = "nested_survivor.mp3";
+        auto survivorTrack = db.create_track(snapshot);
+        snapshot.title = "Nested Doomed";
+        snapshot.relative_path = "nested_doomed.mp3";
+        auto doomedTrack = db.create_track(snapshot);
 
         auto parentPlaylist = db.create_root_playlist("Parent");
         auto childPlaylist = parentPlaylist.create_sub_playlist("Child");
-        childPlaylist.add_track_back(nestedTrack);
-        assert(childPlaylist.tracks().size() == 1);
+        childPlaylist.add_track_back(doomedTrack);
 
         LibdjinteropEngineCleanupWriter writer(root.string());
-        writer.removeTrack(std::to_string(nestedTrack.id()));
+        writer.removeTrackReplacingWith(std::to_string(doomedTrack.id()), std::to_string(survivorTrack.id()));
 
         auto dbAfter = djinterop::engine::load_database(root.string());
-        assert(!dbAfter.track_by_id(nestedTrack.id()).has_value());
+        assert(!dbAfter.track_by_id(doomedTrack.id()).has_value());
         for (const auto &r : dbAfter.root_playlists()) {
             if (r.name() != "Parent") {
                 continue;
             }
             for (const auto &child : r.children()) {
-                assert(child.tracks().empty());
+                auto tracks = child.tracks();
+                assert(tracks.size() == 1);
+                assert(tracks[0].id() == survivorTrack.id());
             }
         }
-        std::cout << "case 2 (removeTrack cleans up nested/child-playlist membership too) OK\n";
+        std::cout << "case 2 (nested/child-playlist membership handled too) OK\n";
     }
 
-    // Not-found case throws.
+    // Not-found cases throw (doomed id, then survivor id).
     {
+        auto db = djinterop::engine::load_database(root.string());
+        djinterop::track_snapshot snapshot;
+        snapshot.title = "Real Track";
+        snapshot.relative_path = "real.mp3";
+        auto realTrack = db.create_track(snapshot);
+
         LibdjinteropEngineCleanupWriter writer(root.string());
         bool threw = false;
         try {
-            writer.removeTrack("999999999");
+            writer.removeTrackReplacingWith("999999999", std::to_string(realTrack.id()));
         } catch (const std::exception &) {
             threw = true;
         }
         assert(threw);
-        std::cout << "case 3 (removeTrack on a nonexistent id throws) OK\n";
+
+        threw = false;
+        try {
+            writer.removeTrackReplacingWith(std::to_string(realTrack.id()), "999999999");
+        } catch (const std::exception &) {
+            threw = true;
+        }
+        assert(threw);
+        std::cout << "case 3 (nonexistent doomed/survivor id throws) OK\n";
     }
 
     std::cout << "all cases passed\n";
