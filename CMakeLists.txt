@@ -127,6 +127,7 @@ add_library(djconvert_core STATIC
     src/infrastructure/backup/filesystem_backup_store.cpp
     src/infrastructure/backup/stick_write_lock.cpp
     src/infrastructure/cleanup/pending_deletion_manifest.cpp
+    src/infrastructure/cleanup/pending_deletion_resolver.cpp
     src/infrastructure/compression/zlib_compressor.cpp
     src/infrastructure/logging/file_operation_log.cpp
     src/infrastructure/local/local_cue_store.cpp
@@ -363,3 +364,10 @@ add_executable(pending_deletion_manifest_test
 )
 target_include_directories(pending_deletion_manifest_test PRIVATE src)
 add_test(NAME pending_deletion_manifest_test COMMAND pending_deletion_manifest_test)
+
+add_executable(pending_deletion_resolver_test
+    src/infrastructure/cleanup/pending_deletion_resolver.cpp
+    tests/pending_deletion_resolver_test.cpp
+)
+target_include_directories(pending_deletion_resolver_test PRIVATE src)
+add_test(NAME pending_deletion_resolver_test COMMAND pending_deletion_resolver_test)
