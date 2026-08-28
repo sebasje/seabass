@@ -21,7 +21,7 @@ constexpr size_t WithColorEntrySize = NoCommentEntrySize + 4;  // + color_code/r
 
 }  // namespace
 
-std::vector<RawHotCueEntry> AnlzCueCodec::decodeHotCues(const std::string &pco2SectionBytes)
+std::vector<RawHotCueEntry> AnlzCueCodec::decodeHotCues(const std::string &pco2SectionBytes, uint32_t listType)
 {
     std::vector<RawHotCueEntry> result;
     if (pco2SectionBytes.size() < 20) {
@@ -30,7 +30,7 @@ std::vector<RawHotCueEntry> AnlzCueCodec::decodeHotCues(const std::string &pco2S
 
     uint32_t type = readU32BE(pco2SectionBytes, 12);
     uint16_t numCues = readU16BE(pco2SectionBytes, 16);
-    if (type != 1) {  // cue_list_type::hot_cues
+    if (type != listType) {
         return result;
     }
 
@@ -59,7 +59,11 @@ std::vector<RawHotCueEntry> AnlzCueCodec::decodeHotCues(const std::string &pco2S
             entry.color = std::make_tuple(r, g, b);
         }
 
-        if (hotCue != 0) {
+        // Within a hot-cues list, an entry with hot_cue==0 is a non-hot
+        // marker (per the read-side kaitai classification) and excluded;
+        // within a memory-cues list every entry legitimately has
+        // hot_cue==0, so none are filtered out.
+        if (listType != CueListTypeHot || hotCue != 0) {
             result.push_back(entry);
         }
         offset += lenEntry;
@@ -68,10 +72,10 @@ std::vector<RawHotCueEntry> AnlzCueCodec::decodeHotCues(const std::string &pco2S
     return result;
 }
 
-std::string AnlzCueCodec::encodeHotCues(const std::vector<RawHotCueEntry> &cues)
+std::string AnlzCueCodec::encodeHotCues(const std::vector<RawHotCueEntry> &cues, uint32_t listType)
 {
     std::string body;
-    appendU32BE(body, 1);  // cue_list_type::hot_cues
+    appendU32BE(body, listType);
     appendU16BE(body, static_cast<uint16_t>(cues.size()));
     body += std::string(2, '\0');  // padding
 

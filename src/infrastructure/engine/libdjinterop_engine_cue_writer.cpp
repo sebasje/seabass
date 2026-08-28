@@ -56,9 +56,20 @@ void LibdjinteropEngineCueWriter::writeHotCues(const std::string &trackSourceId,
     }
 
     std::vector<std::optional<djinterop::hot_cue>> slots(HotCueSlotCount);
+    // Engine has exactly one memory-style cue point ("Cue"), a plain
+    // sample offset with no color/comment/multiplicity -- unlike
+    // rekordbox's unlimited, independently colored/commented memory
+    // cues. When more than one memory cue is being written, only the
+    // earliest (by position) can be represented at all; the rest are
+    // unavoidably lost in this direction, a real format limitation, not
+    // a bug -- see libdjinterop_engine_reader.cpp's read-side comment.
+    std::optional<double> earliestMemoryCueMs;
     for (const auto &cue : cues) {
-        if (cue.kind != domain::CuePoint::Kind::Hot) {
-            continue;  // memory cues aren't handled by this writer yet
+        if (cue.kind == domain::CuePoint::Kind::Memory) {
+            if (!earliestMemoryCueMs || cue.positionMs < *earliestMemoryCueMs) {
+                earliestMemoryCueMs = cue.positionMs;
+            }
+            continue;
         }
         int slot = cue.hotCueNumber - 1;
         if (slot < 0 || slot >= HotCueSlotCount) {
@@ -69,6 +80,9 @@ void LibdjinteropEngineCueWriter::writeHotCues(const std::string &trackSourceId,
     }
 
     track->set_hot_cues(slots);
+    if (earliestMemoryCueMs) {
+        track->set_main_cue(*earliestMemoryCueMs / 1000.0 * sampleRate);
+    }
 }
 
 }  // namespace djconvert::infrastructure::engine

@@ -15,12 +15,11 @@ namespace
 {
 
 constexpr uint32_t Pco2Fourcc = 0x50434f32;  // "PCO2"
-constexpr uint32_t HotCuesType = 1;          // cue_list_type::hot_cues
 
-bool isHotCuesSection(const AnlzRawSection &section)
+bool isCueListSection(const AnlzRawSection &section, uint32_t listType)
 {
     return section.fourcc == Pco2Fourcc && section.rawBytes.size() >= 16 &&
-           readU32BE(section.rawBytes, 12) == HotCuesType;
+           readU32BE(section.rawBytes, 12) == listType;
 }
 
 std::optional<std::tuple<uint8_t, uint8_t, uint8_t>> parseColor(const std::string &color)
@@ -32,6 +31,28 @@ std::optional<std::tuple<uint8_t, uint8_t, uint8_t>> parseColor(const std::strin
         return std::make_tuple(hexByte(1), hexByte(3), hexByte(5));
     }
     return std::nullopt;
+}
+
+// Overwrites the existing PCO2 section of `listType` with `entries`, or
+// appends a freshly encoded one if the file doesn't have one yet (a track
+// with no memory cues at all may genuinely have no memory-cues PCO2
+// section on disk -- see anlz_cue_codec.hpp's confidence notes for the
+// real empty-section example this shape is confirmed against). Does
+// nothing if there's no existing section AND nothing to write, so a
+// track that has and needs neither list is left byte-for-byte untouched.
+void writeCueList(AnlzFile &file, uint32_t listType, const std::vector<RawHotCueEntry> &entries)
+{
+    auto sectionIt = std::find_if(file.sections.begin(), file.sections.end(),
+                                   [listType](const AnlzRawSection &s) { return isCueListSection(s, listType); });
+    if (sectionIt == file.sections.end() && entries.empty()) {
+        return;
+    }
+    std::string encoded = AnlzCueCodec::encodeHotCues(entries, listType);
+    if (sectionIt != file.sections.end()) {
+        sectionIt->rawBytes = encoded;
+    } else {
+        file.sections.push_back({Pco2Fourcc, encoded});
+    }
 }
 
 }  // namespace
@@ -50,24 +71,24 @@ void RekordboxCueWriter::writeHotCues(const std::string &trackSourceId, const st
 
     auto file = AnlzFile::readRaw(extPath);
 
-    auto sectionIt = std::find_if(file.sections.begin(), file.sections.end(), isHotCuesSection);
-    if (sectionIt == file.sections.end()) {
-        throw std::runtime_error(extPath + " has no hot-cues (PCO2) section to write into");
-    }
-
-    std::vector<RawHotCueEntry> newCues;
+    std::vector<RawHotCueEntry> hotEntries;
+    std::vector<RawHotCueEntry> memoryEntries;
     for (const auto &cue : cues) {
-        if (cue.kind != domain::CuePoint::Kind::Hot) {
-            continue;  // memory cues aren't handled by this writer yet
-        }
         RawHotCueEntry entry;
-        entry.hotCueNumber = static_cast<uint32_t>(cue.hotCueNumber);
         entry.timeMs = static_cast<uint32_t>(cue.positionMs);
         entry.color = parseColor(cue.color);
-        newCues.push_back(entry);
+        if (cue.kind == domain::CuePoint::Kind::Hot) {
+            entry.hotCueNumber = static_cast<uint32_t>(cue.hotCueNumber);
+            hotEntries.push_back(entry);
+        } else {
+            entry.hotCueNumber = 0;  // memory cues carry no hot-cue slot
+            memoryEntries.push_back(entry);
+        }
     }
 
-    sectionIt->rawBytes = AnlzCueCodec::encodeHotCues(newCues);
+    writeCueList(file, CueListTypeHot, hotEntries);
+    writeCueList(file, CueListTypeMemory, memoryEntries);
+
     file.writeRaw(extPath);
 }
 

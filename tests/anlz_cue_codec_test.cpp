@@ -80,6 +80,44 @@ int main()
         std::cout << "case 3 (encode/decode round trip) OK\n";
     }
 
+    // Real PCO2 section from "Voices In My Head" (track id=245) -- same
+    // track as the hot-cue examples above -- but the memory-cues list
+    // (type=0), currently empty on this real file.
+    {
+        auto section = fromHex("50434f3200000014000000140000000000000000");
+        auto cues = AnlzCueCodec::decodeHotCues(section, CueListTypeMemory);
+        assert(cues.empty());
+        std::cout << "case 4 (decode real empty memory-cues section) OK\n";
+    }
+
+    // Round trip a memory-cues list (type=0): entries carry hotCueNumber=0
+    // (memory cues have no hot-cue slot), same as a real one would.
+    {
+        std::vector<RawHotCueEntry> cues(2);
+        cues[0].hotCueNumber = 0;
+        cues[0].timeMs = 7000;
+        cues[1].hotCueNumber = 0;
+        cues[1].timeMs = 30000;
+        cues[1].color = std::make_tuple<uint8_t, uint8_t, uint8_t>(1, 2, 3);
+
+        auto encoded = AnlzCueCodec::encodeHotCues(cues, CueListTypeMemory);
+        auto decoded = AnlzCueCodec::decodeHotCues(encoded, CueListTypeMemory);
+
+        assert(decoded.size() == 2);
+        assert(decoded[0].hotCueNumber == 0);
+        assert(decoded[0].timeMs == 7000);
+        assert(!decoded[0].color.has_value());
+        assert(decoded[1].hotCueNumber == 0);
+        assert(decoded[1].timeMs == 30000);
+        assert(decoded[1].color.has_value());
+
+        // Decoding this same section as a hot-cues list must find nothing
+        // (wrong `type`, and hot_cue==0 entries are excluded anyway).
+        auto asHot = AnlzCueCodec::decodeHotCues(encoded, CueListTypeHot);
+        assert(asHot.empty());
+        std::cout << "case 5 (memory-cues list round trip, hotCueNumber=0) OK\n";
+    }
+
     std::cout << "all cases passed\n";
     return 0;
 }
