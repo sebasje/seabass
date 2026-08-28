@@ -46,6 +46,8 @@ int main()
         auto records = store.list();
         assert(records.size() == 1);
         assert(records[0].id == record.id);
+        assert(records[0].filePaths.size() == 1);
+        assert(records[0].filePaths[0] == fs::absolute(targetFile).string());
 
         writeFile(targetFile, "corrupted by something later");
         assert(readFile(targetFile) == "corrupted by something later");

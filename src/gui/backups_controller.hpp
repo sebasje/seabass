@@ -28,6 +28,7 @@ public:
         DescriptionRole,
         SizeHumanRole,
         SizeBytesRole,
+        FileNamesRole,
     };
 
     explicit BackupListModel(QObject *parent = nullptr);

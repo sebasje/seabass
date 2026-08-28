@@ -171,18 +171,25 @@ else()
 endif()
 
 # --- OneLibrary/Device Library Plus (exportLibrary.db) cue writer -- ---
-# --- Windows-only: talks to libsqlcipher-0.dll via runtime LoadLibrary/ ---
-# --- GetProcAddress rather than linking it, specifically to avoid a ---
-# --- real symbol collision (see sqlcipher_dyn.hpp's own doc comment) ---
-# --- with the plain, unencrypted SQLite3 djconvert_core already links ---
-# --- above. See docs/onelibrary-format.md. ---
+# --- Cross-platform: talks to libsqlcipher at runtime (LoadLibrary/ ---
+# --- GetProcAddress on Windows, dlopen/dlsym elsewhere) rather than ---
+# --- linking it, specifically to avoid a real symbol collision (see ---
+# --- sqlcipher_dyn.hpp's own doc comment) with the plain, unencrypted ---
+# --- SQLite3 djconvert_core already links above. See ---
+# --- docs/onelibrary-format.md. Needs libsqlcipher's runtime library ---
+# --- present on the machine actually running djconvert (Windows: the ---
+# --- mingw-w64-ucrt-x86_64-sqlcipher package's DLL; Linux: the ---
+# --- libsqlcipher1 package or equivalent) -- OneLibraryCueWriter's own ---
+# --- callers already treat it as a best-effort secondary write target ---
+# --- and degrade gracefully if it's missing. ---
 
-if(WIN32)
-    target_sources(djconvert_core PRIVATE
-        src/infrastructure/onelibrary/onelibrary_key.cpp
-        src/infrastructure/onelibrary/sqlcipher_dyn.cpp
-        src/infrastructure/onelibrary/onelibrary_cue_writer.cpp
-    )
+target_sources(djconvert_core PRIVATE
+    src/infrastructure/onelibrary/onelibrary_key.cpp
+    src/infrastructure/onelibrary/sqlcipher_dyn.cpp
+    src/infrastructure/onelibrary/onelibrary_cue_writer.cpp
+)
+if(NOT WIN32)
+    target_link_libraries(djconvert_core PUBLIC ${CMAKE_DL_LIBS})
 endif()
 
 # --- djconvert: the terminal composition root ---
@@ -387,9 +394,10 @@ add_executable(pending_deletion_resolver_test
 target_include_directories(pending_deletion_resolver_test PRIVATE src)
 add_test(NAME pending_deletion_resolver_test COMMAND pending_deletion_resolver_test)
 
-# Windows-only: talks to libsqlcipher-0.dll via runtime LoadLibrary, same
-# as djconvert_core's own onelibrary sources above.
-if(WIN32)
+# Cross-platform now -- talks to libsqlcipher via runtime LoadLibrary/
+# dlopen, same as djconvert_core's own onelibrary sources above. Needs
+# libsqlcipher's runtime library actually present on whichever machine
+# runs this test (see the target_sources block above for package names).
 add_executable(onelibrary_cue_writer_test
     src/infrastructure/onelibrary/onelibrary_key.cpp
     src/infrastructure/onelibrary/sqlcipher_dyn.cpp
@@ -398,5 +406,7 @@ add_executable(onelibrary_cue_writer_test
 )
 target_include_directories(onelibrary_cue_writer_test PRIVATE src)
 target_link_libraries(onelibrary_cue_writer_test PRIVATE ZLIB::ZLIB)
-add_test(NAME onelibrary_cue_writer_test COMMAND onelibrary_cue_writer_test)
+if(NOT WIN32)
+    target_link_libraries(onelibrary_cue_writer_test PRIVATE ${CMAKE_DL_LIBS})
 endif()
+add_test(NAME onelibrary_cue_writer_test COMMAND onelibrary_cue_writer_test)

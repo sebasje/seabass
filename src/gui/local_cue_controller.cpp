@@ -22,9 +22,7 @@
 #include "infrastructure/engine/libdjinterop_engine_reader.hpp"
 #include "infrastructure/local/local_cue_store.hpp"
 #include "infrastructure/logging/file_operation_log.hpp"
-#if defined(_WIN32)
 #include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
-#endif
 #include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 #include "infrastructure/rekordbox/rekordbox_cue_writer.hpp"
@@ -225,15 +223,13 @@ LocalCueWriteResult runApplyRestoreTask(QString format, QString path, std::vecto
 
         std::unique_ptr<application::CueWriter> writer;
         std::set<std::string> backedUpFiles;
-#if defined(_WIN32)
         bool writeToOneLibrary = false;
-#endif
         if (format == "rekordbox") {
             writer = std::make_unique<infrastructure::rekordbox::RekordboxCueWriter>(path.toStdString());
             // rekordbox stores cues per-track (ANLZ files) -- back up each
             // track's own file as it's written, same as Sync's rekordbox
             // path.
-#if defined(_WIN32)
+            //
             // Best-effort secondary write target, alongside the primary
             // export.pdb write below -- see OneLibraryCueWriter's class
             // comment and docs/onelibrary-format.md. Back it up once
@@ -249,7 +245,6 @@ LocalCueWriteResult runApplyRestoreTask(QString format, QString path, std::vecto
                                                QString::fromStdString(record.id)});
                 }
             }
-#endif
         } else {
             writer = std::make_unique<infrastructure::engine::LibdjinteropEngineCueWriter>(path.toStdString());
             std::string engineDbFile = (fs::path(path.toStdString()) / "Database2" / "m.db").string();
@@ -262,7 +257,6 @@ LocalCueWriteResult runApplyRestoreTask(QString format, QString path, std::vecto
         reporter->start("Merging cues", candidates.size());
         size_t done = 0;
         int cuesWritten = 0;
-#if defined(_WIN32)
         QStringList oneLibraryWarnings;
         std::unique_ptr<infrastructure::onelibrary::OneLibraryCueWriter> oneLibWriter;
         if (writeToOneLibrary) {
@@ -273,7 +267,6 @@ LocalCueWriteResult runApplyRestoreTask(QString format, QString path, std::vecto
                 oneLibWriter.reset();
             }
         }
-#endif
         for (const auto &candidate : candidates) {
             if (format == "rekordbox") {
                 auto analyzePath = infrastructure::rekordbox::findAnlzPathForTrackId(
@@ -301,7 +294,6 @@ LocalCueWriteResult runApplyRestoreTask(QString format, QString path, std::vecto
                        " new cue(s) onto track id=" + candidate.stickTrack.sourceId + " (\"" +
                        candidate.stickTrack.title + "\") from local backup");
 
-#if defined(_WIN32)
             if (oneLibWriter && !candidate.stickTrack.filePath.empty()) {
                 try {
                     oneLibWriter->writeCuesForPath(candidate.stickTrack.filePath, candidate.mergedCues);
@@ -315,7 +307,6 @@ LocalCueWriteResult runApplyRestoreTask(QString format, QString path, std::vecto
                                "\": " + e.what());
                 }
             }
-#endif
 
             reporter->tick(++done);
         }
@@ -323,14 +314,12 @@ LocalCueWriteResult runApplyRestoreTask(QString format, QString path, std::vecto
 
         result.statusMessage =
             QString("Merged cues onto %1 track(s): %2 new cue(s) added").arg(candidates.size()).arg(cuesWritten);
-#if defined(_WIN32)
         if (!oneLibraryWarnings.isEmpty()) {
             result.statusMessage += QString(" (%1 OneLibrary cue write(s) failed -- the primary write above still "
                                              "succeeded and was not affected: %2)")
                                          .arg(oneLibraryWarnings.size())
                                          .arg(oneLibraryWarnings.join("; "));
         }
-#endif
     } catch (const std::exception &e) {
         result.errorMessage = QString::fromStdString(e.what());
     }

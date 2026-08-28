@@ -25,9 +25,7 @@
 #include "infrastructure/engine/libdjinterop_engine_cue_writer.hpp"
 #include "infrastructure/engine/libdjinterop_engine_reader.hpp"
 #include "infrastructure/logging/file_operation_log.hpp"
-#if defined(_WIN32)
 #include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
-#endif
 #include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 #include "infrastructure/rekordbox/rekordbox_cleanup_writer.hpp"
@@ -352,11 +350,9 @@ FormatContext makeContext(const QString &format, const QString &path)
         };
         ctx.extraFilesToBackUp = {pioneerRoot + "/rekordbox/export.pdb"};
         ctx.pioneerRoot = pioneerRoot;
-#if defined(_WIN32)
         if (infrastructure::onelibrary::OneLibraryCueWriter::existsFor(pioneerRoot)) {
             ctx.extraFilesToBackUp.push_back(infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(pioneerRoot));
         }
-#endif
     } else {
         std::string engineLibraryPath = path.toStdString();
         ctx.cueWriter = std::make_unique<infrastructure::engine::LibdjinteropEngineCueWriter>(engineLibraryPath);
@@ -426,7 +422,6 @@ CleanupWriteResult runApplyTask(QString format, QString path, std::vector<domain
                 cuesPreserved += static_cast<int>(plan.mergedCuesForSurvivor.size() - plan.survivor.cues.size());
                 ctx.log->record("cleanup: wrote merged cues onto survivor track id=" + plan.survivor.sourceId);
 
-#if defined(_WIN32)
                 // Best-effort secondary write, alongside the primary
                 // export.pdb write above -- never fatal to this
                 // operation, and never rolls back the export.pdb write
@@ -447,7 +442,6 @@ CleanupWriteResult runApplyTask(QString format, QString path, std::vector<domain
                         ctx.log->record("cleanup: " + warning.toStdString());
                     }
                 }
-#endif
             }
 
             for (const auto &doomed : plan.toRemove) {
