@@ -47,19 +47,25 @@ int main()
         std::cout << "case 4 (cueSetsEqual position tolerance boundary) OK\n";
     }
 
-    // cueSetsEqual: kind/hotCueNumber/color mismatches all count, regardless
-    // of position. comment is deliberately NOT compared -- RekordboxCueWriter
+    // cueSetsEqual: kind/hotCueNumber mismatches always count, regardless of
+    // position. comment is deliberately NOT compared -- RekordboxCueWriter
     // can't write it at all (anlz_cue_codec.cpp always encodes an empty
     // comment), so treating a comment difference as a real mismatch made
     // Engine cues with a label permanently reappear as "needs sync" with no
-    // writer able to ever resolve it.
+    // writer able to ever resolve it. color IS compared for hot cues (both
+    // formats support it), but NOT for memory cues -- Engine's single
+    // memory-style cue point has no color at all, so the same
+    // permanently-stuck problem would hit any colored rekordbox memory cue.
     {
         CuePoint base{CuePoint::Kind::Hot, 1, 1000.0, "#FF0000", "drop"};
         assert(!cueSetsEqual({base}, {CuePoint{CuePoint::Kind::Memory, 1, 1000.0, "#FF0000", "drop"}}));
         assert(!cueSetsEqual({base}, {CuePoint{CuePoint::Kind::Hot, 2, 1000.0, "#FF0000", "drop"}}));
         assert(!cueSetsEqual({base}, {CuePoint{CuePoint::Kind::Hot, 1, 1000.0, "#00FF00", "drop"}}));
         assert(cueSetsEqual({base}, {CuePoint{CuePoint::Kind::Hot, 1, 1000.0, "#FF0000", "break"}}));
-        std::cout << "case 5 (cueSetsEqual field mismatches -> false, comment ignored) OK\n";
+
+        CuePoint memoryBase{CuePoint::Kind::Memory, 0, 7000.0, "#FF0000", ""};
+        assert(cueSetsEqual({memoryBase}, {CuePoint{CuePoint::Kind::Memory, 0, 7000.0, "", ""}}));
+        std::cout << "case 5 (cueSetsEqual field mismatches -> false, comment/memory-color ignored) OK\n";
     }
 
     // titleArtistKey: case/whitespace-insensitive, symmetric in what it

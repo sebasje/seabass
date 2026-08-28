@@ -148,6 +148,22 @@ std::vector<domain::Track> LibdjinteropEngineReader::readAll()
             track.cues.push_back(std::move(cp));
         }
 
+        // Engine's format has exactly one memory-style cue point (called
+        // "Cue" in the app), stored as a plain sample offset with no
+        // color/comment -- unlike rekordbox's unlimited, independently
+        // colored/commented memory cues. Represented here as a single
+        // Kind::Memory CuePoint (hotCueNumber 0, matching how rekordbox's
+        // own reader marks memory cues) so it can be matched/synced like
+        // any other cue; see libdjinterop_engine_cue_writer.cpp for the
+        // corresponding (necessarily lossy beyond one cue) write side.
+        auto mainCue = safeGet<std::optional<double>>(*m_progress, id, "main_cue", [&] { return tr.main_cue(); });
+        if (mainCue) {
+            domain::CuePoint cp;
+            cp.kind = domain::CuePoint::Kind::Memory;
+            cp.positionMs = *mainCue / *sampleRate * 1000.0;
+            track.cues.push_back(std::move(cp));
+        }
+
         tracks.push_back(std::move(track));
         m_progress->tick(++processed);
     }

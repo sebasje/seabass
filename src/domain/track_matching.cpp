@@ -108,7 +108,18 @@ bool cueSetsEqual(const std::vector<CuePoint> &a, const std::vector<CuePoint> &b
         // comment difference as a real mismatch made every Engine cue with
         // a label permanently reappear as "needs sync" after a ToRekordbox
         // apply, since no writer could ever make the comment fields agree.
-        if (x.kind != y.kind || x.hotCueNumber != y.hotCueNumber || x.color != y.color) {
+        //
+        // color is excluded too, but only for memory cues: Engine's single
+        // memory-style cue point ("Cue"/main_cue) has no color at all, so
+        // an Engine-read memory CuePoint always has color == "" -- comparing
+        // it against a colored rekordbox memory cue would create the exact
+        // same unresolvable-forever mismatch the comment exclusion above
+        // fixed. Hot cues DO have color on both sides, so it's still
+        // compared there.
+        if (x.kind != y.kind || x.hotCueNumber != y.hotCueNumber) {
+            return false;
+        }
+        if (x.kind == CuePoint::Kind::Hot && x.color != y.color) {
             return false;
         }
         if (std::abs(x.positionMs - y.positionMs) > PositionToleranceMs) {
