@@ -191,6 +191,12 @@ endif()
 find_package(Qt6 QUIET COMPONENTS Core Gui Qml Quick QuickControls2 QuickLayouts Multimedia Concurrent Svg)
 if(Qt6_FOUND)
     qt_standard_project_setup(REQUIRES 6.5)
+    if(WIN32)
+        # Needed to compile src/gui/win/app_icon.rc (the .exe's icon
+        # resource) -- not enabled by the top-level project(djconvert CXX
+        # C) call above since only the Windows GUI build needs it.
+        enable_language(RC)
+    endif()
     # BUILD_SHARED_LIBS was forced OFF above for our own vendored static
     # libs; shadow it back to ON (non-cache, scoped to this subdirectory)
     # so Qt's QML tooling doesn't assume a static Qt build and go looking

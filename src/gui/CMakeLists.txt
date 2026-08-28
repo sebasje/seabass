@@ -1,6 +1,14 @@
 qt_add_executable(djconvert-gui
+    WIN32
     main.cpp
 )
+if(WIN32)
+    # App icon (.exe icon + taskbar/Alt-Tab), generated from the same
+    # seabass_soundbass.svg the QML UI itself uses. Regenerate with:
+    #   magick -background none qml/icons/seabass_soundbass.svg \
+    #       -define icon:auto-resize=256,128,64,48,32,16 win/app_icon.ico
+    target_sources(djconvert-gui PRIVATE win/app_icon.rc)
+endif()
 
 # `pragma Singleton` alone isn't enough for this Qt version's
 # qt_add_qml_module to register Theme.qml as an actual QML singleton --
