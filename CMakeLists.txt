@@ -103,6 +103,7 @@ add_library(djconvert_core STATIC
     src/infrastructure/rekordbox/anlz_cue_codec.cpp
     src/infrastructure/rekordbox/anlz_file.cpp
     src/infrastructure/rekordbox/pdb_lookup.cpp
+    src/infrastructure/rekordbox/pdb_row_writer.cpp
     src/infrastructure/rekordbox/rekordbox_cue_writer.cpp
     src/infrastructure/rekordbox/kaitai_rekordbox_reader.cpp
     src/infrastructure/rekordbox/rekordbox_waveform_reader.cpp
@@ -116,6 +117,7 @@ add_library(djconvert_core STATIC
     src/infrastructure/media/stick_root_scan.cpp
     src/infrastructure/backup/filesystem_backup_store.cpp
     src/infrastructure/backup/stick_write_lock.cpp
+    src/infrastructure/cleanup/pending_deletion_manifest.cpp
     src/infrastructure/compression/zlib_compressor.cpp
     src/infrastructure/logging/file_operation_log.cpp
     src/infrastructure/local/local_cue_store.cpp
@@ -299,5 +301,20 @@ add_executable(local_cue_store_test
 target_include_directories(local_cue_store_test PRIVATE src)
 target_link_libraries(local_cue_store_test PRIVATE SQLite::SQLite3 ZLIB::ZLIB)
 add_test(NAME local_cue_store_test COMMAND local_cue_store_test)
+
+add_executable(pdb_row_writer_test
+    src/infrastructure/rekordbox/pdb_row_writer.cpp
+    tests/pdb_row_writer_test.cpp
+)
+target_include_directories(pdb_row_writer_test PRIVATE src)
+target_link_libraries(pdb_row_writer_test PRIVATE rekordbox_format)
+add_test(NAME pdb_row_writer_test COMMAND pdb_row_writer_test)
+
+add_executable(pending_deletion_manifest_test
+    src/infrastructure/cleanup/pending_deletion_manifest.cpp
+    tests/pending_deletion_manifest_test.cpp
+)
+target_include_directories(pending_deletion_manifest_test PRIVATE src)
+add_test(NAME pending_deletion_manifest_test COMMAND pending_deletion_manifest_test)
 
 endif()  # NOT WIN32
