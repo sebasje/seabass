@@ -14,3 +14,8 @@
 # never meant to be committed, including under test fixtures.
 .djconvert-backups/
 .djconvert.log
+
+# Claude Code project memory, moved here from ~/.claude/projects/.../
+# memory/ so it's readable from other machines this repo is checked
+# out on -- local-only by default, not confirmed for git tracking.
+/.claude/

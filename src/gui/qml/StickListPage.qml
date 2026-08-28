@@ -16,6 +16,7 @@ Page {
     required property var appSettingsController
     signal browseRequested(string stickLabel, string rekordboxPath, string enginePath)
     signal duplicatesRequested(string stickLabel, string rekordboxPath, string enginePath)
+    signal cleanupRequested(string stickLabel, string rekordboxPath, string enginePath)
     signal settingsRequested(string stickLabel, string pioneerRoot)
     signal syncRequested(string stickLabel, string rekordboxPath, string enginePath)
     signal appSettingsRequested()
@@ -296,6 +297,13 @@ Page {
                             cardIcon: "▣"
                             enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
                             onClicked: root.duplicatesRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
+                        }
+                        ActionCard {
+                            cardTitle: "Clean Up Duplicates"
+                            cardSubtitle: "Remove redundant copies, keep the best one"
+                            cardIcon: "🧹"
+                            enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
+                            onClicked: root.cleanupRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
                         }
                         ActionCard {
                             cardTitle: "Sync Cues Between Formats"

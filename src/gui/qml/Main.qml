@@ -111,6 +111,11 @@ ApplicationWindow {
                 rekordboxPath: rekordboxPath,
                 enginePath: enginePath,
             })
+            onCleanupRequested: (stickLabel, rekordboxPath, enginePath) => stackView.push(cleanupPageComponent, {
+                stickLabel: stickLabel,
+                rekordboxPath: rekordboxPath,
+                enginePath: enginePath,
+            })
             onSettingsRequested: (stickLabel, pioneerRoot) => stackView.push(settingsPageComponent, {
                 stickLabel: stickLabel,
                 pioneerRoot: pioneerRoot,
@@ -147,6 +152,13 @@ ApplicationWindow {
         id: duplicatesPageComponent
         DuplicatesPage {
             playbackController: playbackCtrl
+            appSettingsController: appSettingsCtrl
+        }
+    }
+
+    Component {
+        id: cleanupPageComponent
+        CleanupPage {
             appSettingsController: appSettingsCtrl
         }
     }

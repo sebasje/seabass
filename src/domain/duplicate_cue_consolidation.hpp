@@ -40,10 +40,12 @@ struct ConsolidationPlan
 };
 
 // Groups tracks that look like duplicates of each other (matched by
-// normalized filename + duration tolerance) within a single library scan.
-// This is intentionally intra-library only -- matching tracks *across*
-// rekordbox and Engine is a separate concern (see the plan's cross-format
-// Matching service).
+// normalized filename + duration tolerance, or title+artist + duration
+// tolerance). Format-agnostic -- has no notion of which catalog a Track
+// came from, so callers can pass a single library's tracks (intra-library
+// duplicates) or a concatenation of both rekordbox's and Engine's tracks
+// (cross-library duplicates, used by the Clean Up feature) with no
+// difference in behavior.
 class DuplicateTrackFinder
 {
 public:

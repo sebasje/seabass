@@ -26,6 +26,7 @@ qt_add_qml_module(djconvert-gui
         qml/StickListPage.qml
         qml/ScanPage.qml
         qml/DuplicatesPage.qml
+        qml/CleanupPage.qml
         qml/SyncPage.qml
         qml/BackupsPage.qml
         qml/LocalCuePage.qml
@@ -39,6 +40,7 @@ qt_add_qml_module(djconvert-gui
         qml/StickWriteWarning.qml
         qml/RekordboxRunningWarning.qml
         qml/CueFallbackNotice.qml
+        qml/BigScrollBar.qml
     RESOURCES
         qml/icons/seabass_soundbass.svg
     SOURCES
@@ -48,6 +50,8 @@ qt_add_qml_module(djconvert-gui
         scan_controller.cpp
         duplicates_controller.hpp
         duplicates_controller.cpp
+        cleanup_controller.hpp
+        cleanup_controller.cpp
         sync_controller.hpp
         sync_controller.cpp
         backups_controller.hpp
