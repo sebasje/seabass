@@ -8,13 +8,7 @@
 #include <stdexcept>
 #include <system_error>
 
-#if defined(_WIN32)
-#include <windows.h>
-#else
-#include <fcntl.h>
-#include <unistd.h>
-#endif
-
+#include "infrastructure/durable_file_write.hpp"
 #include "infrastructure/rekordbox/generated/rekordbox_pdb.h"
 #include "infrastructure/rekordbox/little_endian.hpp"
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
@@ -117,84 +111,6 @@ bool reparsesCleanly(const std::string &buffer)
         return false;
     }
 }
-
-#if defined(_WIN32)
-
-bool writeFileDurably(const std::string &path, const std::string &data)
-{
-    HANDLE h = CreateFileA(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (h == INVALID_HANDLE_VALUE) {
-        return false;
-    }
-    DWORD written = 0;
-    BOOL ok = WriteFile(h, data.data(), static_cast<DWORD>(data.size()), &written, nullptr);
-    if (ok && written == data.size()) {
-        // Forces the write to the physical medium before we consider the
-        // temp file durable -- the whole point of doing this at all is
-        // that this app's target medium is a USB stick that can be
-        // pulled at any moment.
-        ok = FlushFileBuffers(h) != 0;
-    } else {
-        ok = FALSE;
-    }
-    CloseHandle(h);
-    return ok != 0;
-}
-
-void fsyncDirectoryContaining(const std::string &)
-{
-    // No direct equivalent needed on Windows: FlushFileBuffers on the
-    // file itself (above) already forces the data durable, and
-    // MoveFileEx-based renames (what std::filesystem::rename uses here)
-    // don't have the same "directory entry update" durability gap POSIX
-    // rename does.
-}
-
-#else
-
-bool writeFileDurably(const std::string &path, const std::string &data)
-{
-    int fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
-    if (fd < 0) {
-        return false;
-    }
-    const char *p = data.data();
-    size_t remaining = data.size();
-    bool ok = true;
-    while (remaining > 0) {
-        ssize_t n = ::write(fd, p, remaining);
-        if (n <= 0) {
-            ok = false;
-            break;
-        }
-        p += n;
-        remaining -= static_cast<size_t>(n);
-    }
-    if (ok) {
-        ok = ::fsync(fd) == 0;
-    }
-    ::close(fd);
-    return ok;
-}
-
-// Standard "durable rename" pattern: fsync-ing the file's own data
-// isn't enough by itself -- the directory entry the rename just updated
-// also needs to be flushed, or a crash right after a successful rename
-// can still lose that update on some filesystems/media.
-void fsyncDirectoryContaining(const std::string &filePath)
-{
-    fs::path dir = fs::path(filePath).parent_path();
-    if (dir.empty()) {
-        dir = ".";
-    }
-    int dirFd = ::open(dir.c_str(), O_RDONLY);
-    if (dirFd >= 0) {
-        ::fsync(dirFd);
-        ::close(dirFd);
-    }
-}
-
-#endif
 
 // What findRow() needs to hand back to a caller so it can overwrite
 // either the row's presence bit or a fixed-size field inside its body --
@@ -338,20 +254,9 @@ bool PdbRowWriter::commit()
         return false;
     }
 
-    std::string tempPath = m_pdbPath + ".tmp-djconvert-cleanup";
-    if (!writeFileDurably(tempPath, m_buffer)) {
-        std::error_code removeEc;
-        fs::remove(tempPath, removeEc);
+    if (!writeFileDurablyAtomic(m_pdbPath, m_buffer)) {
         return false;
     }
-
-    std::error_code ec;
-    fs::rename(tempPath, m_pdbPath, ec);
-    if (ec) {
-        fs::remove(tempPath, ec);
-        return false;
-    }
-    fsyncDirectoryContaining(m_pdbPath);
 
     m_editedPageIndices.clear();
     return true;

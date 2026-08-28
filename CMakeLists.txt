@@ -100,6 +100,7 @@ add_library(djconvert_core STATIC
     src/domain/track_matching.cpp
     src/domain/track_queries.cpp
     src/application/ports/progress_reporter.cpp
+    src/infrastructure/durable_file_write.cpp
     src/infrastructure/rekordbox/anlz_cue_codec.cpp
     src/infrastructure/rekordbox/anlz_file.cpp
     src/infrastructure/rekordbox/pdb_lookup.cpp
@@ -244,12 +245,21 @@ target_include_directories(track_queries_test PRIVATE src)
 add_test(NAME track_queries_test COMMAND track_queries_test)
 
 add_executable(anlz_cue_codec_test
+    src/infrastructure/durable_file_write.cpp
     src/infrastructure/rekordbox/anlz_cue_codec.cpp
     src/infrastructure/rekordbox/anlz_file.cpp
     tests/anlz_cue_codec_test.cpp
 )
 target_include_directories(anlz_cue_codec_test PRIVATE src)
 add_test(NAME anlz_cue_codec_test COMMAND anlz_cue_codec_test)
+
+add_executable(anlz_file_test
+    src/infrastructure/durable_file_write.cpp
+    src/infrastructure/rekordbox/anlz_file.cpp
+    tests/anlz_file_test.cpp
+)
+target_include_directories(anlz_file_test PRIVATE src)
+add_test(NAME anlz_file_test COMMAND anlz_file_test)
 
 add_executable(local_restore_test
     src/domain/local_restore.cpp
@@ -259,6 +269,7 @@ target_include_directories(local_restore_test PRIVATE src)
 add_test(NAME local_restore_test COMMAND local_restore_test)
 
 add_executable(filesystem_backup_store_test
+    src/infrastructure/durable_file_write.cpp
     src/infrastructure/backup/filesystem_backup_store.cpp
     tests/filesystem_backup_store_test.cpp
 )
@@ -303,6 +314,7 @@ target_link_libraries(local_cue_store_test PRIVATE SQLite::SQLite3 ZLIB::ZLIB)
 add_test(NAME local_cue_store_test COMMAND local_cue_store_test)
 
 add_executable(pdb_row_writer_test
+    src/infrastructure/durable_file_write.cpp
     src/infrastructure/rekordbox/pdb_row_writer.cpp
     tests/pdb_row_writer_test.cpp
 )

@@ -1,5 +1,7 @@
 #include "infrastructure/backup/filesystem_backup_store.hpp"
 
+#include "infrastructure/durable_file_write.hpp"
+
 #include <algorithm>
 #include <cctype>
 #include <chrono>
@@ -145,7 +147,12 @@ BackupRecord FilesystemBackupStore::backup(const std::vector<std::string> &fileP
         for (int suffix = 1; fs::exists(dir / destName); ++suffix) {
             destName = source.filename().stem().string() + "_" + std::to_string(suffix) + source.extension().string();
         }
-        fs::copy_file(source, dir / destName, fs::copy_options::overwrite_existing);
+        // Durable + atomic, not a plain copy_file: a crash mid-copy must
+        // never leave a truncated file here that restore() would later
+        // trust and silently write over the live original with garbage.
+        if (!writeFileDurablyAtomic((dir / destName).string(), readWholeFile(source))) {
+            throw std::runtime_error("failed to durably write backup copy of " + source.string());
+        }
         manifest << destName.string() << '\t' << fs::absolute(source).string() << '\n';
     }
 
@@ -250,8 +257,13 @@ bool FilesystemBackupStore::restore(const std::string &id)
             continue;
         }
         fs::create_directories(fs::path(originalPath).parent_path(), ec);
-        fs::copy_file(source, originalPath, fs::copy_options::overwrite_existing, ec);
-        anyRestored = anyRestored || !ec;
+        // Durable + atomic, not a plain copy_file: this overwrites a
+        // *live* file, and it's specifically the moment djconvert is
+        // trusted to put things right -- a crash mid-copy must never
+        // leave that file half-written (worse than either the backup or
+        // what was there before).
+        bool ok = writeFileDurablyAtomic(originalPath, readWholeFile(source));
+        anyRestored = anyRestored || ok;
     }
     return anyRestored;
 }
