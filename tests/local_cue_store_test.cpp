@@ -160,6 +160,23 @@ int main()
         std::cout << "case 8 (unrecognized format version refuses to read rather than misparse) OK\n";
     }
 
+    // Regression test for a real crash: defaultPath() used to read the
+    // HOME env var unconditionally, which doesn't exist on Windows --
+    // std::getenv("HOME") returned nullptr, and fs::path(nullptr) is UB,
+    // crashing every call to the zero-arg LocalCueStore() constructor
+    // (e.g. the GUI's "backup to computer" feature) on that platform.
+    // Exercising the real, unmocked env here is deliberate: the bug was
+    // platform-conditional code never actually running on the platform
+    // that needed it, and a fake/injected env wouldn't have caught that.
+    {
+        std::string path = LocalCueStore::defaultPath();
+        assert(!path.empty());
+        fs::path p(path);
+        assert(p.filename() == "cues.db");
+        assert(p.parent_path().filename() == "djconvert");
+        std::cout << "case 9 (defaultPath() resolves to a real, non-empty path) OK\n";
+    }
+
     fs::remove(dbPath);
     std::cout << "all cases passed\n";
     return 0;
