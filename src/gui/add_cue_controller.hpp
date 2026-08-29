@@ -34,6 +34,13 @@ struct AddCueResult
 // opaque bytes; Engine's is available via libdjinterop but unused here
 // too). A later pass can add snapping without touching this controller's
 // write path at all, only how the position it's given gets computed.
+//
+// Handles all three catalogs as primary write targets, including
+// OneLibrary -- but OneLibrary goes through OneLibraryCueWriter directly
+// rather than the application::CueWriter dispatch rekordbox/Engine share,
+// since that writer deliberately isn't a CueWriter (it keys by file path,
+// not sourceId -- content_id is a separate id space from export.pdb's
+// track id). See the .cpp for the branch.
 class AddCueController : public QObject
 {
     Q_OBJECT

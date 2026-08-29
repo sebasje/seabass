@@ -125,8 +125,8 @@ Page {
                     Layout.fillWidth: true
                 }
                 Label {
-                    text: "OneLibrary is browse-only in Seabass for now -- merging duplicates and adding "
-                        + "cues only work against DeviceLibrary and Engine OS."
+                    text: "OneLibrary supports adding cues directly, same as DeviceLibrary and Engine OS. "
+                        + "Merging duplicates isn't supported on this catalog yet."
                     wrapMode: Text.WordWrap
                     font.pointSize: Theme.baseFontPointSize
                     font.italic: true

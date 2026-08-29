@@ -524,17 +524,13 @@ Page {
                         trackDurationMs: trackInfoPopup.trackDurationMs
                         progress: -1
                         onPositionClicked: (ms) => {
-                            if (root.format !== "onelibrary") {
-                                trackInfoPopup.pendingPositionMs = ms;
-                            }
+                            trackInfoPopup.pendingPositionMs = ms;
                         }
                     }
 
                     Label {
                         visible: trackInfoPopup.pendingPositionMs < 0
-                        text: root.format === "onelibrary"
-                            ? "Adding cues isn't supported on OneLibrary yet -- switch to DeviceLibrary or Engine OS."
-                            : "Click the waveform above to add a cue there."
+                        text: "Click the waveform above to add a cue there."
                         color: Theme.textMuted
                         font.pointSize: Theme.fontSmall
                         font.italic: true
@@ -544,7 +540,7 @@ Page {
                     // AddCueController's own class comment for why.
                     ColumnLayout {
                         id: addCueForm
-                        visible: trackInfoPopup.pendingPositionMs >= 0 && root.format !== "onelibrary"
+                        visible: trackInfoPopup.pendingPositionMs >= 0
                         Layout.fillWidth: true
                         spacing: 6
 

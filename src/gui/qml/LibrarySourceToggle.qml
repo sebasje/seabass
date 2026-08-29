@@ -89,8 +89,8 @@ RowLayout {
         ToolTip.visible: hovered
         ToolTip.text: root.hasOneLibrary
             ? "Rekordbox 7's newer unified library format (exportLibrary.db) -- mirrors the Device "
-                + "Library's tracks in a richer schema. Read-only here for now: merging/adding cues "
-                + "isn't supported on this catalog yet."
+                + "Library's tracks in a richer schema. You can add cues here directly; merging "
+                + "duplicates isn't supported on this catalog yet."
             : "Not present on this export -- OneLibrary only exists on newer rekordbox exports."
         onClicked: root.sourceRequested("onelibrary")
     }
