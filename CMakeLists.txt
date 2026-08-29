@@ -111,6 +111,8 @@ add_library(djconvert_core STATIC
     src/domain/track_matching.cpp
     src/domain/track_queries.cpp
     src/application/ports/progress_reporter.cpp
+    src/infrastructure/benchmark/stick_benchmark_history.cpp
+    src/infrastructure/benchmark/stick_speed_benchmark.cpp
     src/infrastructure/durable_file_write.cpp
     src/infrastructure/rekordbox/anlz_cue_codec.cpp
     src/infrastructure/rekordbox/anlz_file.cpp
@@ -137,6 +139,7 @@ add_library(djconvert_core STATIC
     src/infrastructure/logging/file_operation_log.cpp
     src/infrastructure/local/local_cue_store.cpp
     src/infrastructure/system/rekordbox_process_detector.cpp
+    src/infrastructure/system/stick_hardware_info.cpp
 )
 target_include_directories(djconvert_core PUBLIC src)
 target_link_libraries(djconvert_core PUBLIC rekordbox_format DjInterop ZLIB::ZLIB)
@@ -397,6 +400,21 @@ target_include_directories(rekordbox_settings_test PRIVATE src)
 add_test(NAME rekordbox_settings_test COMMAND rekordbox_settings_test)
 
 # --- infrastructure-layer test needing a real (temp-file) SQLite db ---
+
+add_executable(stick_speed_benchmark_test
+    src/infrastructure/benchmark/stick_speed_benchmark.cpp
+    tests/stick_speed_benchmark_test.cpp
+)
+target_include_directories(stick_speed_benchmark_test PRIVATE src)
+add_test(NAME stick_speed_benchmark_test COMMAND stick_speed_benchmark_test)
+
+add_executable(stick_benchmark_history_test
+    src/infrastructure/benchmark/stick_benchmark_history.cpp
+    tests/stick_benchmark_history_test.cpp
+)
+target_include_directories(stick_benchmark_history_test PRIVATE src)
+target_link_libraries(stick_benchmark_history_test PRIVATE SQLite::SQLite3)
+add_test(NAME stick_benchmark_history_test COMMAND stick_benchmark_history_test)
 
 add_executable(local_cue_store_test
     src/domain/track_matching.cpp
