@@ -210,6 +210,11 @@ ApplicationWindow {
                 rekordboxPath: rekordboxPath,
                 enginePath: enginePath,
             })
+            onStickStatisticsRequested: (stickLabel, rekordboxPath, enginePath) => stackView.push(stickStatisticsPageComponent, {
+                stickLabel: stickLabel,
+                rekordboxPath: rekordboxPath,
+                enginePath: enginePath,
+            })
             onSettingsRequested: (stickLabel, pioneerRoot) => stackView.push(settingsPageComponent, {
                 stickLabel: stickLabel,
                 pioneerRoot: pioneerRoot,
@@ -285,6 +290,11 @@ ApplicationWindow {
         LibraryConsistencyPage {
             playbackController: playbackCtrl
         }
+    }
+
+    Component {
+        id: stickStatisticsPageComponent
+        StickStatisticsPage {}
     }
 
     Component {

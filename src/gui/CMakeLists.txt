@@ -40,6 +40,8 @@ qt_add_qml_module(djconvert-gui
         qml/CleanupPage.qml
         qml/PendingDeletionsPage.qml
         qml/LibraryConsistencyPage.qml
+        qml/StickStatisticsPage.qml
+        qml/TreemapView.qml
         qml/SyncPage.qml
         qml/BackupsPage.qml
         qml/LocalCuePage.qml
@@ -72,6 +74,8 @@ qt_add_qml_module(djconvert-gui
         add_cue_controller.cpp
         library_consistency_controller.hpp
         library_consistency_controller.cpp
+        stick_statistics_controller.hpp
+        stick_statistics_controller.cpp
         sync_controller.hpp
         sync_controller.cpp
         backups_controller.hpp

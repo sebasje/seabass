@@ -21,6 +21,17 @@ exercised live against real hardware, not just a read-only scan.
   to stable once a real repair/removal has been run successfully a few
   times without incident.
 
+- **Stick Statistics** (added 2026-08-29) — filesystem/hardware info,
+  per-catalog library stats, a Filelight-style disk usage breakdown, and a
+  local read-speed benchmark with history. Read-only (never writes to the
+  stick), but built entirely in one autonomous session without Sebas able
+  to click through the actual running UI to confirm it renders/behaves
+  correctly live — verified via unit tests, real-hardware diagnostics for
+  every domain/infrastructure piece, and a clean build through Qt's own
+  QML compiler, but the QML page itself is unclicked. Needs a real
+  look-through before promoting, independent of the write-path bar every
+  other entry here is judged against.
+
 ## Graduated to stable
 
 (none yet)
