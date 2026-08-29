@@ -16,6 +16,7 @@
 #include "infrastructure/engine/libdjinterop_engine_reader.hpp"
 #include "infrastructure/logging/file_operation_log.hpp"
 #include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
+#include "infrastructure/onelibrary/onelibrary_reader.hpp"
 #include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 #include "infrastructure/rekordbox/rekordbox_cue_writer.hpp"
@@ -53,10 +54,17 @@ AddCueResult runAddCueTask(QString format, QString path, QString sourceId, doubl
             infrastructure::rekordbox::KaitaiRekordboxReader reader(path.toStdString());
             reader.setProgressReporter(*reporter);
             tracks = application::ScanLibrary(reader).execute();
-        } else {
+        } else if (format == "engine") {
             infrastructure::engine::LibdjinteropEngineReader reader(path.toStdString());
             reader.setProgressReporter(*reporter);
             tracks = application::ScanLibrary(reader).execute();
+        } else if (format == "onelibrary") {
+            infrastructure::onelibrary::OneLibraryReader reader(path.toStdString());
+            reader.setProgressReporter(*reporter);
+            tracks = application::ScanLibrary(reader).execute();
+        } else {
+            result.errorMessage = "Unknown library format: " + format;
+            return result;
         }
 
         std::string id = sourceId.toStdString();
@@ -94,44 +102,68 @@ AddCueResult runAddCueTask(QString format, QString path, QString sourceId, doubl
         }
         cues.push_back(newCue);
 
-        std::unique_ptr<application::CueWriter> writer;
-        std::string backupFile;
         std::string pioneerRoot = path.toStdString();
-        if (format == "rekordbox") {
-            writer = std::make_unique<infrastructure::rekordbox::RekordboxCueWriter>(pioneerRoot);
-            auto analyzePath =
-                infrastructure::rekordbox::findAnlzPathForTrackId(pioneerRoot, static_cast<uint32_t>(std::stoul(id)));
-            if (analyzePath) {
-                backupFile = infrastructure::rekordbox::extAnlzPath(pioneerRoot, *analyzePath);
-            }
-        } else {
-            writer = std::make_unique<infrastructure::engine::LibdjinteropEngineCueWriter>(pioneerRoot);
-            backupFile = (fs::path(pioneerRoot) / "Database2" / "m.db").string();
-        }
-
+        std::string backupFile;
         std::string dbBackupId;
-        if (!backupFile.empty()) {
-            auto record = backupStore.backup({backupFile}, "add-cue");
-            log.record("add-cue: backed up before adding cue -> " + record.path);
-            dbBackupId = record.id;
-        }
 
-        writer->writeHotCues(id, cues);
-        log.record("add-cue: added " + kind.toStdString() + " cue at " + std::to_string(static_cast<int>(positionMs)) +
-                   "ms to track id=" + id + " (\"" + track->title + "\")" +
-                   (dbBackupId.empty() ? "" : ", backup " + dbBackupId));
+        if (format == "onelibrary") {
+            // OneLibraryCueWriter is deliberately not an
+            // application::CueWriter (it keys by file path, not sourceId
+            // -- see its class comment), so this is a separate primary
+            // write path rather than another branch of the writer
+            // dispatch below.
+            if (track->filePath.empty()) {
+                result.errorMessage = "This track has no known file path in OneLibrary -- can't write a cue.";
+                return result;
+            }
+            backupFile = infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(pioneerRoot);
+            if (!backupFile.empty()) {
+                auto record = backupStore.backup({backupFile}, "add-cue");
+                log.record("add-cue: backed up before adding cue -> " + record.path);
+                dbBackupId = record.id;
+            }
+            infrastructure::onelibrary::OneLibraryCueWriter writer(pioneerRoot);
+            writer.writeCuesForPath(track->filePath, cues);
+            log.record("add-cue: added " + kind.toStdString() + " cue at " +
+                       std::to_string(static_cast<int>(positionMs)) + "ms to OneLibrary track id=" + id + " (\"" +
+                       track->title + "\")" + (dbBackupId.empty() ? "" : ", backup " + dbBackupId));
+        } else {
+            std::unique_ptr<application::CueWriter> writer;
+            if (format == "rekordbox") {
+                writer = std::make_unique<infrastructure::rekordbox::RekordboxCueWriter>(pioneerRoot);
+                auto analyzePath = infrastructure::rekordbox::findAnlzPathForTrackId(
+                    pioneerRoot, static_cast<uint32_t>(std::stoul(id)));
+                if (analyzePath) {
+                    backupFile = infrastructure::rekordbox::extAnlzPath(pioneerRoot, *analyzePath);
+                }
+            } else {
+                writer = std::make_unique<infrastructure::engine::LibdjinteropEngineCueWriter>(pioneerRoot);
+                backupFile = (fs::path(pioneerRoot) / "Database2" / "m.db").string();
+            }
 
-        // Best-effort OneLibrary mirror -- same secondary write every
-        // other rekordbox cue path here already does, never fatal to the
-        // primary write above.
-        if (format == "rekordbox" && !track->filePath.empty() &&
-            infrastructure::onelibrary::OneLibraryCueWriter::existsFor(pioneerRoot)) {
-            try {
-                infrastructure::onelibrary::OneLibraryCueWriter oneLibWriter(pioneerRoot);
-                oneLibWriter.writeCuesForPath(track->filePath, cues);
-                log.record("add-cue: also wrote into OneLibrary");
-            } catch (const std::exception &e) {
-                log.record(std::string("add-cue: OneLibrary write failed: ") + e.what());
+            if (!backupFile.empty()) {
+                auto record = backupStore.backup({backupFile}, "add-cue");
+                log.record("add-cue: backed up before adding cue -> " + record.path);
+                dbBackupId = record.id;
+            }
+
+            writer->writeHotCues(id, cues);
+            log.record("add-cue: added " + kind.toStdString() + " cue at " +
+                       std::to_string(static_cast<int>(positionMs)) + "ms to track id=" + id + " (\"" +
+                       track->title + "\")" + (dbBackupId.empty() ? "" : ", backup " + dbBackupId));
+
+            // Best-effort OneLibrary mirror -- same secondary write every
+            // other rekordbox cue path here already does, never fatal to
+            // the primary write above.
+            if (format == "rekordbox" && !track->filePath.empty() &&
+                infrastructure::onelibrary::OneLibraryCueWriter::existsFor(pioneerRoot)) {
+                try {
+                    infrastructure::onelibrary::OneLibraryCueWriter oneLibWriter(pioneerRoot);
+                    oneLibWriter.writeCuesForPath(track->filePath, cues);
+                    log.record("add-cue: also wrote into OneLibrary");
+                } catch (const std::exception &e) {
+                    log.record(std::string("add-cue: OneLibrary write failed: ") + e.what());
+                }
             }
         }
 
