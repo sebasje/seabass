@@ -9,7 +9,7 @@ best-effort mirror: see its class comment
 never rolls back a primary export.pdb/m.db write that already succeeded.
 Reading (`OneLibraryReader`,
 `src/infrastructure/onelibrary/onelibrary_reader.hpp`) is a normal,
-independent `LibraryReader` implementation -- Seabass's Browse Library
+independent `LibraryReader` implementation. Seabass's Browse Library
 page uses it directly for read-only OneLibrary browsing, not routed
 through the writer at all.
 
@@ -22,11 +22,11 @@ against [pyrekordbox](https://github.com/dylanljones/pyrekordbox)'s source
 
 - **Location**: `<PIONEER root>/rekordbox/exportLibrary.db`.
 - **Encryption**: SQLCipher, using SQLCipher 4's own compiled-in defaults
-  (kdf_iter, page size, HMAC/KDF algorithm) -- no `PRAGMA` overrides
+  (kdf_iter, page size, HMAC/KDF algorithm), no `PRAGMA` overrides
   needed. Confirmed by decrypting a real file with exactly `PRAGMA key =
   '<derived key>';` and nothing else, via the `sqlcipher` CLI
   (`mingw-w64-ucrt-x86_64-sqlcipher`).
-- **The key is universal**, not per-license or per-machine -- the same
+- **The key is universal**, not per-license or per-machine. The same
   key opens every OneLibrary export. Rekordbox obfuscates it in its own
   binary (base85 encode, XOR against the ASCII bytes of the string
   `"657f48f84c437cc1"` cycling per byte, zlib-compress) purely to avoid
@@ -36,10 +36,10 @@ against [pyrekordbox](https://github.com/dylanljones/pyrekordbox)'s source
   `devicelib_plus/database.py` (the `BLOB` constant) source.
 - **Schema**: `content` (tracks, keyed by `content_id`), `cue`
   (`content_id` FK, `kind`, `inUsec`/`outUsec` microsecond positions,
-  plus several legacy frame-addressing columns -- see "What's NOT
+  plus several legacy frame-addressing columns, see "What's NOT
   handled" below), `hotCueBankList` / `hotCueBankList_cue` (a newer
-  hot-cue-grouping feature, not required for a cue to work as a hot cue
-  -- see below), `playlist` / `playlist_content`. Table and column names
+  hot-cue-grouping feature, not required for a cue to work as a hot cue,
+  see below), `playlist` / `playlist_content`. Table and column names
   confirmed directly via `.schema` against the real file, not just from
   pyrekordbox's docs.
 - **`content_id` is a separate id space from export.pdb's track id.**
@@ -48,12 +48,12 @@ against [pyrekordbox](https://github.com/dylanljones/pyrekordbox)'s source
   OneLibrary `content_id` 566). `OneLibraryCueWriter` therefore matches
   tracks by file path (`content.path`, stick-root-relative,
   forward-slashed, e.g. `/Contents/Artist/Track.mp3`) rather than
-  reusing a `sourceId` from the rekordbox side -- the one identifier the
+  reusing a `sourceId` from the rekordbox side, the one identifier the
   two databases actually share.
 
 ## What's now confirmed via real read-side data
 
-- **`cue.kind`'s exact meaning -- confirmed.** The stick used during
+- **`cue.kind`'s exact meaning - confirmed.** The stick used during
   later development turned out to have real, pre-existing (genuinely
   rekordbox-written, not djconvert-written) cue data once
   `OneLibraryReader` was built to read the `cue` table back out
@@ -61,18 +61,18 @@ against [pyrekordbox](https://github.com/dylanljones/pyrekordbox)'s source
   a memory cue, `kind = 1..8` for a hot cue in that slot. Cross-checked
   directly against `export.pdb`'s own cues/playlist positions for the
   one track present in both catalogs with real cue data ("Voices In My
-  Head") -- exact match. This confirms the same convention
+  Head") - exact match. This confirms the same convention
   `OneLibraryCueWriter` already assumed when writing (see below), no
   longer just the inferred-from-`master.db`-precedent reasoning this
   section used to describe.
 
-## What's inferred, not confirmed -- re-verify before fully trusting
+## What's inferred, not confirmed - re-verify before fully trusting
 
 - **`colorTableIndex`.** No color-lookup table exists anywhere in this
   schema (checked: none of the 26 real tables is a color palette), and
   no documentation of what indices map to what colors was found.
   djconvert always writes `0` rather than fabricate a mapping from
-  `CuePoint::color`'s hex string. Cosmetic only -- doesn't affect cue
+  `CuePoint::color`'s hex string. Cosmetic only - doesn't affect cue
   position/hot-cue-number correctness.
 
 ## What's NOT handled (deliberately out of scope this pass)
@@ -86,7 +86,7 @@ against [pyrekordbox](https://github.com/dylanljones/pyrekordbox)'s source
   when this was written, OneLibrary is only used by newer hardware
   (OPUS-QUAD, OMNIS-DUO, XDJ-AZ, CDJ-3000X) that primarily reads the
   modern `inUsec`/`outUsec` fields, so this is expected to be a
-  reasonable simplification rather than a functional gap -- but wasn't
+  reasonable simplification rather than a functional gap, but wasn't
   verified against real hardware.
 - **`hotCueBankList`/`hotCueBankList_cue`** (the newer named-bank
   hot-cue-grouping UI feature) is left untouched. A cue's hot-cue-ness
@@ -94,8 +94,33 @@ against [pyrekordbox](https://github.com/dylanljones/pyrekordbox)'s source
   grouping is an additional organizational layer on top that this pass
   doesn't populate.
 - **Write precedent**: no evidence was found anywhere (GitHub issues,
-  forums, pyrekordbox's own test suite -- it has no `devicelib_plus`
+  forums, pyrekordbox's own test suite. It has no `devicelib_plus`
   tests at all) of anyone else having written to this format and
   reported back, good or bad. Absence of horror stories isn't proof of
   safety. Treat this writer with at least the same caution djconvert
   already applies to its (better-precedented) `export.pdb` writer.
+
+## Deleting a `content` row (`OneLibraryCueWriter::removeTrackByPath()`)
+
+No declared `FOREIGN KEY`/`REFERENCES` constraint has been confirmed
+anywhere in this schema (neither the doc's own informal "FK" language
+above nor any test fixture built to match a real `.schema` dump includes
+one), and `PRAGMA foreign_keys` is never issued for this connection
+anywhere in this codebase (`SqlCipherDb`'s constructor doesn't set it,
+neither does `OneLibraryCueWriter`). Even if a constraint did exist on
+the real file, it would not be enforced without that PRAGMA, the exact
+same class of bug this project already found and documented for
+libdjinterop's Engine `remove_track()` (its own comment claims an
+`ON DELETE CASCADE` that never actually fires).
+
+Practical consequence: deleting a `content` row requires deleting every
+dependent row explicitly first, in this order, inside one transaction -
+`hotCueBankList_cue` (via a `cue`-id subquery, same as
+`writeCuesForPath()` already does) -> `cue` -> `playlist_content` ->
+`content`. Getting the order wrong (e.g. deleting `cue` before
+`hotCueBankList_cue`) leaves orphaned bank rows silently behind, exactly
+the failure mode `writeCuesForPath()`'s own comment already warns about
+one level down. `removeTrackByPath()` follows this order, wrapped in the
+same `BEGIN IMMEDIATE`/`COMMIT`/best-effort-`ROLLBACK` pattern
+`writeCuesForPath()` established, with the same staleness guard and a
+post-commit verification re-read.

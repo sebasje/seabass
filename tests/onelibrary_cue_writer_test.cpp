@@ -38,6 +38,7 @@ void createFixture(const std::string &pioneerRoot)
         "colorTableIndex integer, cueComment varchar, isActiveLoop integer, inUsec integer, "
         "outUsec integer);");
     db.exec("CREATE TABLE hotCueBankList_cue(hotCueBankList_id integer, cue_id integer, sequenceNo integer);");
+    db.exec("CREATE TABLE playlist_content(content_id integer, playlist_id integer, sequenceNo integer);");
     db.exec("INSERT INTO content (content_id, title, path) VALUES (1, 'Test Track', '/Contents/Test Track.mp3');");
 }
 
@@ -64,7 +65,7 @@ fs::path freshScratch()
 int main()
 {
     // Case 1: write cues, read them back through an entirely independent
-    // second connection (not the writer's own success return) -- proves
+    // second connection (not the writer's own success return), proves
     // a real round-trip, not just "the write call didn't throw".
     {
         fs::path scratch = freshScratch();
@@ -126,7 +127,7 @@ int main()
     }
 
     // Case 3: writing cues for a path with no matching content.path row
-    // fails cleanly -- and doesn't corrupt/touch anything else.
+    // fails cleanly, and doesn't corrupt/touch anything else.
     {
         fs::path scratch = freshScratch();
         fs::path pioneerRoot = scratch / "PIONEER";
@@ -186,7 +187,7 @@ int main()
     }
 
     // Case 5: one writer instance, reused for several sequential
-    // writeCuesForPath() calls across different tracks -- the staleness
+    // writeCuesForPath() calls across different tracks. The staleness
     // baseline must refresh after each successful write, or every call
     // after the first would spuriously refuse itself (see
     // onelibrary_cue_writer.cpp's refresh at the end of
@@ -222,6 +223,114 @@ int main()
         assert(c2.columnInt64(0) == 3);
 
         std::cout << "case 5 (one writer reused across sequential writes to different tracks) OK\n";
+    }
+
+    // Case 6: removeTrackByPath() deletes the content row and every
+    // dependent row (cue, hotCueBankList_cue, playlist_content). No FK/
+    // cascade enforcement exists in this schema (see
+    // docs/onelibrary-format.md), so this is exactly the risk a blind
+    // single-table DELETE would miss.
+    {
+        fs::path scratch = freshScratch();
+        fs::path pioneerRoot = scratch / "PIONEER";
+        createFixture(pioneerRoot.string());
+        std::string filePath = (scratch / "Contents" / "Test Track.mp3").string();
+
+        {
+            OneLibraryCueWriter writer(pioneerRoot.string());
+            writer.writeCuesForPath(filePath, sampleCues());
+        }
+        {
+            std::string key = deriveOneLibraryKey();
+            SqlCipherLibrary lib;
+            SqlCipherDb db(lib, OneLibraryCueWriter::dbPathFor(pioneerRoot.string()), /*readOnly=*/false);
+            db.exec("PRAGMA key = '" + key + "';");
+            db.exec("INSERT INTO playlist_content (content_id, playlist_id, sequenceNo) VALUES (1, 99, 0);");
+        }
+
+        {
+            OneLibraryCueWriter writer(pioneerRoot.string());
+            writer.removeTrackByPath(filePath);
+        }
+
+        std::string key = deriveOneLibraryKey();
+        SqlCipherLibrary lib;
+        SqlCipherDb db(lib, OneLibraryCueWriter::dbPathFor(pioneerRoot.string()), /*readOnly=*/true);
+        db.exec("PRAGMA key = '" + key + "';");
+
+        SqlCipherStatement contentCount(db, "SELECT count(*) FROM content WHERE content_id = 1");
+        contentCount.step();
+        assert(contentCount.columnInt64(0) == 0);
+        SqlCipherStatement cueCount(db, "SELECT count(*) FROM cue WHERE content_id = 1");
+        cueCount.step();
+        assert(cueCount.columnInt64(0) == 0);
+        SqlCipherStatement playlistCount(db, "SELECT count(*) FROM playlist_content WHERE content_id = 1");
+        playlistCount.step();
+        assert(playlistCount.columnInt64(0) == 0);
+        // hotCueBankList_cue has no content_id column of its own. It's
+        // only reachable via cue_id, which is exactly why the DELETE
+        // must run before (not after) the cue rows it depends on are
+        // gone. Confirm no bank rows reference cue_ids that no longer
+        // exist in cue at all (a real orphan, since cue is now empty).
+        SqlCipherStatement bankCount(db, "SELECT count(*) FROM hotCueBankList_cue");
+        bankCount.step();
+        assert(bankCount.columnInt64(0) == 0);
+
+        std::cout << "case 6 (removeTrackByPath deletes content + every dependent row) OK\n";
+    }
+
+    // Case 7: removing a path with no matching content.path row fails
+    // cleanly, same "nothing corrupted" contract as writeCuesForPath()'s
+    // own unknown-path case.
+    {
+        fs::path scratch = freshScratch();
+        fs::path pioneerRoot = scratch / "PIONEER";
+        createFixture(pioneerRoot.string());
+        OneLibraryCueWriter writer(pioneerRoot.string());
+
+        bool threw = false;
+        try {
+            writer.removeTrackByPath((scratch / "Contents" / "Nonexistent.mp3").string());
+        } catch (const std::exception &) {
+            threw = true;
+        }
+        assert(threw);
+
+        std::string key = deriveOneLibraryKey();
+        SqlCipherLibrary lib;
+        SqlCipherDb db(lib, OneLibraryCueWriter::dbPathFor(pioneerRoot.string()), /*readOnly=*/true);
+        db.exec("PRAGMA key = '" + key + "';");
+        SqlCipherStatement contentCount(db, "SELECT count(*) FROM content");
+        contentCount.step();
+        assert(contentCount.columnInt64(0) == 1);
+
+        std::cout << "case 7 (removeTrackByPath on an unknown path fails cleanly) OK\n";
+    }
+
+    // Case 8: the staleness guard applies to removeTrackByPath() too -
+    // refuses if the file changed since this writer was constructed.
+    {
+        fs::path scratch = freshScratch();
+        fs::path pioneerRoot = scratch / "PIONEER";
+        createFixture(pioneerRoot.string());
+        OneLibraryCueWriter writer(pioneerRoot.string());
+
+        {
+            std::string key = deriveOneLibraryKey();
+            SqlCipherLibrary lib;
+            SqlCipherDb db(lib, OneLibraryCueWriter::dbPathFor(pioneerRoot.string()), /*readOnly=*/false);
+            db.exec("PRAGMA key = '" + key + "';");
+            db.exec("INSERT INTO content (content_id, title, path) VALUES (2, 'Other', '/Contents/Other.mp3');");
+        }
+
+        bool threw = false;
+        try {
+            writer.removeTrackByPath((scratch / "Contents" / "Test Track.mp3").string());
+        } catch (const std::exception &) {
+            threw = true;
+        }
+        assert(threw);
+        std::cout << "case 8 (staleness guard refuses removeTrackByPath after external modification) OK\n";
     }
 
     std::cout << "All onelibrary_cue_writer_test cases passed.\n";

@@ -84,8 +84,22 @@ std::vector<DuplicateGroup> DuplicateTrackFinder::find(const std::vector<Track> 
                 if (used[j]) {
                     continue;
                 }
-                if (std::abs(tracks[indices[i]].durationSeconds - tracks[indices[j]].durationSeconds) <=
-                    DurationToleranceSeconds) {
+                // durationSeconds == 0 means "unreadable/unknown" here,
+                // same fallback convention as the rest of Track's fields
+                // (e.g. bitrate), not a real zero-length track. Splitting
+                // on a mismatch only when *both* sides have a real
+                // reading avoids a real bug found on real data: three
+                // copies of the same song shared a title+artist match,
+                // but two had duration 0 (a read failure, not a real
+                // duration) and one had a real reading -- the two
+                // zero-duration copies "matched" each other by
+                // coincidence, while the copy with a real reading was
+                // wrongly split off as unrelated, even though it's the
+                // exact same duplicate cluster.
+                double durationA = tracks[indices[i]].durationSeconds;
+                double durationB = tracks[indices[j]].durationSeconds;
+                bool bothDurationsKnown = durationA > 0.0 && durationB > 0.0;
+                if (!bothDurationsKnown || std::abs(durationA - durationB) <= DurationToleranceSeconds) {
                     group.tracks.push_back(tracks[indices[j]]);
                     used[j] = true;
                 }

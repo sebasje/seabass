@@ -20,7 +20,7 @@ namespace djconvert::gui
 
 // Read-only Qt list model over the cleanup plans CleanupController last
 // computed. Only groups DuplicateCleanupPlanner found something
-// actually removable for (toRemove non-empty) are exposed -- a
+// actually removable for (toRemove non-empty) are exposed. A
 // degenerate single-track "group" has nothing to clean up.
 class CleanupPlanListModel : public QAbstractListModel
 {
@@ -49,14 +49,14 @@ public:
     const std::vector<domain::DuplicateCleanupPlan> &plans() const { return m_plans; }
     bool included(size_t index) const;
     int includedCount() const;
-    // Sets every row's included flag at once (select all / deselect all) --
+    // Sets every row's included flag at once (select all / deselect all) -
     // only the currently *visible* rows (see setFilter()), so selecting all
     // while a search is active doesn't silently touch groups scrolled out
     // of view by the filter.
     void setAllIncluded(bool included);
 
     // Case-insensitive substring match against every track's title/artist
-    // in each group (the survivor and every copy to remove) -- a group is
+    // in each group (the survivor and every copy to remove). A group is
     // visible if any of them match. Filtering never touches m_included:
     // it's purely a view over the same underlying selection state, so
     // clearing/changing the search text never loses what was checked.
@@ -65,12 +65,12 @@ public:
 
 private:
     std::vector<domain::DuplicateCleanupPlan> m_plans;
-    // Parallel to m_plans -- default true unless the plan differs (see
+    // Parallel to m_plans, default true unless the plan differs (see
     // DuplicateCleanupPlan::differs' own doc comment for why that
     // defaults to excluded).
     std::vector<bool> m_included;
     // Indices into m_plans/m_included that pass the current filter, in
-    // order -- what QML's row-based data()/setData() actually iterate.
+    // order, what QML's row-based data()/setData() actually iterate.
     // included(size_t)/plans() stay index-into-m_plans-based (unfiltered)
     // since apply() needs to act on every included group regardless of
     // what the search box currently shows.
@@ -108,27 +108,27 @@ public:
     QHash<int, QByteArray> roleNames() const override;
 
     void setEntries(std::vector<infrastructure::cleanup::PendingDeletion> entries);
-    // Only the rows currently checked -- what deleteSelectedPendingFiles() acts on.
+    // Only the rows currently checked, what deleteSelectedPendingFiles() acts on.
     std::vector<infrastructure::cleanup::PendingDeletion> includedEntries() const;
     int includedCount() const;
     // Sets every row's included flag at once (select all / deselect all).
     void setAllIncluded(bool included);
     // Sum of every listed entry's fileSizeBytes, and just the checked
-    // ones -- "how much space is here" vs "how much would this delete
+    // ones, "how much space is here" vs "how much would this delete
     // free up right now."
     std::uint64_t totalBytes() const;
     std::uint64_t includedBytes() const;
 
 private:
     std::vector<infrastructure::cleanup::PendingDeletion> m_entries;
-    // Parallel to m_entries -- default true (everything selected), same
+    // Parallel to m_entries, default true (everything selected), same
     // default-selected convention as CleanupPlanListModel except when a
     // plan `differs` (there's no equivalent ambiguity here to default
     // away from).
     std::vector<bool> m_included;
 };
 
-// Result of a background scan+plan task -- see CleanupController::
+// Result of a background scan+plan task, see CleanupController::
 // rescan(). Built entirely on a worker thread, no access to the
 // controller.
 struct CleanupTaskResult
@@ -137,7 +137,7 @@ struct CleanupTaskResult
     QString errorMessage;
 };
 
-// Result of a background apply/undo task -- see CleanupController::
+// Result of a background apply/undo task, see CleanupController::
 // apply()/undoLastOperation().
 struct CleanupWriteResult
 {
@@ -146,10 +146,10 @@ struct CleanupWriteResult
     std::vector<UndoableBackup> backups;
 };
 
-// Result of a background pending-deletion apply task -- see
+// Result of a background pending-deletion apply task, see
 // CleanupController::deleteSelectedPendingFiles(). Unlike
 // CleanupWriteResult there's nothing here to undo (a deleted audio file
-// is gone -- the DB edit that orphaned it was already backed up
+// is gone, the DB edit that orphaned it was already backed up
 // separately, back when it was first removed from the library), so
 // there's no UndoableBackup list.
 struct PendingDeletionApplyResult
@@ -161,8 +161,8 @@ struct PendingDeletionApplyResult
 // Wraps DuplicateCleanupPlanner + both formats' LibraryCleanupWriter
 // implementations for QML: scans a library, finds duplicate groups,
 // plans a survivor for each, and (for included groups) removes every
-// other copy -- merging their cues onto the survivor first and fixing
-// up playlist membership on both formats -- backing up before every
+// other copy, merging their cues onto the survivor first and fixing
+// up playlist membership on both formats, backing up before every
 // write, mirroring every other controller's safety pattern exactly.
 //
 // Deliberately does NOT delete the doomed tracks' audio files: apply()
@@ -210,13 +210,18 @@ public:
     // DetectedStick.rekordboxPath / .enginePath.
     Q_INVOKABLE void scan(const QString &format, const QString &path);
 
+    // Same convention as ScanController::hasOneLibrary(), lets QML show
+    // that a rekordbox-format cleanup also mirrors into OneLibrary when
+    // it's present on this stick.
+    Q_INVOKABLE bool hasOneLibrary(const QString &pioneerRoot) const;
+
     // Builds and populates `plans` with a single manually-declared merge
     // of exactly two tracks (by sourceId), reusing the same survivor/cue-
     // merge planning DuplicateCleanupPlanner already does for auto-
-    // detected groups -- for ScanPage.qml's "Merge with..." picker,
+    // detected groups, for ScanPage.qml's "Merge with..." picker,
     // where the user (not DuplicateTrackFinder) has already decided these
     // two are the same track. apply() then works exactly as it does for
-    // an auto-detected plan -- no separate apply path needed.
+    // an auto-detected plan, no separate apply path needed.
     Q_INVOKABLE void planManualMerge(const QString &format, const QString &path, const QString &sourceIdA,
                                       const QString &sourceIdB);
 
@@ -224,14 +229,14 @@ public:
     Q_INVOKABLE void setAllIncluded(bool included);
 
     // Filters the visible duplicate groups by title/artist (see
-    // CleanupPlanListModel::setFilter()). Purely a view filter -- never
+    // CleanupPlanListModel::setFilter()). Purely a view filter, never
     // changes which groups are included, and apply() still acts on every
     // included group regardless of the current search text.
     Q_INVOKABLE void search(const QString &query);
 
     // Removes every doomed track in every currently-included group:
     // merges cues onto the survivor, fixes up playlist membership on
-    // both formats, backs up first. Does NOT delete any audio file --
+    // both formats, backs up first. Does NOT delete any audio file,
     // see the class comment.
     Q_INVOKABLE void apply();
 
@@ -243,11 +248,11 @@ public:
     // .djconvert-pending-deletions.jsonl on the stick and repopulates
     // pendingDeletions. Cheap (a small text file plus a stat() per entry
     // for its current size), so this runs synchronously rather than on a
-    // background thread -- called automatically after every scan()/
+    // background thread, called automatically after every scan()/
     // apply(), but QML can also call it directly.
     Q_INVOKABLE void refreshPendingDeletions();
 
-    // Sets format/path and loads pendingDeletions only -- unlike scan(),
+    // Sets format/path and loads pendingDeletions only, unlike scan(),
     // does NOT kick off the (potentially slow, whole-library) duplicate-
     // group rescan. For PendingDeletionsPage, whose entire purpose is the
     // pending-deletions list: forcing a full rescan just to show a small
@@ -262,7 +267,7 @@ public:
     // confirms are genuinely no longer referenced by any current track,
     // deletes the file from disk and clears it from the manifest.
     // Entries still referenced (by anything, whether checked or not) are
-    // never deleted no matter what the manifest said -- see
+    // never deleted no matter what the manifest said, see
     // resolvePendingDeletions()'s own doc comment for why the manifest
     // alone is never trusted. Irreversible: unlike apply(), there is no
     // undo for an actual file deletion.

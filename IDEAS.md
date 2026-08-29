@@ -6,6 +6,20 @@ Here are some ideas which could be implememted in Seabass. No guarantees, this i
 
 Show / display loops on tracks
 
+## Better device settings
+
+- add (i) for each setting: it's not always clear what it does
+- nicer headings
+- on / off gets switches instead of dropdowns
+- settings backup and restore
+- deck colors?
+- cue point colors?
+
+## DBus interface for creating screenshots
+
+- behind a cli switch
+- makes updating the website easier
+
 ## Developer Settings category:
 
 - Prune/obfuscate my own usb stick data and add it as test dataset, create a testsuite which tests our functionality against these datasets
@@ -17,6 +31,10 @@ Show / display loops on tracks
 - Developer credits
 
 
+## Experimental features
+
+- Switch in settings for experimental features (plus warning), off by default, claude should consider new features as experimental and keep track, suggest moving to "stable", build flag for experimental stuff
+
 ## USB Stick statistics:
     - stick filesystem (indicate which devices are supported with this FS, and where the limitations are (e.g. vfat, may not work on XDJ-RX or somesuch, max file size, etc.)
     - number of tracks and playlists, cue points etc. (per library type), number of tracks per key, number of track with rating, comments, BPM distribution, distribution of formats, tracks from streaming services including which one, ...
@@ -27,6 +45,10 @@ Show / display loops on tracks
 
 - genre(s) from online sources
 - which additional metadata can we find?
+
+## Removing tracks
+
+- Some tracks are just wrong, want easy way to clean this up
     
 ## Playlist creation / editing / removal
 

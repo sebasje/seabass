@@ -14,14 +14,14 @@ Page {
     readonly property bool hasRekordbox: rekordboxPath.length > 0
     readonly property bool hasEngine: enginePath.length > 0
     // OneLibrary lives alongside export.pdb under the same PIONEER root
-    // (see ScanController::hasOneLibrary()'s own doc comment) -- it's a
+    // (see ScanController::hasOneLibrary()'s own doc comment). It's a
     // third view onto the DeviceLibrary side of the stick, not a
     // separately-stored DetectedStick path, so it needs hasRekordbox
     // (the path it reads from) rather than a path of its own.
     readonly property bool hasOneLibrary: root.hasRekordbox && scanController.hasOneLibrary(root.rekordboxPath)
 
     // Deliberately a plain property, not bound to appSettingsController.
-    // preferredFormat (unlike every other page's FormatToggle) -- that
+    // preferredFormat (unlike every other page's FormatToggle). That
     // setting is a shared, persisted, binary Rekordbox/Engine choice used
     // by Clean Up, Sync, and Local Cue Backup, none of which understand a
     // third "onelibrary" value. Library-source browsing here is scoped to
@@ -32,7 +32,7 @@ Page {
     // reading a cached path here could see the previous format's value.
     // A function call is always evaluated fresh against the current format.
     function currentPath() {
-        // "onelibrary" reads from the same PIONEER root as "rekordbox" --
+        // "onelibrary" reads from the same PIONEER root as "rekordbox" -
         // falls into this branch already, no separate case needed.
         return root.format === "engine" ? root.enginePath : root.rekordboxPath;
     }
@@ -41,7 +41,7 @@ Page {
         id: scanController
     }
 
-    // Backs the "Merge with..." picker below -- reuses CleanupController
+    // Backs the "Merge with..." picker below, reuses CleanupController
     // wholesale (planManualMerge()/apply()) rather than a bespoke write
     // path, since a manual two-track merge is mechanically identical to
     // an auto-detected group's cleanup once the group exists.
@@ -62,8 +62,21 @@ Page {
         scanController.scan(root.format, root.currentPath(), root.format === "engine" ? root.rekordboxPath : "");
     }
 
-    Component.onCompleted: rescan()
+    Component.onCompleted: {
+        scanController.setHideStreamingTracks(root.appSettingsController.hideStreamingTracks);
+        rescan();
+    }
     onFormatChanged: rescan()
+
+    // Live-applies without a rescan, setHideStreamingTracks() just
+    // re-runs the existing display-filter pipeline (same one search()
+    // already uses) over tracks already in memory.
+    Connections {
+        target: root.appSettingsController
+        function onHideStreamingTracksChanged() {
+            scanController.setHideStreamingTracks(root.appSettingsController.hideStreamingTracks);
+        }
+    }
 
     function formatDuration(seconds) {
         var total = Math.round(seconds);
@@ -72,7 +85,7 @@ Page {
         return m + ":" + (s < 10 ? "0" : "") + s;
     }
 
-    // One decimal place, but only when there actually is one -- "128"
+    // One decimal place, but only when there actually is one, "128"
     // reads better than "128.0" for the (very common) case of a whole-
     // number BPM, while a genuinely fractional one (e.g. a half-time
     // edit) still keeps its precision instead of getting rounded away.
@@ -85,7 +98,7 @@ Page {
     }
 
     header: ToolBar {
-        // Opaque background override -- see AppSettingsPage.qml's header
+        // Opaque background override, see AppSettingsPage.qml's header
         // for why (KDE's Breeze style bleeds the window behind Seabass
         // through an unstyled ToolBar).
         background: Rectangle { color: Theme.surface }
@@ -116,7 +129,7 @@ Page {
                     onClicked: root.StackView.view.pop()
                 }
                 Label {
-                    text: root.stickLabel + " -- Library"
+                    text: root.stickLabel + " - Library"
                     font.bold: true
                     font.pointSize: Theme.fontLarge
                 }
@@ -244,7 +257,7 @@ Page {
 
             RowLayout {
                 // Mirrors the track delegate's own RowLayout exactly (same
-                // left/right inset, spacing and column widths) -- otherwise
+                // left/right inset, spacing and column widths), otherwise
                 // these headers silently drift out of alignment with the
                 // columns they're supposed to label.
                 Layout.fillWidth: true
@@ -260,13 +273,13 @@ Page {
                 Label { text: "Time"; font.bold: true; Layout.preferredWidth: 60 }
                 Label { text: "Cues"; font.bold: true; Layout.preferredWidth: 50 }
                 Label { text: "Plays"; font.bold: true; Layout.preferredWidth: 50 }
-                // 32 (info button) + 8 (row spacing) + 32 (merge button) --
+                // 32 (info button) + 8 (row spacing) + 32 (merge button),
                 // both trailing ToolButtons in the delegate below, not
                 // just one. Getting this narrower than the delegate's
                 // real trailing content silently pushes every column
                 // before it out of alignment (the fill spacer above ends
                 // up absorbing a different amount of leftover space in
-                // the header than in each row) -- exactly what happened
+                // the header than in each row), exactly what happened
                 // here before this comment existed.
                 Label { text: ""; Layout.preferredWidth: 72 }
             }
@@ -278,7 +291,7 @@ Page {
                 clip: true
                 model: scanController.tracks
 
-                // A plain Rectangle, not an ItemDelegate -- overriding a
+                // A plain Rectangle, not an ItemDelegate. Overriding a
                 // Material Control's `background:` property doesn't
                 // reliably replace its own implicit chrome (see
                 // StickListPage.qml's stick-card delegate for the same
@@ -287,7 +300,7 @@ Page {
                 delegate: Rectangle {
                     id: trackDelegate
                     width: ListView.view.width
-                    // Taller only for the currently playing row -- gives
+                    // Taller only for the currently playing row, gives
                     // its inline waveform (below) room to actually be
                     // legible instead of a sliver.
                     height: trackDelegate.isPlaying ? 64 : 56
@@ -305,12 +318,13 @@ Page {
                     required property string key
                     required property var cues
                     required property var playlistNames
+                    required property string streamingSource
 
                     readonly property bool isPlaying: playbackController.hasTrack
                         && playbackController.currentFormat === root.format
                         && playbackController.currentSourceId === trackDelegate.sourceId
 
-                    // Alternating row shading -- makes it much easier to
+                    // Alternating row shading, makes it much easier to
                     // track a row across the wide, densely-columned list.
                     // Solid, muted colors rather than a translucent overlay,
                     // so the result doesn't depend on (and can't pick up an
@@ -319,25 +333,25 @@ Page {
                         : rowMouseArea.containsMouse ? Theme.rowHover
                         : (trackDelegate.index % 2 === 0 ? Theme.rowEven : Theme.rowOdd)
 
-                    // Now-playing highlight -- an accent-colored stripe,
+                    // Now-playing highlight, an accent-colored stripe,
                     // same idiom as most media players use for "this one."
                     // Rounded to match every other accent-bordered highlight
                     // in the app (BackupsPage/LocalCuePage's active-field
-                    // outline, etc.), all radius: 4 -- this one was square.
+                    // outline, etc.), all radius: 4. This one was square.
                     border.color: trackDelegate.isPlaying ? Theme.accent : "transparent"
                     border.width: trackDelegate.isPlaying ? 2 : 0
                     radius: trackDelegate.isPlaying ? 4 : 0
 
                     // The currently playing row's own waveform, with cue
                     // markers and live progress, used as a faded
-                    // full-row backdrop rather than a discrete column --
+                    // full-row backdrop rather than a discrete column -
                     // declared before (so it renders behind) the row's
                     // real content, and deliberately NOT part of the
                     // RowLayout below, so it can never affect column
                     // widths/alignment the way an inline version did.
                     // Its own internal seek MouseArea is inert here
                     // (rowMouseArea below sits on top and claims every
-                    // click first) -- purely decorative; the PlayerBar's
+                    // click first), purely decorative; the PlayerBar's
                     // own waveform is still the real interactive one.
                     WaveformView {
                         visible: trackDelegate.isPlaying
@@ -355,9 +369,20 @@ Page {
                         id: rowMouseArea
                         anchors.fill: parent
                         hoverEnabled: true
-                        onClicked: playbackController.load(root.format, root.currentPath(), trackDelegate.sourceId,
-                            trackDelegate.filePath, trackDelegate.title, trackDelegate.artist, trackDelegate.artworkPath,
-                            trackDelegate.cues)
+                        // Streaming tracks (Engine/TIDAL) have no local
+                        // file, never call load(), which would just
+                        // fail with a confusing "audio file not found."
+                        ToolTip.visible: trackDelegate.streamingSource.length > 0 && containsMouse
+                        ToolTip.text: "Streaming track (" + trackDelegate.streamingSource
+                            + ") - no local file, can't be played."
+                        onClicked: {
+                            if (trackDelegate.streamingSource.length > 0) {
+                                return;
+                            }
+                            playbackController.load(root.format, root.currentPath(), trackDelegate.sourceId,
+                                trackDelegate.filePath, trackDelegate.title, trackDelegate.artist,
+                                trackDelegate.artworkPath, trackDelegate.cues);
+                        }
                     }
 
                     RowLayout {
@@ -381,11 +406,36 @@ Page {
                         ColumnLayout {
                             Layout.fillWidth: true
                             spacing: 1
-                            Label {
-                                text: title
-                                font.bold: true
-                                elide: Text.ElideRight
+                            RowLayout {
                                 Layout.fillWidth: true
+                                spacing: 6
+                                Label {
+                                    text: title
+                                    font.bold: true
+                                    elide: Text.ElideRight
+                                    Layout.fillWidth: true
+                                }
+                                // Plain text, no logo. This project never
+                                // reproduces a real brand's mark (see
+                                // AboutPage.qml's trademark note). Just
+                                // tells you where a file-less row comes
+                                // from instead of it looking broken.
+                                Rectangle {
+                                    visible: trackDelegate.streamingSource.length > 0
+                                    radius: 3
+                                    color: Theme.groupBackground
+                                    border.color: Theme.borderSubtle
+                                    implicitWidth: streamingLabel.implicitWidth + 8
+                                    implicitHeight: streamingLabel.implicitHeight + 4
+                                    Label {
+                                        id: streamingLabel
+                                        anchors.centerIn: parent
+                                        text: trackDelegate.streamingSource
+                                        font.pointSize: Theme.fontTiny
+                                        font.bold: true
+                                        color: Theme.textMuted
+                                    }
+                                }
                             }
                             Label {
                                 text: artist
@@ -412,11 +462,13 @@ Page {
                         ToolButton {
                             text: "🔗"
                             Layout.preferredWidth: 32
-                            enabled: root.format !== "onelibrary"
+                            enabled: root.format !== "onelibrary" && trackDelegate.streamingSource.length === 0
                             ToolTip.visible: hovered
-                            ToolTip.text: root.format === "onelibrary"
-                                ? "Merging isn't supported on OneLibrary yet -- switch to DeviceLibrary or Engine OS"
-                                : "Merge with another track..."
+                            ToolTip.text: trackDelegate.streamingSource.length > 0
+                                ? "Streaming track (" + trackDelegate.streamingSource + ") - no local file, can't be merged."
+                                : (root.format === "onelibrary"
+                                    ? "Merging isn't supported on OneLibrary yet - switch to DeviceLibrary or Engine OS"
+                                    : "Merge with another track...")
                             onClicked: mergePickerPopup.showFor(trackDelegate)
                         }
                     }
@@ -431,7 +483,7 @@ Page {
             }
 
             // One shared popup, reused for whichever row's (i) button was
-            // clicked -- populated by showFor() rather than one Popup
+            // clicked, populated by showFor() rather than one Popup
             // instance per delegate. The waveform is read on demand right
             // here (never during the bulk scan that fills trackListView),
             // same pattern playbackController.load() already uses.
@@ -449,6 +501,7 @@ Page {
                 property var trackCues: []
                 property double trackDurationMs: 0
                 property var trackPlaylistNames: []
+                property string trackStreamingSource: ""
                 // -1 means no pending Add-Cue form; set by clicking the
                 // waveform below.
                 property real pendingPositionMs: -1
@@ -460,6 +513,7 @@ Page {
                     trackInfoPopup.trackCues = delegate.cues;
                     trackInfoPopup.trackDurationMs = delegate.durationSeconds * 1000;
                     trackInfoPopup.trackPlaylistNames = delegate.playlistNames;
+                    trackInfoPopup.trackStreamingSource = delegate.streamingSource;
                     trackInfoPopup.pendingPositionMs = -1;
                     waveformView.waveformData = playbackController.waveformFor(
                         root.format, root.currentPath(), delegate.sourceId);
@@ -516,6 +570,16 @@ Page {
                         }
                     }
 
+                    Label {
+                        visible: trackInfoPopup.trackStreamingSource.length > 0
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        text: "Streaming source: " + trackInfoPopup.trackStreamingSource
+                            + " - no local file; playback, merging, and adding cues aren't available for this track."
+                        color: Theme.textMuted
+                        font.italic: true
+                    }
+
                     WaveformView {
                         id: waveformView
                         Layout.fillWidth: true
@@ -524,19 +588,22 @@ Page {
                         trackDurationMs: trackInfoPopup.trackDurationMs
                         progress: -1
                         onPositionClicked: (ms) => {
+                            if (trackInfoPopup.trackStreamingSource.length > 0) {
+                                return;
+                            }
                             trackInfoPopup.pendingPositionMs = ms;
                         }
                     }
 
                     Label {
-                        visible: trackInfoPopup.pendingPositionMs < 0
+                        visible: trackInfoPopup.pendingPositionMs < 0 && trackInfoPopup.trackStreamingSource.length === 0
                         text: "Click the waveform above to add a cue there."
                         color: Theme.textMuted
                         font.pointSize: Theme.fontSmall
                         font.italic: true
                     }
 
-                    // Position-only for now, no beatgrid snap -- see
+                    // Position-only for now, no beatgrid snap, see
                     // AddCueController's own class comment for why.
                     ColumnLayout {
                         id: addCueForm
@@ -637,7 +704,7 @@ Page {
             // Deliberately searches ScanController's full unfiltered
             // m_allTracks (via findMergeCandidates()), never the page's
             // own filtered/sorted `tracks` model or scanController.search()
-            // -- typing here must not disturb whatever's shown on the page
+            // Typing here must not disturb whatever's shown on the page
             // underneath once this closes.
             Popup {
                 id: mergePickerPopup
@@ -669,7 +736,7 @@ Page {
                     Label {
                         Layout.fillWidth: true
                         wrapMode: Text.WordWrap
-                        text: "Merge “" + mergePickerPopup.trackATitle + " -- " + mergePickerPopup.trackAArtist + "” with:"
+                        text: "Merge “" + mergePickerPopup.trackATitle + " - " + mergePickerPopup.trackAArtist + "” with:"
                         font.bold: true
                     }
                     TextField {
@@ -696,7 +763,7 @@ Page {
                             contentItem: ColumnLayout {
                                 spacing: 1
                                 Label {
-                                    text: modelData.title + " -- " + modelData.artist
+                                    text: modelData.title + " - " + modelData.artist
                                     font.bold: true
                                     elide: Text.ElideRight
                                     Layout.fillWidth: true
@@ -739,7 +806,7 @@ Page {
             }
 
             // Step 2: review the plan (survivor, cues to merge, playlist
-            // note) before actually applying -- exactly the same
+            // note) before actually applying, exactly the same
             // DuplicateCleanupPlanner output and apply() path Clean Up
             // Duplicates uses for an auto-detected group, just seeded with
             // this one manually-chosen pair via planManualMerge().
@@ -755,8 +822,8 @@ Page {
                 property string trackBLabel: ""
 
                 function showFor(trackA, trackB) {
-                    mergeReviewPopup.trackALabel = trackA.title + " -- " + trackA.artist;
-                    mergeReviewPopup.trackBLabel = trackB.title + " -- " + trackB.artist;
+                    mergeReviewPopup.trackALabel = trackA.title + " - " + trackA.artist;
+                    mergeReviewPopup.trackBLabel = trackB.title + " - " + trackB.artist;
                     mergeController.planManualMerge(root.format, root.currentPath(), trackA.sourceId, trackB.sourceId);
                     mergeReviewPopup.open();
                 }
@@ -804,12 +871,12 @@ Page {
 
                     Repeater {
                         // statusMessage only ever gets set once apply()
-                        // finishes -- once it's non-empty, hide the plan
+                        // finishes, once it's non-empty, hide the plan
                         // preview even though apply() -> onWriteFinished()
                         // triggers its own trailing rescan() that briefly
                         // repopulates `plans` with the full auto-detected
                         // list (the same refresh CleanupPage.qml relies on
-                        // after every apply -- not worth special-casing
+                        // after every apply, not worth special-casing
                         // away just for this dialog).
                         model: mergeController.statusMessage.length === 0
                             ? mergeController.plans : null
@@ -834,7 +901,7 @@ Page {
                                     onToggled: mergeController.setIncluded(planRow.index, checked)
                                 }
                                 Label {
-                                    text: "Keeps: " + planRow.survivor.title + " -- " + planRow.survivor.artist
+                                    text: "Keeps: " + planRow.survivor.title + " - " + planRow.survivor.artist
                                     font.bold: true
                                     elide: Text.ElideRight
                                     Layout.fillWidth: true
@@ -842,14 +909,14 @@ Page {
                             }
                             Label {
                                 text: planRow.wastedBytesHuman + " freed"
-                                    + (planRow.newCueCount > 0 ? "  --  " + planRow.newCueCount + " cue(s) merged onto the survivor" : "")
+                                    + (planRow.newCueCount > 0 ? " - " + planRow.newCueCount + " cue(s) merged onto the survivor" : "")
                                 color: Theme.textMuted
                             }
                             Label {
                                 Layout.fillWidth: true
                                 wrapMode: Text.WordWrap
-                                text: "Conserved: cues (merged, never lost) and playlist membership on both formats "
-                                    + "-- every playlist the removed copy was in now points at the kept copy instead. "
+                                text: "Conserved: cues (merged, never lost) and playlist membership on both formats. "
+                                    + "Every playlist the removed copy was in now points at the kept copy instead. "
                                     + "Not conserved yet: rating, color tag, genre and other tag fields."
                                 color: Theme.textMuted
                                 font.italic: true
@@ -859,7 +926,7 @@ Page {
                                 visible: planRow.differs
                                 wrapMode: Text.WordWrap
                                 Layout.fillWidth: true
-                                text: "These copies differ in quality and length -- the higher-bitrate copy isn't the "
+                                text: "These copies differ in quality and length. The higher-bitrate copy isn't the "
                                     + "longest one. Check the box above if you still want to merge them."
                                 color: Theme.conflictText
                             }

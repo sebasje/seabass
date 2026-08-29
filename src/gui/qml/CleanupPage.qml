@@ -21,6 +21,7 @@ Page {
     function currentPath() {
         return root.format === "engine" ? root.enginePath : root.rekordboxPath;
     }
+    readonly property bool hasOneLibrary: root.hasRekordbox && cleanupController.hasOneLibrary(root.rekordboxPath)
 
     CleanupController {
         id: cleanupController
@@ -37,7 +38,7 @@ Page {
     }
 
     header: ToolBar {
-        // Opaque background override -- see AppSettingsPage.qml's header
+        // Opaque background override, see AppSettingsPage.qml's header
         // for why (KDE's Breeze style bleeds the window behind Seabass
         // through an unstyled ToolBar). This page is the one that made the
         // bug visible: with real "pending deletions" content behind a
@@ -66,7 +67,7 @@ Page {
                     onClicked: root.StackView.view.pop()
                 }
                 Label {
-                    text: root.stickLabel + " -- Clean Up Duplicates"
+                    text: root.stickLabel + " - Clean Up Duplicates"
                     font.bold: true
                     font.pointSize: Theme.fontLarge
                 }
@@ -122,7 +123,7 @@ Page {
                     visible: cleanupController.canUndo
                     enabled: !cleanupController.busy
                     ToolTip.visible: hovered
-                    ToolTip.text: "Revert the last cleanup -- restores every file it touched to what it was before"
+                    ToolTip.text: "Revert the last cleanup - restores every file it touched to what it was before"
                     onClicked: cleanupController.undoLastOperation()
                 }
             }
@@ -144,12 +145,12 @@ Page {
         Label {
             width: parent.width
             wrapMode: Text.WordWrap
-            text: "This marks all " + plansListView.count + " currently listed duplicate group(s) -- "
-                + cleanupController.totalWastedBytesHuman + " total if every copy kept only one file -- "
+            text: "This marks all " + plansListView.count + " currently listed duplicate group(s) - "
+                + cleanupController.totalWastedBytesHuman + " total if every copy kept only one file - "
                 + "for the next \"Clean Up Selected\" click, including groups excluded by default because "
                 + "their copies differ in quality (marked with ⚠ below).\n\n"
                 + (searchField.text.length > 0
-                    ? "Your search (\"" + searchField.text + "\") is currently narrowing this list -- clear it "
+                    ? "Your search (\"" + searchField.text + "\") is currently narrowing this list. Clear it "
                         + "first if you meant to select across your whole library, or leave it as-is to select "
                         + "only these matching groups."
                     : "No search filter is active, so this selects every duplicate group found across your "
@@ -175,7 +176,7 @@ Page {
             text: "For each selected group, every copy except the one kept will be removed from the library: "
                 + "its hot/memory cues are merged onto the surviving copy first (nothing is lost), and any "
                 + "playlist it belonged to is updated to reference the surviving copy instead.\n\n"
-                + "This does NOT delete the removed copies' audio files -- their library entries are removed "
+                + "This does NOT delete the removed copies' audio files. Their library entries are removed "
                 + "and they're recorded for you to review and delete separately.\n\n"
                 + "Everything touched is backed up first and can be undone."
         }
@@ -188,7 +189,7 @@ Page {
 
         StickWriteWarning {
             visible: cleanupController.writing
-            text: "Cleaning up duplicates -- do not remove the stick until this finishes."
+            text: "Cleaning up duplicates. Do not remove the stick until this finishes."
         }
 
         Label {
@@ -247,7 +248,7 @@ Page {
                                 ToolTip.text: "Include this group in the next cleanup"
                             }
                             Label {
-                                text: "Keeps: " + delegateRoot.survivor.title + " -- " + delegateRoot.survivor.artist
+                                text: "Keeps: " + delegateRoot.survivor.title + " - " + delegateRoot.survivor.artist
                                 font.bold: true
                                 elide: Text.ElideRight
                                 Layout.preferredWidth: 320
@@ -272,15 +273,19 @@ Page {
                         }
                         Label {
                             text: delegateRoot.wastedBytesHuman + " freed"
-                                + (delegateRoot.newCueCount > 0 ? "  --  " + delegateRoot.newCueCount + " cue(s) merged onto the survivor" : "")
+                                + (delegateRoot.newCueCount > 0 ? " - " + delegateRoot.newCueCount + " cue(s) merged onto the survivor" : "")
                             color: Theme.textMuted
                         }
                         Label {
                             Layout.fillWidth: true
                             wrapMode: Text.WordWrap
-                            text: "Conserved: cues (merged, never lost) and playlist membership on both formats "
-                                + "-- every playlist a removed copy was in now points at the kept copy instead. "
-                                + "Not conserved yet: rating, color tag, genre and other tag fields on the "
+                            text: "Conserved: cues (merged, never lost) and playlist membership on both formats. "
+                                + "Every playlist a removed copy was in now points at the kept copy instead."
+                                + (root.hasOneLibrary
+                                    ? " Also mirrored into OneLibrary (exportLibrary.db), including removing the "
+                                      + "duplicate's own OneLibrary row."
+                                    : "")
+                                + " Not conserved yet: rating, color tag, genre and other tag fields on the "
                                 + "removed copies aren't copied over."
                             color: Theme.textMuted
                             font.italic: true
@@ -290,9 +295,9 @@ Page {
                             visible: delegateRoot.differs
                             wrapMode: Text.WordWrap
                             Layout.fillWidth: true
-                            text: "These copies differ in quality and length -- the higher-bitrate copy isn't the "
+                            text: "These copies differ in quality and length. The higher-bitrate copy isn't the "
                                 + "longest one. This may be intentional (e.g. a shorter edit kept for specific "
-                                + "hardware), so this group is excluded by default -- check it above to include it anyway."
+                                + "hardware), so this group is excluded by default. Check it above to include it anyway."
                             color: Theme.conflictText
                         }
                     }
@@ -337,7 +342,7 @@ Page {
                             delegate: Label {
                                 Layout.fillWidth: true
                                 required property var modelData
-                                text: "id=" + modelData.sourceId + "  --  "
+                                text: "id=" + modelData.sourceId + " - "
                                     + (modelData.bitrate > 0 ? modelData.bitrate + " kbps, " : "")
                                     + root.formatDuration(modelData.durationMs) + ", " + modelData.sizeHuman
                                 color: Theme.textMuted

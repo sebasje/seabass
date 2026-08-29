@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-# C, not just CXX -- libdjinterop's bundled SQLite/date fallback (used
+# C, not just CXX - libdjinterop's bundled SQLite/date fallback (used
 # when cross-compiling, see the WIN32 branch below) is plain C
 # (sqlite3.c). Declaring it here at the top level, rather than relying on
 # a subdirectory's own project() call to add it implicitly, avoids a real
@@ -20,7 +20,7 @@ set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(BUILD_DOC OFF CACHE BOOL "" FORCE)
 if(WIN32)
-    # No SQLite3-for-mingw package exists for Ubuntu -- libdjinterop
+    # No SQLite3-for-mingw package exists for Ubuntu - libdjinterop
     # already has its own bundled-amalgamation fallback for exactly this
     # (see third_party/libdjinterop/CMakeLists.txt's SYSTEM_SQLITE
     # option); djconvert_core's own direct SQLite3 use (LocalCueStore)
@@ -30,11 +30,11 @@ if(WIN32)
 endif()
 add_subdirectory(third_party/libdjinterop)
 
-# System SQLite3 -- already required to build libdjinterop (Engine's
+# System SQLite3, already required to build libdjinterop (Engine's
 # library format is itself SQLite), so LocalCueStore reuses it rather
 # than vendoring a JSON library for the same job. djconvert_core itself
 # doesn't use this on WIN32 (it compiles libdjinterop's bundled
-# amalgamation directly instead, see the WIN32 branch below) -- this
+# amalgamation directly instead, see the WIN32 branch below). This
 # find_package call now runs unconditionally purely so local_cue_store_test
 # (which links SQLite::SQLite3 directly, see tests/ below) has something
 # to link against on Windows too. MSYS2's UCRT64 environment ships a real
@@ -42,7 +42,7 @@ add_subdirectory(third_party/libdjinterop)
 # Ubuntu-hosted mingw cross-compile setup this project used before.
 find_package(SQLite3 REQUIRED)
 
-# System zlib -- used to compress local cue-backup snapshots and full
+# System zlib, used to compress local cue-backup snapshots and full
 # metadata backups before they hit disk (see infrastructure/compression/).
 find_package(ZLIB REQUIRED)
 
@@ -67,17 +67,17 @@ if(WIN32)
     # win-iconv-mingw-w64-dev's iconv() declares its second parameter
     # `const char **` by default (POSIX-2008 style); kaitaistream.cpp
     # (written against glibc's non-const `char **`) passes a plain
-    # `char**`, which C++ refuses to implicitly convert -- this empties
+    # `char**`, which C++ refuses to implicitly convert. This empties
     # win-iconv's own WINICONV_CONST macro (its documented escape hatch
     # for exactly this) to match glibc's signature instead.
     target_compile_definitions(kaitai_cpp_stl_runtime PRIVATE WINICONV_CONST=)
     # win-iconv-mingw-w64-dev ships iconv.h but (unlike glibc) needs
-    # explicitly linking -- PUBLIC so it also reaches whatever links this
+    # explicitly linking - PUBLIC so it also reaches whatever links this
     # static library's .a (djconvert.exe's final link), not just this
     # target's own compilation. Bare "iconv" resolves to libiconv.dll.a
     # (the *import* library for iconv.dll) by mingw ld's default
     # preference, silently making the exe depend on iconv.dll at runtime
-    # instead of bundling it -- find_library forces the real static
+    # instead of bundling it - find_library forces the real static
     # libiconv.a instead, for a self-contained portable exe.
     find_library(WIN_ICONV_STATIC_LIB NAMES libiconv.a PATHS /usr/x86_64-w64-mingw32/lib REQUIRED)
     target_link_libraries(kaitai_cpp_stl_runtime PUBLIC ${WIN_ICONV_STATIC_LIB})
@@ -101,6 +101,8 @@ add_library(djconvert_core STATIC
     src/domain/duplicate_cleanup.cpp
     src/domain/duplicate_cue_consolidation.cpp
     src/domain/fuzzy_matcher.cpp
+    src/domain/junk_cue.cpp
+    src/domain/library_consistency.cpp
     src/domain/local_restore.cpp
     src/domain/sync_planning.cpp
     src/domain/track_matching.cpp
@@ -137,7 +139,7 @@ target_include_directories(djconvert_core PUBLIC src)
 target_link_libraries(djconvert_core PUBLIC rekordbox_format DjInterop ZLIB::ZLIB)
 
 if(WIN32)
-    # See the SYSTEM_SQLITE note above -- same bundled amalgamation
+    # See the SYSTEM_SQLITE note above - same bundled amalgamation
     # libdjinterop uses privately, compiled straight into djconvert_core
     # instead of going through find_package(SQLite3).
     target_sources(djconvert_core PRIVATE
@@ -203,13 +205,13 @@ add_executable(djconvert
 target_include_directories(djconvert PRIVATE src)
 target_link_libraries(djconvert PRIVATE djconvert_core)
 if(WIN32)
-    # A portable single-file .exe -- without these, mingw links
+    # A portable single-file .exe - without these, mingw links
     # libgcc_s_seh-1.dll/libstdc++-6.dll dynamically, which aren't
     # present next to the exe (or anywhere in a real Windows install)
     # unless separately deployed. -static-libgcc/-static-libstdc++
     # aren't enough on their own with the posix-threading mingw
     # variant (required to match Qt's prebuilt win64_mingw binaries,
-    # see cmake/mingw-w64-toolchain.cmake) -- that variant also pulls
+    # see cmake/mingw-w64-toolchain.cmake). That variant also pulls
     # in libwinpthread-1.dll dynamically unless -static covers it too.
     target_link_options(djconvert PRIVATE -static-libgcc -static-libstdc++ -static)
 endif()
@@ -217,12 +219,23 @@ endif()
 # --- djconvert-gui: the Qt Quick composition root (opt-in: only built ---
 # --- when Qt6 is available, so machines without Qt still get the CLI) ---
 
+# Controls whether the experimental-features opt-in itself (the Settings
+# toggle AppSettingsController::experimentalFeaturesEnabled) exists at
+# all, not per-feature inclusion of code -- QML has no conditional-
+# compilation mechanism, so a feature's own page/controller can't be
+# compiled out this way. See docs/experimental-features.md. ON by
+# default: a normal build still defaults every experimental feature to
+# hidden until the user opts in at runtime; turning this OFF instead
+# produces a real "stable-only build" where that opt-in can't be reached
+# at all, regardless of anything already stored in QSettings.
+option(DJCONVERT_EXPERIMENTAL "Compile in the experimental-features opt-in (Settings toggle)" ON)
+
 find_package(Qt6 QUIET COMPONENTS Core Gui Qml Quick QuickControls2 QuickLayouts QuickEffects Multimedia Concurrent Svg)
 if(Qt6_FOUND)
     qt_standard_project_setup(REQUIRES 6.5)
     if(WIN32)
         # Needed to compile src/gui/win/app_icon.rc (the .exe's icon
-        # resource) -- not enabled by the top-level project(djconvert CXX
+        # resource), not enabled by the top-level project(djconvert CXX
         # C) call above since only the Windows GUI build needs it.
         enable_language(RC)
     endif()
@@ -233,8 +246,10 @@ if(Qt6_FOUND)
     # system Qt install.
     set(BUILD_SHARED_LIBS ON)
     add_subdirectory(src/gui)
+    target_compile_definitions(djconvert-gui PRIVATE
+        $<$<BOOL:${DJCONVERT_EXPERIMENTAL}>:DJCONVERT_EXPERIMENTAL_BUILD>)
 else()
-    message(STATUS "Qt6 not found -- skipping djconvert-gui (CLI and tests still build)")
+    message(STATUS "Qt6 not found, skipping djconvert-gui (CLI and tests still build)")
 endif()
 
 # --- domain-layer unit tests (no infrastructure deps, no fixtures needed) ---
@@ -255,6 +270,22 @@ add_executable(duplicate_cleanup_test
 )
 target_include_directories(duplicate_cleanup_test PRIVATE src)
 add_test(NAME duplicate_cleanup_test COMMAND duplicate_cleanup_test)
+
+add_executable(library_consistency_test
+    src/domain/library_consistency.cpp
+    src/domain/duplicate_cue_consolidation.cpp
+    src/domain/track_matching.cpp
+    tests/library_consistency_test.cpp
+)
+target_include_directories(library_consistency_test PRIVATE src)
+add_test(NAME library_consistency_test COMMAND library_consistency_test)
+
+add_executable(junk_cue_test
+    src/domain/junk_cue.cpp
+    tests/junk_cue_test.cpp
+)
+target_include_directories(junk_cue_test PRIVATE src)
+add_test(NAME junk_cue_test COMMAND junk_cue_test)
 
 add_executable(track_matching_test
     src/domain/track_matching.cpp
@@ -395,11 +426,12 @@ add_executable(pending_deletion_resolver_test
 target_include_directories(pending_deletion_resolver_test PRIVATE src)
 add_test(NAME pending_deletion_resolver_test COMMAND pending_deletion_resolver_test)
 
-# Cross-platform now -- talks to libsqlcipher via runtime LoadLibrary/
+# Cross-platform now, talks to libsqlcipher via runtime LoadLibrary/
 # dlopen, same as djconvert_core's own onelibrary sources above. Needs
 # libsqlcipher's runtime library actually present on whichever machine
 # runs this test (see the target_sources block above for package names).
 add_executable(onelibrary_cue_writer_test
+    src/application/ports/progress_reporter.cpp
     src/infrastructure/onelibrary/onelibrary_key.cpp
     src/infrastructure/onelibrary/sqlcipher_dyn.cpp
     src/infrastructure/onelibrary/onelibrary_cue_writer.cpp
@@ -413,7 +445,7 @@ if(NOT WIN32)
 endif()
 add_test(NAME onelibrary_cue_writer_test COMMAND onelibrary_cue_writer_test)
 
-# Covers OneLibraryReader::readAll() -- the read side (content/artist/key/
+# Covers OneLibraryReader::readAll(), the read side (content/artist/key/
 # image/playlist/cue joins), independent of the write-path fixture above.
 add_executable(onelibrary_reader_test
     src/application/ports/progress_reporter.cpp

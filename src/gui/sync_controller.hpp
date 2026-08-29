@@ -19,7 +19,7 @@ namespace djconvert::gui
 {
 
 // Read-only Qt list model over the SyncPlans SyncController last computed.
-// Only plans with an actual direction (ToEngine/ToRekordbox) are exposed --
+// Only plans with an actual direction (ToEngine/ToRekordbox) are exposed.
 // AlreadyConsistent/NoCues need no attention, matching cli/main.cpp's
 // runSyncCommand's toEngine/toRekordbox split.
 class SyncPlanListModel : public QAbstractListModel
@@ -35,6 +35,7 @@ public:
         DescriptionRole,
         ConflictRole,
         TracksRole,
+        WillMirrorToOneLibraryRole,
     };
 
     explicit SyncPlanListModel(QObject *parent = nullptr);
@@ -46,18 +47,22 @@ public:
     // waveformsByKey is best-effort, precomputed by the caller, keyed
     // "rb:"+sourceId / "en:"+sourceId (rekordbox and Engine each have
     // their own independent sourceId space, so the format prefix avoids
-    // collisions -- see DuplicatesController::runRescanTask for the
-    // single-format equivalent that doesn't need this).
+    // collisions, see DuplicatesController::runRescanTask for the
+    // single-format equivalent that doesn't need this). onelibraryAvailable
+    // is whether exportLibrary.db exists on this stick at all, see
+    // WillMirrorToOneLibraryRole.
     void setPlans(std::vector<domain::SyncPlan> plans,
-                  std::unordered_map<std::string, std::vector<domain::WaveformColumn>> waveformsByKey = {});
+                  std::unordered_map<std::string, std::vector<domain::WaveformColumn>> waveformsByKey = {},
+                  bool onelibraryAvailable = false);
     const std::vector<domain::SyncPlan> &plans() const { return m_plans; }
 
 private:
     std::vector<domain::SyncPlan> m_plans;
     std::unordered_map<std::string, std::vector<domain::WaveformColumn>> m_waveformsByKey;
+    bool m_onelibraryAvailable = false;
 };
 
-// Result of a background analyze task -- see SyncController::analyze().
+// Result of a background analyze task, see SyncController::analyze().
 // Built entirely on a worker thread, with no access to the controller.
 struct SyncTaskResult
 {
@@ -65,10 +70,14 @@ struct SyncTaskResult
     std::unordered_map<std::string, std::vector<domain::WaveformColumn>> waveformsByKey;
     int rekordboxTrackCount = 0;
     int engineTrackCount = 0;
+    // Whether exportLibrary.db exists on this stick at all. A
+    // ToRekordbox plan's cues only ever mirror into OneLibrary when this
+    // is true (see SyncPlanListModel::WillMirrorToOneLibraryRole).
+    bool hasOneLibrary = false;
     QString errorMessage;  // empty on success
 };
 
-// Result of a background write task -- see SyncController::apply()/
+// Result of a background write task, see SyncController::apply()/
 // applyOne()/undoLastOperation(). Built entirely on a worker thread, with
 // no access to the controller. Shared by both apply and undo: an undo
 // task always returns an empty `backups` (there is nothing left to undo
@@ -83,7 +92,7 @@ struct SyncWriteResult
 
 // Wraps SyncLibraries for QML: two-phase, non-destructive sync between a
 // stick's rekordbox and Engine libraries, mirroring cli/main.cpp's
-// runSyncCommand exactly -- analyze() only ever reads (see
+// runSyncCommand exactly, analyze() only ever reads (see
 // domain::TrackMatcher / domain::SyncPlanner), apply() is the single
 // confirmation gate the QML confirm dialog calls into.
 class SyncController : public QObject
@@ -109,7 +118,7 @@ public:
     SyncPlanListModel *plansModel() { return &m_model; }
     bool busy() const { return m_busy; }
     // True only while actually writing to the stick (apply()/applyOne()/
-    // undoLastOperation()) -- unlike busy(), which is also true during the
+    // undoLastOperation()), unlike busy(), which is also true during the
     // read-only analyze() scan, which is safe to interrupt.
     bool writing() const { return m_writing; }
     int scanCurrent() const { return m_scanCurrent; }
@@ -130,13 +139,13 @@ public:
     // currently in the model. Only call this from a confirm dialog.
     Q_INVOKABLE void apply();
 
-    // Same as apply(), scoped to the single plan at index -- lets a track
+    // Same as apply(), scoped to the single plan at index, lets a track
     // be synced on its own without waiting on (or being blocked by) every
     // other matched track.
     Q_INVOKABLE void applyOne(int index);
 
     // Reverts every file the last apply()/applyOne() touched back to what
-    // it was immediately before that write -- using the very backups that
+    // it was immediately before that write, using the very backups that
     // write made, restored via FilesystemBackupStore::restore(). Available
     // only right after a write (canUndo), and only once: a fresh apply
     // clears the trail.

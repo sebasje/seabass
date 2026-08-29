@@ -13,7 +13,7 @@ ApplicationWindow {
     title: "Seabass"
 
     // "seabass" palette (see the app icon/watermark's source artifact):
-    // Current is the accent, Abyss is the app-bar primary -- both fixed
+    // Current is the accent, Abyss is the app-bar primary, both fixed
     // brand colors, deliberately not theme-dependent (see Theme.qml).
     Material.theme: appSettingsCtrl.useSystemTheme ? Material.System : Material.Dark
     Material.accent: Theme.accent
@@ -37,7 +37,7 @@ ApplicationWindow {
     }
 
     // Pushes the resolved Material colors + the theme toggle into the
-    // Theme singleton -- a pure-QML singleton has no place in the visual
+    // Theme singleton. A pure-QML singleton has no place in the visual
     // tree of its own, so it can't read the Material attached properties
     // itself (they're resolved relative to an Item's ancestors); `window`
     // here is the one Item that actually has Material.theme set, so its
@@ -47,7 +47,7 @@ ApplicationWindow {
     Binding { target: Theme; property: "materialForeground"; value: window.Material.foreground }
     Binding { target: Theme; property: "materialDivider"; value: window.Material.dividerColor }
 
-    // Explicit, guaranteed background fill -- the Material style's own
+    // Explicit, guaranteed background fill. The Material style's own
     // window-background handling doesn't reliably respect a plain
     // `color:` on ApplicationWindow (observed: it kept rendering the
     // Qt default white regardless), so paint it ourselves instead of
@@ -79,11 +79,11 @@ ApplicationWindow {
         }
     }
 
-    // Large background watermark -- normally the "Sound Bass" app mark,
+    // Large background watermark, normally the "Sound Bass" app mark,
     // anchored to the bottom-right corner, swapped for the playing
     // track's own cover art whenever there is one (falls back to the
     // brand mark the instant playback stops or the current track just
-    // has no art -- playbackCtrl.artworkPath is already a proper
+    // has no art, playbackCtrl.artworkPath is already a proper
     // file:// URL, same one PlayerBar.qml's own cover art uses directly).
     // Sits on top of the content (so it's visible regardless of which
     // page's opaque background is underneath) but at low opacity and
@@ -91,7 +91,7 @@ ApplicationWindow {
     // blocks the real UI.
     // Two identically-positioned layers, alternating which is "front."
     // A plain source swap on a single Image is an instantaneous pixel
-    // replacement -- fading that single layer out and back in just reads
+    // replacement, fading that single layer out and back in just reads
     // as a dip-to-black between old and new art, not a blend of the two.
     // Crossfading needs the old image to still be on screen, fading out,
     // while the new one fades in on top of it simultaneously; that needs
@@ -114,7 +114,7 @@ ApplicationWindow {
         Image {
             id: img
             // Only ever used as MultiEffect's pixel source below, never
-            // rendered directly -- Qt Quick still grabs a hidden item's
+            // rendered directly. Qt Quick still grabs a hidden item's
             // texture for an effect source, same as layer.enabled does.
             visible: false
             anchors.fill: parent
@@ -124,15 +124,15 @@ ApplicationWindow {
 
         // Cover art is a small source image (a rekordbox/Engine
         // thumbnail, often well under 300px) stretched to ~0.75x the
-        // window's shorter side -- upscaled that far, its own pixel grid
+        // window's shorter side. Upscaled that far, its own pixel grid
         // becomes visible ("scaled up a lot... shows artifacts").
         // Blurred here rather than just relying on Image.smooth's
         // bilinear filtering, which softens edges slightly but doesn't
         // hide a real resolution mismatch at this scale factor. The
-        // brand SVG watermark is vector -- crisp at any size -- so blur
+        // brand SVG watermark is vector, crisp at any size, so blur
         // only actually applies when this layer is showing real artwork.
         MultiEffect {
-            // Fills this layer (its actual parent) -- anchoring straight
+            // Fills this layer (its actual parent). Anchoring straight
             // to the Image sibling-of-a-different-item instead is not a
             // legal QML anchor target (only parent/sibling) and was
             // silently resolving to a zero-size effect in an earlier
@@ -152,7 +152,7 @@ ApplicationWindow {
 
     function updateWatermark() {
         // Read straight off playbackCtrl rather than through an
-        // intermediate readonly property bound to it -- that property's
+        // intermediate readonly property bound to it. That property's
         // own binding refreshes off the very same trackChanged signal
         // this function is called from, and QML doesn't guarantee this
         // Connections handler runs after that binding's re-evaluation.
@@ -175,12 +175,12 @@ ApplicationWindow {
     }
 
     // hasTrack/artworkPath both share NOTIFY trackChanged (see
-    // playback_controller.hpp) -- there's no separate hasTrackChanged/
+    // playback_controller.hpp). There's no separate hasTrackChanged/
     // artworkPathChanged signal to listen for; an earlier version of
     // this Connections block named those two anyway, which QML just
     // silently never fires, so this never re-ran on an actual track
     // change (the crossfade wasn't skipping frames, it just never
-    // started -- whatever visual change was visible came from something
+    // started. Whatever visual change was visible came from something
     // else jumping straight to the new state).
     Connections {
         target: playbackCtrl
@@ -201,6 +201,11 @@ ApplicationWindow {
                 enginePath: enginePath,
             })
             onDuplicateTracksHubRequested: (stickLabel, rekordboxPath, enginePath) => stackView.push(duplicatesHubPageComponent, {
+                stickLabel: stickLabel,
+                rekordboxPath: rekordboxPath,
+                enginePath: enginePath,
+            })
+            onLibraryHealthRequested: (stickLabel, rekordboxPath, enginePath) => stackView.push(libraryConsistencyPageComponent, {
                 stickLabel: stickLabel,
                 rekordboxPath: rekordboxPath,
                 enginePath: enginePath,
@@ -272,6 +277,13 @@ ApplicationWindow {
         id: pendingDeletionsPageComponent
         PendingDeletionsPage {
             appSettingsController: appSettingsCtrl
+        }
+    }
+
+    Component {
+        id: libraryConsistencyPageComponent
+        LibraryConsistencyPage {
+            playbackController: playbackCtrl
         }
     }
 

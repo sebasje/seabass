@@ -19,6 +19,7 @@
 #include "infrastructure/engine/libdjinterop_engine_reader.hpp"
 #include "infrastructure/engine/libdjinterop_waveform_reader.hpp"
 #include "infrastructure/logging/file_operation_log.hpp"
+#include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
 #include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 #include "infrastructure/rekordbox/rekordbox_cue_writer.hpp"
@@ -43,7 +44,7 @@ QString describeCues(const std::vector<domain::CuePoint> &cues)
     }
     QString result = QString("%1 hot").arg(hot);
     if (memory > 0) {
-        result += QString(", %1 memory (not written -- Engine writer only handles hot cues)").arg(memory);
+        result += QString(", %1 memory (not written - Engine writer only handles hot cues)").arg(memory);
     }
     return result;
 }
@@ -124,6 +125,12 @@ QVariant SyncPlanListModel::data(const QModelIndex &index, int role) const
     case TracksRole:
         return QVariantList{trackToMap(plan.match.rekordboxTrack, QStringLiteral("rekordbox"), m_waveformsByKey),
                              trackToMap(plan.match.engineTrack, QStringLiteral("engine"), m_waveformsByKey)};
+    case WillMirrorToOneLibraryRole:
+        // Mirroring only ever happens off a ToRekordbox write (see
+        // runApplyTask). A ToEngine plan never touches OneLibrary at
+        // all, and a rekordbox track with no resolved filePath can't be
+        // matched by OneLibraryCueWriter (it keys by path, not sourceId).
+        return !toEngine && m_onelibraryAvailable && !plan.match.rekordboxTrack.filePath.empty();
     default:
         return {};
     }
@@ -133,6 +140,7 @@ QHash<int, QByteArray> SyncPlanListModel::roleNames() const
 {
     return {
         {DirectionRole, "direction"},
+        {WillMirrorToOneLibraryRole, "willMirrorToOneLibrary"},
         {FilenameRole, "filename"},
         {DescriptionRole, "description"},
         {ConflictRole, "conflict"},
@@ -141,11 +149,13 @@ QHash<int, QByteArray> SyncPlanListModel::roleNames() const
 }
 
 void SyncPlanListModel::setPlans(std::vector<domain::SyncPlan> plans,
-                                  std::unordered_map<std::string, std::vector<domain::WaveformColumn>> waveformsByKey)
+                                  std::unordered_map<std::string, std::vector<domain::WaveformColumn>> waveformsByKey,
+                                  bool onelibraryAvailable)
 {
     beginResetModel();
     m_plans = std::move(plans);
     m_waveformsByKey = std::move(waveformsByKey);
+    m_onelibraryAvailable = onelibraryAvailable;
     endResetModel();
 }
 
@@ -157,7 +167,7 @@ std::chrono::system_clock::time_point fileMtime(const std::string &path)
     return std::chrono::clock_cast<std::chrono::system_clock>(std::filesystem::last_write_time(path));
 }
 
-// Runs entirely on a background thread (see SyncController::analyze()) --
+// Runs entirely on a background thread (see SyncController::analyze()) -
 // no access to the controller itself.
 SyncTaskResult runAnalyzeTask(QString rekordboxPath, QString enginePath, std::shared_ptr<QtProgressReporter> reporter)
 {
@@ -170,11 +180,18 @@ SyncTaskResult runAnalyzeTask(QString rekordboxPath, QString enginePath, std::sh
         infrastructure::engine::LibdjinteropEngineReader engineReader(enginePath.toStdString());
         engineReader.setProgressReporter(*reporter);
         auto engineTracks = application::ScanLibrary(engineReader).execute();
+        // Streaming tracks (TIDAL) have no real local file. Never sync
+        // cues onto/from one. See domain::Track::streamingSource's own
+        // doc comment.
+        engineTracks.erase(std::remove_if(engineTracks.begin(), engineTracks.end(),
+                                           [](const domain::Track &t) { return !t.streamingSource.empty(); }),
+                            engineTracks.end());
 
         std::string rekordboxDbFile = (fs::path(rekordboxPath.toStdString()) / "rekordbox" / "export.pdb").string();
         std::string engineDbFile = (fs::path(enginePath.toStdString()) / "Database2" / "m.db").string();
         auto rekordboxMtime = fileMtime(rekordboxDbFile);
         auto engineMtime = fileMtime(engineDbFile);
+        result.hasOneLibrary = infrastructure::onelibrary::OneLibraryCueWriter::existsFor(rekordboxPath.toStdString());
 
         auto allPlans = application::SyncLibraries().execute(rekordboxTracks, engineTracks, rekordboxMtime,
                                                                engineMtime);
@@ -186,7 +203,7 @@ SyncTaskResult runAnalyzeTask(QString rekordboxPath, QString enginePath, std::sh
         }
 
         // Waveforms need their own file I/O per track, so only decode them
-        // for tracks actually being displayed here -- a second phase after
+        // for tracks actually being displayed here. A second phase after
         // the main scan above already reported 100%, so it gets its own
         // start()/tick() run rather than leave the bar looking stalled.
         reporter->start("Loading waveforms", actionable.size() * 2);
@@ -266,7 +283,7 @@ void SyncController::onAnalyzeFinished()
 
     m_rekordboxTrackCount = result.rekordboxTrackCount;
     m_engineTrackCount = result.engineTrackCount;
-    m_model.setPlans(std::move(result.plans), std::move(result.waveformsByKey));
+    m_model.setPlans(std::move(result.plans), std::move(result.waveformsByKey), result.hasOneLibrary);
     recomputeDirectionCounts();
     setBusy(false);
 }
@@ -288,8 +305,8 @@ namespace
 
 // Acquires one StickWriteLock per distinct directory (sorted first so two
 // concurrent multi-lock callers always acquire in the same order, and
-// deduped so locking the same directory twice -- e.g. rekordbox and
-// Engine sharing one stick's .djconvert-backups -- never self-deadlocks).
+// deduped so locking the same directory twice, e.g. rekordbox and
+// Engine sharing one stick's .djconvert-backups, never self-deadlocks).
 // Held for the caller's whole scope via RAII.
 std::vector<std::unique_ptr<infrastructure::backup::StickWriteLock>> acquireStickLocks(std::vector<std::string> dirs)
 {
@@ -307,7 +324,7 @@ std::vector<std::unique_ptr<infrastructure::backup::StickWriteLock>> acquireStic
 // plans the caller (apply()/applyOne()) passes in: separate
 // FilesystemBackupStore/FileOperationLog per side, a single Engine m.db
 // backup, per-file-deduped rekordbox .EXT backups. Runs entirely on a
-// background thread (see SyncController::startApply()) -- writes are file
+// background thread (see SyncController::startApply()). Writes are file
 // I/O just like the analyze scan, so they get the same treatment: never
 // block the UI thread, report progress as they go.
 SyncWriteResult runApplyTask(QString rekordboxPath, QString enginePath, std::vector<SyncPlan> toEngine,
@@ -325,7 +342,7 @@ SyncWriteResult runApplyTask(QString rekordboxPath, QString enginePath, std::vec
         std::string rekordboxBackupDir =
             (fs::path(rekordboxPath.toStdString()).parent_path() / ".djconvert-backups").string();
 
-        // Held for the rest of this function -- see acquireStickLocks()'s
+        // Held for the rest of this function, see acquireStickLocks()'s
         // doc comment for why this alone is enough to keep two writers
         // (same process or not) from touching this stick at once.
         auto locks = acquireStickLocks({engineBackupDir, rekordboxBackupDir});
@@ -364,6 +381,7 @@ SyncWriteResult runApplyTask(QString rekordboxPath, QString enginePath, std::vec
             infrastructure::rekordbox::RekordboxCueWriter writer(rekordboxPath.toStdString());
             std::string pioneerRoot = rekordboxPath.toStdString();
             std::set<std::string> backedUpFiles;
+            bool hasOneLibrary = infrastructure::onelibrary::OneLibraryCueWriter::existsFor(pioneerRoot);
 
             for (const auto &plan : toRekordbox) {
                 auto analyzePath = infrastructure::rekordbox::findAnlzPathForTrackId(
@@ -384,6 +402,24 @@ SyncWriteResult runApplyTask(QString rekordboxPath, QString enginePath, std::vec
                                      ") from engine track \"" + plan.match.engineTrack.title +
                                      "\" (id=" + plan.match.engineTrack.sourceId +
                                      ") to rekordbox track id=" + plan.match.rekordboxTrack.sourceId);
+
+                // Best-effort OneLibrary mirror, same secondary write
+                // every other rekordbox cue path here already does (Clean
+                // Up, Local Cue Backup, Add Cue), never fatal to the
+                // primary write above. plan.cuesToApply is already the
+                // complete replacement set for this track (Engine's own
+                // cues, the sync source), matching writeCuesForPath()'s
+                // "pass the whole set" contract directly.
+                if (hasOneLibrary && !plan.match.rekordboxTrack.filePath.empty()) {
+                    try {
+                        infrastructure::onelibrary::OneLibraryCueWriter oneLibWriter(pioneerRoot);
+                        oneLibWriter.writeCuesForPath(plan.match.rekordboxTrack.filePath, plan.cuesToApply);
+                        rekordboxLog.record("sync: also wrote into OneLibrary for track id=" +
+                                             plan.match.rekordboxTrack.sourceId);
+                    } catch (const std::exception &e) {
+                        rekordboxLog.record(std::string("sync: OneLibrary write failed: ") + e.what());
+                    }
+                }
                 reporter->tick(++written);
             }
         }
@@ -406,7 +442,7 @@ SyncWriteResult runApplyTask(QString rekordboxPath, QString enginePath, std::vec
 // Runs entirely on a background thread (see SyncController::
 // undoLastOperation()). An empty `backups` result always means "nothing
 // left to undo," whether that's because everything restored cleanly or
-// because an error stopped the loop partway -- either way the caller's
+// because an error stopped the loop partway, either way the caller's
 // undo trail is now stale and should be cleared.
 SyncWriteResult runUndoTask(std::vector<UndoableBackup> backups, std::shared_ptr<QtProgressReporter> reporter)
 {
@@ -435,7 +471,7 @@ SyncWriteResult runUndoTask(std::vector<UndoableBackup> backups, std::shared_ptr
             reporter->tick(static_cast<size_t>(restored));
         }
         reporter->finish();
-        result.statusMessage = QString("Undone -- restored %1 file(s) to their state before the last sync").arg(restored);
+        result.statusMessage = QString("Undone - restored %1 file(s) to their state before the last sync").arg(restored);
     } catch (const std::exception &e) {
         result.errorMessage = QString::fromStdString(e.what());
     }
@@ -499,8 +535,8 @@ void SyncController::startApply(std::vector<SyncPlan> toEngine, std::vector<Sync
                                                 std::move(toRekordbox), makeReporter()));
 }
 
-// Common completion path for apply()/applyOne()/undoLastOperation() --
-// all three just differ in which background task fed the watcher.
+// Common completion path for apply()/applyOne()/undoLastOperation().
+// All three just differ in which background task fed the watcher.
 void SyncController::onWriteFinished()
 {
     SyncWriteResult result = m_writeWatcher.result();
@@ -531,7 +567,7 @@ void SyncController::undoLastOperation()
     setWriting(true);
 
     // m_lastBackups stays intact (canUndo stays true) until the task
-    // finishes and onWriteFinished() replaces it with the (empty) result --
+    // finishes and onWriteFinished() replaces it with the (empty) result,
     // same visible behavior as the old synchronous version, which only
     // cleared it after the restore loop completed.
     m_writeWatcher.setFuture(QtConcurrent::run(runUndoTask, m_lastBackups, makeReporter()));

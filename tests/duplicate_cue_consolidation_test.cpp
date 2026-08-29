@@ -155,6 +155,26 @@ int main()
         std::cout << "case 10 (transitive filename + title/artist union) OK\n";
     }
 
+    // Case 11: a duration of 0 means "unreadable," not "really zero
+    // seconds long" (matches Track's own fallback convention for other
+    // fields). Two copies whose duration failed to read (both 0) must
+    // not "match" each other by coincidence while a third copy with a
+    // real reading gets wrongly split off -- all three share the same
+    // title+artist and belong in one group regardless of which side(s)
+    // have a real duration. Regression case: found on real data, three
+    // copies of the same song where this exact split happened.
+    {
+        std::vector<Track> tracks = {
+            makeTrack("survivor", "07_song.mp3", 0.0, {}, "Song", "Artist"),
+            makeTrack("brokenA", "11_song_1.mp3", 0.0, {}, "Song", "Artist"),
+            makeTrack("brokenB", "11_song.mp3", 463.0, {}, "Song", "Artist"),
+        };
+        auto groups = DuplicateTrackFinder::find(tracks);
+        assert(groups.size() == 1);
+        assert(groups[0].tracks.size() == 3);
+        std::cout << "case 11 (unreadable duration 0 doesn't split a real title+artist match) OK\n";
+    }
+
     std::cout << "all cases passed\n";
     return 0;
 }
