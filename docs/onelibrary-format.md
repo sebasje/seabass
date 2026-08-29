@@ -1,11 +1,17 @@
 # Rekordbox OneLibrary / Device Library Plus format notes
 
-djconvert writes cues into `<PIONEER root>/rekordbox/exportLibrary.db`
-("OneLibrary", also called "Device Library Plus") on a stick, alongside
-the older `export.pdb` writer (`src/infrastructure/rekordbox/pdb_row_writer.*`).
-This is a secondary, best-effort write: see `OneLibraryCueWriter`'s class
-comment (`src/infrastructure/onelibrary/onelibrary_cue_writer.hpp`) for why
-it never rolls back a primary export.pdb/m.db write that already succeeded.
+djconvert reads and writes `<PIONEER root>/rekordbox/exportLibrary.db`
+("OneLibrary", also called "Device Library Plus") on a stick. Writing
+(`OneLibraryCueWriter`) happens alongside the older `export.pdb` writer
+(`src/infrastructure/rekordbox/pdb_row_writer.*`) as a secondary,
+best-effort mirror: see its class comment
+(`src/infrastructure/onelibrary/onelibrary_cue_writer.hpp`) for why it
+never rolls back a primary export.pdb/m.db write that already succeeded.
+Reading (`OneLibraryReader`,
+`src/infrastructure/onelibrary/onelibrary_reader.hpp`) is a normal,
+independent `LibraryReader` implementation -- Seabass's Browse Library
+page uses it directly for read-only OneLibrary browsing, not routed
+through the writer at all.
 
 ## What's confirmed
 
@@ -45,24 +51,23 @@ against [pyrekordbox](https://github.com/dylanljones/pyrekordbox)'s source
   reusing a `sourceId` from the rekordbox side -- the one identifier the
   two databases actually share.
 
+## What's now confirmed via real read-side data
+
+- **`cue.kind`'s exact meaning -- confirmed.** The stick used during
+  later development turned out to have real, pre-existing (genuinely
+  rekordbox-written, not djconvert-written) cue data once
+  `OneLibraryReader` was built to read the `cue` table back out
+  (`src/infrastructure/onelibrary/onelibrary_reader.cpp`): `kind = 0` for
+  a memory cue, `kind = 1..8` for a hot cue in that slot. Cross-checked
+  directly against `export.pdb`'s own cues/playlist positions for the
+  one track present in both catalogs with real cue data ("Voices In My
+  Head") -- exact match. This confirms the same convention
+  `OneLibraryCueWriter` already assumed when writing (see below), no
+  longer just the inferred-from-`master.db`-precedent reasoning this
+  section used to describe.
+
 ## What's inferred, not confirmed -- re-verify before fully trusting
 
-- **`cue.kind`'s exact meaning.** pyrekordbox's own docstring for this
-  column is self-contradictory ("Cue=0, Fade-In=0, Fade-Out=0, Load=3,
-  Loop=4" -- three different labels all claiming value 0), and this
-  project found no real OneLibrary data anywhere with a populated `cue`
-  table to check against -- the stick used during development has never
-  had a single cue written to OneLibrary at all (`SELECT count(*) FROM
-  cue` returns 0). What djconvert's writer actually does: `kind = 0` for
-  a memory cue, `kind = <hot cue number 1-8>` for a hot cue. This is
-  based on the **documented** convention of `master.db`'s structurally
-  analogous `djmdCue.Kind` column ("0 if memory cue, otherwise the
-  number of Hot Cue" -- pyrekordbox's db6 docs), plus prior research
-  explicitly describing Device Library Plus's schema as "similar to the
-  main Rekordbox database." Well-reasoned, but genuinely unconfirmed
-  against real Device Library Plus data. If cues written by djconvert
-  show up wrong in Rekordbox (e.g. every cue appearing as a memory cue,
-  or hot cue numbers scrambled), this is the first place to look.
 - **`colorTableIndex`.** No color-lookup table exists anywhere in this
   schema (checked: none of the 26 real tables is a color palette), and
   no documentation of what indices map to what colors was found.

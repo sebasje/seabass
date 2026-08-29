@@ -1,17 +1,36 @@
 # djconvert
 
-A command-line tool to read and (eventually) sync DJ track libraries
-between rekordbox USB exports and Denon Engine DJ libraries -- hot cues,
-loops, beatgrid, and playlists. See `specs/README.md` for details on the
-rekordbox format support, and the project plan for architecture and
-current status.
+Reads and manages DJ track libraries across the three catalogs found on a
+rekordbox/Engine DJ USB stick: rekordbox's classic per-device export
+(`export.pdb`), rekordbox 7's newer unified OneLibrary export
+(`exportLibrary.db`), and Denon Engine DJ's library (`m.db`, via the
+vendored `libdjinterop`) -- hot cues, memory cues, playlists, and (for
+rekordbox/Engine) beatgrid-aware cue writing. See `specs/README.md` for
+details on the rekordbox format support, and the project plan for
+architecture and current status.
+
+Two ways to use it:
+
+- **`djconvert`** -- a command-line tool: `scan` (read-only reporting plus
+  duplicate-track cue consolidation), `sync` (match tracks between a
+  rekordbox and an Engine source by filename/duration and reconcile their
+  cues), and `backups` (list/prune the backups djconvert makes before any
+  write). Run `djconvert --help` for full usage.
+- **Seabass** (`djconvert-gui`) -- a Qt6 desktop app covering the same
+  ground with a UI: browse all three catalogs (including read-only
+  OneLibrary browsing), play tracks with waveform/cue display, manually
+  merge duplicate tracks, add cues by clicking the waveform, clean up
+  orphaned files, and manage backups.
 
 ## Status
 
-Read-only scanning (`djconvert scan`) and duplicate-track cue
-consolidation are implemented for Engine libraries; rekordbox duplicate
-detection/reporting works too, but rekordbox itself has no write path yet.
-Full bidirectional sync between the two formats is still in development.
+Scanning, duplicate-track cue consolidation, and cue writing are
+implemented for both rekordbox (`RekordboxCueWriter`, via the ANLZ PCO2
+sections) and Engine (`LibdjinteropEngineCueWriter`, via `libdjinterop`).
+OneLibrary support is read-only (browsing and a best-effort mirror of
+writes made through rekordbox/Engine); there is no direct OneLibrary write
+path yet. Full bidirectional sync between rekordbox and Engine works via
+`djconvert sync`, matching by filename and duration.
 
 ## License
 
