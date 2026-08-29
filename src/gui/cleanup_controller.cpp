@@ -238,6 +238,8 @@ QVariant PendingDeletionListModel::data(const QModelIndex &index, int role) cons
         return QString::fromStdString(entry.timestampUtc);
     case IncludedRole:
         return m_included[static_cast<size_t>(index.row())];
+    case SizeHumanRole:
+        return humanSize(entry.fileSizeBytes);
     default:
         return {};
     }
@@ -266,6 +268,7 @@ QHash<int, QByteArray> PendingDeletionListModel::roleNames() const
         {BackupIdRole, "backupId"},
         {TimestampRole, "timestampUtc"},
         {IncludedRole, "included"},
+        {SizeHumanRole, "sizeHuman"},
     };
 }
 
@@ -275,6 +278,26 @@ void PendingDeletionListModel::setEntries(std::vector<infrastructure::cleanup::P
     m_entries = std::move(entries);
     m_included.assign(m_entries.size(), true);
     endResetModel();
+}
+
+std::uint64_t PendingDeletionListModel::totalBytes() const
+{
+    std::uint64_t total = 0;
+    for (const auto &entry : m_entries) {
+        total += entry.fileSizeBytes;
+    }
+    return total;
+}
+
+std::uint64_t PendingDeletionListModel::includedBytes() const
+{
+    std::uint64_t total = 0;
+    for (size_t i = 0; i < m_entries.size(); ++i) {
+        if (i < m_included.size() && m_included[i]) {
+            total += m_entries[i].fileSizeBytes;
+        }
+    }
+    return total;
 }
 
 std::vector<infrastructure::cleanup::PendingDeletion> PendingDeletionListModel::includedEntries() const
@@ -634,6 +657,54 @@ CleanupTaskResult runRescanTask(QString format, QString path, std::shared_ptr<Qt
     return result;
 }
 
+// Runs entirely on a background thread (see CleanupController::
+// planManualMerge()). Unlike runRescanTask(), never runs
+// DuplicateTrackFinder -- the two tracks are already a user-declared
+// match, not something to (re-)detect. Re-scans fresh rather than
+// trusting whatever ScanPage had in memory when the merge was requested,
+// same "never trust stale data right before a mutating decision" stance
+// every other write path in this codebase already takes.
+CleanupTaskResult runManualMergeTask(QString format, QString path, QString sourceIdA, QString sourceIdB,
+                                      std::shared_ptr<QtProgressReporter> reporter)
+{
+    CleanupTaskResult result;
+    try {
+        std::vector<domain::Track> tracks;
+        if (format == "rekordbox") {
+            infrastructure::rekordbox::KaitaiRekordboxReader reader(path.toStdString());
+            reader.setProgressReporter(*reporter);
+            tracks = application::ScanLibrary(reader).execute();
+        } else {
+            infrastructure::engine::LibdjinteropEngineReader reader(path.toStdString());
+            reader.setProgressReporter(*reporter);
+            tracks = application::ScanLibrary(reader).execute();
+        }
+
+        std::string idA = sourceIdA.toStdString();
+        std::string idB = sourceIdB.toStdString();
+        const domain::Track *trackA = nullptr;
+        const domain::Track *trackB = nullptr;
+        for (const auto &t : tracks) {
+            if (t.sourceId == idA) {
+                trackA = &t;
+            } else if (t.sourceId == idB) {
+                trackB = &t;
+            }
+        }
+        if (!trackA || !trackB) {
+            result.errorMessage = "One or both tracks no longer exist in this library -- rescan and try again.";
+            return result;
+        }
+
+        domain::DuplicateGroup group;
+        group.tracks = {*trackA, *trackB};
+        result.plans = {domain::DuplicateCleanupPlanner::plan(group)};
+    } catch (const std::exception &e) {
+        result.errorMessage = QString::fromStdString(e.what());
+    }
+    return result;
+}
+
 }  // namespace
 
 CleanupController::CleanupController(QObject *parent) : QObject(parent)
@@ -658,6 +729,33 @@ void CleanupController::scan(const QString &format, const QString &path)
     m_format = format;
     m_path = path;
     rescan();
+}
+
+void CleanupController::loadPendingDeletionsOnly(const QString &format, const QString &path)
+{
+    m_format = format;
+    m_path = path;
+    refreshPendingDeletions();
+}
+
+void CleanupController::planManualMerge(const QString &format, const QString &path, const QString &sourceIdA,
+                                         const QString &sourceIdB)
+{
+    if (m_busy) {
+        return;
+    }
+    m_format = format;
+    m_path = path;
+    setErrorMessage({});
+    // Also cleared here (unlike rescan(), which never needs to): a
+    // second merge in the same page session must not have the previous
+    // one's leftover success message hide this new plan's own preview
+    // (see ScanPage.qml's Repeater, gated on statusMessage being empty).
+    setStatusMessage({});
+    setScanProgress(0, 0);
+    setBusy(true);
+
+    m_watcher.setFuture(QtConcurrent::run(runManualMergeTask, format, path, sourceIdA, sourceIdB, makeReporter()));
 }
 
 void CleanupController::rescan()
@@ -789,12 +887,34 @@ void CleanupController::refreshPendingDeletions()
     // everything else on it.
     std::vector<infrastructure::cleanup::PendingDeletion> filtered;
     for (auto &entry : manifest.list()) {
-        if (entry.format == m_format.toStdString()) {
-            filtered.push_back(std::move(entry));
+        if (entry.format != m_format.toStdString()) {
+            continue;
         }
+        // fileSizeBytes is never persisted in the manifest (see its own
+        // doc comment) -- stat it fresh here so "how much space would
+        // deleting this free up" reflects the file's real current size,
+        // not a guess. 0 if the file's already gone; still worth listing
+        // (deleteSelectedPendingFiles() clears an already-absent entry
+        // from the manifest instead of erroring).
+        std::error_code ec;
+        entry.fileSizeBytes = fs::file_size(entry.filePath, ec);
+        if (ec) {
+            entry.fileSizeBytes = 0;
+        }
+        filtered.push_back(std::move(entry));
     }
     m_pendingModel.setEntries(std::move(filtered));
     emit pendingDeletionsChanged();
+}
+
+QString CleanupController::totalPendingBytesHuman() const
+{
+    return humanSize(m_pendingModel.totalBytes());
+}
+
+QString CleanupController::includedPendingBytesHuman() const
+{
+    return humanSize(m_pendingModel.includedBytes());
 }
 
 void CleanupController::setPendingDeletionIncluded(int index, bool included)

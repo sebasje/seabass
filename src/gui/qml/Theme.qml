@@ -68,23 +68,113 @@ QtObject {
     readonly property color rowPressed: mix(surface, text, 0.16)
     readonly property color groupBackground: mix(surface, background, 0.5)
 
-    // ---- Status colors -- fixed across both modes (a warning should
-    // read as a warning regardless of theme), but still centralized here
-    // rather than repeated as literals at every call site. ----
-    readonly property color good: "#8fce8f"
-    readonly property color info: "#8ab4f8"
-    readonly property color danger: "#ff8080"
-    readonly property color warnBg: "#4a3510"
-    readonly property color warnBorder: "#c99a2e"
-    readonly property color warnText: "#f0d080"
-    readonly property color warnIcon: "#f0c040"
-    readonly property color dangerBg: "#5c1a1a"
+    // Perceptual luminance of the *actual current* background -- not just
+    // useSystemTheme, since useSystemTheme:true resolves to Material.System,
+    // which can itself land on a dark Plasma color scheme. Deciding by real
+    // luminance is correct in every combination (Kelp, light system theme,
+    // dark system theme) instead of two.
+    readonly property bool isLightBackground: (background.r * 0.299 + background.g * 0.587 + background.b * 0.114) > 0.5
+
+    // ---- Status colors -- same semantic meaning in both modes (a warning
+    // reads as a warning regardless of theme), but NOT the same literal
+    // hex in both: the pastel shades below read clearly against Kelp's
+    // always-dark background (what these were originally tuned against)
+    // but wash out to near-illegible against a light background -- pastel
+    // green/red/blue text on near-white has poor contrast even though the
+    // hue is "right." Each gets a darker, more saturated light-mode
+    // counterpart with the same hue family instead. ----
+    readonly property color good: isLightBackground ? "#1e7d32" : "#8fce8f"
+    readonly property color info: isLightBackground ? "#1456b0" : "#8ab4f8"
+    readonly property color danger: isLightBackground ? "#c62828" : "#ff8080"
+    readonly property color warnBg: isLightBackground ? "#fbeecb" : "#4a3510"
+    readonly property color warnBorder: isLightBackground ? "#c99a2e" : "#c99a2e"
+    readonly property color warnText: isLightBackground ? "#6b4f0a" : "#f0d080"
+    readonly property color warnIcon: isLightBackground ? "#a3760a" : "#f0c040"
+    readonly property color dangerBg: isLightBackground ? "#f8d7d7" : "#5c1a1a"
     readonly property color dangerBorder: "#e74c3c"
-    readonly property color dangerText: "#ffffff"
-    readonly property color conflictText: "#ffa500"
+    readonly property color dangerText: isLightBackground ? "#5c1a1a" : "#ffffff"
+    readonly property color conflictText: isLightBackground ? "#a85300" : "#ffa500"
 
     function mix(a, b, t) {
         return Qt.rgba(a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t, 1.0);
+    }
+
+    // ---- Musical key -> Camelot wheel color. The wheel itself (12
+    // positions arranged by the circle of fifths, each with a relative
+    // major/minor pair) is a standard, vendor-neutral DJ convention, not
+    // any one company's IP -- but the actual *colors* Mixed In Key/
+    // Rekordbox/etc. paint each wedge are their own product design, so
+    // this is an original palette, not a reproduction: hue is simply the
+    // wheel position itself (camelot number 1..12 spread evenly around
+    // the color wheel), so two keys that are close together on the
+    // wheel -- i.e. harmonically compatible, safe to mix -- also look
+    // close together in color. That visual-distance-mirrors-harmonic-
+    // distance property is the actual creative idea here, not a
+    // particular set of hex codes. Minor vs. major then reads as
+    // "moodier, more saturated and darker" vs. "brighter" at the same
+    // hue, rather than a hue change, so relative major/minor pairs
+    // (e.g. Am/C, both camelot 8) stay visibly related too. ----
+
+    // Pitch class (0=C .. 11=B) -> Camelot number, one table per mode.
+    // Derived directly from the wheel's own relative-major/minor
+    // pairing (e.g. camelot 8 is A minor *and* C major), not guessed.
+    readonly property var camelotMinorByPitchClass: [5, 12, 7, 2, 9, 4, 11, 6, 1, 8, 3, 10]
+    readonly property var camelotMajorByPitchClass: [8, 3, 10, 5, 12, 7, 2, 9, 4, 11, 6, 1]
+    readonly property var pitchClassByName: ({
+        "C": 0, "B#": 0,
+        "C#": 1, "Db": 1,
+        "D": 2,
+        "D#": 3, "Eb": 3,
+        "E": 4, "Fb": 4,
+        "F": 5, "E#": 5,
+        "F#": 6, "Gb": 6,
+        "G": 7,
+        "G#": 8, "Ab": 8,
+        "A": 9,
+        "A#": 10, "Bb": 10,
+        "B": 11, "Cb": 11,
+    })
+
+    // Parses a key string like "Dm", "F#m", "Bb", "C#" into
+    // {camelotNumber: 1..12, isMinor: bool}, or null if it isn't a
+    // recognized key spelling (never guessed at -- an unparseable key
+    // just gets no color, same "don't fabricate it" stance as
+    // conflictText/color-tag handling elsewhere in this codebase).
+    function parseCamelotKey(keyStr) {
+        if (!keyStr || keyStr.length === 0) {
+            return null;
+        }
+        var isMinor = keyStr.length > 1 && keyStr.charAt(keyStr.length - 1) === "m";
+        var notePart = isMinor ? keyStr.slice(0, -1) : keyStr;
+        var pitchClass = pitchClassByName[notePart];
+        if (pitchClass === undefined) {
+            return null;
+        }
+        var camelotNumber = isMinor ? camelotMinorByPitchClass[pitchClass] : camelotMajorByPitchClass[pitchClass];
+        return {camelotNumber: camelotNumber, isMinor: isMinor};
+    }
+
+    function camelotLabel(keyStr) {
+        var parsed = parseCamelotKey(keyStr);
+        return parsed ? (parsed.camelotNumber + (parsed.isMinor ? "A" : "B")) : "";
+    }
+
+    function colorForKey(keyStr) {
+        var parsed = parseCamelotKey(keyStr);
+        if (!parsed) {
+            return textMuted;
+        }
+        var hue = (parsed.camelotNumber - 1) / 12;
+        return parsed.isMinor ? Qt.hsla(hue, 0.55, 0.38, 1.0) : Qt.hsla(hue, 0.65, 0.55, 1.0);
+    }
+
+    // Legible text color for a badge painted with colorForKey()'s output
+    // -- computed from real luminance rather than assumed from the HSL
+    // lightness that produced it, since the same lightness renders
+    // visually lighter or darker depending on hue.
+    function contrastingTextColor(bg) {
+        var luminance = 0.299 * bg.r + 0.587 * bg.g + 0.114 * bg.b;
+        return luminance > 0.6 ? "#000000" : "#ffffff";
     }
 
     // ---- Font scale -- every size a multiple of the system's own font

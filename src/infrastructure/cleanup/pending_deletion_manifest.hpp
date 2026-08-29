@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <set>
 #include <string>
 #include <vector>
@@ -15,6 +16,16 @@ struct PendingDeletion
     std::string title;
     std::string artist;
     std::string backupId;  // the backup covering the DB edit that orphaned this file
+
+    // NOT persisted in the manifest file itself (append()/list() never
+    // read or write this) -- the manifest only ever recorded metadata
+    // about the DB edit that orphaned a file, not a snapshot of its size
+    // at that moment, which could go stale. Callers that want to show how
+    // much disk space these entries represent (e.g. the GUI) populate
+    // this with a fresh std::filesystem::file_size() stat right before
+    // display, the same "never trust a static number, re-check live"
+    // stance resolvePendingDeletions() already takes for reference-safety.
+    std::uint64_t fileSizeBytes = 0;
 };
 
 // Append-only "garbage bin": a durable record of audio files a duplicate

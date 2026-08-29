@@ -102,6 +102,42 @@ Page {
             ColumnLayout {
                 spacing: 6
                 Layout.fillWidth: true
+                Label { text: "The three library catalogs"; font.bold: true; font.pointSize: Theme.fontMedium }
+                Label {
+                    text: "A stick can carry up to three separate, independently-maintained catalogs of "
+                        + "the same tracks -- Browse Library can switch between whichever ones are present:"
+                    wrapMode: Text.WordWrap
+                    font.pointSize: Theme.baseFontPointSize * 1.1
+                    color: Theme.textMuted
+                    Layout.fillWidth: true
+                }
+                Label {
+                    text: "• Engine OS -- Denon Engine DJ's own library (m.db). What Denon/inMusic "
+                        + "hardware (SC5000, Prime series, ...) reads directly.\n"
+                        + "• DeviceLibrary -- Rekordbox's classic per-stick export (export.pdb). What "
+                        + "CDJs and XDJs read directly; every rekordbox export has this.\n"
+                        + "• OneLibrary -- Rekordbox 7's newer unified library (exportLibrary.db, also "
+                        + "called \"Device Library Plus\"). Mirrors DeviceLibrary's tracks in a richer "
+                        + "schema, kept in sync by Rekordbox itself; not present on every export."
+                    wrapMode: Text.WordWrap
+                    font.pointSize: Theme.baseFontPointSize * 1.1
+                    color: Theme.textMuted
+                    Layout.fillWidth: true
+                }
+                Label {
+                    text: "OneLibrary is browse-only in Seabass for now -- merging duplicates and adding "
+                        + "cues only work against DeviceLibrary and Engine OS."
+                    wrapMode: Text.WordWrap
+                    font.pointSize: Theme.baseFontPointSize
+                    font.italic: true
+                    color: Theme.textMuted
+                    Layout.fillWidth: true
+                }
+            }
+
+            ColumnLayout {
+                spacing: 6
+                Layout.fillWidth: true
                 Label { text: "What Seabass doesn't do"; font.bold: true; font.pointSize: Theme.fontMedium }
                 Label {
                     text: "Seabass never analyzes audio. Beatgridding, BPM/key detection, and waveform "

@@ -5,6 +5,7 @@
 #include <QObject>
 #include <QQmlEngine>
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -96,6 +97,7 @@ public:
         BackupIdRole,
         TimestampRole,
         IncludedRole,
+        SizeHumanRole,
     };
 
     explicit PendingDeletionListModel(QObject *parent = nullptr);
@@ -111,6 +113,11 @@ public:
     int includedCount() const;
     // Sets every row's included flag at once (select all / deselect all).
     void setAllIncluded(bool included);
+    // Sum of every listed entry's fileSizeBytes, and just the checked
+    // ones -- "how much space is here" vs "how much would this delete
+    // free up right now."
+    std::uint64_t totalBytes() const;
+    std::uint64_t includedBytes() const;
 
 private:
     std::vector<infrastructure::cleanup::PendingDeletion> m_entries;
@@ -178,6 +185,8 @@ class CleanupController : public QObject
     Q_PROPERTY(int includedCount READ includedCount NOTIFY includedChanged)
     Q_PROPERTY(djconvert::gui::PendingDeletionListModel *pendingDeletions READ pendingDeletionsModel CONSTANT)
     Q_PROPERTY(int pendingDeletionsIncludedCount READ pendingDeletionsIncludedCount NOTIFY pendingDeletionsChanged)
+    Q_PROPERTY(QString totalPendingBytesHuman READ totalPendingBytesHuman NOTIFY pendingDeletionsChanged)
+    Q_PROPERTY(QString includedPendingBytesHuman READ includedPendingBytesHuman NOTIFY pendingDeletionsChanged)
 
 public:
     explicit CleanupController(QObject *parent = nullptr);
@@ -194,10 +203,22 @@ public:
     int includedCount() const { return m_model.includedCount(); }
     PendingDeletionListModel *pendingDeletionsModel() { return &m_pendingModel; }
     int pendingDeletionsIncludedCount() const { return m_pendingModel.includedCount(); }
+    QString totalPendingBytesHuman() const;
+    QString includedPendingBytesHuman() const;
 
     // format is "rekordbox" or "engine"; path is the corresponding
     // DetectedStick.rekordboxPath / .enginePath.
     Q_INVOKABLE void scan(const QString &format, const QString &path);
+
+    // Builds and populates `plans` with a single manually-declared merge
+    // of exactly two tracks (by sourceId), reusing the same survivor/cue-
+    // merge planning DuplicateCleanupPlanner already does for auto-
+    // detected groups -- for ScanPage.qml's "Merge with..." picker,
+    // where the user (not DuplicateTrackFinder) has already decided these
+    // two are the same track. apply() then works exactly as it does for
+    // an auto-detected plan -- no separate apply path needed.
+    Q_INVOKABLE void planManualMerge(const QString &format, const QString &path, const QString &sourceIdA,
+                                      const QString &sourceIdB);
 
     Q_INVOKABLE void setIncluded(int index, bool included);
     Q_INVOKABLE void setAllIncluded(bool included);
@@ -220,11 +241,18 @@ public:
 
     // Re-reads this format's pending-deletion entries from
     // .djconvert-pending-deletions.jsonl on the stick and repopulates
-    // pendingDeletions. Cheap (a small text file), so this runs
-    // synchronously rather than on a background thread -- called
-    // automatically after every scan()/apply(), but QML can also call it
-    // directly.
+    // pendingDeletions. Cheap (a small text file plus a stat() per entry
+    // for its current size), so this runs synchronously rather than on a
+    // background thread -- called automatically after every scan()/
+    // apply(), but QML can also call it directly.
     Q_INVOKABLE void refreshPendingDeletions();
+
+    // Sets format/path and loads pendingDeletions only -- unlike scan(),
+    // does NOT kick off the (potentially slow, whole-library) duplicate-
+    // group rescan. For PendingDeletionsPage, whose entire purpose is the
+    // pending-deletions list: forcing a full rescan just to show a small
+    // manifest file would be a pointless wait.
+    Q_INVOKABLE void loadPendingDeletionsOnly(const QString &format, const QString &path);
 
     Q_INVOKABLE void setPendingDeletionIncluded(int index, bool included);
     Q_INVOKABLE void setAllPendingDeletionIncluded(bool included);

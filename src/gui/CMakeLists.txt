@@ -38,10 +38,13 @@ qt_add_qml_module(djconvert-gui
         qml/ScanPage.qml
         qml/DuplicatesPage.qml
         qml/CleanupPage.qml
+        qml/PendingDeletionsPage.qml
         qml/SyncPage.qml
         qml/BackupsPage.qml
         qml/LocalCuePage.qml
         qml/FormatToggle.qml
+        qml/LibrarySourceToggle.qml
+        qml/KeyBadge.qml
         qml/AboutPage.qml
         qml/PlayerBar.qml
         qml/WaveformView.qml
@@ -64,6 +67,8 @@ qt_add_qml_module(djconvert-gui
         duplicates_controller.cpp
         cleanup_controller.hpp
         cleanup_controller.cpp
+        add_cue_controller.hpp
+        add_cue_controller.cpp
         sync_controller.hpp
         sync_controller.cpp
         backups_controller.hpp
@@ -92,6 +97,7 @@ target_link_libraries(djconvert-gui PRIVATE
     Qt6::Quick
     Qt6::QuickControls2
     Qt6::QuickLayouts
+    Qt6::QuickEffects
     Qt6::Multimedia
     Qt6::Concurrent
     Qt6::Svg

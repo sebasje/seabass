@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
+import QtQuick.Effects
 import QtQuick.Layouts
 import DjConvertGui
 
@@ -78,22 +79,115 @@ ApplicationWindow {
         }
     }
 
-    // Large background watermark -- the "Sound Bass" app mark, anchored to
-    // the bottom-right corner. Sits on top of the content (so it's visible
-    // regardless of which page's opaque background is underneath) but at
-    // low opacity and with no mouse handling of its own, so it never
-    // competes with or blocks the real UI.
-    Image {
-        source: "qrc:/qt/qml/DjConvertGui/qml/icons/seabass_soundbass.svg"
+    // Large background watermark -- normally the "Sound Bass" app mark,
+    // anchored to the bottom-right corner, swapped for the playing
+    // track's own cover art whenever there is one (falls back to the
+    // brand mark the instant playback stops or the current track just
+    // has no art -- playbackCtrl.artworkPath is already a proper
+    // file:// URL, same one PlayerBar.qml's own cover art uses directly).
+    // Sits on top of the content (so it's visible regardless of which
+    // page's opaque background is underneath) but at low opacity and
+    // with no mouse handling of its own, so it never competes with or
+    // blocks the real UI.
+    // Two identically-positioned layers, alternating which is "front."
+    // A plain source swap on a single Image is an instantaneous pixel
+    // replacement -- fading that single layer out and back in just reads
+    // as a dip-to-black between old and new art, not a blend of the two.
+    // Crossfading needs the old image to still be on screen, fading out,
+    // while the new one fades in on top of it simultaneously; that needs
+    // two separate Image/MultiEffect stacks.
+    component WatermarkLayer: Item {
+        id: layer
+        property alias source: img.source
+        property bool isArtwork: false
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         anchors.margins: -width * 0.08
         width: Math.min(window.width, window.height) * 0.75
         height: width
-        opacity: 0.10
-        fillMode: Image.PreserveAspectFit
-        smooth: true
+        opacity: 0
+
+        Behavior on opacity {
+            NumberAnimation { duration: 400; easing.type: Easing.InOutQuad }
+        }
+
+        Image {
+            id: img
+            // Only ever used as MultiEffect's pixel source below, never
+            // rendered directly -- Qt Quick still grabs a hidden item's
+            // texture for an effect source, same as layer.enabled does.
+            visible: false
+            anchors.fill: parent
+            fillMode: Image.PreserveAspectFit
+            smooth: true
+        }
+
+        // Cover art is a small source image (a rekordbox/Engine
+        // thumbnail, often well under 300px) stretched to ~0.75x the
+        // window's shorter side -- upscaled that far, its own pixel grid
+        // becomes visible ("scaled up a lot... shows artifacts").
+        // Blurred here rather than just relying on Image.smooth's
+        // bilinear filtering, which softens edges slightly but doesn't
+        // hide a real resolution mismatch at this scale factor. The
+        // brand SVG watermark is vector -- crisp at any size -- so blur
+        // only actually applies when this layer is showing real artwork.
+        MultiEffect {
+            // Fills this layer (its actual parent) -- anchoring straight
+            // to the Image sibling-of-a-different-item instead is not a
+            // legal QML anchor target (only parent/sibling) and was
+            // silently resolving to a zero-size effect in an earlier
+            // version of this watermark, which is why it disappeared
+            // entirely for a while.
+            anchors.fill: parent
+            source: img
+            blurEnabled: layer.isArtwork
+            blur: 1.0
+            blurMax: 64
+        }
     }
+
+    WatermarkLayer { id: watermarkLayerA }
+    WatermarkLayer { id: watermarkLayerB }
+    property bool watermarkFrontIsA: true
+
+    function updateWatermark() {
+        // Read straight off playbackCtrl rather than through an
+        // intermediate readonly property bound to it -- that property's
+        // own binding refreshes off the very same trackChanged signal
+        // this function is called from, and QML doesn't guarantee this
+        // Connections handler runs after that binding's re-evaluation.
+        // When it ran first, this read back the *previous* value, one
+        // track behind. A direct property read here always gets the
+        // live current value regardless of connection order.
+        var isArt = playbackCtrl.hasTrack && playbackCtrl.artworkPath.length > 0;
+        var src = isArt ? playbackCtrl.artworkPath
+            : "qrc:/qt/qml/DjConvertGui/qml/icons/seabass_soundbass.svg";
+        var front = watermarkFrontIsA ? watermarkLayerA : watermarkLayerB;
+        var back = watermarkFrontIsA ? watermarkLayerB : watermarkLayerA;
+        if (front.source === src) {
+            return;
+        }
+        back.source = src;
+        back.isArtwork = isArt;
+        back.opacity = 0.18;
+        front.opacity = 0;
+        watermarkFrontIsA = !watermarkFrontIsA;
+    }
+
+    // hasTrack/artworkPath both share NOTIFY trackChanged (see
+    // playback_controller.hpp) -- there's no separate hasTrackChanged/
+    // artworkPathChanged signal to listen for; an earlier version of
+    // this Connections block named those two anyway, which QML just
+    // silently never fires, so this never re-ran on an actual track
+    // change (the crossfade wasn't skipping frames, it just never
+    // started -- whatever visual change was visible came from something
+    // else jumping straight to the new state).
+    Connections {
+        target: playbackCtrl
+        function onTrackChanged() { window.updateWatermark(); }
+    }
+
+    Component.onCompleted: window.updateWatermark()
 
     Component {
         id: stickListPageComponent
@@ -151,6 +245,11 @@ ApplicationWindow {
                 rekordboxPath: rekordboxPath,
                 enginePath: enginePath,
             })
+            onPendingDeletionsRequested: (stickLabel, rekordboxPath, enginePath) => stackView.push(pendingDeletionsPageComponent, {
+                stickLabel: stickLabel,
+                rekordboxPath: rekordboxPath,
+                enginePath: enginePath,
+            })
         }
     }
 
@@ -165,6 +264,13 @@ ApplicationWindow {
     Component {
         id: cleanupPageComponent
         CleanupPage {
+            appSettingsController: appSettingsCtrl
+        }
+    }
+
+    Component {
+        id: pendingDeletionsPageComponent
+        PendingDeletionsPage {
             appSettingsController: appSettingsCtrl
         }
     }

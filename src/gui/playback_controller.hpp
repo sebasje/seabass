@@ -18,6 +18,8 @@ class PlaybackController : public QObject
     Q_OBJECT
     QML_ELEMENT
     Q_PROPERTY(bool hasTrack READ hasTrack NOTIFY trackChanged)
+    Q_PROPERTY(QString currentFormat READ currentFormat NOTIFY trackChanged)
+    Q_PROPERTY(QString currentSourceId READ currentSourceId NOTIFY trackChanged)
     Q_PROPERTY(QString title READ title NOTIFY trackChanged)
     Q_PROPERTY(QString artist READ artist NOTIFY trackChanged)
     Q_PROPERTY(QString artworkPath READ artworkPath NOTIFY trackChanged)
@@ -33,6 +35,12 @@ public:
     explicit PlaybackController(QObject *parent = nullptr);
 
     bool hasTrack() const { return m_hasTrack; }
+    // Which track is loaded, for a page's own track list to compare
+    // against its own rows (e.g. ScanPage.qml highlighting the currently
+    // playing row) -- sourceId alone isn't unique across formats, so
+    // both are exposed and a caller should compare both.
+    QString currentFormat() const { return m_currentFormat; }
+    QString currentSourceId() const { return m_currentSourceId; }
     QString title() const { return m_title; }
     QString artist() const { return m_artist; }
     QString artworkPath() const { return m_artworkPath; }
@@ -81,6 +89,8 @@ private:
     QMediaPlayer m_player;
     QAudioOutput m_audioOutput;
     bool m_hasTrack = false;
+    QString m_currentFormat;
+    QString m_currentSourceId;
     QString m_title;
     QString m_artist;
     QString m_artworkPath;

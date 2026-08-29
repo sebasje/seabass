@@ -80,11 +80,6 @@ Page {
                 font.pointSize: Theme.fontLarge
             }
             Item { Layout.fillWidth: true }
-            FormatToggle {
-                appSettingsController: root.appSettingsController
-                hasRekordbox: root.hasRekordbox
-                hasEngine: root.hasEngine
-            }
         }
     }
 
@@ -273,7 +268,7 @@ Page {
                                 enabled: !localCueController.busy
                                 ToolTip.visible: hovered
                                 ToolTip.text: "Match this exact backup against the " + (root.format === "engine" ? "Engine" : "Rekordbox")
-                                    + " side of the stick (switch the toggle above to restore the other side) -- results appear below"
+                                    + " side of the stick (switch the format toggle below to restore the other side) -- results appear below"
                                 onClicked: {
                                     confirmDialog.sourceDescription = snapshotDescriptionField.text.length > 0
                                         ? snapshotDescriptionField.text
@@ -326,6 +321,19 @@ Page {
                                 + "   Have new cues to add: " + restoreListView.count
                             color: Theme.textMuted
                         }
+                    }
+                    // Scoped to just this section -- unlike every other
+                    // page's header-level toggle, "Back Up to This
+                    // Computer" above always backs up both formats
+                    // together in one snapshot regardless of it, so a
+                    // page-wide toggle up in the header implied a scope
+                    // it didn't actually have. Merging is genuinely
+                    // format-specific (one side of the stick at a time),
+                    // so it lives right where it applies instead.
+                    FormatToggle {
+                        appSettingsController: root.appSettingsController
+                        hasRekordbox: root.hasRekordbox
+                        hasEngine: root.hasEngine
                     }
                     Button {
                         text: "Re-Analyze Latest"

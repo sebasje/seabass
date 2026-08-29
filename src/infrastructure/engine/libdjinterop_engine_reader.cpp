@@ -9,6 +9,8 @@
 #include <stdexcept>
 #include <unordered_map>
 
+#include <sqlite3.h>
+
 #include <djinterop/djinterop.hpp>
 
 namespace djconvert::infrastructure::engine
@@ -61,6 +63,70 @@ void collectPlaylistMemberships(const djinterop::playlist &pl, const std::string
     }
 }
 
+// Track id -> best-effort resolved artwork file path, read directly via
+// plain SQLite3 rather than libdjinterop's own public API -- track.hpp
+// exposes no way to get at album art at all (djinterop::album_art exists
+// as a type but is an acknowledged stub -- "TODO - implement rest of
+// album_art class" -- and database.hpp has no method returning one), even
+// though the underlying schema has real, resolvable data: every Track row
+// has an albumArtId, and AlbumArt.hash is not a hash at all despite the
+// column name -- it's a URI like "image://fileart//media/<label>/PIONEER/
+// Artwork/00001/a5_m.jpg" pointing at a real external JPEG file on the
+// stick (AlbumArt.albumArt, the actual BLOB column, is confirmed always
+// empty on real hardware-written data -- Engine stores art as files, not
+// inline). <label> is whatever volume label the *original* Denon hardware
+// mounted the stick under, not necessarily this machine's -- so this
+// anchors on the stable "PIONEER/Artwork/..." suffix instead of trying to
+// match the volume label. djconvert_core already links plain SQLite3
+// directly for LocalCueStore, so this doesn't add a new dependency; opened
+// as a second, independent, read-only connection to the same m.db
+// djinterop::engine::load_database() above already has open, never
+// written through.
+std::unordered_map<int64_t, std::string> readArtworkPaths(const std::string &engineLibraryPath)
+{
+    std::unordered_map<int64_t, std::string> result;
+    std::filesystem::path stickRoot = std::filesystem::path(engineLibraryPath).parent_path();
+    std::string dbPath = (std::filesystem::path(engineLibraryPath) / "Database2" / "m.db").string();
+
+    sqlite3 *db = nullptr;
+    if (sqlite3_open_v2(dbPath.c_str(), &db, SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK) {
+        if (db) {
+            sqlite3_close(db);
+        }
+        return result;
+    }
+
+    sqlite3_stmt *stmt = nullptr;
+    const char *sql =
+        "SELECT t.id, a.hash FROM Track t JOIN AlbumArt a ON a.id = t.albumArtId "
+        "WHERE t.albumArtId IS NOT NULL AND t.albumArtId != 0";
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        sqlite3_close(db);
+        return result;
+    }
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        int64_t trackId = sqlite3_column_int64(stmt, 0);
+        const unsigned char *hashText = sqlite3_column_text(stmt, 1);
+        if (!hashText) {
+            continue;
+        }
+        std::string hash = reinterpret_cast<const char *>(hashText);
+        auto pos = hash.find("PIONEER/Artwork");
+        if (pos == std::string::npos) {
+            continue;
+        }
+        std::filesystem::path candidate = stickRoot / hash.substr(pos);
+        std::error_code ec;
+        if (std::filesystem::exists(candidate, ec)) {
+            result[trackId] = candidate.string();
+        }
+    }
+    sqlite3_finalize(stmt);
+    sqlite3_close(db);
+    return result;
+}
+
 }  // namespace
 
 LibdjinteropEngineReader::LibdjinteropEngineReader(std::string engineLibraryPath)
@@ -84,6 +150,13 @@ std::vector<domain::Track> LibdjinteropEngineReader::readAll()
         }
     } catch (const std::exception &e) {
         m_progress->warn(std::string("could not read playlists: ") + e.what());
+    }
+
+    std::unordered_map<int64_t, std::string> artworkByTrackId;
+    try {
+        artworkByTrackId = readArtworkPaths(m_engineLibraryPath);
+    } catch (const std::exception &e) {
+        m_progress->warn(std::string("could not read album art: ") + e.what());
     }
 
     m_progress->start("Scanning Engine tracks", allTracks.size());
@@ -127,6 +200,10 @@ std::vector<domain::Track> LibdjinteropEngineReader::readAll()
         auto playlistsIt = playlistsByTrackId.find(id);
         if (playlistsIt != playlistsByTrackId.end()) {
             track.playlists = playlistsIt->second;
+        }
+        auto artworkIt = artworkByTrackId.find(id);
+        if (artworkIt != artworkByTrackId.end()) {
+            track.artworkPath = artworkIt->second;
         }
 
         auto sampleRate = safeGet<std::optional<double>>(*m_progress, id, "sample_rate",

@@ -187,6 +187,7 @@ target_sources(djconvert_core PRIVATE
     src/infrastructure/onelibrary/onelibrary_key.cpp
     src/infrastructure/onelibrary/sqlcipher_dyn.cpp
     src/infrastructure/onelibrary/onelibrary_cue_writer.cpp
+    src/infrastructure/onelibrary/onelibrary_reader.cpp
 )
 if(NOT WIN32)
     target_link_libraries(djconvert_core PUBLIC ${CMAKE_DL_LIBS})
@@ -216,7 +217,7 @@ endif()
 # --- djconvert-gui: the Qt Quick composition root (opt-in: only built ---
 # --- when Qt6 is available, so machines without Qt still get the CLI) ---
 
-find_package(Qt6 QUIET COMPONENTS Core Gui Qml Quick QuickControls2 QuickLayouts Multimedia Concurrent Svg)
+find_package(Qt6 QUIET COMPONENTS Core Gui Qml Quick QuickControls2 QuickLayouts QuickEffects Multimedia Concurrent Svg)
 if(Qt6_FOUND)
     qt_standard_project_setup(REQUIRES 6.5)
     if(WIN32)
@@ -402,6 +403,7 @@ add_executable(onelibrary_cue_writer_test
     src/infrastructure/onelibrary/onelibrary_key.cpp
     src/infrastructure/onelibrary/sqlcipher_dyn.cpp
     src/infrastructure/onelibrary/onelibrary_cue_writer.cpp
+    src/infrastructure/onelibrary/onelibrary_reader.cpp
     tests/onelibrary_cue_writer_test.cpp
 )
 target_include_directories(onelibrary_cue_writer_test PRIVATE src)
