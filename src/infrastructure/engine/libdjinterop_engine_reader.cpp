@@ -245,6 +245,14 @@ std::vector<domain::Track> LibdjinteropEngineReader::readAll()
         });
         track.lastPlayedAt = safeGet<std::optional<std::chrono::system_clock::time_point>>(
             *m_progress, id, "last_played_at", [&] { return tr.last_played_at(); });
+        track.rating = safeGet<std::optional<int>>(*m_progress, id, "rating", [&] {
+            auto r = tr.rating();
+            if (!r || *r <= 0) {
+                return std::optional<int>{};
+            }
+            return std::optional<int>{*r / 20};
+        });
+        track.comment = safeGet<std::string>(*m_progress, id, "comment", [&] { return tr.comment().value_or(""); });
         auto playlistsIt = playlistsByTrackId.find(id);
         if (playlistsIt != playlistsByTrackId.end()) {
             track.playlists = playlistsIt->second;

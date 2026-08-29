@@ -98,11 +98,14 @@ target_link_libraries(rekordbox_format PUBLIC kaitai_cpp_stl_runtime)
 # --- both the CLI (src/cli/) and the Qt GUI (src/gui/) composition roots ---
 
 add_library(djconvert_core STATIC
+    src/domain/disk_usage.cpp
     src/domain/duplicate_cleanup.cpp
     src/domain/duplicate_cue_consolidation.cpp
+    src/domain/filesystem_compatibility.cpp
     src/domain/fuzzy_matcher.cpp
     src/domain/junk_cue.cpp
     src/domain/library_consistency.cpp
+    src/domain/library_statistics.cpp
     src/domain/local_restore.cpp
     src/domain/sync_planning.cpp
     src/domain/track_matching.cpp
@@ -286,6 +289,27 @@ add_executable(junk_cue_test
 )
 target_include_directories(junk_cue_test PRIVATE src)
 add_test(NAME junk_cue_test COMMAND junk_cue_test)
+
+add_executable(library_statistics_test
+    src/domain/library_statistics.cpp
+    tests/library_statistics_test.cpp
+)
+target_include_directories(library_statistics_test PRIVATE src)
+add_test(NAME library_statistics_test COMMAND library_statistics_test)
+
+add_executable(disk_usage_test
+    src/domain/disk_usage.cpp
+    tests/disk_usage_test.cpp
+)
+target_include_directories(disk_usage_test PRIVATE src)
+add_test(NAME disk_usage_test COMMAND disk_usage_test)
+
+add_executable(filesystem_compatibility_test
+    src/domain/filesystem_compatibility.cpp
+    tests/filesystem_compatibility_test.cpp
+)
+target_include_directories(filesystem_compatibility_test PRIVATE src)
+add_test(NAME filesystem_compatibility_test COMMAND filesystem_compatibility_test)
 
 add_executable(track_matching_test
     src/domain/track_matching.cpp

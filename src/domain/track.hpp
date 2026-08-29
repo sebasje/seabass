@@ -59,6 +59,15 @@ struct Track
     std::string key;  // human-readable, e.g. "Fm" or "F#m", empty if unknown
     std::vector<CuePoint> cues;
 
+    // Normalized to 0-5 stars (Engine's own 0-100 scale is divided down by
+    // readers before this is set), nullopt when unrated rather than 0 --
+    // both formats use "no rating stored" and "explicitly rated at 0
+    // stars" interchangeably at the storage level, and nullopt is the
+    // more useful distinction for statistics ("how many tracks has this
+    // DJ actually rated" vs. "how many are literally 0 stars").
+    std::optional<int> rating;
+    std::string comment;  // the DJ's own free-text comment field, empty if none
+
     // Every playlist this track belongs to. Best-effort: populated where
     // the reader supports it, empty otherwise.
     std::vector<PlaylistMembership> playlists;
