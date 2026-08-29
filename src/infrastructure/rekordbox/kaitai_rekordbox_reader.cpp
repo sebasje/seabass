@@ -313,6 +313,10 @@ std::vector<domain::Track> KaitaiRekordboxReader::readAll()
                         track.key = keyIt->second;
                     }
                     track.playCount = rowTrack->play_count();
+                    if (rowTrack->rating() > 0) {
+                        track.rating = rowTrack->rating();
+                    }
+                    track.comment = sqlText(rowTrack->comment());
                     auto playlistsIt = playlistsByTrackId.find(rowTrack->id());
                     if (playlistsIt != playlistsByTrackId.end()) {
                         track.playlists = playlistsIt->second;
