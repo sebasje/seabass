@@ -17,7 +17,7 @@ Page {
     Component.onCompleted: syncController.analyze(root.rekordboxPath, root.enginePath)
 
     header: ToolBar {
-        // Opaque background override -- see AppSettingsPage.qml's header
+        // Opaque background override, see AppSettingsPage.qml's header
         // for why (KDE's Breeze style bleeds the window behind Seabass
         // through an unstyled ToolBar).
         background: Rectangle { color: Theme.surface }
@@ -37,7 +37,7 @@ Page {
                 onClicked: root.StackView.view.pop()
             }
             Label {
-                text: root.stickLabel + " -- Sync Cues Between Rekordbox and Engine"
+                text: root.stickLabel + " - Sync Cues Between Rekordbox and Engine"
                 font.bold: true
                 font.pointSize: Theme.fontLarge
             }
@@ -61,7 +61,7 @@ Page {
                 visible: syncController.canUndo
                 enabled: !syncController.busy
                 ToolTip.visible: hovered
-                ToolTip.text: "Revert the last sync -- restores every file it touched to what it was before"
+                ToolTip.text: "Revert the last sync - restores every file it touched to what it was before"
                 onClicked: syncController.undoLastOperation()
             }
         }
@@ -92,12 +92,12 @@ Page {
             }
             Label {
                 visible: syncController.toRekordboxCount > 0
-                text: "Rekordbox writing is the least-proven part of djconvert -- verify the result\non real hardware before trusting it for a gig."
+                text: "Rekordbox writing is the least-proven part of djconvert. Verify the result\non real hardware before trusting it for a gig."
                 color: Theme.conflictText
                 wrapMode: Text.WordWrap
             }
             Label {
-                text: "Both sides are backed up before anything is written -- once this finishes, "
+                text: "Both sides are backed up before anything is written. Once this finishes, "
                     + "\"Undo\" reverts every file it touched. Do not remove the stick while it's running."
                 color: Theme.textMuted
                 wrapMode: Text.WordWrap
@@ -112,7 +112,7 @@ Page {
 
         StickWriteWarning {
             visible: syncController.writing
-            text: "Writing cues to the stick -- do not remove it until this finishes."
+            text: "Writing cues to the stick. Do not remove it until this finishes."
         }
 
         Label {
@@ -156,6 +156,7 @@ Page {
                 required property string description
                 required property bool conflict
                 required property var tracks
+                required property bool willMirrorToOneLibrary
 
                 property bool expanded: false
 
@@ -180,7 +181,7 @@ Page {
                             }
                             Label {
                                 text: delegateRoot.tracks.length > 0
-                                    ? (delegateRoot.tracks[0].title + " -- " + delegateRoot.tracks[0].artist)
+                                    ? (delegateRoot.tracks[0].title + " - " + delegateRoot.tracks[0].artist)
                                     : delegateRoot.filename
                                 font.bold: true
                                 elide: Text.ElideRight
@@ -202,11 +203,16 @@ Page {
                                 color: Theme.textMuted
                             }
                         }
-                        Label { text: delegateRoot.description; color: Theme.textMuted; leftPadding: 168 }
+                        Label {
+                            text: delegateRoot.description +
+                                (delegateRoot.willMirrorToOneLibrary ? "  •  also mirrored into OneLibrary" : "")
+                            color: Theme.textMuted
+                            leftPadding: 168
+                        }
                     }
                 }
 
-                // Groups the two sides' copies of this track visually --
+                // Groups the two sides' copies of this track visually -
                 // matches DuplicatesPage.qml's treatment, and same
                 // rationale: several stacked expanded groups otherwise read
                 // as one long list rather than distinct matched pairs.
@@ -226,12 +232,12 @@ Page {
                         spacing: 8
 
                     // The "meta track" both sides below are matched copies
-                    // of -- ties the pair together as one group rather than
+                    // of, ties the pair together as one group rather than
                     // two unrelated-looking Rekordbox/Engine frames.
                     Label {
                         Layout.fillWidth: true
                         text: (delegateRoot.tracks.length > 0
-                            ? delegateRoot.tracks[0].title + " -- " + delegateRoot.tracks[0].artist
+                            ? delegateRoot.tracks[0].title + " - " + delegateRoot.tracks[0].artist
                             : delegateRoot.filename)
                         font.bold: true
                         elide: Text.ElideRight
@@ -250,7 +256,7 @@ Page {
                                     Layout.fillWidth: true
                                     Label {
                                         text: (modelData.side === "rekordbox" ? "Rekordbox: " : "Engine: ")
-                                            + modelData.title + " -- " + modelData.artist
+                                            + modelData.title + " - " + modelData.artist
                                         font.bold: true
                                     }
                                     Item { Layout.fillWidth: true }
@@ -285,7 +291,7 @@ Page {
             Label {
                 anchors.centerIn: parent
                 visible: plansListView.count === 0 && !syncController.busy
-                text: "Nothing to sync -- matched tracks' cues are already consistent."
+                text: "Nothing to sync. Matched tracks' cues are already consistent."
                 color: Theme.textMuted
             }
         }

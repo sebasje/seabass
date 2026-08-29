@@ -15,12 +15,16 @@ Page {
     required property var playbackController
     required property var appSettingsController
     signal browseRequested(string stickLabel, string rekordboxPath, string enginePath)
-    // Duplicate Tracks and Backups are hub pages now (see
-    // DuplicatesHubPage.qml / BackupsHubPage.qml) -- each fans out to two
+    // Deduplication and Backups are hub pages now (see
+    // DuplicatesHubPage.qml / BackupsHubPage.qml), each fanning out to two
     // sub-pages that used to be separate top-level cards here
-    // (Duplicate Tracks + Clean Up Duplicates; Local Cue Backup + Manage
-    // Backups).
+    // (Deduplication + Clean Up Duplicates; Local Cue Backup + Manage
+    // Backups). Library Health used to be a card inside the Deduplication
+    // hub too, but it isn't a duplicate-tracks concern (it spans all three
+    // catalogs looking for missing files, not just consolidating copies),
+    // so it got promoted to its own top-level entry instead.
     signal duplicateTracksHubRequested(string stickLabel, string rekordboxPath, string enginePath)
+    signal libraryHealthRequested(string stickLabel, string rekordboxPath, string enginePath)
     signal settingsRequested(string stickLabel, string pioneerRoot)
     signal syncRequested(string stickLabel, string rekordboxPath, string enginePath)
     signal appSettingsRequested()
@@ -276,11 +280,25 @@ Page {
                             onClicked: root.browseRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
                         }
                         ActionCard {
-                            cardTitle: "Duplicate Tracks"
+                            cardTitle: "Deduplication"
                             cardSubtitle: "Stats, sync metadata across copies, and clean up"
                             cardIcon: "▣"
                             enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
                             onClicked: root.duplicateTracksHubRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
+                        }
+                        ActionCard {
+                            cardTitle: "Library Health"
+                            cardSubtitle: "Find rows whose file is missing and repair or clean them up"
+                            cardIcon: "🩹"
+                            // First feature under the experimental gate
+                            // (see docs/experimental-features.md) -- its
+                            // repair-write path has only been exercised
+                            // via live read-only scans so far, not a real
+                            // repairAll()/deleteOrphan() apply.
+                            experimental: true
+                            experimentalFeaturesEnabled: root.appSettingsController.experimentalFeaturesEnabled
+                            enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
+                            onClicked: root.libraryHealthRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
                         }
                         ActionCard {
                             cardTitle: "Sync Cue Points"

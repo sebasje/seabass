@@ -34,6 +34,7 @@ public:
         KeyRole,
         CuesRole,
         PlaylistNamesRole,
+        StreamingSourceRole,
     };
 
     explicit TrackListModel(QObject *parent = nullptr);
@@ -48,7 +49,7 @@ private:
     std::vector<domain::Track> m_tracks;
 };
 
-// Result of a background scan task -- see ScanController::scan(). Kept
+// Result of a background scan task, see ScanController::scan(). Kept
 // separate from ScanController's own state since it's built entirely on a
 // worker thread, with no access to the controller itself.
 struct ScanTaskResult
@@ -60,7 +61,7 @@ struct ScanTaskResult
 // Wraps ScanLibrary for QML: reads every track (with cues) out of a
 // rekordbox or Engine library path, exposed as `tracks`. The read itself
 // runs on a background thread (via QtConcurrent) since it can take several
-// seconds for a large library -- scan() returns immediately, and `busy`/
+// seconds for a large library, scan() returns immediately, and `busy`/
 // `scanCurrent`/`scanTotal` track progress for a UI-thread progress bar
 // that can actually render while the work happens.
 class ScanController : public QObject
@@ -97,10 +98,10 @@ public:
     Q_INVOKABLE void scan(const QString &format, const QString &path, const QString &siblingRekordboxPath = QString());
 
     // True if exportLibrary.db (OneLibrary) exists for the stick at this
-    // PIONEER root -- it isn't present on every rekordbox export (only
+    // PIONEER root. It isn't present on every rekordbox export (only
     // newer hardware/rekordbox versions create it), so ScanPage.qml uses
     // this to disable rather than hide the third library-source option.
-    // A cheap file-existence check, not a scan -- safe to call directly
+    // A cheap file-existence check, not a scan, safe to call directly
     // from a QML binding.
     Q_INVOKABLE bool hasOneLibrary(const QString &pioneerRoot) const;
 
@@ -118,15 +119,24 @@ public:
 
     // For the manual "Merge with..." picker (ScanPage.qml): searches the
     // full last-scanned track list (not the page's own filtered/sorted
-    // `tracks` model -- a search typed into the picker must never disturb
+    // `tracks` model. A search typed into the picker must never disturb
     // what's currently shown on the page underneath it) by title/artist,
     // same case-insensitive substring match as search() above, excluding
     // excludeSourceId (the track already chosen as one side of the
     // merge). Returns light {sourceId, title, artist, durationSeconds,
-    // filePath} maps, not full Track data -- just enough to render picker
+    // filePath} maps, not full Track data, just enough to render picker
     // rows and disambiguate near-identical titles by file path. Capped at
     // 50 matches; a query that vague isn't narrowing anything anyway.
     Q_INVOKABLE QVariantList findMergeCandidates(const QString &query, const QString &excludeSourceId) const;
+
+    // Backs Settings' "Hide tracks from streaming services" toggle.
+    // Streaming tracks (Engine/TIDAL) still show up in m_allTracks (they
+    // came from a real scan), this just excludes them from what
+    // applyFilters() actually displays, same as the search/playlist
+    // filters above. Unrelated to the *unconditional* exclusion of
+    // streaming tracks from Clean Up/Sync/Library Consistency. This is
+    // purely a display preference.
+    Q_INVOKABLE void setHideStreamingTracks(bool hide);
 
 signals:
     void busyChanged();
@@ -150,6 +160,7 @@ private:
     QString m_currentSearchQuery;
     QString m_sortField = "playlist";
     bool m_sortAscending = true;
+    bool m_hideStreamingTracks = false;
     bool m_busy = false;
     int m_scanCurrent = 0;
     int m_scanTotal = 0;

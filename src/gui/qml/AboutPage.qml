@@ -7,7 +7,7 @@ Page {
     id: root
 
     header: ToolBar {
-        // Opaque background override -- see AppSettingsPage.qml's header
+        // Opaque background override, see AppSettingsPage.qml's header
         // for why (KDE's Breeze style bleeds the window behind Seabass
         // through an unstyled ToolBar).
         background: Rectangle { color: Theme.surface }
@@ -74,8 +74,8 @@ Page {
 
             Label {
                 text: "Seabass reads and writes the DJ data already on a Rekordbox or Denon Engine "
-                    + "USB stick -- cue points, playlists, and the metadata your DJ software already "
-                    + "computed -- so you can inspect it, fix it up, and keep the two formats in sync."
+                    + "USB stick - cue points, playlists, and the metadata your DJ software already "
+                    + "computed - so you can inspect it, fix it up, and keep the two formats in sync."
                 wrapMode: Text.WordWrap
                 font.pointSize: Theme.baseFontPointSize * 1.1
                 Layout.fillWidth: true
@@ -105,18 +105,18 @@ Page {
                 Label { text: "The three library catalogs"; font.bold: true; font.pointSize: Theme.fontMedium }
                 Label {
                     text: "A stick can carry up to three separate, independently-maintained catalogs of "
-                        + "the same tracks -- Browse Library can switch between whichever ones are present:"
+                        + "the same tracks. Browse Library can switch between whichever ones are present:"
                     wrapMode: Text.WordWrap
                     font.pointSize: Theme.baseFontPointSize * 1.1
                     color: Theme.textMuted
                     Layout.fillWidth: true
                 }
                 Label {
-                    text: "• Engine OS -- Denon Engine DJ's own library (m.db). What Denon/inMusic "
+                    text: "• Engine OS - Denon Engine DJ's own library (m.db). What Denon/inMusic "
                         + "hardware (SC5000, Prime series, ...) reads directly.\n"
-                        + "• DeviceLibrary -- Rekordbox's classic per-stick export (export.pdb). What "
+                        + "• DeviceLibrary - Rekordbox's classic per-stick export (export.pdb). What "
                         + "CDJs and XDJs read directly; every rekordbox export has this.\n"
-                        + "• OneLibrary -- Rekordbox 7's newer unified library (exportLibrary.db, also "
+                        + "• OneLibrary - Rekordbox 7's newer unified library (exportLibrary.db, also "
                         + "called \"Device Library Plus\"). Mirrors DeviceLibrary's tracks in a richer "
                         + "schema, kept in sync by Rekordbox itself; not present on every export."
                     wrapMode: Text.WordWrap
@@ -133,6 +133,18 @@ Page {
                     color: Theme.textMuted
                     Layout.fillWidth: true
                 }
+                Label {
+                    text: "Engine OS can also link tracks to a streaming service (e.g. TIDAL) instead of a "
+                        + "local file. Seabass shows these (badged with the service name) for visibility, "
+                        + "but never plays, merges, syncs, or cleans them up. It only ever operates on "
+                        + "files actually present on the stick. Settings has an option to hide them from "
+                        + "Browse Library entirely instead."
+                    wrapMode: Text.WordWrap
+                    font.pointSize: Theme.baseFontPointSize
+                    font.italic: true
+                    color: Theme.textMuted
+                    Layout.fillWidth: true
+                }
             }
 
             ColumnLayout {
@@ -141,7 +153,7 @@ Page {
                 Label { text: "What Seabass doesn't do"; font.bold: true; font.pointSize: Theme.fontMedium }
                 Label {
                     text: "Seabass never analyzes audio. Beatgridding, BPM/key detection, and waveform "
-                        + "analysis all have to happen in Rekordbox or Engine DJ software first -- "
+                        + "analysis all have to happen in Rekordbox or Engine DJ software first. "
                         + "Seabass only ever reads and moves around the results of that analysis, "
                         + "never recomputes it."
                     wrapMode: Text.WordWrap
@@ -153,8 +165,9 @@ Page {
 
             Label {
                 text: "Rekordbox is a trademark of AlphaTheta Corporation. Engine DJ is a trademark of "
-                    + "inMusic Brands, Inc. Seabass is an independent, unofficial tool and is not "
-                    + "affiliated with, endorsed by, or sponsored by either company."
+                    + "inMusic Brands, Inc. TIDAL is a trademark of TIDAL Music AS. Seabass is an "
+                    + "independent, unofficial tool and is not affiliated with, endorsed by, or "
+                    + "sponsored by any of them."
                 wrapMode: Text.WordWrap
                 font.pointSize: Theme.fontTiny
                 color: Theme.textMuted

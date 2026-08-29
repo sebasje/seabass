@@ -31,7 +31,7 @@ std::string colorHex(const djinterop::pad_color &c)
 
 // Some individual fields on some tracks (observed: sample_rate() on a
 // track just re-cued on real Denon hardware) throw a decode error from
-// libdjinterop even when the rest of the track -- including hot_cues() --
+// libdjinterop even when the rest of the track, including hot_cues(),
 // reads fine. Isolating each field like this means one flaky field never
 // costs us the whole track, which a single try/catch around everything
 // used to do.
@@ -64,18 +64,18 @@ void collectPlaylistMemberships(const djinterop::playlist &pl, const std::string
 }
 
 // Track id -> best-effort resolved artwork file path, read directly via
-// plain SQLite3 rather than libdjinterop's own public API -- track.hpp
+// plain SQLite3 rather than libdjinterop's own public API - track.hpp
 // exposes no way to get at album art at all (djinterop::album_art exists
-// as a type but is an acknowledged stub -- "TODO - implement rest of
-// album_art class" -- and database.hpp has no method returning one), even
+// as a type but is an acknowledged stub, "TODO - implement rest of
+// album_art class", and database.hpp has no method returning one), even
 // though the underlying schema has real, resolvable data: every Track row
 // has an albumArtId, and AlbumArt.hash is not a hash at all despite the
-// column name -- it's a URI like "image://fileart//media/<label>/PIONEER/
+// column name. It's a URI like "image://fileart//media/<label>/PIONEER/
 // Artwork/00001/a5_m.jpg" pointing at a real external JPEG file on the
 // stick (AlbumArt.albumArt, the actual BLOB column, is confirmed always
-// empty on real hardware-written data -- Engine stores art as files, not
+// empty on real hardware-written data. Engine stores art as files, not
 // inline). <label> is whatever volume label the *original* Denon hardware
-// mounted the stick under, not necessarily this machine's -- so this
+// mounted the stick under, not necessarily this machine's, so this
 // anchors on the stable "PIONEER/Artwork/..." suffix instead of trying to
 // match the volume label. djconvert_core already links plain SQLite3
 // directly for LocalCueStore, so this doesn't add a new dependency; opened
@@ -127,6 +127,47 @@ std::unordered_map<int64_t, std::string> readArtworkPaths(const std::string &eng
     return result;
 }
 
+// Track id -> streaming source (e.g. "TIDAL"), same raw-SQLite workaround
+// as readArtworkPaths() above and for the same reason: libdjinterop's
+// public API never exposes Track.streamingSource/uri at all (open TODOs
+// in the library's own headers acknowledge this). A track with this set
+// has no real local file. Its `path` column points at a streaming-
+// cache location on the *computer* that manages playback, never at
+// anything present on this stick, so callers must never treat it as an
+// ordinary local track (play it, merge it, sync it, clean it up).
+std::unordered_map<int64_t, std::string> readStreamingSources(const std::string &engineLibraryPath)
+{
+    std::unordered_map<int64_t, std::string> result;
+    std::string dbPath = (std::filesystem::path(engineLibraryPath) / "Database2" / "m.db").string();
+
+    sqlite3 *db = nullptr;
+    if (sqlite3_open_v2(dbPath.c_str(), &db, SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK) {
+        if (db) {
+            sqlite3_close(db);
+        }
+        return result;
+    }
+
+    sqlite3_stmt *stmt = nullptr;
+    const char *sql = "SELECT id, streamingSource FROM Track WHERE streamingSource IS NOT NULL AND streamingSource != ''";
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        sqlite3_close(db);
+        return result;
+    }
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        int64_t trackId = sqlite3_column_int64(stmt, 0);
+        const unsigned char *sourceText = sqlite3_column_text(stmt, 1);
+        if (!sourceText) {
+            continue;
+        }
+        result[trackId] = reinterpret_cast<const char *>(sourceText);
+    }
+    sqlite3_finalize(stmt);
+    sqlite3_close(db);
+    return result;
+}
+
 }  // namespace
 
 LibdjinteropEngineReader::LibdjinteropEngineReader(std::string engineLibraryPath)
@@ -157,6 +198,13 @@ std::vector<domain::Track> LibdjinteropEngineReader::readAll()
         artworkByTrackId = readArtworkPaths(m_engineLibraryPath);
     } catch (const std::exception &e) {
         m_progress->warn(std::string("could not read album art: ") + e.what());
+    }
+
+    std::unordered_map<int64_t, std::string> streamingSourceByTrackId;
+    try {
+        streamingSourceByTrackId = readStreamingSources(m_engineLibraryPath);
+    } catch (const std::exception &e) {
+        m_progress->warn(std::string("could not read streaming sources: ") + e.what());
     }
 
     m_progress->start("Scanning Engine tracks", allTracks.size());
@@ -205,6 +253,10 @@ std::vector<domain::Track> LibdjinteropEngineReader::readAll()
         if (artworkIt != artworkByTrackId.end()) {
             track.artworkPath = artworkIt->second;
         }
+        auto streamingIt = streamingSourceByTrackId.find(id);
+        if (streamingIt != streamingSourceByTrackId.end()) {
+            track.streamingSource = streamingIt->second;
+        }
 
         auto sampleRate = safeGet<std::optional<double>>(*m_progress, id, "sample_rate",
                                                           [&] { return tr.sample_rate(); });
@@ -234,7 +286,7 @@ std::vector<domain::Track> LibdjinteropEngineReader::readAll()
 
         // Engine's format has exactly one memory-style cue point (called
         // "Cue" in the app), stored as a plain sample offset with no
-        // color/comment -- unlike rekordbox's unlimited, independently
+        // color/comment, unlike rekordbox's unlimited, independently
         // colored/commented memory cues. Represented here as a single
         // Kind::Memory CuePoint (hotCueNumber 0, matching how rekordbox's
         // own reader marks memory cues) so it can be matched/synced like

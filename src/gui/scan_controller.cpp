@@ -77,6 +77,8 @@ QVariant TrackListModel::data(const QModelIndex &index, int role) const
         }
         return names;
     }
+    case StreamingSourceRole:
+        return QString::fromStdString(track.streamingSource);
     default:
         return {};
     }
@@ -97,6 +99,7 @@ QHash<int, QByteArray> TrackListModel::roleNames() const
         {KeyRole, "key"},
         {CuesRole, "cues"},
         {PlaylistNamesRole, "playlistNames"},
+        {StreamingSourceRole, "streamingSource"},
     };
 }
 
@@ -110,7 +113,7 @@ void TrackListModel::setTracks(std::vector<domain::Track> tracks)
 namespace
 {
 
-// Runs entirely on a background thread (see ScanController::scan()) -- no
+// Runs entirely on a background thread (see ScanController::scan()) - no
 // access to the controller itself, so everything it needs travels in by
 // value and its result travels back out as a plain struct.
 ScanTaskResult runScanTask(QString format, QString path, QString siblingRekordboxPath,
@@ -133,7 +136,7 @@ ScanTaskResult runScanTask(QString format, QString path, QString siblingRekordbo
             if (!siblingRekordboxPath.isEmpty()) {
                 try {
                     // This is a second full scan (to build the artwork
-                    // lookup) that can take as long as the one above -- give
+                    // lookup) that can take as long as the one above, give
                     // it the same reporter rather than let the bar sit at
                     // 100% while this runs silently in the background.
                     infrastructure::rekordbox::KaitaiRekordboxReader rbReader(siblingRekordboxPath.toStdString());
@@ -161,14 +164,14 @@ ScanTaskResult runScanTask(QString format, QString path, QString siblingRekordbo
                     }
                 } catch (const std::exception &) {
                     // Borrowing cover art from the sibling library is a
-                    // nice-to-have -- never let it break browsing Engine
+                    // nice-to-have, never let it break browsing Engine
                     // tracks on their own.
                 }
             }
         } else {
             // format == "onelibrary": path is the same PIONEER root
             // rekordbox uses (exportLibrary.db lives alongside export.pdb
-            // under it), not a separate stored path -- OneLibrary is a
+            // under it), not a separate stored path. OneLibrary is a
             // third view onto that same side of the stick, not an
             // independent catalog with its own DetectedStick field.
             infrastructure::onelibrary::OneLibraryReader reader(path.toStdString());
@@ -193,15 +196,15 @@ ScanController::ScanController(QObject *parent) : QObject(parent)
 void ScanController::scan(const QString &format, const QString &path, const QString &siblingRekordboxPath)
 {
     if (m_busy) {
-        return;  // a scan is already running -- never overlap two
+        return;  // a scan is already running, never overlap two
     }
     setErrorMessage({});
     setScanProgress(0, 0);
     setBusy(true);
 
     // The reporter is owned by the background task (via shared_ptr, kept
-    // alive for exactly as long as the task runs), not by this controller --
-    // if the user navigates away and this ScanController is destroyed
+    // alive for exactly as long as the task runs), not by this controller.
+    // If the user navigates away and this ScanController is destroyed
     // mid-scan, the task keeps running harmlessly in the background instead
     // of touching a dangling object. Signals are connected with `this` as
     // the context object, so Qt stops delivering them once we're gone.
@@ -241,7 +244,7 @@ void ScanController::onScanFinished()
     }
 
     // m_allTracks (which totalTrackCount() reads) must be updated before
-    // playlistNamesChanged fires -- QML bindings that read totalTrackCount
+    // playlistNamesChanged fires. QML bindings that read totalTrackCount
     // in response to that signal would otherwise see the previous scan's
     // track count for one notification cycle.
     m_allTracks = std::move(result.tracks);
@@ -278,6 +281,15 @@ void ScanController::setSort(const QString &field, bool ascending)
     applyFilters();
 }
 
+void ScanController::setHideStreamingTracks(bool hide)
+{
+    if (m_hideStreamingTracks == hide) {
+        return;
+    }
+    m_hideStreamingTracks = hide;
+    applyFilters();
+}
+
 QVariantList ScanController::findMergeCandidates(const QString &query, const QString &excludeSourceId) const
 {
     QVariantList result;
@@ -288,6 +300,12 @@ QVariantList ScanController::findMergeCandidates(const QString &query, const QSt
     std::string exclude = excludeSourceId.toStdString();
     for (const auto &track : m_allTracks) {
         if (track.sourceId == exclude) {
+            continue;
+        }
+        // Streaming tracks (Engine/TIDAL) have no real local file.
+        // Never suggest merging with one. See
+        // domain::Track::streamingSource's own doc comment.
+        if (!track.streamingSource.empty()) {
             continue;
         }
         QString title = QString::fromStdString(track.title);
@@ -339,6 +357,16 @@ void ScanController::applyFilters()
         result = std::move(filtered);
     }
 
+    if (m_hideStreamingTracks) {
+        std::vector<domain::Track> filtered;
+        for (const auto &track : result) {
+            if (track.streamingSource.empty()) {
+                filtered.push_back(track);
+            }
+        }
+        result = std::move(filtered);
+    }
+
     if (!m_currentSearchQuery.isEmpty()) {
         QString query = m_currentSearchQuery.toLower();
         std::vector<domain::Track> filtered;
@@ -378,7 +406,7 @@ void ScanController::applyFilters()
         if (m_sortField == "plays") {
             return a.playCount.value_or(-1) < b.playCount.value_or(-1);
         }
-        // "playlist" -- the selected playlist's own track order; when no
+        // "playlist", the selected playlist's own track order; when no
         // playlist is selected this leaves every position unknown, so
         // stable_sort just preserves scan order.
         auto posA = playlistPosition(a, playlistFilter);

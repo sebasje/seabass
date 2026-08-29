@@ -39,7 +39,7 @@ namespace fs = std::filesystem;
 namespace
 {
 
-// Mirrors cli/main.cpp's humanSize() exactly -- see duplicates_controller
+// Mirrors cli/main.cpp's humanSize() exactly, see duplicates_controller
 // .cpp's identical copy for why this is duplicated per composition root
 // rather than shared.
 QString humanSize(std::uint64_t bytes)
@@ -152,8 +152,8 @@ void CleanupPlanListModel::setPlans(std::vector<domain::DuplicateCleanupPlan> pl
     m_plans = std::move(plans);
     m_included.assign(m_plans.size(), true);
     for (size_t i = 0; i < m_plans.size(); ++i) {
-        // Groups where quality and length disagree default to excluded
-        // -- see DuplicateCleanupPlan::differs' own doc comment.
+        // Groups where quality and length disagree default to excluded,
+        // see DuplicateCleanupPlan::differs' own doc comment.
         m_included[i] = !m_plans[i].differs;
     }
     m_visibleIndices.resize(m_plans.size());
@@ -330,7 +330,7 @@ namespace
 
 // Mirrors duplicates_controller.cpp's FormatContext, extended with a
 // LibraryCleanupWriter and the extra (not tied to any one track) files
-// that need backing up once per session -- rekordbox's export.pdb,
+// that need backing up once per session, rekordbox's export.pdb,
 // touched regardless of which track triggered the write, unlike
 // Engine's m.db which filesToBackUpFor already covers per-track (same
 // file every time, deduped the same way as everywhere else).
@@ -343,7 +343,7 @@ struct FormatContext
     std::function<std::vector<std::string>(const std::string &)> filesToBackUpFor;
     std::vector<std::string> extraFilesToBackUp;
     std::string pendingDeletionManifestPath;
-    // Non-empty only for rekordbox -- used to best-effort also write
+    // Non-empty only for rekordbox, used to best-effort also write
     // cues into OneLibrary/exportLibrary.db (see runApplyTask()) if it
     // exists alongside export.pdb on this stick.
     std::string pioneerRoot;
@@ -446,7 +446,7 @@ CleanupWriteResult runApplyTask(QString format, QString path, std::vector<domain
                 ctx.log->record("cleanup: wrote merged cues onto survivor track id=" + plan.survivor.sourceId);
 
                 // Best-effort secondary write, alongside the primary
-                // export.pdb write above -- never fatal to this
+                // export.pdb write above, never fatal to this
                 // operation, and never rolls back the export.pdb write
                 // that already succeeded. See OneLibraryCueWriter's own
                 // class comment and docs/onelibrary-format.md.
@@ -472,6 +472,27 @@ CleanupWriteResult runApplyTask(QString format, QString path, std::vector<domain
                 ctx.log->record("cleanup: removed duplicate track id=" + doomed.sourceId + " (\"" + doomed.title +
                                  "\"), replaced by survivor id=" + plan.survivor.sourceId);
 
+                // Best-effort OneLibrary mirror. Without this, the
+                // doomed track's own OneLibrary row is left pointing at a
+                // file this loop is about to delete, becoming an orphan
+                // (this is exactly how real orphaned rows were found on
+                // production data, see docs/onelibrary-format.md).
+                // Never fatal to the primary write above.
+                if (!ctx.pioneerRoot.empty() && !doomed.filePath.empty() &&
+                    infrastructure::onelibrary::OneLibraryCueWriter::existsFor(ctx.pioneerRoot)) {
+                    try {
+                        infrastructure::onelibrary::OneLibraryCueWriter oneLibWriter(ctx.pioneerRoot);
+                        oneLibWriter.removeTrackByPath(doomed.filePath);
+                        ctx.log->record("cleanup: also removed OneLibrary row for id=" + doomed.sourceId);
+                    } catch (const std::exception &e) {
+                        QString warning = QString("OneLibrary row removal failed for \"%1\": %2")
+                                               .arg(QString::fromStdString(doomed.title))
+                                               .arg(QString::fromStdString(e.what()));
+                        oneLibraryWarnings << warning;
+                        ctx.log->record("cleanup: " + warning.toStdString());
+                    }
+                }
+
                 infrastructure::cleanup::PendingDeletion pending;
                 pending.format = format.toStdString();
                 pending.filePath = doomed.filePath;
@@ -495,7 +516,7 @@ CleanupWriteResult runApplyTask(QString format, QString path, std::vector<domain
                                     .arg(filesRemoved)
                                     .arg(cuesPreserved);
         if (!oneLibraryWarnings.isEmpty()) {
-            result.statusMessage += QString(" (%1 OneLibrary cue write(s) failed -- the primary library write "
+            result.statusMessage += QString(" (%1 OneLibrary cue write(s) failed. The primary library write "
                                              "above still succeeded and was not affected: %2)")
                                          .arg(oneLibraryWarnings.size())
                                          .arg(oneLibraryWarnings.join("; "));
@@ -536,9 +557,9 @@ CleanupWriteResult runUndoTask(std::vector<UndoableBackup> backups, std::shared_
             reporter->tick(static_cast<size_t>(restored));
         }
         reporter->finish();
-        result.statusMessage = QString("Undone -- restored %1 file(s) to their state before the last cleanup. "
+        result.statusMessage = QString("Undone - restored %1 file(s) to their state before the last cleanup. "
                                         "Removed library entries and the pending-deletions list are not reverted "
-                                        "by this -- they reflect what was written to the backups, not what's on "
+                                        "by this. They reflect what was written to the backups, not what's on "
                                         "disk after restoring.")
                                     .arg(restored);
     } catch (const std::exception &e) {
@@ -548,9 +569,9 @@ CleanupWriteResult runUndoTask(std::vector<UndoableBackup> backups, std::shared_
 }
 
 // Runs entirely on a background thread (see CleanupController::
-// deleteSelectedPendingFiles()). Re-scans the library fresh -- never
+// deleteSelectedPendingFiles()). Re-scans the library fresh, never
 // trusts the manifest alone, see resolvePendingDeletions()'s own doc
-// comment -- deletes every `selected` entry resolvePendingDeletions()
+// comment, deletes every `selected` entry resolvePendingDeletions()
 // confirms is genuinely orphaned, and clears exactly those from the
 // pending-deletions manifest. Entries still referenced are left
 // untouched on disk and in the manifest either way.
@@ -591,8 +612,8 @@ PendingDeletionApplyResult runDeletePendingTask(QString format, QString path,
             std::error_code ec;
             bool existed = fs::exists(entry.filePath, ec);
             if (!existed) {
-                // Already gone from disk (e.g. removed by hand since) --
-                // still clear it from the manifest, nothing left to do.
+                // Already gone from disk (e.g. removed by hand since).
+                // Still clear it from the manifest, nothing left to do.
                 processed.insert(entry.filePath);
                 deleted++;
                 log.record("cleanup: pending deletion already absent from disk, clearing from manifest -> " +
@@ -615,7 +636,7 @@ PendingDeletionApplyResult runDeletePendingTask(QString format, QString path,
         QStringList parts;
         parts << QString("deleted %1 file(s) from disk").arg(deleted);
         if (!resolution.stillReferenced.empty()) {
-            parts << QString("%1 file(s) still referenced by a current track -- left alone, not deleted")
+            parts << QString("%1 file(s) still referenced by a current track, left alone, not deleted")
                          .arg(static_cast<int>(resolution.stillReferenced.size()));
         }
         if (failed > 0) {
@@ -643,6 +664,14 @@ CleanupTaskResult runRescanTask(QString format, QString path, std::shared_ptr<Qt
             tracks = application::ScanLibrary(reader).execute();
         }
 
+        // Streaming tracks (Engine/TIDAL) have no real local file.
+        // Never let duplicate detection consider one, whether as
+        // survivor or doomed. See domain::Track::streamingSource's own
+        // doc comment for why.
+        tracks.erase(std::remove_if(tracks.begin(), tracks.end(),
+                                     [](const domain::Track &t) { return !t.streamingSource.empty(); }),
+                     tracks.end());
+
         std::vector<domain::DuplicateCleanupPlan> plans;
         for (const auto &group : domain::DuplicateTrackFinder::find(tracks)) {
             auto plan = domain::DuplicateCleanupPlanner::plan(group);
@@ -659,7 +688,7 @@ CleanupTaskResult runRescanTask(QString format, QString path, std::shared_ptr<Qt
 
 // Runs entirely on a background thread (see CleanupController::
 // planManualMerge()). Unlike runRescanTask(), never runs
-// DuplicateTrackFinder -- the two tracks are already a user-declared
+// DuplicateTrackFinder. The two tracks are already a user-declared
 // match, not something to (re-)detect. Re-scans fresh rather than
 // trusting whatever ScanPage had in memory when the merge was requested,
 // same "never trust stale data right before a mutating decision" stance
@@ -692,7 +721,11 @@ CleanupTaskResult runManualMergeTask(QString format, QString path, QString sourc
             }
         }
         if (!trackA || !trackB) {
-            result.errorMessage = "One or both tracks no longer exist in this library -- rescan and try again.";
+            result.errorMessage = "One or both tracks no longer exist in this library. Rescan and try again.";
+            return result;
+        }
+        if (!trackA->streamingSource.empty() || !trackB->streamingSource.empty()) {
+            result.errorMessage = "A streaming track (no local file) can't be merged.";
             return result;
         }
 
@@ -729,6 +762,11 @@ void CleanupController::scan(const QString &format, const QString &path)
     m_format = format;
     m_path = path;
     rescan();
+}
+
+bool CleanupController::hasOneLibrary(const QString &pioneerRoot) const
+{
+    return infrastructure::onelibrary::OneLibraryCueWriter::existsFor(pioneerRoot.toStdString());
 }
 
 void CleanupController::loadPendingDeletionsOnly(const QString &format, const QString &path)
@@ -882,7 +920,7 @@ void CleanupController::refreshPendingDeletions()
         (stickRoot / ".djconvert-pending-deletions.jsonl").string());
 
     // rekordbox and Engine each accumulate their own separate pending
-    // entries (see PendingDeletion::format) -- this page only ever shows
+    // entries (see PendingDeletion::format). This page only ever shows
     // the one currently selected via the format toggle, same as
     // everything else on it.
     std::vector<infrastructure::cleanup::PendingDeletion> filtered;
@@ -891,7 +929,7 @@ void CleanupController::refreshPendingDeletions()
             continue;
         }
         // fileSizeBytes is never persisted in the manifest (see its own
-        // doc comment) -- stat it fresh here so "how much space would
+        // doc comment). Stat it fresh here so "how much space would
         // deleting this free up" reflects the file's real current size,
         // not a guess. 0 if the file's already gone; still worth listing
         // (deleteSelectedPendingFiles() clears an already-absent entry

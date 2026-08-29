@@ -3,7 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import DjConvertGui
 
-// Fans out the "Duplicate Tracks" top-level card into its sub-features --
+// Fans out the "Duplicate Tracks" top-level card into its sub-features,
 // non-destructive stats/metadata-sync (DuplicatesPage), the destructive
 // survivor-select+delete flow (CleanupPage), and reviewing/deleting the
 // actual audio files those cleanups orphaned but never touched on disk
@@ -22,12 +22,13 @@ Page {
 
     readonly property bool hasRekordbox: rekordboxPath.length > 0
     readonly property bool hasEngine: enginePath.length > 0
+    readonly property bool hasOneLibrary: root.hasRekordbox && pendingCheckController.hasOneLibrary(root.rekordboxPath)
 
-    // Cheap (a small text file + a stat() per entry, no library scan --
+    // Cheap (a small text file + a stat() per entry, no library scan,
     // see loadPendingDeletionsOnly()'s own doc comment), so checked
     // synchronously right when this hub opens, purely to decide whether
     // "Delete Orphaned Files" has anything to do. Reused sequentially for
-    // both formats rather than one instance each -- right after
+    // both formats rather than one instance each, right after
     // loadPendingDeletionsOnly() populates the model, every entry starts
     // included, so pendingDeletionsIncludedCount is exactly the total
     // count at that moment, before either format's next call overwrites it.
@@ -49,7 +50,7 @@ Page {
         }
     }
 
-    // StackView.onActivated, not Component.onCompleted -- fires both when
+    // StackView.onActivated, not Component.onCompleted, fires both when
     // this hub is first pushed AND every time navigation returns to it
     // (from Clean Up Duplicates, which can create new orphaned files, or
     // from Delete Orphaned Files itself, which clears them), so the card
@@ -57,7 +58,7 @@ Page {
     StackView.onActivated: root.refreshPendingCounts()
 
     header: ToolBar {
-        // Opaque background override -- see AppSettingsPage.qml's header
+        // Opaque background override, see AppSettingsPage.qml's header
         // for why (KDE's Breeze style bleeds the window behind Seabass
         // through an unstyled ToolBar).
         background: Rectangle { color: Theme.surface }
@@ -74,7 +75,7 @@ Page {
                 onClicked: root.StackView.view.pop()
             }
             Label {
-                text: root.stickLabel + " -- Duplicate Tracks"
+                text: root.stickLabel + " - Deduplication"
                 font.bold: true
                 font.pointSize: Theme.fontLarge
             }
@@ -97,6 +98,7 @@ Page {
         ActionCard {
             cardTitle: "Clean Up Duplicates"
             cardSubtitle: "Remove redundant copies, keep the best one"
+                + (root.hasOneLibrary ? " (also updates OneLibrary)" : "")
             cardIcon: "🧹"
             enabled: root.hasRekordbox || root.hasEngine
             onClicked: root.cleanupRequested(root.stickLabel, root.rekordboxPath, root.enginePath)
@@ -105,7 +107,7 @@ Page {
             cardTitle: "Delete Orphaned Files"
             cardSubtitle: root.hasPendingDeletions
                 ? "Free disk space: delete files earlier cleanups' database edits orphaned"
-                : "Nothing orphaned right now -- every earlier cleanup's files are accounted for"
+                : "Nothing orphaned right now. Every earlier cleanup's files are accounted for"
             cardIcon: "🗑"
             enabled: (root.hasRekordbox || root.hasEngine) && root.hasPendingDeletions
             onClicked: root.pendingDeletionsRequested(root.stickLabel, root.rekordboxPath, root.enginePath)

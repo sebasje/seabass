@@ -11,15 +11,15 @@ if(WIN32)
 endif()
 
 # `pragma Singleton` alone isn't enough for this Qt version's
-# qt_add_qml_module to register Theme.qml as an actual QML singleton --
-# without this, the generated qmldir lists it as a plain component type
+# qt_add_qml_module to register Theme.qml as an actual QML singleton.
+# Without this, the generated qmldir lists it as a plain component type
 # ("Theme 1.0 qml/Theme.qml" instead of "singleton Theme 1.0 ..."), so
 # every `Theme.xxx` property access anywhere in the app silently
 # evaluates to `undefined` at runtime (QML logs "Unable to assign
 # [undefined] to ..." rather than a hard error) instead of throwing a
-# clear "Theme is not a type" error -- verified via the generated qmldir
+# clear "Theme is not a type" error, verified via the generated qmldir
 # and confirmed live via journalctl. Must be set *before*
-# qt_add_qml_module() is called -- it reads source file properties at
+# qt_add_qml_module() is called. It reads source file properties at
 # call time, not deferred, so setting this afterward has no effect
 # (confirmed: moving it after here silently produced the same broken
 # non-singleton qmldir entry even after a full clean rebuild).
@@ -39,6 +39,7 @@ qt_add_qml_module(djconvert-gui
         qml/DuplicatesPage.qml
         qml/CleanupPage.qml
         qml/PendingDeletionsPage.qml
+        qml/LibraryConsistencyPage.qml
         qml/SyncPage.qml
         qml/BackupsPage.qml
         qml/LocalCuePage.qml
@@ -69,6 +70,8 @@ qt_add_qml_module(djconvert-gui
         cleanup_controller.cpp
         add_cue_controller.hpp
         add_cue_controller.cpp
+        library_consistency_controller.hpp
+        library_consistency_controller.cpp
         sync_controller.hpp
         sync_controller.cpp
         backups_controller.hpp

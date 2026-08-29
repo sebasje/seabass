@@ -52,7 +52,7 @@ QString humanSize(std::uint64_t bytes)
 }
 
 // Bytes that would be freed if this group kept only its single largest
-// file instead of every copy -- 0 if fewer than two tracks have a known
+// file instead of every copy, 0 if fewer than two tracks have a known
 // size (nothing meaningful to compare).
 std::uint64_t wastedBytes(const ConsolidationPlan &plan)
 {
@@ -100,7 +100,7 @@ QVariant ConsolidationPlanListModel::data(const QModelIndex &index, int role) co
                 .arg(plan.source->cues.size())
                 .arg(plan.targets.size());
         }
-        return QString("%1 copies have different cues -- not touching them").arg(plan.group.tracks.size());
+        return QString("%1 copies have different cues, not touching them").arg(plan.group.tracks.size());
     case ActionableRole:
         return plan.kind == ConsolidationPlan::Kind::Unambiguous;
     case TracksRole: {
@@ -248,7 +248,7 @@ void copyCuesToTargets(const domain::Track &source, const std::vector<domain::Tr
 }
 
 // Runs entirely on a background thread (see DuplicatesController::
-// startApply()) -- writes are file I/O just like the rescan, so they get
+// startApply()). Writes are file I/O just like the rescan, so they get
 // the same treatment: never block the UI thread, report progress as they
 // go. multiGroup only changes the wording of the final status message.
 DuplicatesWriteResult runApplyTask(QString format, QString path, std::vector<DuplicatesCopyOp> ops, bool multiGroup,
@@ -301,7 +301,7 @@ DuplicatesWriteResult runApplyTask(QString format, QString path, std::vector<Dup
 
 // Runs entirely on a background thread (see DuplicatesController::
 // undoLastOperation()). An empty `backups` result always means "nothing
-// left to undo" -- the caller's undo trail is stale either way.
+// left to undo", the caller's undo trail is stale either way.
 DuplicatesWriteResult runUndoTask(std::vector<UndoableBackup> backups, std::shared_ptr<QtProgressReporter> reporter)
 {
     DuplicatesWriteResult result;
@@ -314,7 +314,7 @@ DuplicatesWriteResult runUndoTask(std::vector<UndoableBackup> backups, std::shar
     try {
         // All of these backups came from one controller instance (one
         // format+path), so in practice this is always exactly one
-        // directory -- dedup anyway rather than assume it.
+        // directory, dedup anyway rather than assume it.
         std::vector<std::string> dirs;
         for (const auto &backup : backups) {
             dirs.push_back(backup.backupDir.toStdString());
@@ -336,7 +336,7 @@ DuplicatesWriteResult runUndoTask(std::vector<UndoableBackup> backups, std::shar
         }
         reporter->finish();
         result.statusMessage =
-            QString("Undone -- restored %1 file(s) to their state before the last consolidation").arg(restored);
+            QString("Undone - restored %1 file(s) to their state before the last consolidation").arg(restored);
     } catch (const std::exception &e) {
         result.errorMessage = QString::fromStdString(e.what());
     }
@@ -349,7 +349,7 @@ namespace
 {
 
 // Runs entirely on a background thread (see DuplicatesController::
-// rescan()) -- no access to the controller itself.
+// rescan()) - no access to the controller itself.
 DuplicatesTaskResult runRescanTask(QString format, QString path, std::shared_ptr<QtProgressReporter> reporter)
 {
     DuplicatesTaskResult result;
@@ -365,6 +365,13 @@ DuplicatesTaskResult runRescanTask(QString format, QString path, std::shared_ptr
             tracks = application::ScanLibrary(reader).execute();
         }
 
+        // Streaming tracks (Engine/TIDAL) have no real local file.
+        // Never propose "syncing" cues onto/from one. See
+        // domain::Track::streamingSource's own doc comment for why.
+        tracks.erase(std::remove_if(tracks.begin(), tracks.end(),
+                                     [](const domain::Track &t) { return !t.streamingSource.empty(); }),
+                     tracks.end());
+
         auto allPlans = application::ConsolidateDuplicateCues().execute(tracks);
         std::vector<ConsolidationPlan> actionable;
         for (auto &plan : allPlans) {
@@ -376,7 +383,7 @@ DuplicatesTaskResult runRescanTask(QString format, QString path, std::shared_ptr
         // Waveforms need their own file I/O per track, so only decode them
         // for tracks actually being displayed here, not the whole library.
         // This is a second phase after the scan above already finished (and
-        // already reported 100%) -- give it its own start()/tick() run
+        // already reported 100%), give it its own start()/tick() run
         // rather than leave the bar looking stalled while it happens.
         size_t totalWaveformTracks = 0;
         for (const auto &plan : actionable) {
@@ -553,7 +560,7 @@ void DuplicatesController::startApply(std::vector<DuplicatesCopyOp> ops, bool mu
 }
 
 // Common completion path for applyOne()/copyFromTrack()/
-// applyAllUnambiguous()/undoLastOperation() -- they only differ in which
+// applyAllUnambiguous()/undoLastOperation(). They only differ in which
 // background task fed the watcher.
 void DuplicatesController::onWriteFinished()
 {

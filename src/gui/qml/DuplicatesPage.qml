@@ -68,7 +68,7 @@ Page {
                     onClicked: root.StackView.view.pop()
                 }
                 Label {
-                    text: root.stickLabel + " -- Duplicate Tracks"
+                    text: root.stickLabel + " - Deduplication"
                     font.bold: true
                     font.pointSize: Theme.fontLarge
                 }
