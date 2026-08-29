@@ -25,6 +25,7 @@ Page {
     // so it got promoted to its own top-level entry instead.
     signal duplicateTracksHubRequested(string stickLabel, string rekordboxPath, string enginePath)
     signal libraryHealthRequested(string stickLabel, string rekordboxPath, string enginePath)
+    signal stickStatisticsRequested(string stickLabel, string rekordboxPath, string enginePath)
     signal settingsRequested(string stickLabel, string pioneerRoot)
     signal syncRequested(string stickLabel, string rekordboxPath, string enginePath)
     signal appSettingsRequested()
@@ -299,6 +300,18 @@ Page {
                             experimentalFeaturesEnabled: root.appSettingsController.experimentalFeaturesEnabled
                             enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
                             onClicked: root.libraryHealthRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
+                        }
+                        ActionCard {
+                            cardTitle: "Stick Statistics"
+                            cardSubtitle: "Filesystem, library stats, disk usage, and read-speed benchmark"
+                            cardIcon: "📊"
+                            // Also under the experimental gate: new,
+                            // non-trivial, added 2026-08-29 (see
+                            // docs/experimental-features.md).
+                            experimental: true
+                            experimentalFeaturesEnabled: root.appSettingsController.experimentalFeaturesEnabled
+                            enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
+                            onClicked: root.stickStatisticsRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
                         }
                         ActionCard {
                             cardTitle: "Sync Cue Points"
