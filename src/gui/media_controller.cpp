@@ -1,9 +1,34 @@
 #include "media_controller.hpp"
 
+#include <QtConcurrent/QtConcurrentRun>
+
 #include "infrastructure/media/media_factory.hpp"
 
 namespace djconvert::gui
 {
+
+namespace
+{
+
+// Runs entirely on a background thread (see MediaController::startTask())
+// -- no access to the controller itself.
+MediaTaskResult runMediaTask(bool mount, QString devicePath)
+{
+    MediaTaskResult result;
+    auto mounter = infrastructure::media::createRemovableMediaMounter();
+    std::string error;
+    if (mount) {
+        result.success = mounter->mount(devicePath.toStdString(), error).has_value();
+    } else {
+        result.success = mounter->unmount(devicePath.toStdString(), error);
+    }
+    if (!result.success) {
+        result.errorMessage = QString::fromStdString(error);
+    }
+    return result;
+}
+
+}  // namespace
 
 DetectedStickListModel::DetectedStickListModel(QObject *parent) : QAbstractListModel(parent) {}
 
@@ -76,6 +101,8 @@ MediaController::MediaController(QObject *parent) : QObject(parent)
     m_monitor->start([this]() {
         QMetaObject::invokeMethod(this, [this]() { m_debounceTimer.start(); }, Qt::QueuedConnection);
     });
+
+    connect(&m_watcher, &QFutureWatcher<MediaTaskResult>::finished, this, &MediaController::onTaskFinished);
 }
 
 MediaController::~MediaController()
@@ -91,31 +118,36 @@ void MediaController::detect()
     m_model.setSticks(locator->detect());
 }
 
-bool MediaController::mountStick(const QString &devicePath)
+void MediaController::mountStick(const QString &devicePath)
 {
-    auto mounter = infrastructure::media::createRemovableMediaMounter();
-    std::string error;
-    auto mountPoint = mounter->mount(devicePath.toStdString(), error);
-    if (!mountPoint) {
-        setErrorMessage(QString::fromStdString(error));
-        return false;
-    }
-    setErrorMessage({});
-    detect();
-    return true;
+    startTask(true, devicePath);
 }
 
-bool MediaController::unmountStick(const QString &devicePath)
+void MediaController::unmountStick(const QString &devicePath)
 {
-    auto mounter = infrastructure::media::createRemovableMediaMounter();
-    std::string error;
-    if (!mounter->unmount(devicePath.toStdString(), error)) {
-        setErrorMessage(QString::fromStdString(error));
-        return false;
+    startTask(false, devicePath);
+}
+
+void MediaController::startTask(bool mount, const QString &devicePath)
+{
+    if (m_busy) {
+        return;
     }
     setErrorMessage({});
+    m_busy = true;
+    m_busyDevicePath = devicePath;
+    emit busyChanged();
+    m_watcher.setFuture(QtConcurrent::run(runMediaTask, mount, devicePath));
+}
+
+void MediaController::onTaskFinished()
+{
+    MediaTaskResult result = m_watcher.result();
+    m_busy = false;
+    m_busyDevicePath.clear();
+    setErrorMessage(result.errorMessage);
+    emit busyChanged();
     detect();
-    return true;
 }
 
 void MediaController::setErrorMessage(const QString &message)

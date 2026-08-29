@@ -8,10 +8,9 @@
 namespace djconvert::application
 {
 
-// Port for writing a track's hot cues back into a library. Only
-// implemented where the underlying format's write path actually exists
-// (Engine, via libdjinterop) -- rekordbox has no implementation yet, since
-// its write path is still unbuilt (see the plan's Phasing/Risks).
+// Port for writing a track's hot cues back into a library. Implemented for
+// both rekordbox (RekordboxCueWriter, via the ANLZ PCO2 sections) and
+// Engine (LibdjinteropEngineCueWriter, via libdjinterop).
 class CueWriter
 {
 public:

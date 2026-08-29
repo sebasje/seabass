@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QAbstractListModel>
+#include <QFutureWatcher>
 #include <QObject>
 #include <QQmlEngine>
 #include <QTimer>
@@ -50,12 +51,23 @@ private:
 // exposed as `sticks`, and auto-refreshes on udev hotplug events via
 // RemovableMediaMonitor. Source-selection entry point for every other
 // controller.
+// Result of a background mount/unmount task -- see MediaController::
+// mountStick()/unmountStick(). Built entirely on a worker thread, no
+// access to the controller itself.
+struct MediaTaskResult
+{
+    bool success = false;
+    QString errorMessage;
+};
+
 class MediaController : public QObject
 {
     Q_OBJECT
     QML_ELEMENT
     Q_PROPERTY(djconvert::gui::DetectedStickListModel *sticks READ sticksModel CONSTANT)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
+    Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
+    Q_PROPERTY(QString busyDevicePath READ busyDevicePath NOTIFY busyChanged)
 
 public:
     explicit MediaController(QObject *parent = nullptr);
@@ -63,21 +75,38 @@ public:
 
     DetectedStickListModel *sticksModel() { return &m_model; }
     QString errorMessage() const { return m_errorMessage; }
+    bool busy() const { return m_busy; }
+    // Which stick's devicePath mount/unmount is in flight -- lets a row's
+    // own delegate show a spinner instead of the eject icon for just the
+    // stick actually being acted on, not every row.
+    QString busyDevicePath() const { return m_busyDevicePath; }
 
     Q_INVOKABLE void detect();
-    Q_INVOKABLE bool mountStick(const QString &devicePath);
-    Q_INVOKABLE bool unmountStick(const QString &devicePath);
+
+    // Both run the actual mount/unmount (a real syscall/subprocess that
+    // can visibly take a moment -- confirmed by this exact freeze once
+    // looking like the app had hung or lost the stick) on a background
+    // thread rather than blocking the UI thread the way these used to.
+    // A no-op while another mount/unmount is already in flight.
+    Q_INVOKABLE void mountStick(const QString &devicePath);
+    Q_INVOKABLE void unmountStick(const QString &devicePath);
 
 signals:
     void errorMessageChanged();
+    void busyChanged();
 
 private:
     void setErrorMessage(const QString &message);
+    void startTask(bool mount, const QString &devicePath);
+    void onTaskFinished();
 
     DetectedStickListModel m_model;
     std::unique_ptr<application::RemovableMediaMonitor> m_monitor;
     QTimer m_debounceTimer;
     QString m_errorMessage;
+    QFutureWatcher<MediaTaskResult> m_watcher;
+    bool m_busy = false;
+    QString m_busyDevicePath;
 };
 
 }  // namespace djconvert::gui

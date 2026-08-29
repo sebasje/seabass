@@ -16,10 +16,22 @@ namespace
 QVariantList readWaveform(const QString &format, const QString &libraryPath, const QString &sourceId)
 {
     std::vector<domain::WaveformColumn> points;
-    if (format == "rekordbox") {
-        points = infrastructure::rekordbox::readWaveformPreview(libraryPath.toStdString(), sourceId.toStdString());
-    } else {
-        points = infrastructure::engine::readWaveformPreview(libraryPath.toStdString(), sourceId.toStdString());
+    try {
+        if (format == "rekordbox") {
+            points = infrastructure::rekordbox::readWaveformPreview(libraryPath.toStdString(), sourceId.toStdString());
+        } else if (format == "engine") {
+            points = infrastructure::engine::readWaveformPreview(libraryPath.toStdString(), sourceId.toStdString());
+        }
+        // Any other format (currently just "onelibrary") has no waveform
+        // reader of its own -- stays empty rather than falling into
+        // either branch above by default, which used to silently treat
+        // an unrecognized format as Engine and could throw trying to
+        // open a differently-shaped database as one.
+    } catch (const std::exception &) {
+        // Called directly on the UI thread (see load()/waveformFor()),
+        // not through a background task's own try/catch -- an exception
+        // escaping here would crash the app outright instead of just
+        // leaving the waveform blank for this one track.
     }
     QVariantList waveform;
     for (const auto &col : points) {
@@ -60,6 +72,8 @@ void PlaybackController::load(const QString &format, const QString &libraryPath,
     setErrorMessage({});
     m_waveform.clear();
 
+    m_currentFormat = format;
+    m_currentSourceId = sourceId;
     m_title = title;
     m_artist = artist;
     m_artworkPath = artworkPath;
@@ -103,7 +117,18 @@ void PlaybackController::seek(qint64 positionMs)
 void PlaybackController::stop()
 {
     m_player.stop();
+    // Clearing the source, not just stopping playback, is what actually
+    // releases the underlying file handle -- QMediaPlayer's backend (on
+    // Linux, GStreamer/FFmpeg) keeps a track's file open as long as a
+    // source is loaded, playing or not. Without this, ejecting a stick
+    // right after playing a track from it consistently failed with
+    // "target is busy": stop() left hasTrack false (so the UI correctly
+    // showed no track loaded) while the real file descriptor stayed open
+    // underneath, which the UI had no way to reveal.
+    m_player.setSource(QUrl());
     m_hasTrack = false;
+    m_currentFormat.clear();
+    m_currentSourceId.clear();
     m_waveform.clear();
     m_cues.clear();
     emit trackChanged();

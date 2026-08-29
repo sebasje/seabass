@@ -158,8 +158,8 @@ Page {
                         MouseArea {
                             id: rowMouseArea
                             anchors.fill: parent
-                            enabled: !delegateRoot.mounted
-                            hoverEnabled: !delegateRoot.mounted
+                            enabled: !delegateRoot.mounted && !root.mediaController.busy
+                            hoverEnabled: !delegateRoot.mounted && !root.mediaController.busy
                             ToolTip.visible: containsMouse
                             ToolTip.text: "Click to mount " + delegateRoot.label
                             onClicked: root.mediaController.mountStick(delegateRoot.devicePath)
@@ -209,7 +209,27 @@ Page {
                         }
                     }
 
+                    // Mount/unmount now run on a background thread (a real
+                    // syscall/subprocess that can visibly take a moment --
+                    // this exact freeze used to look like the app had hung
+                    // or the stick had vanished, with zero feedback that
+                    // anything was happening). While this row's own
+                    // operation is in flight, show a spinner in the eject
+                    // button's place instead of leaving it looking dead.
+                    readonly property bool thisRowBusy: root.mediaController.busy
+                        && root.mediaController.busyDevicePath === delegateRoot.devicePath
+
+                    BusyIndicator {
+                        visible: parent.thisRowBusy
+                        running: visible
+                        Layout.preferredWidth: 48
+                        Layout.preferredHeight: 48
+                        Layout.alignment: Qt.AlignVCenter
+                    }
+
                     ToolButton {
+                        visible: !parent.thisRowBusy
+                        enabled: !root.mediaController.busy
                         text: "⏏"
                         font.family: "Noto Sans Symbols2"
                         font.pointSize: Theme.fontHuge

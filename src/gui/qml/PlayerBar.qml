@@ -117,37 +117,5 @@ Frame {
                 onSeekRequested: (ratio) => root.controller.seek(ratio * root.controller.duration)
             }
         }
-
-        RowLayout {
-            Layout.alignment: Qt.AlignVCenter
-            spacing: 4
-
-            Label {
-                text: root.controller.volume <= 0.0 ? "🔇" : (root.controller.volume < 0.5 ? "🔉" : "🔊")
-                font.family: "Noto Sans Symbols2"
-            }
-            Slider {
-                id: volumeSlider
-                Layout.preferredWidth: 90
-                from: 0.0
-                to: 1.0
-                value: root.controller.volume
-                onMoved: root.controller.volume = value
-                ToolTip.visible: pressed
-                ToolTip.text: Math.round(value * 100) + "%"
-            }
-        }
-
-        ToolButton {
-            text: "✕"
-            font.family: "Noto Sans Symbols2"
-            font.pointSize: Theme.fontMedium
-            Layout.preferredWidth: 40
-            Layout.preferredHeight: 40
-            Layout.alignment: Qt.AlignVCenter
-            ToolTip.visible: hovered
-            ToolTip.text: "Stop Playback"
-            onClicked: root.controller.stop()
-        }
     }
 }

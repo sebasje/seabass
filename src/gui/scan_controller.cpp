@@ -14,6 +14,8 @@
 #include "gui/local_file_url.hpp"
 #include "gui/qt_progress_reporter.hpp"
 #include "infrastructure/engine/libdjinterop_engine_reader.hpp"
+#include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
+#include "infrastructure/onelibrary/onelibrary_reader.hpp"
 #include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
 
 namespace djconvert::gui
@@ -163,6 +165,16 @@ ScanTaskResult runScanTask(QString format, QString path, QString siblingRekordbo
                     // tracks on their own.
                 }
             }
+        } else {
+            // format == "onelibrary": path is the same PIONEER root
+            // rekordbox uses (exportLibrary.db lives alongside export.pdb
+            // under it), not a separate stored path -- OneLibrary is a
+            // third view onto that same side of the stick, not an
+            // independent catalog with its own DetectedStick field.
+            infrastructure::onelibrary::OneLibraryReader reader(path.toStdString());
+            reader.setProgressReporter(*reporter);
+            application::ScanLibrary useCase(reader);
+            tracks = useCase.execute();
         }
         result.tracks = std::move(tracks);
     } catch (const std::exception &e) {
@@ -254,11 +266,47 @@ void ScanController::search(const QString &query)
     applyFilters();
 }
 
+bool ScanController::hasOneLibrary(const QString &pioneerRoot) const
+{
+    return infrastructure::onelibrary::OneLibraryCueWriter::existsFor(pioneerRoot.toStdString());
+}
+
 void ScanController::setSort(const QString &field, bool ascending)
 {
     m_sortField = field;
     m_sortAscending = ascending;
     applyFilters();
+}
+
+QVariantList ScanController::findMergeCandidates(const QString &query, const QString &excludeSourceId) const
+{
+    QVariantList result;
+    if (query.isEmpty()) {
+        return result;
+    }
+    QString lowerQuery = query.toLower();
+    std::string exclude = excludeSourceId.toStdString();
+    for (const auto &track : m_allTracks) {
+        if (track.sourceId == exclude) {
+            continue;
+        }
+        QString title = QString::fromStdString(track.title);
+        QString artist = QString::fromStdString(track.artist);
+        if (!title.toLower().contains(lowerQuery) && !artist.toLower().contains(lowerQuery)) {
+            continue;
+        }
+        QVariantMap m;
+        m["sourceId"] = QString::fromStdString(track.sourceId);
+        m["title"] = title;
+        m["artist"] = artist;
+        m["durationSeconds"] = track.durationSeconds;
+        m["filePath"] = QString::fromStdString(track.filePath);
+        result << m;
+        if (result.size() >= 50) {
+            break;
+        }
+    }
+    return result;
 }
 
 namespace

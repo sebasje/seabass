@@ -14,6 +14,11 @@ Canvas {
     property real progress: -1
 
     signal seekRequested(real ratio)
+    // Fires on every click alongside seekRequested -- callers that only
+    // want click-to-seek (PlayerBar) simply don't connect to this one.
+    // Added for the "Add Cue" picker, which needs an absolute ms position
+    // rather than a 0..1 ratio.
+    signal positionClicked(real positionMs)
 
     onWaveformDataChanged: requestPaint()
     onCueDataChanged: requestPaint()
@@ -77,11 +82,51 @@ Canvas {
                 }
             }
         }
+
+        // Playhead -- previously only implied by the played/unplayed
+        // color split above, which reads as "which bars are done" rather
+        // than "exactly where is 'now'", especially at the 0.35 opacity
+        // this view runs at as the library row backdrop. A white halo
+        // under an accent-colored core line keeps it legible against
+        // whatever mixed bar colors happen to sit behind it; the
+        // downward-pointing triangle at the top gives it a distinct
+        // silhouette even where the halo/line alone would blend in.
+        if (root.progress >= 0 && w > 0) {
+            var px = root.progress * w;
+            ctx.save();
+            ctx.shadowColor = "rgba(255,255,255,0.85)";
+            ctx.shadowBlur = 6;
+            ctx.strokeStyle = "#ffffff";
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(px, 0);
+            ctx.lineTo(px, h);
+            ctx.stroke();
+            ctx.restore();
+
+            ctx.strokeStyle = String(Theme.accent);
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(px, 0);
+            ctx.lineTo(px, h);
+            ctx.stroke();
+
+            ctx.fillStyle = String(Theme.accent);
+            ctx.beginPath();
+            ctx.moveTo(px - 5, 0);
+            ctx.lineTo(px + 5, 0);
+            ctx.lineTo(px, 7);
+            ctx.closePath();
+            ctx.fill();
+        }
     }
 
     MouseArea {
         anchors.fill: parent
         enabled: root.trackDurationMs > 0
-        onClicked: (mouse) => root.seekRequested(mouse.x / width)
+        onClicked: (mouse) => {
+            root.seekRequested(mouse.x / width);
+            root.positionClicked((mouse.x / width) * root.trackDurationMs);
+        }
     }
 }
