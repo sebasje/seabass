@@ -3,7 +3,7 @@
 
 #include "domain/local_restore.hpp"
 
-using namespace djconvert::domain;
+using namespace seabass::domain;
 
 Track makeTrack(std::string id, double duration, std::vector<CuePoint> cues)
 {

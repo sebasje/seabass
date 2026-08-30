@@ -2,7 +2,7 @@
 
 #include <string>
 
-namespace djconvert::cli
+namespace seabass::cli
 {
 
 enum class Color { Default, Red, Green, Yellow, Cyan, Gray, Bold };
@@ -35,4 +35,4 @@ private:
     static bool s_verbose;
 };
 
-}  // namespace djconvert::cli
+}  // namespace seabass::cli

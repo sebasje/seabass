@@ -5,7 +5,7 @@
 
 #include "domain/local_restore.hpp"
 
-namespace djconvert::domain
+namespace seabass::domain
 {
 
 namespace
@@ -102,4 +102,4 @@ DuplicateCleanupPlan DuplicateCleanupPlanner::plan(const DuplicateGroup &group)
     return result;
 }
 
-}  // namespace djconvert::domain
+}  // namespace seabass::domain

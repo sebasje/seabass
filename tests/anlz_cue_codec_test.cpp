@@ -3,7 +3,7 @@
 
 #include "infrastructure/rekordbox/anlz_cue_codec.hpp"
 
-using namespace djconvert::infrastructure::rekordbox;
+using namespace seabass::infrastructure::rekordbox;
 
 namespace
 {
@@ -24,7 +24,7 @@ int main()
 {
     // Real PCO2 section captured from testdata/PIONEER-rb7-stick's
     // "Another Brick In The Wall" (track id=14): one hot cue, no color,
-    // time=9875ms. Ground truth confirmed against djconvert's own scan
+    // time=9875ms. Ground truth confirmed against seabass's own scan
     // output for this exact track earlier this session.
     {
         auto section =

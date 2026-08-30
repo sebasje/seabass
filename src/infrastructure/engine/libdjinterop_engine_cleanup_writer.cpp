@@ -4,7 +4,7 @@
 
 #include <djinterop/djinterop.hpp>
 
-namespace djconvert::infrastructure::engine
+namespace seabass::infrastructure::engine
 {
 
 namespace
@@ -100,4 +100,4 @@ void LibdjinteropEngineCleanupWriter::removeTrackReplacingWith(const std::string
     db.remove_track(*doomed);
 }
 
-}  // namespace djconvert::infrastructure::engine
+}  // namespace seabass::infrastructure::engine

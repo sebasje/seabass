@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-namespace djconvert::domain
+namespace seabass::domain
 {
 
 // A hot cue or memory cue found on a track, normalized across the rekordbox
@@ -82,4 +82,4 @@ struct Track
     std::optional<std::chrono::system_clock::time_point> lastPlayedAt;
 };
 
-}  // namespace djconvert::domain
+}  // namespace seabass::domain

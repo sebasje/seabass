@@ -5,7 +5,7 @@
 #include <QQmlEngine>
 #include <QVariantList>
 
-namespace djconvert::gui
+namespace seabass::gui
 {
 
 // Result of a background task -- see SettingsController::load()/setField().
@@ -69,4 +69,4 @@ private:
     QString m_statusMessage;
 };
 
-}  // namespace djconvert::gui
+}  // namespace seabass::gui

@@ -4,7 +4,7 @@
 #include <QQmlEngine>
 #include <QSettings>
 
-namespace djconvert::gui
+namespace seabass::gui
 {
 
 // App-level (not per-stick) preferences, persisted via QSettings under the
@@ -20,10 +20,10 @@ class AppSettingsController : public QObject
     Q_PROPERTY(QString preferredFormat READ preferredFormat WRITE setPreferredFormat NOTIFY preferredFormatChanged)
     Q_PROPERTY(bool hideStreamingTracks READ hideStreamingTracks WRITE setHideStreamingTracks NOTIFY
                    hideStreamingTracksChanged)
-    // Always present (even in a build compiled with DJCONVERT_EXPERIMENTAL
+    // Always present (even in a build compiled with SEABASS_EXPERIMENTAL
     // off) so QML can gate the whole Settings section on it.
     Q_PROPERTY(bool experimentalBuildSupported READ experimentalBuildSupported CONSTANT)
-#ifdef DJCONVERT_EXPERIMENTAL_BUILD
+#ifdef SEABASS_EXPERIMENTAL_BUILD
     Q_PROPERTY(bool experimentalFeaturesEnabled READ experimentalFeaturesEnabled WRITE setExperimentalFeaturesEnabled
                    NOTIFY experimentalFeaturesEnabledChanged)
 #else
@@ -57,14 +57,14 @@ public:
     // stable (an ActionCard just drops its `experimental: true`).
     static constexpr bool experimentalBuildSupported()
     {
-#ifdef DJCONVERT_EXPERIMENTAL_BUILD
+#ifdef SEABASS_EXPERIMENTAL_BUILD
         return true;
 #else
         return false;
 #endif
     }
 
-#ifdef DJCONVERT_EXPERIMENTAL_BUILD
+#ifdef SEABASS_EXPERIMENTAL_BUILD
     bool experimentalFeaturesEnabled() const { return m_experimentalFeaturesEnabled; }
     void setExperimentalFeaturesEnabled(bool value);
 #else
@@ -75,7 +75,7 @@ signals:
     void useSystemThemeChanged();
     void preferredFormatChanged();
     void hideStreamingTracksChanged();
-#ifdef DJCONVERT_EXPERIMENTAL_BUILD
+#ifdef SEABASS_EXPERIMENTAL_BUILD
     void experimentalFeaturesEnabledChanged();
 #endif
 
@@ -84,9 +84,9 @@ private:
     bool m_useSystemTheme = false;
     QString m_preferredFormat = QStringLiteral("rekordbox");
     bool m_hideStreamingTracks = false;
-#ifdef DJCONVERT_EXPERIMENTAL_BUILD
+#ifdef SEABASS_EXPERIMENTAL_BUILD
     bool m_experimentalFeaturesEnabled = false;
 #endif
 };
 
-}  // namespace djconvert::gui
+}  // namespace seabass::gui

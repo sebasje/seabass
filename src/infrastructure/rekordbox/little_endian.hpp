@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <string>
 
-namespace djconvert::infrastructure::rekordbox
+namespace seabass::infrastructure::rekordbox
 {
 
 // export.pdb is little-endian (unlike ANLZ, which is big-endian -- see
@@ -43,4 +43,4 @@ inline void writeU32LE(std::string &data, size_t offset, uint32_t value)
     data.at(offset + 3) = static_cast<char>((value >> 24) & 0xFF);
 }
 
-}  // namespace djconvert::infrastructure::rekordbox
+}  // namespace seabass::infrastructure::rekordbox

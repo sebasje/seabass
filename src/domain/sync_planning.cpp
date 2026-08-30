@@ -2,7 +2,7 @@
 
 #include "domain/track_matching.hpp"
 
-namespace djconvert::domain
+namespace seabass::domain
 {
 
 std::vector<SyncMatch> TrackMatcher::match(const std::vector<Track> &tracksA, const std::vector<Track> &tracksB)
@@ -59,4 +59,4 @@ SyncPlan SyncPlanner::plan(const SyncMatch &match, std::chrono::system_clock::ti
     return result;
 }
 
-}  // namespace djconvert::domain
+}  // namespace seabass::domain

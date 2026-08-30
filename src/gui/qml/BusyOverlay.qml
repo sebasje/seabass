@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import DjConvertGui
+import SeabassGui
 
 // A big, centered "this is busy" overlay for a page's content area --
 // used in place of the small progress bar that used to live tucked into

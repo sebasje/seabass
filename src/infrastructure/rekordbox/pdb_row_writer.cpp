@@ -15,7 +15,7 @@
 #include "infrastructure/rekordbox/little_endian.hpp"
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 
-namespace djconvert::infrastructure::rekordbox
+namespace seabass::infrastructure::rekordbox
 {
 
 using Pdb = rekordbox_pdb_t;
@@ -352,4 +352,4 @@ bool PdbRowWriter::commit()
     return true;
 }
 
-}  // namespace djconvert::infrastructure::rekordbox
+}  // namespace seabass::infrastructure::rekordbox

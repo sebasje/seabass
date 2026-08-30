@@ -4,7 +4,7 @@
 #include <iostream>
 #include <unistd.h>
 
-namespace djconvert::cli
+namespace seabass::cli
 {
 
 bool Console::s_verbose = false;
@@ -105,4 +105,4 @@ bool Console::confirm(const std::string &question)
     return line == "y" || line == "Y" || line == "yes";
 }
 
-}  // namespace djconvert::cli
+}  // namespace seabass::cli

@@ -43,7 +43,7 @@ void exportMaterialPalette()
     // than relying on organizationName/applicationName being set up by
     // the time this runs (they aren't, this executes before
     // QGuiApplication exists at all).
-    QSettings settings(QDir::homePath() + "/.config/djconvert/djconvert-gui.conf", QSettings::IniFormat);
+    QSettings settings(QDir::homePath() + "/.config/seabass/seabass.conf", QSettings::IniFormat);
     bool useSystemTheme = settings.value("useSystemTheme", false).toBool();
 
     // "Current"/"Abyss" -- this app's own brand colors (see Theme.qml),
@@ -73,16 +73,16 @@ int main(int argc, char **argv)
 {
     exportMaterialPalette();
     QGuiApplication app(argc, argv);
-    app.setWindowIcon(QIcon(QStringLiteral(":/qt/qml/DjConvertGui/qml/icons/seabass_soundbass.svg")));
+    app.setWindowIcon(QIcon(QStringLiteral(":/qt/qml/SeabassGui/qml/icons/seabass_soundbass.svg")));
 
-    // Two djconvert-gui instances writing to the same stick at once is
+    // Two seabass instances writing to the same stick at once is
     // exactly the corruption risk StickWriteLock exists to prevent -- that
     // lock alone already covers it correctly, but refusing a second
     // instance outright is cheaper and clearer than letting someone open
     // two windows and wonder why writes keep failing.
     QString lockDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
     QDir().mkpath(lockDir);
-    QLockFile instanceLock(lockDir + "/djconvert-gui.lock");
+    QLockFile instanceLock(lockDir + "/seabass.lock");
     instanceLock.setStaleLockTime(30000);
     if (!instanceLock.tryLock(100)) {
         QQmlApplicationEngine errorEngine;
@@ -111,7 +111,7 @@ int main(int argc, char **argv)
     QObject::connect(
         &engine, &QQmlApplicationEngine::objectCreationFailed, &app,
         []() { QCoreApplication::exit(-1); }, Qt::QueuedConnection);
-    engine.loadFromModule("DjConvertGui", "Main");
+    engine.loadFromModule("SeabassGui", "Main");
 
     int result = app.exec();
 

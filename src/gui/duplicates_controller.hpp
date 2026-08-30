@@ -16,7 +16,7 @@
 #include "gui/qt_progress_reporter.hpp"
 #include "gui/undo_tracking.hpp"
 
-namespace djconvert::gui
+namespace seabass::gui
 {
 
 // Read-only Qt list model over the consolidation plans DuplicatesController
@@ -101,7 +101,7 @@ class DuplicatesController : public QObject
 {
     Q_OBJECT
     QML_ELEMENT
-    Q_PROPERTY(djconvert::gui::ConsolidationPlanListModel *plans READ plansModel CONSTANT)
+    Q_PROPERTY(seabass::gui::ConsolidationPlanListModel *plans READ plansModel CONSTANT)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(int scanCurrent READ scanCurrent NOTIFY scanProgressChanged)
     Q_PROPERTY(int scanTotal READ scanTotal NOTIFY scanProgressChanged)
@@ -113,7 +113,7 @@ class DuplicatesController : public QObject
     // Conflict alike -- being a duplicate doesn't depend on cue-consolidation
     // status), of every group's file sizes minus its single largest copy:
     // the disk space that would be freed if each group kept only one file.
-    // Purely informational -- djconvert has no feature that deletes audio
+    // Purely informational -- Seabass has no feature that deletes audio
     // files, this is a number, not an action.
     Q_PROPERTY(QString totalWastedBytesHuman READ totalWastedBytesHuman NOTIFY plansChanged)
 
@@ -185,4 +185,4 @@ private:
     bool m_writing = false;
 };
 
-}  // namespace djconvert::gui
+}  // namespace seabass::gui

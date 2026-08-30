@@ -5,7 +5,7 @@
 #include "infrastructure/rekordbox/generated/rekordbox_anlz.h"
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 
-namespace djconvert::infrastructure::rekordbox
+namespace seabass::infrastructure::rekordbox
 {
 
 using Anlz = rekordbox_anlz_t;
@@ -61,4 +61,4 @@ std::vector<domain::WaveformColumn> readWaveformPreview(const std::string &pione
     return {};
 }
 
-}  // namespace djconvert::infrastructure::rekordbox
+}  // namespace seabass::infrastructure::rekordbox

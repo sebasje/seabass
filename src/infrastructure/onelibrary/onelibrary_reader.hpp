@@ -4,7 +4,7 @@
 
 #include "application/ports/library_reader.hpp"
 
-namespace djconvert::infrastructure::onelibrary
+namespace seabass::infrastructure::onelibrary
 {
 
 // Reads tracks (with cues and playlists) out of Rekordbox's "OneLibrary" /
@@ -35,4 +35,4 @@ private:
     std::string m_pioneerRoot;
 };
 
-}  // namespace djconvert::infrastructure::onelibrary
+}  // namespace seabass::infrastructure::onelibrary

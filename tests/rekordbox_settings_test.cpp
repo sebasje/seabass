@@ -10,7 +10,7 @@
 #include "infrastructure/rekordbox/rekordbox_settings_reader.hpp"
 #include "infrastructure/rekordbox/rekordbox_settings_writer.hpp"
 
-using namespace djconvert::infrastructure::rekordbox;
+using namespace seabass::infrastructure::rekordbox;
 
 namespace
 {
@@ -43,7 +43,7 @@ int main()
     // Writing a field, then reading it back, sees the new value -- and the
     // file still round-trips as valid (same size, checksum accepted).
     {
-        std::filesystem::path dir = std::filesystem::temp_directory_path() / "djconvert_settings_test";
+        std::filesystem::path dir = std::filesystem::temp_directory_path() / "seabass_settings_test";
         std::filesystem::create_directories(dir);
         std::filesystem::path path = dir / "MYSETTING.DAT";
         {
@@ -72,7 +72,7 @@ int main()
 
     // Unknown field/option names are refused, not silently ignored.
     {
-        std::filesystem::path dir = std::filesystem::temp_directory_path() / "djconvert_settings_test2";
+        std::filesystem::path dir = std::filesystem::temp_directory_path() / "seabass_settings_test2";
         std::filesystem::create_directories(dir);
         std::filesystem::path path = dir / "MYSETTING.DAT";
         {

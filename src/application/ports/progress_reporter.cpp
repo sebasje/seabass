@@ -2,7 +2,7 @@
 
 #include <iostream>
 
-namespace djconvert::application
+namespace seabass::application
 {
 
 NullProgressReporter &NullProgressReporter::instance()
@@ -16,4 +16,4 @@ void NullProgressReporter::warn(const std::string &message)
     std::cerr << "warning: " << message << "\n";
 }
 
-}  // namespace djconvert::application
+}  // namespace seabass::application

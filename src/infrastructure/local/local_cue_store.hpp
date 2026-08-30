@@ -9,7 +9,7 @@
 
 struct sqlite3;
 
-namespace djconvert::infrastructure::local
+namespace seabass::infrastructure::local
 {
 
 // One "Backup Now" moment, frozen -- unlike the tracks/cues tables (which
@@ -45,8 +45,8 @@ struct BackupSessionSummary
 class LocalCueStore : public application::LibraryReader
 {
 public:
-    // path: defaults to $XDG_DATA_HOME/djconvert/cues.db (or
-    // $HOME/.local/share/djconvert/cues.db), creating the schema on first
+    // path: defaults to $XDG_DATA_HOME/seabass/cues.db (or
+    // $HOME/.local/share/seabass/cues.db), creating the schema on first
     // use. An explicit path is accepted for tests.
     explicit LocalCueStore(std::string path = defaultPath());
     ~LocalCueStore() override;
@@ -91,4 +91,4 @@ private:
     sqlite3 *m_db = nullptr;
 };
 
-}  // namespace djconvert::infrastructure::local
+}  // namespace seabass::infrastructure::local

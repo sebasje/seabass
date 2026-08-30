@@ -1,10 +1,10 @@
 cmake_minimum_required(VERSION 3.16)
 project(vendored_zlib C)
 
-# Deliberately not integrated into the main djconvert build -- see
+# Deliberately not integrated into the main Seabass build -- see
 # README.md in this directory. Configure/build/install this standalone
 # project into a prefix, then point the main build's CMAKE_PREFIX_PATH
-# at it so find_package(ZLIB) succeeds normally, for both djconvert's own
+# at it so find_package(ZLIB) succeeds normally, for both Seabass's own
 # CMakeLists.txt and libdjinterop's internal (unconditional, no bypass
 # option) find_package(ZLIB REQUIRED) call.
 

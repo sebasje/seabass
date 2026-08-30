@@ -6,9 +6,9 @@
 #include "infrastructure/engine/libdjinterop_engine_library_creator.hpp"
 #include "infrastructure/engine/libdjinterop_engine_reader.hpp"
 
-using namespace djconvert::infrastructure::engine;
-using djconvert::domain::CuePoint;
-using djconvert::domain::Track;
+using namespace seabass::infrastructure::engine;
+using seabass::domain::CuePoint;
+using seabass::domain::Track;
 namespace fs = std::filesystem;
 
 namespace
@@ -40,7 +40,7 @@ Track makeTrack(std::string id, std::string title, std::string artist, std::stri
 
 int main()
 {
-    fs::path root = fs::temp_directory_path() / "djconvert_engine_library_creator_test";
+    fs::path root = fs::temp_directory_path() / "seabass_engine_library_creator_test";
     fs::remove_all(root);
     fs::create_directories(root);
     fs::path enginePath = root / "Engine Library";
@@ -59,7 +59,7 @@ int main()
         assert(result.cuesCopied == 4);
 
         LibdjinteropEngineReader reader(enginePath.string());
-        auto readBack = djconvert::application::ScanLibrary(reader).execute();
+        auto readBack = seabass::application::ScanLibrary(reader).execute();
         assert(readBack.size() == 2);
 
         bool foundOne = false, foundTwo = false;

@@ -5,7 +5,7 @@
 
 #include "infrastructure/benchmark/stick_speed_benchmark.hpp"
 
-using namespace djconvert::infrastructure::benchmark;
+using namespace seabass::infrastructure::benchmark;
 namespace fs = std::filesystem;
 
 namespace
@@ -23,7 +23,7 @@ void writeFile(const fs::path &path, std::size_t bytes)
 
 int main()
 {
-    fs::path root = fs::temp_directory_path() / "djconvert_speed_benchmark_test";
+    fs::path root = fs::temp_directory_path() / "seabass_speed_benchmark_test";
     fs::remove_all(root);
     fs::create_directories(root);
 

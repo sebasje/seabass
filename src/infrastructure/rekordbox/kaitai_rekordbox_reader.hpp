@@ -6,7 +6,7 @@
 #include "application/ports/library_reader.hpp"
 #include "domain/track.hpp"
 
-namespace djconvert::infrastructure::rekordbox
+namespace seabass::infrastructure::rekordbox
 {
 
 // Reads a rekordbox USB export (PIONEER/rekordbox/export.pdb +
@@ -27,4 +27,4 @@ private:
     std::string m_pioneerRoot;
 };
 
-}  // namespace djconvert::infrastructure::rekordbox
+}  // namespace seabass::infrastructure::rekordbox

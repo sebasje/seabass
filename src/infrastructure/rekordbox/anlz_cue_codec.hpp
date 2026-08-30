@@ -6,7 +6,7 @@
 #include <tuple>
 #include <vector>
 
-namespace djconvert::infrastructure::rekordbox
+namespace seabass::infrastructure::rekordbox
 {
 
 // One cue entry in the shape ANLZ's PCO2 (cue_extended_entry) format
@@ -78,4 +78,4 @@ public:
     static std::string encodeHotCues(const std::vector<RawHotCueEntry> &cues, uint32_t listType = CueListTypeHot);
 };
 
-}  // namespace djconvert::infrastructure::rekordbox
+}  // namespace seabass::infrastructure::rekordbox

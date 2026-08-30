@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import DjConvertGui
+import SeabassGui
 
 // Creates a brand-new Engine Library from this stick's existing rekordbox
 // export -- for a stick (or SD card) that only has a rekordbox Device
@@ -62,6 +62,7 @@ Page {
         onAccepted: controller.create(root.rekordboxPath, root.schemaGeneration)
 
         ColumnLayout {
+            width: parent.width
             spacing: 8
             Label {
                 Layout.fillWidth: true
@@ -184,6 +185,6 @@ Page {
         busy: controller.busy
         current: controller.scanCurrent
         total: controller.scanTotal
-        label: "Scanning rekordbox, then creating the Engine Library..."
+        label: controller.currentPhase.length > 0 ? controller.currentPhase + "..." : "Working..."
     }
 }

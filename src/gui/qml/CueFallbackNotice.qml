@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import DjConvertGui
+import SeabassGui
 
 // Shown in place of the (invisible) waveform cue markers when a track's
 // duration is unknown -- Engine never analyzed it (no waveform/beatgrid

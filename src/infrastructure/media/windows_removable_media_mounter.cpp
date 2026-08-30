@@ -11,7 +11,7 @@
 
 #include <string>
 
-namespace djconvert::infrastructure::media
+namespace seabass::infrastructure::media
 {
 
 namespace
@@ -84,4 +84,4 @@ bool WindowsRemovableMediaMounter::unmount(const std::string &devicePath, std::s
     return true;
 }
 
-}  // namespace djconvert::infrastructure::media
+}  // namespace seabass::infrastructure::media

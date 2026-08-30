@@ -5,7 +5,7 @@
 
 #include <string>
 
-namespace djconvert::gui
+namespace seabass::gui
 {
 
 // Converts a native local path (e.g. "H:\PIONEER/Contents/..." -- rekordbox
@@ -25,4 +25,4 @@ inline QString toLocalFileUrl(const std::string &path)
     return QUrl::fromLocalFile(QString::fromStdString(path)).toString();
 }
 
-}  // namespace djconvert::gui
+}  // namespace seabass::gui

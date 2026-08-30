@@ -4,7 +4,7 @@
 
 #include "application/ports/cue_writer.hpp"
 
-namespace djconvert::infrastructure::rekordbox
+namespace seabass::infrastructure::rekordbox
 {
 
 // Writes hot cues into a rekordbox USB export by rewriting the target
@@ -31,4 +31,4 @@ private:
     std::string m_pioneerRoot;
 };
 
-}  // namespace djconvert::infrastructure::rekordbox
+}  // namespace seabass::infrastructure::rekordbox

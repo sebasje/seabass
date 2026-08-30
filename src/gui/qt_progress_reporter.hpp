@@ -4,7 +4,7 @@
 
 #include "application/ports/progress_reporter.hpp"
 
-namespace djconvert::gui
+namespace seabass::gui
 {
 
 // Bridges application::ProgressReporter to Qt signals, so a scan running on
@@ -41,4 +41,4 @@ signals:
     void warningRaised(const QString &message);
 };
 
-}  // namespace djconvert::gui
+}  // namespace seabass::gui

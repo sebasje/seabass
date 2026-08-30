@@ -8,8 +8,8 @@
 
 #include "infrastructure/local/local_cue_store.hpp"
 
-using namespace djconvert::domain;
-using namespace djconvert::infrastructure::local;
+using namespace seabass::domain;
+using namespace seabass::infrastructure::local;
 namespace fs = std::filesystem;
 
 namespace
@@ -32,7 +32,7 @@ Track makeTrack(std::string id, std::string filename, std::string title, std::st
 
 int main()
 {
-    fs::path dbPath = fs::temp_directory_path() / "djconvert_local_cue_store_test.db";
+    fs::path dbPath = fs::temp_directory_path() / "seabass_local_cue_store_test.db";
     fs::remove(dbPath);
 
     CuePoint hotCue{CuePoint::Kind::Hot, 1, 1000.0, "#FF0000", "drop"};
@@ -138,7 +138,7 @@ int main()
         assert(summaries[0].schemaVersion == 1);
         std::cout << "case 7 (snapshot records its own format version) OK\n";
 
-        // Simulate a snapshot written by some future djconvert version this
+        // Simulate a snapshot written by some future seabass version this
         // build doesn't know about.
         sqlite3 *rawDb = nullptr;
         assert(sqlite3_open(dbPath.c_str(), &rawDb) == SQLITE_OK);
@@ -173,7 +173,7 @@ int main()
         assert(!path.empty());
         fs::path p(path);
         assert(p.filename() == "cues.db");
-        assert(p.parent_path().filename() == "djconvert");
+        assert(p.parent_path().filename() == "seabass");
         std::cout << "case 9 (defaultPath() resolves to a real, non-empty path) OK\n";
     }
 

@@ -7,7 +7,7 @@
 #include <filesystem>
 #include <stdexcept>
 
-namespace djconvert::infrastructure::benchmark
+namespace seabass::infrastructure::benchmark
 {
 
 namespace fs = std::filesystem;
@@ -136,7 +136,7 @@ std::string StickBenchmarkHistory::defaultPath()
     fs::path dataDir = (xdgDataHome && *xdgDataHome) ? fs::path(xdgDataHome)
                                                       : fs::path(std::getenv("HOME")) / ".local" / "share";
 #endif
-    return (dataDir / "djconvert" / "benchmark_history.db").string();
+    return (dataDir / "seabass" / "benchmark_history.db").string();
 }
 
 StickBenchmarkHistory::StickBenchmarkHistory(std::string path)
@@ -212,4 +212,4 @@ std::vector<BenchmarkRecord> StickBenchmarkHistory::allHistory() const
                      nullptr);
 }
 
-}  // namespace djconvert::infrastructure::benchmark
+}  // namespace seabass::infrastructure::benchmark

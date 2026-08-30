@@ -6,7 +6,7 @@
 #include <set>
 #include <string>
 
-namespace djconvert::infrastructure::rekordbox
+namespace seabass::infrastructure::rekordbox
 {
 
 // Mutates a rekordbox export.pdb file's row-presence bits and select
@@ -94,4 +94,4 @@ private:
     std::filesystem::file_time_type m_originalMtime;
 };
 
-}  // namespace djconvert::infrastructure::rekordbox
+}  // namespace seabass::infrastructure::rekordbox

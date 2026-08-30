@@ -4,7 +4,7 @@
 #include <poll.h>
 #include <unistd.h>
 
-namespace djconvert::infrastructure::media
+namespace seabass::infrastructure::media
 {
 
 LinuxUdevMediaMonitor::~LinuxUdevMediaMonitor()
@@ -87,4 +87,4 @@ void LinuxUdevMediaMonitor::stop()
     m_wakeFds[0] = m_wakeFds[1] = -1;
 }
 
-}  // namespace djconvert::infrastructure::media
+}  // namespace seabass::infrastructure::media

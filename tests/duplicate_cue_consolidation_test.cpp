@@ -3,7 +3,7 @@
 
 #include "domain/duplicate_cue_consolidation.hpp"
 
-using namespace djconvert::domain;
+using namespace seabass::domain;
 
 Track makeTrack(std::string id, std::string filename, double duration, std::vector<CuePoint> cues,
                 std::string title = "", std::string artist = "")

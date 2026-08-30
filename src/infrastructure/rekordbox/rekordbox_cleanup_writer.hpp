@@ -4,7 +4,7 @@
 
 #include "application/ports/library_cleanup_writer.hpp"
 
-namespace djconvert::infrastructure::rekordbox
+namespace seabass::infrastructure::rekordbox
 {
 
 // Permanently removes a duplicate track from a rekordbox USB export,
@@ -28,4 +28,4 @@ private:
     std::string m_pioneerRoot;
 };
 
-}  // namespace djconvert::infrastructure::rekordbox
+}  // namespace seabass::infrastructure::rekordbox

@@ -5,7 +5,7 @@
 #include <QQmlEngine>
 #include <QTimer>
 
-namespace djconvert::gui
+namespace seabass::gui
 {
 
 // Periodically polls (on a background thread -- a /proc scan is cheap but
@@ -40,4 +40,4 @@ private:
     bool m_running = false;
 };
 
-}  // namespace djconvert::gui
+}  // namespace seabass::gui

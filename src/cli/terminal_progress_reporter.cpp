@@ -6,7 +6,7 @@
 
 #include "cli/console.hpp"
 
-namespace djconvert::cli
+namespace seabass::cli
 {
 
 namespace
@@ -93,4 +93,4 @@ void TerminalProgressReporter::render()
     std::cout << std::flush;
 }
 
-}  // namespace djconvert::cli
+}  // namespace seabass::cli

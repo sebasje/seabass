@@ -5,7 +5,7 @@
 
 #include "domain/track.hpp"
 
-namespace djconvert::domain
+namespace seabass::domain
 {
 
 // One stick track matched against a local-backup copy that has cues the
@@ -50,4 +50,4 @@ public:
         const std::vector<std::pair<const Track *, const Track *>> &matches);
 };
 
-}  // namespace djconvert::domain
+}  // namespace seabass::domain

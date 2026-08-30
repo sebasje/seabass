@@ -6,7 +6,7 @@
 #include "application/ports/removable_media_monitor.hpp"
 #include "application/ports/removable_media_mounter.hpp"
 
-namespace djconvert::infrastructure::media
+namespace seabass::infrastructure::media
 {
 
 // Single place both composition roots (cli/main.cpp, gui/media_controller.cpp)
@@ -17,4 +17,4 @@ std::unique_ptr<application::RemovableMediaLocator> createRemovableMediaLocator(
 std::unique_ptr<application::RemovableMediaMonitor> createRemovableMediaMonitor();
 std::unique_ptr<application::RemovableMediaMounter> createRemovableMediaMounter();
 
-}  // namespace djconvert::infrastructure::media
+}  // namespace seabass::infrastructure::media

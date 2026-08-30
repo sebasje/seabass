@@ -7,7 +7,7 @@
 #include "infrastructure/engine/libdjinterop_waveform_reader.hpp"
 #include "infrastructure/rekordbox/rekordbox_waveform_reader.hpp"
 
-namespace djconvert::gui
+namespace seabass::gui
 {
 
 namespace
@@ -143,4 +143,4 @@ void PlaybackController::setErrorMessage(const QString &message)
     emit errorMessageChanged();
 }
 
-}  // namespace djconvert::gui
+}  // namespace seabass::gui

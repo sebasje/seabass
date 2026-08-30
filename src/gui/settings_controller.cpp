@@ -13,7 +13,7 @@
 #include "infrastructure/rekordbox/rekordbox_settings_reader.hpp"
 #include "infrastructure/rekordbox/rekordbox_settings_writer.hpp"
 
-namespace djconvert::gui
+namespace seabass::gui
 {
 
 namespace fs = std::filesystem;
@@ -96,10 +96,10 @@ SettingsTaskResult runSetFieldTask(QString pioneerRoot, QString fileName, QStrin
             result.errorMessage = "Settings file not found: " + fileName;
         } else {
             // Same backup-before-write invariant as every other write path
-            // in the app, sharing the same .djconvert-backups directory.
+            // in the app, sharing the same .seabass-backups directory.
             fs::path stickRoot = fs::path(pioneerRoot.toStdString()).parent_path();
-            infrastructure::backup::StickWriteLock lock((stickRoot / ".djconvert-backups" / ".write.lock").string());
-            infrastructure::backup::FilesystemBackupStore backupStore((stickRoot / ".djconvert-backups").string());
+            infrastructure::backup::StickWriteLock lock((stickRoot / ".seabass-backups" / ".write.lock").string());
+            infrastructure::backup::FilesystemBackupStore backupStore((stickRoot / ".seabass-backups").string());
             backupStore.backup({filePath}, "device-settings");
 
             bool ok = infrastructure::rekordbox::writeDeviceSettingField(
@@ -192,4 +192,4 @@ void SettingsController::setStatusMessage(const QString &message)
     emit statusMessageChanged();
 }
 
-}  // namespace djconvert::gui
+}  // namespace seabass::gui

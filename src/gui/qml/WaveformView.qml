@@ -1,5 +1,5 @@
 import QtQuick
-import DjConvertGui
+import SeabassGui
 
 // Draws a waveform (as normalized 0..1 amplitude bars) with cue markers
 // overlaid at their real position. Used both by the live PlayerBar (with

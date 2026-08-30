@@ -5,7 +5,7 @@
 
 #include "domain/waveform.hpp"
 
-namespace djconvert::infrastructure::engine
+namespace seabass::infrastructure::engine
 {
 
 // Reads an Engine Library track's waveform (via libdjinterop's
@@ -19,4 +19,4 @@ namespace djconvert::infrastructure::engine
 std::vector<domain::WaveformColumn> readWaveformPreview(const std::string &engineLibraryPath,
                                                           const std::string &trackSourceId);
 
-}  // namespace djconvert::infrastructure::engine
+}  // namespace seabass::infrastructure::engine

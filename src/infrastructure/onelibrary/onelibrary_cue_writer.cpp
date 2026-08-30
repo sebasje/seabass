@@ -6,7 +6,7 @@
 #include "infrastructure/onelibrary/onelibrary_key.hpp"
 #include "infrastructure/onelibrary/sqlcipher_dyn.hpp"
 
-namespace djconvert::infrastructure::onelibrary
+namespace seabass::infrastructure::onelibrary
 {
 
 namespace fs = std::filesystem;
@@ -45,8 +45,10 @@ bool OneLibraryCueWriter::existsFor(const std::string &pioneerRoot)
     return fs::is_regular_file(dbPathFor(pioneerRoot), ec);
 }
 
-OneLibraryCueWriter::OneLibraryCueWriter(std::string pioneerRoot) : m_pioneerRoot(std::move(pioneerRoot))
+OneLibraryCueWriter::OneLibraryCueWriter(std::string pioneerRoot, std::optional<std::string> realStickRoot)
+    : m_pioneerRoot(std::move(pioneerRoot))
 {
+    m_stickRoot = realStickRoot ? std::move(*realStickRoot) : fs::path(m_pioneerRoot).parent_path().string();
     m_dbPath = dbPathFor(m_pioneerRoot);
     std::error_code ec;
     m_originalFileSize = fs::file_size(m_dbPath, ec);
@@ -67,7 +69,6 @@ void OneLibraryCueWriter::writeCuesForPath(const std::string &filePath, const st
     // disk still look like the one this writer was constructed
     // against", refusing if something rewrote it out from under us in
     // between construction and this call.
-    std::string stickRoot = fs::path(m_pioneerRoot).parent_path().string();
     std::error_code statEc;
     auto currentSize = fs::file_size(m_dbPath, statEc);
     auto currentMtime = fs::last_write_time(m_dbPath, statEc);
@@ -76,7 +77,7 @@ void OneLibraryCueWriter::writeCuesForPath(const std::string &filePath, const st
                                   " changed since this writer was opened, refusing to write a stale copy");
     }
 
-    std::string contentPath = toContentPath(stickRoot, filePath);
+    std::string contentPath = toContentPath(m_stickRoot, filePath);
     std::string key = deriveOneLibraryKey();
 
     SqlCipherLibrary lib;
@@ -200,7 +201,6 @@ void OneLibraryCueWriter::removeTrackByPath(const std::string &filePath)
 {
     // Same staleness guard as writeCuesForPath(), see its own comment
     // for the reasoning.
-    std::string stickRoot = fs::path(m_pioneerRoot).parent_path().string();
     std::error_code statEc;
     auto currentSize = fs::file_size(m_dbPath, statEc);
     auto currentMtime = fs::last_write_time(m_dbPath, statEc);
@@ -209,7 +209,7 @@ void OneLibraryCueWriter::removeTrackByPath(const std::string &filePath)
                                   " changed since this writer was opened, refusing to write a stale copy");
     }
 
-    std::string contentPath = toContentPath(stickRoot, filePath);
+    std::string contentPath = toContentPath(m_stickRoot, filePath);
     std::string key = deriveOneLibraryKey();
 
     SqlCipherLibrary lib;
@@ -289,4 +289,4 @@ void OneLibraryCueWriter::removeTrackByPath(const std::string &filePath)
     m_originalMtime = fs::last_write_time(m_dbPath, refreshEc);
 }
 
-}  // namespace djconvert::infrastructure::onelibrary
+}  // namespace seabass::infrastructure::onelibrary

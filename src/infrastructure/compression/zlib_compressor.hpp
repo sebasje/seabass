@@ -3,7 +3,7 @@
 #include <cstddef>
 #include <string>
 
-namespace djconvert::infrastructure::compression
+namespace seabass::infrastructure::compression
 {
 
 // Thin wrapper over zlib's deflate/inflate (level 6, the zlib default --
@@ -17,4 +17,4 @@ std::string compress(const std::string &data);
 // decompression fails or doesn't produce exactly originalSize bytes.
 std::string decompress(const std::string &data, size_t originalSize);
 
-}  // namespace djconvert::infrastructure::compression
+}  // namespace seabass::infrastructure::compression

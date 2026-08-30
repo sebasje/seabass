@@ -1,6 +1,9 @@
 #include "infrastructure/durable_file_write.hpp"
 
 #include <filesystem>
+#include <fstream>
+#include <ios>
+#include <sstream>
 #include <system_error>
 
 #if defined(_WIN32)
@@ -10,7 +13,7 @@
 #include <unistd.h>
 #endif
 
-namespace djconvert::infrastructure
+namespace seabass::infrastructure
 {
 
 namespace fs = std::filesystem;
@@ -96,7 +99,7 @@ void fsyncDirectoryContaining(const std::string &filePath)
 
 bool writeFileDurablyAtomic(const std::string &path, const std::string &data)
 {
-    std::string tempPath = path + ".tmp-djconvert-write";
+    std::string tempPath = path + ".tmp-seabass-write";
     if (!writeFileDurably(tempPath, data)) {
         std::error_code removeEc;
         fs::remove(tempPath, removeEc);
@@ -113,4 +116,18 @@ bool writeFileDurablyAtomic(const std::string &path, const std::string &data)
     return true;
 }
 
-}  // namespace djconvert::infrastructure
+bool copyFileDurablyAtomic(const std::string &sourcePath, const std::string &targetPath)
+{
+    std::ifstream in(sourcePath, std::ios::binary);
+    if (!in) {
+        return false;
+    }
+    std::ostringstream buffer;
+    buffer << in.rdbuf();
+    if (in.bad()) {
+        return false;
+    }
+    return writeFileDurablyAtomic(targetPath, buffer.str());
+}
+
+}  // namespace seabass::infrastructure

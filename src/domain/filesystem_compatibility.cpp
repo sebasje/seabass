@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cctype>
 
-namespace djconvert::domain
+namespace seabass::domain
 {
 
 namespace
@@ -80,4 +80,4 @@ FilesystemCompatibilityInfo FilesystemCompatibility::lookup(const std::string &f
     };
 }
 
-}  // namespace djconvert::domain
+}  // namespace seabass::domain

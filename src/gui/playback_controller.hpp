@@ -6,7 +6,7 @@
 #include <QQmlEngine>
 #include <QVariantList>
 
-namespace djconvert::gui
+namespace seabass::gui
 {
 
 // Plays a single track's audio file (via QMediaPlayer) and exposes its
@@ -99,4 +99,4 @@ private:
     QString m_errorMessage;
 };
 
-}  // namespace djconvert::gui
+}  // namespace seabass::gui

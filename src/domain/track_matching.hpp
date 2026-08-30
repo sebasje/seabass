@@ -7,7 +7,7 @@
 
 #include "domain/track.hpp"
 
-namespace djconvert::domain
+namespace seabass::domain
 {
 
 // Shared low-level helpers used by both intra-library duplicate detection
@@ -51,4 +51,4 @@ std::vector<std::pair<const Track *, const Track *>> matchTracks(const std::vect
 // rounding).
 bool cueSetsEqual(const std::vector<CuePoint> &a, const std::vector<CuePoint> &b);
 
-}  // namespace djconvert::domain
+}  // namespace seabass::domain

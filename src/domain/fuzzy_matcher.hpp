@@ -2,7 +2,7 @@
 
 #include <string>
 
-namespace djconvert::domain
+namespace seabass::domain
 {
 
 // Simple, dependency-free fuzzy text matching for looking up a track by
@@ -17,4 +17,4 @@ public:
     static double score(const std::string &query, const std::string &candidate);
 };
 
-}  // namespace djconvert::domain
+}  // namespace seabass::domain

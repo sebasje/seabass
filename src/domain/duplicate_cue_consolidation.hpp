@@ -6,7 +6,7 @@
 
 #include "domain/track.hpp"
 
-namespace djconvert::domain
+namespace seabass::domain
 {
 
 // Two or more tracks in the same library scan that are believed to be
@@ -60,4 +60,4 @@ public:
     static ConsolidationPlan plan(const DuplicateGroup &group);
 };
 
-}  // namespace djconvert::domain
+}  // namespace seabass::domain

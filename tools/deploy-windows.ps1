@@ -1,4 +1,4 @@
-# Deploys djconvert-gui.exe as a standalone Windows build: runs windeployqt,
+# Deploys seabass.exe as a standalone Windows build: runs windeployqt,
 # then copies the *full* transitive DLL closure (Qt's own non-Qt deps, the
 # mingw-w64 runtime, and every plugin's own dependencies -- notably the
 # multimedia backend's FFmpeg codec libraries and the image-format plugins'
@@ -21,9 +21,9 @@ $BuildPath = Join-Path $RepoRoot $BuildDir
 $UcrtBin = "C:\msys64\ucrt64\bin"
 $env:PATH = "$UcrtBin;" + $env:PATH
 
-$exePath = Join-Path $BuildPath "djconvert-gui.exe"
+$exePath = Join-Path $BuildPath "seabass.exe"
 if (-not (Test-Path $exePath)) {
-    throw "djconvert-gui.exe not found at $exePath -- build it first."
+    throw "seabass.exe not found at $exePath -- build it first."
 }
 
 Write-Output "=== windeployqt ==="

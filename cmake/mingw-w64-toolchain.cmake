@@ -1,4 +1,4 @@
-# Cross-compile djconvert (CLI and, when Qt6-for-mingw is available via
+# Cross-compile Seabass (CLI and, when Qt6-for-mingw is available via
 # CMAKE_PREFIX_PATH + QT_HOST_PATH, the GUI too) for 64-bit Windows using
 # mingw-w64.
 #
@@ -6,7 +6,7 @@
 #   cmake -S . -B build-mingw \
 #       -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-w64-toolchain.cmake \
 #       -DCMAKE_PREFIX_PATH=<path to an installed vendored zlib prefix -- see third_party/zlib/README.md>
-#   cmake --build build-mingw --target djconvert
+#   cmake --build build-mingw --target seabass-cli
 #
 # Usage (GUI too, once Qt6 win64_mingw + a version-matched Linux host Qt
 # are installed -- see docs/windows-build.md):
@@ -14,7 +14,7 @@
 #       -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-w64-toolchain.cmake \
 #       -DCMAKE_PREFIX_PATH="<zlib prefix>;/home/sebas/Qt6-mingw/6.8.0/mingw_64" \
 #       -DQT_HOST_PATH=/home/sebas/Qt6-linux-host/6.8.0/gcc_64
-#   cmake --build build-mingw --target djconvert-gui
+#   cmake --build build-mingw --target seabass
 
 set(CMAKE_SYSTEM_NAME Windows)
 set(CMAKE_SYSTEM_PROCESSOR x86_64)

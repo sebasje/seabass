@@ -2,7 +2,7 @@
 
 #include <functional>
 
-namespace djconvert::application
+namespace seabass::application
 {
 
 // Port for reacting to removable-media hotplug events (a USB stick inserted,
@@ -21,4 +21,4 @@ public:
     virtual void stop() = 0;
 };
 
-}  // namespace djconvert::application
+}  // namespace seabass::application

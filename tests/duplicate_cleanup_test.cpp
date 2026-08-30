@@ -3,7 +3,7 @@
 
 #include "domain/duplicate_cleanup.hpp"
 
-using namespace djconvert::domain;
+using namespace seabass::domain;
 
 namespace
 {

@@ -6,7 +6,7 @@
 
 struct sqlite3;
 
-namespace djconvert::infrastructure::benchmark
+namespace seabass::infrastructure::benchmark
 {
 
 // One past speed-benchmark run, persisted locally on this computer (never
@@ -37,7 +37,7 @@ struct BenchmarkRecord
 class StickBenchmarkHistory
 {
 public:
-    // path: defaults to $XDG_DATA_HOME/djconvert/benchmark_history.db (or
+    // path: defaults to $XDG_DATA_HOME/seabass/benchmark_history.db (or
     // the Windows/fallback equivalent, same convention as
     // LocalCueStore::defaultPath()), creating the schema on first use. An
     // explicit path is accepted for tests.
@@ -64,4 +64,4 @@ private:
     sqlite3 *m_db = nullptr;
 };
 
-}  // namespace djconvert::infrastructure::benchmark
+}  // namespace seabass::infrastructure::benchmark

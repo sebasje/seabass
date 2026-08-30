@@ -8,7 +8,7 @@
 // dedicated _MSC_VER branch that doesn't need this at all (real MSVC has
 // no <endian.h> either) -- this shim exists purely because mingw-w64's
 // GCC doesn't define _MSC_VER, so it falls through to the
-// Linux/BSD-only #include <endian.h> branch instead. Every djconvert
+// Linux/BSD-only #include <endian.h> branch instead. Every Seabass
 // target this project builds only ever targets x86_64, which is always
 // little-endian, so that's hardcoded here rather than detected.
 #define __LITTLE_ENDIAN 1234

@@ -10,7 +10,7 @@
 
 #include <chrono>
 
-namespace djconvert::infrastructure::media
+namespace seabass::infrastructure::media
 {
 
 WindowsRemovableMediaMonitor::~WindowsRemovableMediaMonitor()
@@ -54,4 +54,4 @@ void WindowsRemovableMediaMonitor::run()
     }
 }
 
-}  // namespace djconvert::infrastructure::media
+}  // namespace seabass::infrastructure::media

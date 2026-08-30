@@ -3,7 +3,7 @@
 Features gated behind `AppSettingsController::experimentalFeaturesEnabled`
 (Settings → Experimental features), off by default. See that property's own
 doc comment and `ActionCard.qml`'s `experimental` property for how the gate
-works, and the `DJCONVERT_EXPERIMENTAL` CMake option for the build-time
+works, and the `SEABASS_EXPERIMENTAL` CMake option for the build-time
 opt-in-mechanism switch.
 
 New non-trivial features default to this list. Move an entry to "Graduated

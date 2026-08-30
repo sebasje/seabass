@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import DjConvertGui
+import SeabassGui
 
 // Fans out the "Duplicate Tracks" top-level card into its sub-features,
 // non-destructive stats/metadata-sync (DuplicatesPage), the destructive

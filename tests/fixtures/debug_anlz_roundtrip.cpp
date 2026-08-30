@@ -20,7 +20,7 @@ int main(int argc, char **argv)
         std::cerr << "usage: roundtrip <input.EXT> <output-path>\n";
         return 1;
     }
-    auto file = djconvert::infrastructure::rekordbox::AnlzFile::readRaw(argv[1]);
+    auto file = seabass::infrastructure::rekordbox::AnlzFile::readRaw(argv[1]);
     std::cout << "sections: " << file.sections.size() << "\n";
     for (const auto &section : file.sections) {
         char tag[5] = {static_cast<char>((section.fourcc >> 24) & 0xFF), static_cast<char>((section.fourcc >> 16) & 0xFF),

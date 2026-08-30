@@ -2,7 +2,7 @@
 
 #include <algorithm>
 
-namespace djconvert::domain
+namespace seabass::domain
 {
 
 namespace
@@ -54,4 +54,4 @@ std::vector<Track> TrackPrioritizer::tracksNeedingCues(const std::vector<Track> 
     return result;
 }
 
-}  // namespace djconvert::domain
+}  // namespace seabass::domain

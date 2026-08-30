@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import DjConvertGui
+import SeabassGui
 
 Page {
     id: root
@@ -48,7 +48,7 @@ Page {
             spacing: 20
 
             Image {
-                source: "qrc:/qt/qml/DjConvertGui/qml/icons/seabass_soundbass.svg"
+                source: "qrc:/qt/qml/SeabassGui/qml/icons/seabass_soundbass.svg"
                 Layout.preferredWidth: 96
                 Layout.preferredHeight: 96
                 Layout.alignment: Qt.AlignHCenter
@@ -172,14 +172,6 @@ Page {
                 font.pointSize: Theme.fontTiny
                 color: Theme.textMuted
                 Layout.fillWidth: true
-                Layout.topMargin: 8
-            }
-
-            Label {
-                text: "Also known as djconvert on the command line."
-                font.pointSize: Theme.baseFontPointSize * 0.9
-                color: Theme.textMuted
-                Layout.alignment: Qt.AlignHCenter
                 Layout.topMargin: 8
             }
         }

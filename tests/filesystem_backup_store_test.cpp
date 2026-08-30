@@ -5,7 +5,7 @@
 
 #include "infrastructure/backup/filesystem_backup_store.hpp"
 
-using namespace djconvert::infrastructure::backup;
+using namespace seabass::infrastructure::backup;
 namespace fs = std::filesystem;
 
 namespace
@@ -29,11 +29,11 @@ std::string readFile(const fs::path &path)
 
 int main()
 {
-    fs::path root = fs::temp_directory_path() / "djconvert_filesystem_backup_store_test";
+    fs::path root = fs::temp_directory_path() / "seabass_filesystem_backup_store_test";
     fs::remove_all(root);
     fs::create_directories(root);
 
-    fs::path backupsDir = root / ".djconvert-backups";
+    fs::path backupsDir = root / ".seabass-backups";
     fs::path targetFile = root / "m.db";
     writeFile(targetFile, "original contents");
 

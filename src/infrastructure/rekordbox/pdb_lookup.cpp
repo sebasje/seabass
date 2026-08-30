@@ -3,7 +3,7 @@
 #include <fstream>
 #include <stdexcept>
 
-namespace djconvert::infrastructure::rekordbox
+namespace seabass::infrastructure::rekordbox
 {
 
 using Pdb = rekordbox_pdb_t;
@@ -91,4 +91,4 @@ std::optional<std::string> findAnlzPathForTrackId(const std::string &pioneerRoot
     return result;
 }
 
-}  // namespace djconvert::infrastructure::rekordbox
+}  // namespace seabass::infrastructure::rekordbox

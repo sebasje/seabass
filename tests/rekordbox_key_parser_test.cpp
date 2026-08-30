@@ -3,7 +3,7 @@
 
 #include "infrastructure/engine/rekordbox_key_parser.hpp"
 
-using namespace djconvert::infrastructure::engine;
+using namespace seabass::infrastructure::engine;
 using djinterop::musical_key;
 
 int main()

@@ -5,7 +5,7 @@
 #include <optional>
 #include <sstream>
 
-namespace djconvert::infrastructure::cleanup
+namespace seabass::infrastructure::cleanup
 {
 
 namespace
@@ -118,7 +118,7 @@ void PendingDeletionManifest::append(PendingDeletion entry)
     entry.timestampUtc = isoTimestampUtc();
 
     // Same "open, append, close every call" pattern as FileOperationLog,
-    // so multiple djconvert processes writing to the same stick don't
+    // so multiple Seabass processes writing to the same stick don't
     // stomp on each other's lines.
     std::ofstream ofs(m_manifestPath, std::ofstream::app);
     ofs << serializeLine(entry);
@@ -170,4 +170,4 @@ std::vector<PendingDeletion> PendingDeletionManifest::list() const
     return result;
 }
 
-}  // namespace djconvert::infrastructure::cleanup
+}  // namespace seabass::infrastructure::cleanup

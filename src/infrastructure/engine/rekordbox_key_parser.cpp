@@ -3,7 +3,7 @@
 #include <array>
 #include <cctype>
 
-namespace djconvert::infrastructure::engine
+namespace seabass::infrastructure::engine
 {
 
 namespace
@@ -101,4 +101,4 @@ std::optional<djinterop::musical_key> parseRekordboxKey(const std::string &key)
                     : majorByPitchClass[static_cast<size_t>(pitchClass)];
 }
 
-}  // namespace djconvert::infrastructure::engine
+}  // namespace seabass::infrastructure::engine

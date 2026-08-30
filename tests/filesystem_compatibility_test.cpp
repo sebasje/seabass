@@ -3,7 +3,7 @@
 
 #include "domain/filesystem_compatibility.hpp"
 
-using namespace djconvert::domain;
+using namespace seabass::domain;
 
 int main()
 {

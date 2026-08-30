@@ -3,7 +3,7 @@
 
 #include "domain/track_queries.hpp"
 
-using namespace djconvert::domain;
+using namespace seabass::domain;
 using namespace std::chrono;
 
 int main()

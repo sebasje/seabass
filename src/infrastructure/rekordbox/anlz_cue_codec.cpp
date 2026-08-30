@@ -4,7 +4,7 @@
 
 #include "infrastructure/rekordbox/big_endian.hpp"
 
-namespace djconvert::infrastructure::rekordbox
+namespace seabass::infrastructure::rekordbox
 {
 
 namespace
@@ -122,4 +122,4 @@ std::string AnlzCueCodec::encodeHotCues(const std::vector<RawHotCueEntry> &cues,
     return section;
 }
 
-}  // namespace djconvert::infrastructure::rekordbox
+}  // namespace seabass::infrastructure::rekordbox

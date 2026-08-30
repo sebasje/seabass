@@ -1,4 +1,4 @@
-qt_add_executable(djconvert-gui
+qt_add_executable(seabass
     WIN32
     main.cpp
 )
@@ -7,7 +7,7 @@ if(WIN32)
     # seabass_soundbass.svg the QML UI itself uses. Regenerate with:
     #   magick -background none qml/icons/seabass_soundbass.svg \
     #       -define icon:auto-resize=256,128,64,48,32,16 win/app_icon.ico
-    target_sources(djconvert-gui PRIVATE win/app_icon.rc)
+    target_sources(seabass PRIVATE win/app_icon.rc)
 endif()
 
 # `pragma Singleton` alone isn't enough for this Qt version's
@@ -25,8 +25,8 @@ endif()
 # non-singleton qmldir entry even after a full clean rebuild).
 set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
-qt_add_qml_module(djconvert-gui
-    URI DjConvertGui
+qt_add_qml_module(seabass
+    URI SeabassGui
     VERSION 1.0
     QML_FILES
         qml/Theme.qml
@@ -98,9 +98,9 @@ qt_add_qml_module(djconvert-gui
         qt_progress_reporter.hpp
 )
 
-target_include_directories(djconvert-gui PRIVATE ${CMAKE_SOURCE_DIR}/src)
-target_link_libraries(djconvert-gui PRIVATE
-    djconvert_core
+target_include_directories(seabass PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(seabass PRIVATE
+    seabass_core
     Qt6::Core
     Qt6::Gui
     Qt6::Qml

@@ -4,7 +4,7 @@
 
 #include "domain/duplicate_cue_consolidation.hpp"
 
-namespace djconvert::domain
+namespace seabass::domain
 {
 
 std::vector<LibraryConsistencyIssue> LibraryConsistencyChecker::check(const std::vector<Track> &healthyTracks,
@@ -89,4 +89,4 @@ std::vector<LibraryConsistencyIssue> LibraryConsistencyChecker::check(const std:
     return issues;
 }
 
-}  // namespace djconvert::domain
+}  // namespace seabass::domain

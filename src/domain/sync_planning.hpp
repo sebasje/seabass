@@ -5,7 +5,7 @@
 
 #include "domain/track.hpp"
 
-namespace djconvert::domain
+namespace seabass::domain
 {
 
 // Two tracks from different catalogs believed to be the same underlying
@@ -72,4 +72,4 @@ public:
                           std::chrono::system_clock::time_point mtimeB);
 };
 
-}  // namespace djconvert::domain
+}  // namespace seabass::domain

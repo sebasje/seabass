@@ -11,7 +11,7 @@
 
 #include "infrastructure/media/stick_root_scan.hpp"
 
-namespace djconvert::infrastructure::media
+namespace seabass::infrastructure::media
 {
 
 namespace fs = std::filesystem;
@@ -152,4 +152,4 @@ std::vector<DetectedStick> LinuxRemovableMediaLocator::detect()
     return sticks;
 }
 
-}  // namespace djconvert::infrastructure::media
+}  // namespace seabass::infrastructure::media

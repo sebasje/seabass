@@ -18,7 +18,7 @@
 #include "infrastructure/onelibrary/onelibrary_reader.hpp"
 #include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
 
-namespace djconvert::gui
+namespace seabass::gui
 {
 
 TrackListModel::TrackListModel(QObject *parent) : QAbstractListModel(parent) {}
@@ -448,4 +448,4 @@ void ScanController::setErrorMessage(const QString &message)
     emit errorMessageChanged();
 }
 
-}  // namespace djconvert::gui
+}  // namespace seabass::gui

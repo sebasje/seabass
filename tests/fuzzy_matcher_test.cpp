@@ -3,7 +3,7 @@
 
 #include "domain/fuzzy_matcher.hpp"
 
-using namespace djconvert::domain;
+using namespace seabass::domain;
 
 int main()
 {

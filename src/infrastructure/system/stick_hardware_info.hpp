@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <string>
 
-namespace djconvert::infrastructure::system
+namespace seabass::infrastructure::system
 {
 
 // Best-effort hardware facts about a mounted stick, resolved from its
@@ -34,4 +34,4 @@ struct StickHardwareInfo
 
 StickHardwareInfo readStickHardwareInfo(const std::string &mountPoint, const std::string &stickLabel);
 
-}  // namespace djconvert::infrastructure::system
+}  // namespace seabass::infrastructure::system

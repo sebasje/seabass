@@ -5,7 +5,7 @@
 #include "domain/duplicate_cue_consolidation.hpp"
 #include "domain/track.hpp"
 
-namespace djconvert::domain
+namespace seabass::domain
 {
 
 // What to do about one DuplicateGroup for the "Clean Up" feature: which
@@ -45,4 +45,4 @@ public:
     static DuplicateCleanupPlan plan(const DuplicateGroup &group);
 };
 
-}  // namespace djconvert::domain
+}  // namespace seabass::domain

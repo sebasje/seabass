@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import DjConvertGui
+import SeabassGui
 
 // Finds catalog rows whose backing audio file is missing (e.g. left
 // behind by Clean Up before it knew to also clean up OneLibrary, see

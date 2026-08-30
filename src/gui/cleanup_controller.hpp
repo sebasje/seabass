@@ -15,7 +15,7 @@
 #include "gui/undo_tracking.hpp"
 #include "infrastructure/cleanup/pending_deletion_manifest.hpp"
 
-namespace djconvert::gui
+namespace seabass::gui
 {
 
 // Read-only Qt list model over the cleanup plans CleanupController last
@@ -173,7 +173,7 @@ class CleanupController : public QObject
 {
     Q_OBJECT
     QML_ELEMENT
-    Q_PROPERTY(djconvert::gui::CleanupPlanListModel *plans READ plansModel CONSTANT)
+    Q_PROPERTY(seabass::gui::CleanupPlanListModel *plans READ plansModel CONSTANT)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(bool writing READ writing NOTIFY writingChanged)
     Q_PROPERTY(int scanCurrent READ scanCurrent NOTIFY scanProgressChanged)
@@ -183,7 +183,7 @@ class CleanupController : public QObject
     Q_PROPERTY(bool canUndo READ canUndo NOTIFY canUndoChanged)
     Q_PROPERTY(QString totalWastedBytesHuman READ totalWastedBytesHuman NOTIFY plansChanged)
     Q_PROPERTY(int includedCount READ includedCount NOTIFY includedChanged)
-    Q_PROPERTY(djconvert::gui::PendingDeletionListModel *pendingDeletions READ pendingDeletionsModel CONSTANT)
+    Q_PROPERTY(seabass::gui::PendingDeletionListModel *pendingDeletions READ pendingDeletionsModel CONSTANT)
     Q_PROPERTY(int pendingDeletionsIncludedCount READ pendingDeletionsIncludedCount NOTIFY pendingDeletionsChanged)
     Q_PROPERTY(QString totalPendingBytesHuman READ totalPendingBytesHuman NOTIFY pendingDeletionsChanged)
     Q_PROPERTY(QString includedPendingBytesHuman READ includedPendingBytesHuman NOTIFY pendingDeletionsChanged)
@@ -245,7 +245,7 @@ public:
     Q_INVOKABLE void undoLastOperation();
 
     // Re-reads this format's pending-deletion entries from
-    // .djconvert-pending-deletions.jsonl on the stick and repopulates
+    // .seabass-pending-deletions.jsonl on the stick and repopulates
     // pendingDeletions. Cheap (a small text file plus a stat() per entry
     // for its current size), so this runs synchronously rather than on a
     // background thread, called automatically after every scan()/
@@ -312,4 +312,4 @@ private:
     std::vector<UndoableBackup> m_lastBackups;
 };
 
-}  // namespace djconvert::gui
+}  // namespace seabass::gui

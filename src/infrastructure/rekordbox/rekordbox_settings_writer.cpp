@@ -6,7 +6,7 @@
 
 #include "infrastructure/rekordbox/rekordbox_settings_fields.hpp"
 
-namespace djconvert::infrastructure::rekordbox
+namespace seabass::infrastructure::rekordbox
 {
 
 bool writeDeviceSettingField(const std::string &pioneerRoot, const std::string &fileName,
@@ -71,4 +71,4 @@ bool writeDeviceSettingField(const std::string &pioneerRoot, const std::string &
     return ofs.good();
 }
 
-}  // namespace djconvert::infrastructure::rekordbox
+}  // namespace seabass::infrastructure::rekordbox

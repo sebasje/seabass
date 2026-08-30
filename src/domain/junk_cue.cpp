@@ -1,6 +1,6 @@
 #include "domain/junk_cue.hpp"
 
-namespace djconvert::domain
+namespace seabass::domain
 {
 
 std::vector<JunkCueIssue> JunkCueFinder::find(const std::vector<Track> &tracks)
@@ -16,4 +16,4 @@ std::vector<JunkCueIssue> JunkCueFinder::find(const std::vector<Track> &tracks)
     return issues;
 }
 
-}  // namespace djconvert::domain
+}  // namespace seabass::domain

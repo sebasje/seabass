@@ -1,5 +1,5 @@
 import QtQuick
-import DjConvertGui
+import SeabassGui
 
 // Flat, monochrome USB-stick pictogram (a rounded body plus a small
 // connector prong) -- drawn with plain Rectangles rather than a font

@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import DjConvertGui
+import SeabassGui
 
 // Shown while a controller is actively writing to the stick (not merely
 // scanning it) -- unplugging mid-write can corrupt the very file being

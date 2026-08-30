@@ -4,7 +4,7 @@
 // runtime via LoadLibrary/GetProcAddress against libsqlcipher-0.dll,
 // rather than linked at build time.
 //
-// Why: djconvert already links plain (unencrypted) SQLite3 elsewhere
+// Why: Seabass already links plain (unencrypted) SQLite3 elsewhere
 // (LocalCueStore, libdjinterop's bundled amalgamation). SQLCipher is
 // ABI-compatible with SQLite3 and exports the *same* symbol names
 // (sqlite3_open_v2, sqlite3_exec, ...) from its own DLL. Statically
@@ -24,7 +24,7 @@
 #include <stdexcept>
 #include <string>
 
-namespace djconvert::infrastructure::onelibrary
+namespace seabass::infrastructure::onelibrary
 {
 
 struct sqlite3;
@@ -122,4 +122,4 @@ private:
     sqlite3_stmt *m_stmt = nullptr;
 };
 
-}  // namespace djconvert::infrastructure::onelibrary
+}  // namespace seabass::infrastructure::onelibrary

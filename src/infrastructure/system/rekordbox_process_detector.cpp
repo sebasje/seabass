@@ -17,7 +17,7 @@
 #include <tlhelp32.h>
 #endif
 
-namespace djconvert::infrastructure::system
+namespace seabass::infrastructure::system
 {
 
 #if defined(__linux__)
@@ -135,4 +135,4 @@ bool isRekordboxRunning()
     return isProcessRunning("rekordbox");
 }
 
-}  // namespace djconvert::infrastructure::system
+}  // namespace seabass::infrastructure::system

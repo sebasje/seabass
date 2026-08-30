@@ -14,7 +14,7 @@
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 #include "infrastructure/rekordbox/pdb_row_writer.hpp"
 
-using namespace djconvert::infrastructure::rekordbox;
+using namespace seabass::infrastructure::rekordbox;
 namespace fs = std::filesystem;
 using Pdb = rekordbox_pdb_t;
 
@@ -214,7 +214,7 @@ uint32_t pageSequence(const std::string &buf, uint32_t pageIndex)
 
 int main()
 {
-    fs::path root = fs::temp_directory_path() / "djconvert_pdb_row_writer_test";
+    fs::path root = fs::temp_directory_path() / "seabass_pdb_row_writer_test";
     fs::remove_all(root);
     fs::create_directories(root);
     fs::path pdbPath = root / "export.pdb";

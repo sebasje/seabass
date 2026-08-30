@@ -8,7 +8,7 @@
 
 #include "infrastructure/rekordbox/rekordbox_settings_fields.hpp"
 
-namespace djconvert::infrastructure::rekordbox
+namespace seabass::infrastructure::rekordbox
 {
 
 namespace
@@ -72,4 +72,4 @@ std::vector<SettingsFile> readDeviceSettings(const std::string &pioneerRoot)
     return results;
 }
 
-}  // namespace djconvert::infrastructure::rekordbox
+}  // namespace seabass::infrastructure::rekordbox

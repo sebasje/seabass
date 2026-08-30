@@ -4,7 +4,7 @@
 #include <filesystem>
 #include <set>
 
-namespace djconvert::infrastructure::cleanup
+namespace seabass::infrastructure::cleanup
 {
 
 namespace
@@ -50,4 +50,4 @@ PendingDeletionResolution resolvePendingDeletions(const std::vector<PendingDelet
     return result;
 }
 
-}  // namespace djconvert::infrastructure::cleanup
+}  // namespace seabass::infrastructure::cleanup

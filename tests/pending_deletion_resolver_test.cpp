@@ -4,8 +4,8 @@
 
 #include "infrastructure/cleanup/pending_deletion_resolver.hpp"
 
-using namespace djconvert::domain;
-using namespace djconvert::infrastructure::cleanup;
+using namespace seabass::domain;
+using namespace seabass::infrastructure::cleanup;
 
 namespace
 {

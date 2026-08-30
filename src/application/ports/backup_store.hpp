@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-namespace djconvert::application
+namespace seabass::application
 {
 
 struct BackupRecord
@@ -22,7 +22,7 @@ struct BackupRecord
 };
 
 // Port for keeping "undo" copies of files before a mutating write touches
-// them. Every write djconvert performs must go through here first -- see
+// them. Every write Seabass performs must go through here first -- see
 // the plan's Backups section: manageable size (only the files actually
 // touched, not a full stick copy), with a way to prune old ones.
 class BackupStore
@@ -54,4 +54,4 @@ public:
     virtual bool remove(const std::string &id) = 0;
 };
 
-}  // namespace djconvert::application
+}  // namespace seabass::application

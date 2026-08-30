@@ -3,9 +3,10 @@
 #include <string>
 #include <vector>
 
+#include "application/ports/progress_reporter.hpp"
 #include "domain/track.hpp"
 
-namespace djconvert::infrastructure::engine
+namespace seabass::infrastructure::engine
 {
 
 // Which Engine OS/DJ software generation a freshly created library
@@ -40,14 +41,16 @@ struct EngineLibraryCreationResult
 //
 // Deliberately narrow for this first version. Carried over: title,
 // artist, BPM, key (parsed via rekordbox_key_parser.hpp), duration,
-// bitrate, rating, comment, file size, hot + memory cues (written via
-// the same, already-proven LibdjinteropEngineCueWriter used for every
-// other Engine cue write in this project), and a *simple*, approximate
-// two-point beatgrid computed from BPM and duration alone (assumes the
-// track starts exactly on a downbeat at sample 0 -- not always true, but
-// a reasonable approximation absent a real per-beat grid read from
-// rekordbox's own analysis data, which this project doesn't parse yet
-// despite the underlying Kaitai spec already defining that section).
+// bitrate, rating, comment, file size, hot + memory cues (the same cue
+// conversion LibdjinteropEngineCueWriter uses, applied directly to each
+// track's own snapshot before it's created -- see the .cpp's own comment
+// for why that matters for a bulk import specifically), and a *simple*,
+// approximate two-point beatgrid computed from BPM and duration alone
+// (assumes the track starts exactly on a downbeat at sample 0 -- not
+// always true, but a reasonable approximation absent a real per-beat
+// grid read from rekordbox's own analysis data, which this project
+// doesn't parse yet despite the underlying Kaitai spec already defining
+// that section).
 //
 // Deliberately NOT carried over in this version: album art (libdjinterop's
 // own album_art API is unfinished -- see its header, marked "TODO -
@@ -64,9 +67,20 @@ public:
     // Refuses (returns a populated errorMessage, creates nothing) if a
     // database already exists there -- this never overwrites an existing
     // Engine Library.
+    //
+    // reporter: two sequential phases, each its own start()/tick()/finish()
+    // run -- "Creating Engine Library" (once per track, against a fast
+    // local scratch copy of the database) then "Copying to stick" (the one
+    // pass that actually writes to `directory`, see the .cpp's own comment
+    // for why the database isn't built there directly). A library of any
+    // real size takes long enough that silently doing nothing visible looks
+    // indistinguishable from a genuine hang. Defaults to NullProgressReporter
+    // for callers (tests) that don't care.
     static EngineLibraryCreationResult create(const std::string &directory,
                                                const std::vector<domain::Track> &tracks,
-                                               EngineSchemaGeneration schemaGeneration);
+                                               EngineSchemaGeneration schemaGeneration,
+                                               application::ProgressReporter &reporter =
+                                                   application::NullProgressReporter::instance());
 };
 
-}  // namespace djconvert::infrastructure::engine
+}  // namespace seabass::infrastructure::engine

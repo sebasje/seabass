@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-namespace djconvert::infrastructure::rekordbox
+namespace seabass::infrastructure::rekordbox
 {
 
 // One tagged section of an ANLZ file, kept as opaque raw bytes (fourcc +
@@ -52,4 +52,4 @@ private:
     std::filesystem::file_time_type m_sourceMtime;
 };
 
-}  // namespace djconvert::infrastructure::rekordbox
+}  // namespace seabass::infrastructure::rekordbox

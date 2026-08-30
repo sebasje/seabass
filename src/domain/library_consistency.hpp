@@ -5,7 +5,7 @@
 
 #include "domain/track.hpp"
 
-namespace djconvert::domain
+namespace seabass::domain
 {
 
 // One row in a single catalog (rekordbox, Engine, or OneLibrary) whose
@@ -54,4 +54,4 @@ public:
                                                         const std::vector<Track> &brokenTracks);
 };
 
-}  // namespace djconvert::domain
+}  // namespace seabass::domain

@@ -15,7 +15,7 @@
 
 #include "infrastructure/media/stick_root_scan.hpp"
 
-namespace djconvert::infrastructure::media
+namespace seabass::infrastructure::media
 {
 
 using application::DetectedStick;
@@ -69,4 +69,4 @@ std::vector<DetectedStick> WindowsRemovableMediaLocator::detect()
     return sticks;
 }
 
-}  // namespace djconvert::infrastructure::media
+}  // namespace seabass::infrastructure::media

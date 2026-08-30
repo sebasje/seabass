@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import DjConvertGui
+import SeabassGui
 
 Page {
     id: root
@@ -107,7 +107,7 @@ Page {
                     }
                     return false;
                 }
-                text: "Rekordbox writing is the least-proven part of djconvert. Verify the result\non real hardware before trusting it for a gig."
+                text: "Rekordbox writing is the least-proven part of Seabass. Verify the result\non real hardware before trusting it for a gig."
                 color: Theme.conflictText
                 wrapMode: Text.WordWrap
             }
@@ -144,6 +144,91 @@ Page {
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
         }
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: 8
+            visible: syncController.unresolvedConflicts.length > 0
+
+            Label {
+                text: "Unresolved conflicts (" + syncController.unresolvedConflicts.length + ")"
+                font.bold: true
+                color: Theme.warnText
+            }
+
+            Repeater {
+                model: syncController.unresolvedConflicts
+                delegate: Rectangle {
+                    id: conflictCard
+                    required property var modelData
+                    required property int index
+                    Layout.fillWidth: true
+                    color: Theme.warnBg
+                    border.color: Theme.warnBorder
+                    radius: 4
+                    implicitHeight: conflictColumn.implicitHeight + 16
+
+                    ColumnLayout {
+                        id: conflictColumn
+                        anchors.fill: parent
+                        anchors.margins: 8
+                        spacing: 6
+
+                        Label {
+                            Layout.fillWidth: true
+                            wrapMode: Text.WordWrap
+                            color: Theme.warnText
+                            text: (conflictCard.modelData.targetTitle.length > 0
+                                    ? conflictCard.modelData.targetTitle : conflictCard.modelData.targetPath)
+                                + " - " + root.formatLabel(conflictCard.modelData.targetFormat)
+                                + " needs cues, but " + root.formatLabel(conflictCard.modelData.sourceAFormat)
+                                + " and " + root.formatLabel(conflictCard.modelData.sourceBFormat)
+                                + " disagree. Choose which to use:"
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 12
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 2
+                                Button {
+                                    text: "Use " + root.formatLabel(conflictCard.modelData.sourceAFormat)
+                                        + " (" + conflictCard.modelData.sourceASummary + ")"
+                                    onClicked: syncController.resolveConflict(conflictCard.index, true)
+                                }
+                                Label {
+                                    visible: conflictCard.modelData.sourceAHasJunkCue
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    font.italic: true
+                                    color: Theme.textMuted
+                                    text: "This side has a 0:00 memory cue that's usually accidental - consider cleaning it up in Clean Up before deciding."
+                                }
+                            }
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 2
+                                Button {
+                                    text: "Use " + root.formatLabel(conflictCard.modelData.sourceBFormat)
+                                        + " (" + conflictCard.modelData.sourceBSummary + ")"
+                                    onClicked: syncController.resolveConflict(conflictCard.index, false)
+                                }
+                                Label {
+                                    visible: conflictCard.modelData.sourceBHasJunkCue
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    font.italic: true
+                                    color: Theme.textMuted
+                                    text: "This side has a 0:00 memory cue that's usually accidental - consider cleaning it up in Clean Up before deciding."
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         Label {
             visible: !syncController.busy
             text: "Rekordbox tracks: " + syncController.rekordboxTrackCount

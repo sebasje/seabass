@@ -8,7 +8,7 @@
 
 #include "gui/qt_progress_reporter.hpp"
 
-namespace djconvert::gui
+namespace seabass::gui
 {
 
 // Result of the background creation task, see
@@ -38,6 +38,12 @@ class EngineLibraryCreatorController : public QObject
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(int scanCurrent READ scanCurrent NOTIFY scanProgressChanged)
     Q_PROPERTY(int scanTotal READ scanTotal NOTIFY scanProgressChanged)
+    // "Scanning rekordbox" while reading, then "Creating Engine Library"
+    // while writing -- both real, ticking phases, not a static message,
+    // so a library of any real size doesn't look indistinguishable from
+    // a hang (see EngineLibraryCreator::create()'s own progress-reporter
+    // parameter for why the write side in particular needs this).
+    Q_PROPERTY(QString currentPhase READ currentPhase NOTIFY currentPhaseChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
     Q_PROPERTY(QString statusMessage READ statusMessage NOTIFY statusMessageChanged)
 
@@ -47,6 +53,7 @@ public:
     bool busy() const { return m_busy; }
     int scanCurrent() const { return m_scanCurrent; }
     int scanTotal() const { return m_scanTotal; }
+    QString currentPhase() const { return m_currentPhase; }
     QString errorMessage() const { return m_errorMessage; }
     QString statusMessage() const { return m_statusMessage; }
 
@@ -61,6 +68,7 @@ public:
 signals:
     void busyChanged();
     void scanProgressChanged();
+    void currentPhaseChanged();
     void errorMessageChanged();
     void statusMessageChanged();
 
@@ -68,6 +76,7 @@ private:
     void onCreateFinished();
     void setBusy(bool busy);
     void setScanProgress(int current, int total);
+    void setCurrentPhase(const QString &phase);
     void setErrorMessage(const QString &message);
     void setStatusMessage(const QString &message);
     std::shared_ptr<QtProgressReporter> makeReporter();
@@ -76,8 +85,9 @@ private:
     bool m_busy = false;
     int m_scanCurrent = 0;
     int m_scanTotal = 0;
+    QString m_currentPhase;
     QString m_errorMessage;
     QString m_statusMessage;
 };
 
-}  // namespace djconvert::gui
+}  // namespace seabass::gui

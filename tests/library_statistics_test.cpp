@@ -3,7 +3,7 @@
 
 #include "domain/library_statistics.hpp"
 
-using namespace djconvert::domain;
+using namespace seabass::domain;
 
 namespace
 {

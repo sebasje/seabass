@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-namespace djconvert::infrastructure::rekordbox
+namespace seabass::infrastructure::rekordbox
 {
 
 // One valid byte value for a settings field, with its human-readable name
@@ -46,9 +46,9 @@ constexpr size_t SettingsFooterSize = 4;
 // settings file name.
 size_t settingsDataSizeFor(const std::string &fileName);
 
-}  // namespace djconvert::infrastructure::rekordbox
+}  // namespace seabass::infrastructure::rekordbox
 
-namespace djconvert::infrastructure::rekordbox::detail
+namespace seabass::infrastructure::rekordbox::detail
 {
 // CRC16/XMODEM (poly 0x1021, init 0x0000, no reflection, no final xor) --
 // matches pyrekordbox's compute_checksum() exactly. Exposed here (not just
@@ -56,4 +56,4 @@ namespace djconvert::infrastructure::rekordbox::detail
 // against known-good values.
 uint16_t crc16Xmodem(const uint8_t *data, size_t length);
 
-}  // namespace djconvert::infrastructure::rekordbox::detail
+}  // namespace seabass::infrastructure::rekordbox::detail

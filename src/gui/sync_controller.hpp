@@ -11,12 +11,13 @@
 #include <unordered_map>
 #include <vector>
 
+#include "domain/cross_source_sync_conflict.hpp"
 #include "domain/sync_planning.hpp"
 #include "domain/waveform.hpp"
 #include "gui/qt_progress_reporter.hpp"
 #include "gui/undo_tracking.hpp"
 
-namespace djconvert::gui
+namespace seabass::gui
 {
 
 // Read-only Qt list model over the SyncPlans SyncController last computed,
@@ -60,6 +61,15 @@ public:
                   std::unordered_map<std::string, std::vector<domain::WaveformColumn>> waveformsByKey = {});
     const std::vector<domain::SyncPlan> &plans() const { return m_plans; }
 
+    // Appends one plan without disturbing the rest (in particular,
+    // m_waveformsByKey, which setPlans() would otherwise reset) -- for a
+    // manually-resolved cross-source conflict (see SyncController::
+    // resolveConflict()) becoming an ordinary, immediately-appliable
+    // plan. The newly added plan simply has no waveform entry, same
+    // "best-effort missing" handling trackToMap() already gives a
+    // OneLibrary-side track.
+    void addPlan(domain::SyncPlan plan);
+
 private:
     std::vector<domain::SyncPlan> m_plans;
     std::unordered_map<std::string, std::vector<domain::WaveformColumn>> m_waveformsByKey;
@@ -69,7 +79,8 @@ private:
 // Built entirely on a worker thread, with no access to the controller.
 struct SyncTaskResult
 {
-    std::vector<domain::SyncPlan> plans;  // combined across every present pair, actionable only
+    std::vector<domain::SyncPlan> plans;  // combined across every present pair, actionable only, conflict-free
+    std::vector<domain::CrossSourceSyncConflict> conflicts;  // see CrossSourceConflictDetector::detect()
     std::unordered_map<std::string, std::vector<domain::WaveformColumn>> waveformsByKey;
     int rekordboxTrackCount = 0;
     int engineTrackCount = 0;
@@ -107,7 +118,7 @@ class SyncController : public QObject
 {
     Q_OBJECT
     QML_ELEMENT
-    Q_PROPERTY(djconvert::gui::SyncPlanListModel *plans READ plansModel CONSTANT)
+    Q_PROPERTY(seabass::gui::SyncPlanListModel *plans READ plansModel CONSTANT)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(int scanCurrent READ scanCurrent NOTIFY scanProgressChanged)
     Q_PROPERTY(int scanTotal READ scanTotal NOTIFY scanProgressChanged)
@@ -120,6 +131,13 @@ class SyncController : public QObject
     // toEngineCount/toRekordboxCount pair, which had no way to represent
     // a third catalog's own counts.
     Q_PROPERTY(QVariantList directionCounts READ directionCounts NOTIFY analysisChanged)
+    // One entry per still-unresolved domain::CrossSourceSyncConflict --
+    // two different pairs proposing genuinely different cues to the same
+    // target track, which SyncPlanner alone can't detect (it only ever
+    // sees two catalogs at a time). See resolveConflict(). Never
+    // includes plans already in `plans` -- a target stays out of the
+    // appliable list entirely until its conflict here is resolved.
+    Q_PROPERTY(QVariantList unresolvedConflicts READ unresolvedConflicts NOTIFY conflictsChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
     Q_PROPERTY(QString statusMessage READ statusMessage NOTIFY statusMessageChanged)
     Q_PROPERTY(bool canUndo READ canUndo NOTIFY canUndoChanged)
@@ -140,6 +158,7 @@ public:
     int engineTrackCount() const { return m_engineTrackCount; }
     int oneLibraryTrackCount() const { return m_oneLibraryTrackCount; }
     QVariantList directionCounts() const { return m_directionCounts; }
+    QVariantList unresolvedConflicts() const { return m_unresolvedConflicts; }
     QString errorMessage() const { return m_errorMessage; }
     QString statusMessage() const { return m_statusMessage; }
     bool canUndo() const { return !m_lastBackups.empty(); }
@@ -168,10 +187,19 @@ public:
     // clears the trail.
     Q_INVOKABLE void undoLastOperation();
 
+    // Picks one side of unresolvedConflicts[index] as the winner: turns
+    // it into an ordinary actionable plan (added to `plans`, so it's
+    // immediately appliable and counted in directionCounts like any
+    // other) and removes it from unresolvedConflicts. useSourceA selects
+    // CrossSourceSyncConflict::sourceA/cuesFromA when true, sourceB/
+    // cuesFromB when false.
+    Q_INVOKABLE void resolveConflict(int index, bool useSourceA);
+
 signals:
     void busyChanged();
     void scanProgressChanged();
     void analysisChanged();
+    void conflictsChanged();
     void errorMessageChanged();
     void statusMessageChanged();
     void canUndoChanged();
@@ -186,6 +214,7 @@ private:
     void setErrorMessage(const QString &message);
     void setStatusMessage(const QString &message);
     void recomputeDirectionCounts();
+    void rebuildUnresolvedConflictsList();
     void startApply(std::vector<domain::SyncPlan> plans);
     std::shared_ptr<QtProgressReporter> makeReporter();
 
@@ -201,10 +230,12 @@ private:
     int m_engineTrackCount = 0;
     int m_oneLibraryTrackCount = 0;
     QVariantList m_directionCounts;
+    std::vector<domain::CrossSourceSyncConflict> m_conflicts;
+    QVariantList m_unresolvedConflicts;
     QString m_errorMessage;
     QString m_statusMessage;
     std::vector<UndoableBackup> m_lastBackups;
     bool m_writing = false;
 };
 
-}  // namespace djconvert::gui
+}  // namespace seabass::gui

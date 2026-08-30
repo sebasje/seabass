@@ -5,7 +5,7 @@
 #include "application/ports/library_cleanup_writer.hpp"
 #include "domain/track.hpp"
 
-namespace djconvert::infrastructure::engine
+namespace seabass::infrastructure::engine
 {
 
 // Permanently removes a track from an Engine Library, using
@@ -44,4 +44,4 @@ private:
     std::string m_engineLibraryPath;
 };
 
-}  // namespace djconvert::infrastructure::engine
+}  // namespace seabass::infrastructure::engine

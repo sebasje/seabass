@@ -2,11 +2,11 @@
 
 #include <string>
 
-namespace djconvert::infrastructure::onelibrary
+namespace seabass::infrastructure::onelibrary
 {
 
 // The SQLCipher passphrase for OneLibrary/Device Library Plus's
-// exportLibrary.db. This is NOT a secret djconvert is choosing to store
+// exportLibrary.db. This is NOT a secret Seabass is choosing to store
 // insecurely -- Rekordbox itself obfuscates the same fixed, universal key
 // (identical across every installation and every exported device, not
 // derived from any license or machine identity) inside its own binary
@@ -21,4 +21,4 @@ namespace djconvert::infrastructure::onelibrary
 // SQLCipher 4's own compiled-in defaults and no other PRAGMA overrides.
 std::string deriveOneLibraryKey();
 
-}  // namespace djconvert::infrastructure::onelibrary
+}  // namespace seabass::infrastructure::onelibrary

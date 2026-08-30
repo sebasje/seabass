@@ -6,7 +6,7 @@
 
 #include "domain/track.hpp"
 
-namespace djconvert::domain
+namespace seabass::domain
 {
 
 // One node in a Filelight-style treemap: a labeled chunk of space, either
@@ -47,4 +47,4 @@ public:
     static DiskUsageNode byPlaylist(const std::vector<Track> &tracks, std::size_t topN = 15);
 };
 
-}  // namespace djconvert::domain
+}  // namespace seabass::domain

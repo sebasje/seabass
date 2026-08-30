@@ -5,7 +5,7 @@
 
 #include <djinterop/musical_key.hpp>
 
-namespace djconvert::infrastructure::engine
+namespace seabass::infrastructure::engine
 {
 
 // Parses a rekordbox-style key string (e.g. "Fm", "F#m", "Gbm", "C",
@@ -17,4 +17,4 @@ namespace djconvert::infrastructure::engine
 // this first version) rather than guessing wrong.
 std::optional<djinterop::musical_key> parseRekordboxKey(const std::string &key);
 
-}  // namespace djconvert::infrastructure::engine
+}  // namespace seabass::infrastructure::engine

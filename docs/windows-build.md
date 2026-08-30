@@ -1,6 +1,6 @@
-# Building djconvert on Windows
+# Building Seabass on Windows
 
-djconvert builds **natively** on Windows via MSYS2's UCRT64 mingw-w64
+Seabass builds **natively** on Windows via MSYS2's UCRT64 mingw-w64
 toolchain — not by cross-compiling from Linux. `cmake/mingw-w64-toolchain.cmake`
 is for that old Linux-cross-compile setup and is **not used** here; building
 from inside the UCRT64 environment needs no `CMAKE_TOOLCHAIN_FILE` at all,
@@ -32,8 +32,8 @@ invocations/sessions, so set `PATH` in the same command block you build with:
 ```powershell
 $env:PATH = "C:\msys64\ucrt64\bin;" + $env:PATH
 cmake -S . -B build-win -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=C:/msys64/ucrt64
-cmake --build build-win --target djconvert       # CLI
-cmake --build build-win --target djconvert-gui   # GUI (only configured if Qt6 was found)
+cmake --build build-win --target seabass-cli     # CLI
+cmake --build build-win --target seabass          # GUI (only configured if Qt6 was found)
 ```
 
 Unit tests are gated `if(NOT WIN32)` in the top-level `CMakeLists.txt` —
@@ -43,7 +43,7 @@ genuinely not wired up for Windows yet, tracked as separate follow-up work.
 
 `windeployqt` bundles Qt's own DLLs and QML plugins, but **not** the
 mingw-w64 compiler runtime (`libgcc_s_seh-1.dll`, `libstdc++-6.dll`,
-`libwinpthread-1.dll`) and not non-Qt dependencies djconvert itself pulls in
+`libwinpthread-1.dll`) and not non-Qt dependencies Seabass itself pulls in
 (e.g. `zlib1.dll`) or Qt's own transitive non-Qt dependencies (harfbuzz,
 freetype, icu, pcre2, zstd, glib, ...). All of those must be copied
 alongside the exe separately, or the built .exe only runs on machines that
@@ -91,7 +91,7 @@ into a real installer (no CPack/NSIS/WiX step)
 - No CI (`.github/` doesn't exist).
 - No installer/packaging step (CPack, NSIS, WiX, MSIX, ...) — only the
   `tools\deploy-windows.ps1` script above.
-- `djconvert.exe` (the CLI) links `-static -static-libgcc -static-libstdc++`
+- `seabass-cli.exe` (the CLI) links `-static -static-libgcc -static-libstdc++`
   but its dependency on `zlib1.dll` (found via MSYS2's `libz.dll.a` import
   library, not a static `libz.a`) is still dynamic — so despite those flags
   it isn't actually a fully self-contained single-file exe yet. Needs either

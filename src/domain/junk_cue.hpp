@@ -4,7 +4,7 @@
 
 #include "domain/track.hpp"
 
-namespace djconvert::domain
+namespace seabass::domain
 {
 
 // One memory cue sitting at the very first frame of a track (positionMs
@@ -30,4 +30,4 @@ public:
     static std::vector<JunkCueIssue> find(const std::vector<Track> &tracks);
 };
 
-}  // namespace djconvert::domain
+}  // namespace seabass::domain
