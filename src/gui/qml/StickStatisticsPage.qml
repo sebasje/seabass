@@ -12,6 +12,9 @@ Page {
     required property string stickLabel
     required property string rekordboxPath
     required property string enginePath
+    required property var playbackController
+
+    signal syncRequested(string stickLabel, string rekordboxPath, string enginePath)
 
     StickStatisticsController {
         id: controller
@@ -55,6 +58,17 @@ Page {
         var maxCues = Math.max(rbCues, enCues);
         var minCues = Math.min(rbCues, enCues);
         return maxCues > 0 && (minCues / maxCues) < 0.5;
+    }
+
+    // isoUtc: an ISO 8601 UTC timestamp as stored by StickBenchmarkHistory
+    // (e.g. "2026-08-30T13:34:00Z"). JS Date parses that format natively
+    // and Qt.formatDateTime renders it in the user's own locale/timezone,
+    // no manual parsing needed.
+    function formatTimestamp(isoUtc) {
+        if (!isoUtc) return "";
+        var date = new Date(isoUtc);
+        if (isNaN(date.getTime())) return isoUtc;
+        return Qt.formatDateTime(date, "MMM d, yyyy h:mm AP");
     }
 
     function statsForSource(source) {
@@ -243,8 +257,11 @@ Page {
                                 color: Theme.warnText
                                 text: "Rekordbox has " + (controller.rekordboxStats.totalCuePoints || 0)
                                     + " cue point(s), Engine has " + (controller.engineStats.totalCuePoints || 0)
-                                    + " -- these catalogs look out of sync. Try Sync Cue Points to bring "
-                                    + "them in line."
+                                    + " -- these catalogs look out of sync."
+                            }
+                            Button {
+                                text: "Go to Sync Cue Points"
+                                onClicked: root.syncRequested(root.stickLabel, root.rekordboxPath, root.enginePath)
                             }
                         }
                     }
@@ -491,7 +508,11 @@ Page {
                             Layout.fillWidth: true
                             contentItem: RowLayout {
                                 spacing: 12
-                                Label { text: modelData.ranAt; color: Theme.textMuted; font.pointSize: Theme.fontSmall }
+                                Label {
+                                    text: root.formatTimestamp(modelData.ranAt)
+                                    color: Theme.textMuted
+                                    font.pointSize: Theme.fontSmall
+                                }
                                 Label { text: "Score: " + modelData.score; font.bold: true }
                                 Label { text: modelData.usbSpeedLabel; color: Theme.textMuted; font.pointSize: Theme.fontSmall }
                                 Label {

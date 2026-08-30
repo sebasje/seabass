@@ -25,6 +25,46 @@ Item {
     visible: root.busy
     z: 1000
 
+    // Estimated-remaining-time support. Deliberately withheld for the
+    // first 10 seconds -- an ETA computed from only a couple of ticks'
+    // worth of progress is noise, not a useful number, and would just
+    // flicker/jump around for the many scans that finish in a couple of
+    // seconds anyway.
+    property real _startTimeMs: 0
+    property real _nowMs: 0
+    readonly property real _elapsedSeconds: root.busy ? (root._nowMs - root._startTimeMs) / 1000 : 0
+    readonly property string etaText: {
+        if (root._elapsedSeconds < 10 || root.total <= 0 || root.current <= 0 || root.current >= root.total) {
+            return "";
+        }
+        var rate = root.current / root._elapsedSeconds;
+        if (rate <= 0) return "";
+        var remainingSeconds = Math.max(0, (root.total - root.current) / rate);
+        if (remainingSeconds < 60) {
+            return "~" + Math.round(remainingSeconds) + "s remaining";
+        }
+        var minutes = Math.floor(remainingSeconds / 60);
+        var seconds = Math.round(remainingSeconds % 60);
+        return "~" + minutes + "m " + seconds + "s remaining";
+    }
+
+    onBusyChanged: {
+        if (root.busy) {
+            root._startTimeMs = Date.now();
+            root._nowMs = root._startTimeMs;
+            etaTimer.restart();
+        } else {
+            etaTimer.stop();
+        }
+    }
+
+    Timer {
+        id: etaTimer
+        interval: 1000
+        repeat: true
+        onTriggered: root._nowMs = Date.now()
+    }
+
     // Dims rather than fully hides -- makes clear the same content is
     // still there and will return, not that the page has been replaced.
     Rectangle {
@@ -108,6 +148,13 @@ Item {
             visible: root.total > 0
             text: root.current + " / " + root.total
             color: Theme.textMuted
+        }
+        Label {
+            Layout.alignment: Qt.AlignHCenter
+            visible: root.etaText.length > 0
+            text: root.etaText
+            color: Theme.textMuted
+            font.pointSize: Theme.fontSmall
         }
     }
 }
