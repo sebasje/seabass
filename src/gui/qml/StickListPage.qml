@@ -291,13 +291,9 @@ Page {
                             cardTitle: "Library Health"
                             cardSubtitle: "Find rows whose file is missing and repair or clean them up"
                             cardIcon: "🩹"
-                            // First feature under the experimental gate
-                            // (see docs/experimental-features.md) -- its
-                            // repair-write path has only been exercised
-                            // via live read-only scans so far, not a real
-                            // repairAll()/deleteOrphan() apply.
-                            experimental: true
-                            experimentalFeaturesEnabled: root.appSettingsController.experimentalFeaturesEnabled
+                            // Graduated from experimental (see
+                            // docs/experimental-features.md) after real
+                            // use with no incidents.
                             enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
                             onClicked: root.libraryHealthRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
                         }
@@ -305,11 +301,9 @@ Page {
                             cardTitle: "Stick Statistics"
                             cardSubtitle: "Filesystem, library stats, disk usage, and read-speed benchmark"
                             cardIcon: "📊"
-                            // Also under the experimental gate: new,
-                            // non-trivial, added 2026-08-29 (see
-                            // docs/experimental-features.md).
-                            experimental: true
-                            experimentalFeaturesEnabled: root.appSettingsController.experimentalFeaturesEnabled
+                            // Graduated from experimental (see
+                            // docs/experimental-features.md) after real
+                            // use with no incidents.
                             enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
                             onClicked: root.stickStatisticsRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
                         }
