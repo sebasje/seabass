@@ -36,6 +36,27 @@ Page {
         return value.toFixed(unitIndex === 0 ? 0 : 1) + " " + units[unitIndex];
     }
 
+    // A strong asymmetry in cue-point counts between rekordbox and Engine
+    // is the signal Sebas actually spotted by eye comparing tabs on this
+    // page -- surfacing it directly means noticing it doesn't depend on
+    // remembering to compare two numbers across a tab switch. More than
+    // 2x apart is well past normal per-format variation (e.g. Engine's
+    // single memory-cue slot vs. rekordbox's richer per-track memory
+    // cues) and points at cues that simply never propagated -- see
+    // domain::matchTracks()'s own fix history for a real, confirmed
+    // cause of exactly this (a duration-read failure on one side
+    // silently blocking the cross-format match Sync Cue Points needs).
+    readonly property bool cueCountsLookOutOfSync: {
+        var rbCues = controller.rekordboxStats.totalCuePoints || 0;
+        var enCues = controller.engineStats.totalCuePoints || 0;
+        if (Object.keys(controller.rekordboxStats).length === 0 || Object.keys(controller.engineStats).length === 0) {
+            return false;
+        }
+        var maxCues = Math.max(rbCues, enCues);
+        var minCues = Math.min(rbCues, enCues);
+        return maxCues > 0 && (minCues / maxCues) < 0.5;
+    }
+
     function statsForSource(source) {
         if (source === "engine") return controller.engineStats;
         if (source === "onelibrary") return controller.oneLibraryStats;
@@ -197,6 +218,37 @@ Page {
                         onSourceRequested: (value) => root.currentSource = value
                     }
 
+                    Rectangle {
+                        visible: root.cueCountsLookOutOfSync
+                        Layout.fillWidth: true
+                        implicitHeight: syncWarningRow.implicitHeight + 16
+                        color: Theme.warnBg
+                        border.color: Theme.warnBorder
+                        radius: 4
+
+                        RowLayout {
+                            id: syncWarningRow
+                            anchors.fill: parent
+                            anchors.margins: 8
+                            spacing: 8
+                            Label {
+                                text: "⚠"
+                                font.family: "Noto Sans Symbols2"
+                                font.pointSize: Theme.fontMedium
+                                color: Theme.warnIcon
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                wrapMode: Text.WordWrap
+                                color: Theme.warnText
+                                text: "Rekordbox has " + (controller.rekordboxStats.totalCuePoints || 0)
+                                    + " cue point(s), Engine has " + (controller.engineStats.totalCuePoints || 0)
+                                    + " -- these catalogs look out of sync. Try Sync Cue Points to bring "
+                                    + "them in line."
+                            }
+                        }
+                    }
+
                     ColumnLayout {
                         id: statsSection
                         Layout.fillWidth: true
@@ -247,8 +299,24 @@ Page {
                         }
 
                         component DistributionSection: ColumnLayout {
+                            id: distSection
                             property string title
-                            property var entries  // [{label, count}], already sorted
+                            property var entries  // [{label, count}] -- any order, doesn't need to be sorted by count
+                            // Computed from entries rather than assumed
+                            // to be entries[0] -- BPM deliberately sorts
+                            // by rangeStart (ascending), not by count, so
+                            // the tallest bar isn't necessarily first.
+                            readonly property real maxCount: {
+                                var m = 0;
+                                for (var i = 0; i < entries.length; i++) {
+                                    if (entries[i].count > m) m = entries[i].count;
+                                }
+                                return m;
+                            }
+                            readonly property var _barColors: [
+                                Theme.accent, Theme.good, Theme.conflictText, Theme.warnBorder,
+                                Theme.danger, Qt.lighter(Theme.accent, 1.4), Qt.lighter(Theme.good, 1.4),
+                            ]
                             Layout.fillWidth: true
                             spacing: 4
                             visible: entries.length > 0
@@ -256,10 +324,12 @@ Page {
                             Repeater {
                                 model: entries
                                 delegate: RowLayout {
+                                    id: barRow
                                     required property var modelData
+                                    required property int index
                                     Layout.fillWidth: true
                                     spacing: 8
-                                    Label { text: modelData.label; Layout.preferredWidth: 90; elide: Text.ElideRight }
+                                    Label { text: barRow.modelData.label; Layout.preferredWidth: 90; elide: Text.ElideRight }
                                     Rectangle {
                                         Layout.fillWidth: true
                                         implicitHeight: 14
@@ -270,11 +340,12 @@ Page {
                                             anchors.top: parent.top
                                             anchors.bottom: parent.bottom
                                             radius: 3
-                                            width: parent.width * (entries[0].count > 0 ? modelData.count / entries[0].count : 0)
-                                            color: Theme.accent
+                                            width: parent.width * (distSection.maxCount > 0
+                                                ? barRow.modelData.count / distSection.maxCount : 0)
+                                            color: distSection._barColors[barRow.index % distSection._barColors.length]
                                         }
                                     }
-                                    Label { text: modelData.count; Layout.preferredWidth: 36; horizontalAlignment: Text.AlignRight }
+                                    Label { text: barRow.modelData.count; Layout.preferredWidth: 36; horizontalAlignment: Text.AlignRight }
                                 }
                             }
                         }
@@ -309,13 +380,18 @@ Page {
                             Layout.fillWidth: true
                             title: "BPM distribution"
                             entries: {
+                                // Sorted by BPM (ascending), not by count
+                                // like the sections above -- a BPM
+                                // distribution reads as an actual shape
+                                // (where the DJ's tracks cluster) only
+                                // when the buckets stay in tempo order.
                                 var stats = root.statsForSource(root.currentSource);
                                 var buckets = stats.bpmDistribution || [];
+                                var sortedBuckets = buckets.slice().sort((a, b) => a.rangeStart - b.rangeStart);
                                 var list = [];
-                                for (var i = 0; i < buckets.length; i++) {
-                                    list.push({label: buckets[i].rangeStart + "-" + (buckets[i].rangeStart + 9), count: buckets[i].count});
+                                for (var i = 0; i < sortedBuckets.length; i++) {
+                                    list.push({label: sortedBuckets[i].rangeStart + "-" + (sortedBuckets[i].rangeStart + 9), count: sortedBuckets[i].count});
                                 }
-                                list.sort((a, b) => b.count - a.count);
                                 return list;
                             }
                         }
