@@ -26,12 +26,18 @@ std::string normalizeFilename(const std::string &filename);
 // than colliding on an empty key.
 std::optional<std::string> titleArtistKey(const Track &track);
 
-// Pairs up tracks from two lists believed to be the same underlying song:
-// title+artist is the primary signal (see titleArtistKey), falling back
-// to filename when either side is missing title/artist metadata, then
-// requiring duration to match within a small tolerance either way. At
-// most one match per `a` track, since callers use this to propagate a
-// single track's cues, not to build a full many-to-many mapping.
+// Pairs up tracks from two lists believed to be the same underlying song.
+// Exact resolved file path is checked first and, when both sides have
+// one, is decisive on its own -- the two rows describe the same physical
+// file on the same stick regardless of which catalog's database is
+// describing it, the strongest signal available and immune to metadata
+// quality issues on either side. Falling back (when a file path is
+// missing on one side, e.g. a broken row) to title+artist as the primary
+// metadata signal (see titleArtistKey), then filename when either side
+// is missing title/artist metadata, then requiring duration to match
+// within a small tolerance either way. At most one match per `a` track,
+// since callers use this to propagate a single track's cues, not to
+// build a full many-to-many mapping.
 //
 // Returned pointers stay valid exactly as long as `a` and `b` do --
 // callers matching across formats (TrackMatcher) or against a local

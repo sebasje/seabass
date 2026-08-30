@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
+#include <map>
 #include <memory>
 #include <set>
 
@@ -20,6 +21,7 @@
 #include "infrastructure/engine/libdjinterop_waveform_reader.hpp"
 #include "infrastructure/logging/file_operation_log.hpp"
 #include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
+#include "infrastructure/onelibrary/onelibrary_reader.hpp"
 #include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 #include "infrastructure/rekordbox/rekordbox_cue_writer.hpp"
@@ -64,11 +66,11 @@ int SyncPlanListModel::rowCount(const QModelIndex &parent) const
 namespace
 {
 
-QVariantMap trackToMap(const domain::Track &track, const QString &side,
+QVariantMap trackToMap(const domain::Track &track,
                         const std::unordered_map<std::string, std::vector<domain::WaveformColumn>> &waveformsByKey)
 {
     QVariantMap m;
-    m["side"] = side;
+    m["side"] = QString::fromStdString(track.format);
     m["sourceId"] = QString::fromStdString(track.sourceId);
     m["title"] = QString::fromStdString(track.title);
     m["artist"] = QString::fromStdString(track.artist);
@@ -87,7 +89,10 @@ QVariantMap trackToMap(const domain::Track &track, const QString &side,
     }
     m["cues"] = cues;
 
-    std::string key = (side == QStringLiteral("rekordbox") ? "rb:" : "en:") + track.sourceId;
+    // OneLibrary has no waveform reader of its own -- simply absent from
+    // waveformsByKey, which renders as an empty list here, same as any
+    // other best-effort-missing waveform.
+    std::string key = track.format + ":" + track.sourceId;
     QVariantList waveform;
     auto it = waveformsByKey.find(key);
     if (it != waveformsByKey.end()) {
@@ -111,26 +116,22 @@ QVariant SyncPlanListModel::data(const QModelIndex &index, int role) const
         return {};
     }
     const auto &plan = m_plans[static_cast<size_t>(index.row())];
-    bool toEngine = plan.direction == SyncPlan::Direction::ToEngine;
+    bool toB = plan.direction == SyncPlan::Direction::ToB;
+    const domain::Track &source = toB ? plan.match.trackA : plan.match.trackB;
+    const domain::Track &target = toB ? plan.match.trackB : plan.match.trackA;
     switch (role) {
-    case DirectionRole:
-        return toEngine ? QStringLiteral("toEngine") : QStringLiteral("toRekordbox");
+    case SourceFormatRole:
+        return QString::fromStdString(source.format);
+    case TargetFormatRole:
+        return QString::fromStdString(target.format);
     case FilenameRole:
-        return QString::fromStdString(toEngine ? plan.match.rekordboxTrack.filename
-                                                 : plan.match.engineTrack.filename);
+        return QString::fromStdString(source.filename);
     case DescriptionRole:
         return describeCues(plan.cuesToApply);
     case ConflictRole:
         return plan.kind == SyncPlan::Kind::Conflict;
     case TracksRole:
-        return QVariantList{trackToMap(plan.match.rekordboxTrack, QStringLiteral("rekordbox"), m_waveformsByKey),
-                             trackToMap(plan.match.engineTrack, QStringLiteral("engine"), m_waveformsByKey)};
-    case WillMirrorToOneLibraryRole:
-        // Mirroring only ever happens off a ToRekordbox write (see
-        // runApplyTask). A ToEngine plan never touches OneLibrary at
-        // all, and a rekordbox track with no resolved filePath can't be
-        // matched by OneLibraryCueWriter (it keys by path, not sourceId).
-        return !toEngine && m_onelibraryAvailable && !plan.match.rekordboxTrack.filePath.empty();
+        return QVariantList{trackToMap(plan.match.trackA, m_waveformsByKey), trackToMap(plan.match.trackB, m_waveformsByKey)};
     default:
         return {};
     }
@@ -139,8 +140,8 @@ QVariant SyncPlanListModel::data(const QModelIndex &index, int role) const
 QHash<int, QByteArray> SyncPlanListModel::roleNames() const
 {
     return {
-        {DirectionRole, "direction"},
-        {WillMirrorToOneLibraryRole, "willMirrorToOneLibrary"},
+        {SourceFormatRole, "sourceFormat"},
+        {TargetFormatRole, "targetFormat"},
         {FilenameRole, "filename"},
         {DescriptionRole, "description"},
         {ConflictRole, "conflict"},
@@ -149,13 +150,11 @@ QHash<int, QByteArray> SyncPlanListModel::roleNames() const
 }
 
 void SyncPlanListModel::setPlans(std::vector<domain::SyncPlan> plans,
-                                  std::unordered_map<std::string, std::vector<domain::WaveformColumn>> waveformsByKey,
-                                  bool onelibraryAvailable)
+                                  std::unordered_map<std::string, std::vector<domain::WaveformColumn>> waveformsByKey)
 {
     beginResetModel();
     m_plans = std::move(plans);
     m_waveformsByKey = std::move(waveformsByKey);
-    m_onelibraryAvailable = onelibraryAvailable;
     endResetModel();
 }
 
@@ -168,38 +167,70 @@ std::chrono::system_clock::time_point fileMtime(const std::string &path)
 }
 
 // Runs entirely on a background thread (see SyncController::analyze()) -
-// no access to the controller itself.
+// no access to the controller itself. Scans whichever of the three
+// catalogs are present, then runs the exact same real diff+direction
+// logic (domain::SyncLibraries) once per pair actually available on this
+// stick, combining every pair's actionable plans into one list.
 SyncTaskResult runAnalyzeTask(QString rekordboxPath, QString enginePath, std::shared_ptr<QtProgressReporter> reporter)
 {
     SyncTaskResult result;
     try {
-        infrastructure::rekordbox::KaitaiRekordboxReader rbReader(rekordboxPath.toStdString());
-        rbReader.setProgressReporter(*reporter);
-        auto rekordboxTracks = application::ScanLibrary(rbReader).execute();
+        bool hasRekordbox = !rekordboxPath.isEmpty();
+        bool hasEngine = !enginePath.isEmpty();
+        bool hasOneLibrary = false;
 
-        infrastructure::engine::LibdjinteropEngineReader engineReader(enginePath.toStdString());
-        engineReader.setProgressReporter(*reporter);
-        auto engineTracks = application::ScanLibrary(engineReader).execute();
-        // Streaming tracks (TIDAL) have no real local file. Never sync
-        // cues onto/from one. See domain::Track::streamingSource's own
-        // doc comment.
-        engineTracks.erase(std::remove_if(engineTracks.begin(), engineTracks.end(),
-                                           [](const domain::Track &t) { return !t.streamingSource.empty(); }),
-                            engineTracks.end());
+        std::vector<domain::Track> rekordboxTracks, engineTracks, oneLibraryTracks;
+        std::chrono::system_clock::time_point rekordboxMtime, engineMtime, oneLibraryMtime;
 
-        std::string rekordboxDbFile = (fs::path(rekordboxPath.toStdString()) / "rekordbox" / "export.pdb").string();
-        std::string engineDbFile = (fs::path(enginePath.toStdString()) / "Database2" / "m.db").string();
-        auto rekordboxMtime = fileMtime(rekordboxDbFile);
-        auto engineMtime = fileMtime(engineDbFile);
-        result.hasOneLibrary = infrastructure::onelibrary::OneLibraryCueWriter::existsFor(rekordboxPath.toStdString());
+        if (hasRekordbox) {
+            infrastructure::rekordbox::KaitaiRekordboxReader rbReader(rekordboxPath.toStdString());
+            rbReader.setProgressReporter(*reporter);
+            rekordboxTracks = application::ScanLibrary(rbReader).execute();
+            rekordboxMtime = fileMtime((fs::path(rekordboxPath.toStdString()) / "rekordbox" / "export.pdb").string());
+            hasOneLibrary = infrastructure::onelibrary::OneLibraryCueWriter::existsFor(rekordboxPath.toStdString());
+        }
+        if (hasEngine) {
+            infrastructure::engine::LibdjinteropEngineReader engineReader(enginePath.toStdString());
+            engineReader.setProgressReporter(*reporter);
+            engineTracks = application::ScanLibrary(engineReader).execute();
+            // Streaming tracks (TIDAL) have no real local file. Never
+            // sync cues onto/from one. See domain::Track::streamingSource's
+            // own doc comment.
+            engineTracks.erase(std::remove_if(engineTracks.begin(), engineTracks.end(),
+                                               [](const domain::Track &t) { return !t.streamingSource.empty(); }),
+                                engineTracks.end());
+            engineMtime = fileMtime((fs::path(enginePath.toStdString()) / "Database2" / "m.db").string());
+        }
+        if (hasOneLibrary) {
+            infrastructure::onelibrary::OneLibraryReader oneLibReader(rekordboxPath.toStdString());
+            oneLibReader.setProgressReporter(*reporter);
+            oneLibraryTracks = application::ScanLibrary(oneLibReader).execute();
+            oneLibraryMtime =
+                fileMtime(infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(rekordboxPath.toStdString()));
+        }
 
-        auto allPlans = application::SyncLibraries().execute(rekordboxTracks, engineTracks, rekordboxMtime,
-                                                               engineMtime);
+        result.rekordboxTrackCount = static_cast<int>(rekordboxTracks.size());
+        result.engineTrackCount = static_cast<int>(engineTracks.size());
+        result.oneLibraryTrackCount = static_cast<int>(oneLibraryTracks.size());
+
         std::vector<SyncPlan> actionable;
-        for (auto &plan : allPlans) {
-            if (plan.direction != SyncPlan::Direction::None) {
-                actionable.push_back(std::move(plan));
+        auto addPairPlans = [&](const std::vector<domain::Track> &tracksA, const std::vector<domain::Track> &tracksB,
+                                 std::chrono::system_clock::time_point mtimeA,
+                                 std::chrono::system_clock::time_point mtimeB) {
+            for (auto &plan : application::SyncLibraries().execute(tracksA, tracksB, mtimeA, mtimeB)) {
+                if (plan.direction != SyncPlan::Direction::None) {
+                    actionable.push_back(std::move(plan));
+                }
             }
+        };
+        if (hasRekordbox && hasEngine) {
+            addPairPlans(rekordboxTracks, engineTracks, rekordboxMtime, engineMtime);
+        }
+        if (hasRekordbox && hasOneLibrary) {
+            addPairPlans(rekordboxTracks, oneLibraryTracks, rekordboxMtime, oneLibraryMtime);
+        }
+        if (hasEngine && hasOneLibrary) {
+            addPairPlans(engineTracks, oneLibraryTracks, engineMtime, oneLibraryMtime);
         }
 
         // Waveforms need their own file I/O per track, so only decode them
@@ -210,26 +241,26 @@ SyncTaskResult runAnalyzeTask(QString rekordboxPath, QString enginePath, std::sh
         size_t waveformsProcessed = 0;
         std::unordered_map<std::string, std::vector<domain::WaveformColumn>> waveformsByKey;
         for (const auto &plan : actionable) {
-            std::string rbKey = "rb:" + plan.match.rekordboxTrack.sourceId;
-            if (!waveformsByKey.contains(rbKey)) {
-                waveformsByKey[rbKey] = infrastructure::rekordbox::readWaveformPreview(
-                    rekordboxPath.toStdString(), plan.match.rekordboxTrack.sourceId);
+            for (const domain::Track *side : {&plan.match.trackA, &plan.match.trackB}) {
+                std::string key = side->format + ":" + side->sourceId;
+                if (!waveformsByKey.contains(key)) {
+                    if (side->format == "rekordbox") {
+                        waveformsByKey[key] =
+                            infrastructure::rekordbox::readWaveformPreview(rekordboxPath.toStdString(), side->sourceId);
+                    } else if (side->format == "engine") {
+                        waveformsByKey[key] =
+                            infrastructure::engine::readWaveformPreview(enginePath.toStdString(), side->sourceId);
+                    }
+                    // No waveform reader for OneLibrary -- left absent,
+                    // see trackToMap()'s own handling of a missing key.
+                }
+                reporter->tick(++waveformsProcessed);
             }
-            reporter->tick(++waveformsProcessed);
-
-            std::string enKey = "en:" + plan.match.engineTrack.sourceId;
-            if (!waveformsByKey.contains(enKey)) {
-                waveformsByKey[enKey] = infrastructure::engine::readWaveformPreview(
-                    enginePath.toStdString(), plan.match.engineTrack.sourceId);
-            }
-            reporter->tick(++waveformsProcessed);
         }
         reporter->finish();
 
         result.plans = std::move(actionable);
         result.waveformsByKey = std::move(waveformsByKey);
-        result.rekordboxTrackCount = static_cast<int>(rekordboxTracks.size());
-        result.engineTrackCount = static_cast<int>(engineTracks.size());
     } catch (const std::exception &e) {
         result.errorMessage = QString::fromStdString(e.what());
     }
@@ -283,20 +314,30 @@ void SyncController::onAnalyzeFinished()
 
     m_rekordboxTrackCount = result.rekordboxTrackCount;
     m_engineTrackCount = result.engineTrackCount;
-    m_model.setPlans(std::move(result.plans), std::move(result.waveformsByKey), result.hasOneLibrary);
+    m_oneLibraryTrackCount = result.oneLibraryTrackCount;
+    m_model.setPlans(std::move(result.plans), std::move(result.waveformsByKey));
     recomputeDirectionCounts();
     setBusy(false);
 }
 
 void SyncController::recomputeDirectionCounts()
 {
-    int toEngine = 0;
-    int toRekordbox = 0;
+    std::map<std::pair<std::string, std::string>, int> counts;
     for (const auto &plan : m_model.plans()) {
-        (plan.direction == SyncPlan::Direction::ToEngine ? toEngine : toRekordbox)++;
+        bool toB = plan.direction == SyncPlan::Direction::ToB;
+        const std::string &sourceFormat = toB ? plan.match.trackA.format : plan.match.trackB.format;
+        const std::string &targetFormat = toB ? plan.match.trackB.format : plan.match.trackA.format;
+        counts[{sourceFormat, targetFormat}]++;
     }
-    m_toEngineCount = toEngine;
-    m_toRekordboxCount = toRekordbox;
+    QVariantList list;
+    for (const auto &[key, count] : counts) {
+        QVariantMap m;
+        m["sourceFormat"] = QString::fromStdString(key.first);
+        m["targetFormat"] = QString::fromStdString(key.second);
+        m["count"] = count;
+        list << m;
+    }
+    m_directionCounts = list;
     emit analysisChanged();
 }
 
@@ -306,8 +347,8 @@ namespace
 // Acquires one StickWriteLock per distinct directory (sorted first so two
 // concurrent multi-lock callers always acquire in the same order, and
 // deduped so locking the same directory twice, e.g. rekordbox and
-// Engine sharing one stick's .djconvert-backups, never self-deadlocks).
-// Held for the caller's whole scope via RAII.
+// OneLibrary sharing one stick root's .djconvert-backups, never self-
+// deadlocks). Held for the caller's whole scope via RAII.
 std::vector<std::unique_ptr<infrastructure::backup::StickWriteLock>> acquireStickLocks(std::vector<std::string> dirs)
 {
     std::sort(dirs.begin(), dirs.end());
@@ -320,15 +361,34 @@ std::vector<std::unique_ptr<infrastructure::backup::StickWriteLock>> acquireStic
     return locks;
 }
 
-// Ports cli/main.cpp's runSyncCommand phase-3 block, scoped to whichever
-// plans the caller (apply()/applyOne()) passes in: separate
-// FilesystemBackupStore/FileOperationLog per side, a single Engine m.db
-// backup, per-file-deduped rekordbox .EXT backups. Runs entirely on a
-// background thread (see SyncController::startApply()). Writes are file
-// I/O just like the analyze scan, so they get the same treatment: never
-// block the UI thread, report progress as they go.
-SyncWriteResult runApplyTask(QString rekordboxPath, QString enginePath, std::vector<SyncPlan> toEngine,
-                              std::vector<SyncPlan> toRekordbox, std::shared_ptr<QtProgressReporter> reporter)
+QString formatLabel(const std::string &format)
+{
+    if (format == "engine") return "Engine";
+    if (format == "onelibrary") return "OneLibrary";
+    return "Rekordbox";
+}
+
+// One plan's cues, already resolved to a concrete target track plus the
+// human-readable identity of where they came from (for logging).
+struct WriteItem
+{
+    domain::Track targetTrack;
+    std::vector<domain::CuePoint> cuesToApply;
+    std::string sourceFormat;
+    std::string sourceTitle;
+    std::string sourceSourceId;
+};
+
+// Ports cli/main.cpp's runSyncCommand phase-3 block, generalized to any
+// number of target catalogs instead of a fixed rekordbox/Engine pair:
+// plans are grouped by which catalog is actually receiving the write
+// (regardless of which pair they came from), so writing to e.g.
+// "rekordbox" happens exactly once per stick even if some of those plans
+// came from the rekordbox<->Engine pair and others from rekordbox<->
+// OneLibrary. Runs entirely on a background thread (see
+// SyncController::startApply()).
+SyncWriteResult runApplyTask(QString rekordboxPath, QString enginePath, std::vector<SyncPlan> actionablePlans,
+                              std::shared_ptr<QtProgressReporter> reporter)
 {
     SyncWriteResult result;
     QString refusal = refuseIfRekordboxRunning();
@@ -337,102 +397,101 @@ SyncWriteResult runApplyTask(QString rekordboxPath, QString enginePath, std::vec
         return result;
     }
     try {
-        std::string engineDbFile = (fs::path(enginePath.toStdString()) / "Database2" / "m.db").string();
-        std::string engineBackupDir = (fs::path(enginePath.toStdString()).parent_path() / ".djconvert-backups").string();
-        std::string rekordboxBackupDir =
-            (fs::path(rekordboxPath.toStdString()).parent_path() / ".djconvert-backups").string();
+        // rekordbox and OneLibrary share the same PIONEER root/path.
+        auto pathForFormat = [&](const std::string &format) { return format == "engine" ? enginePath : rekordboxPath; };
 
-        // Held for the rest of this function, see acquireStickLocks()'s
-        // doc comment for why this alone is enough to keep two writers
-        // (same process or not) from touching this stick at once.
-        auto locks = acquireStickLocks({engineBackupDir, rekordboxBackupDir});
-
-        infrastructure::backup::FilesystemBackupStore engineBackupStore(engineBackupDir);
-        infrastructure::logging::FileOperationLog engineLog(
-            (fs::path(enginePath.toStdString()).parent_path() / ".djconvert.log").string());
-        infrastructure::backup::FilesystemBackupStore rekordboxBackupStore(rekordboxBackupDir);
-        infrastructure::logging::FileOperationLog rekordboxLog(
-            (fs::path(rekordboxPath.toStdString()).parent_path() / ".djconvert.log").string());
-
-        reporter->start("Writing cues", toEngine.size() + toRekordbox.size());
-        size_t written = 0;
-
-        size_t engineCuesCopied = 0;
-        if (!toEngine.empty()) {
-            infrastructure::engine::LibdjinteropEngineCueWriter writer(enginePath.toStdString());
-            auto record = engineBackupStore.backup({engineDbFile}, "sync");
-            engineLog.record("sync: backed up before cross-format sync -> " + record.path);
-            result.backups.push_back(
-                {QString::fromStdString(fs::path(record.path).parent_path().string()), QString::fromStdString(record.id)});
-
-            for (const auto &plan : toEngine) {
-                writer.writeHotCues(plan.match.engineTrack.sourceId, plan.cuesToApply);
-                engineCuesCopied += plan.cuesToApply.size();
-                engineLog.record("sync: copied cues (" + describeCues(plan.cuesToApply).toStdString() +
-                                  ") from rekordbox track \"" + plan.match.rekordboxTrack.title +
-                                  "\" (id=" + plan.match.rekordboxTrack.sourceId +
-                                  ") to engine track id=" + plan.match.engineTrack.sourceId);
-                reporter->tick(++written);
-            }
+        std::map<std::string, std::vector<WriteItem>> byTargetFormat;
+        for (const auto &plan : actionablePlans) {
+            bool toB = plan.direction == SyncPlan::Direction::ToB;
+            const domain::Track &target = toB ? plan.match.trackB : plan.match.trackA;
+            const domain::Track &source = toB ? plan.match.trackA : plan.match.trackB;
+            byTargetFormat[target.format].push_back({target, plan.cuesToApply, source.format, source.title, source.sourceId});
         }
 
-        size_t rekordboxCuesCopied = 0;
-        if (!toRekordbox.empty()) {
-            infrastructure::rekordbox::RekordboxCueWriter writer(rekordboxPath.toStdString());
-            std::string pioneerRoot = rekordboxPath.toStdString();
-            std::set<std::string> backedUpFiles;
-            bool hasOneLibrary = infrastructure::onelibrary::OneLibraryCueWriter::existsFor(pioneerRoot);
+        std::vector<std::string> lockDirs;
+        if (!rekordboxPath.isEmpty()) {
+            lockDirs.push_back((fs::path(rekordboxPath.toStdString()).parent_path() / ".djconvert-backups").string());
+        }
+        if (!enginePath.isEmpty()) {
+            lockDirs.push_back((fs::path(enginePath.toStdString()).parent_path() / ".djconvert-backups").string());
+        }
+        auto locks = acquireStickLocks(lockDirs);
 
-            for (const auto &plan : toRekordbox) {
-                auto analyzePath = infrastructure::rekordbox::findAnlzPathForTrackId(
-                    pioneerRoot, static_cast<uint32_t>(std::stoul(plan.match.rekordboxTrack.sourceId)));
-                if (analyzePath) {
-                    std::string extPath = infrastructure::rekordbox::extAnlzPath(pioneerRoot, *analyzePath);
-                    if (backedUpFiles.insert(extPath).second) {
-                        auto record = rekordboxBackupStore.backup({extPath}, "sync");
-                        rekordboxLog.record("sync: backed up before cross-format sync -> " + record.path);
-                        result.backups.push_back({QString::fromStdString(fs::path(record.path).parent_path().string()),
-                                                   QString::fromStdString(record.id)});
+        reporter->start("Writing cues", actionablePlans.size());
+        size_t written = 0;
+        QStringList summaryParts;
+
+        for (const auto &[targetFormat, items] : byTargetFormat) {
+            QString path = pathForFormat(targetFormat);
+            std::string stickRoot = fs::path(path.toStdString()).parent_path().string();
+            infrastructure::backup::FilesystemBackupStore backupStore((fs::path(stickRoot) / ".djconvert-backups").string());
+            infrastructure::logging::FileOperationLog log((fs::path(stickRoot) / ".djconvert.log").string());
+            int cuesCopied = 0;
+
+            if (targetFormat == "rekordbox") {
+                infrastructure::rekordbox::RekordboxCueWriter writer(path.toStdString());
+                std::string pioneerRoot = path.toStdString();
+                auto record = backupStore.backup({pioneerRoot + "/rekordbox/export.pdb"}, "sync");
+                log.record("sync: backed up export.pdb -> " + record.path);
+                result.backups.push_back({QString::fromStdString(fs::path(record.path).parent_path().string()),
+                                           QString::fromStdString(record.id)});
+                std::set<std::string> backedUpAnlz;
+                for (const auto &item : items) {
+                    auto analyzePath = infrastructure::rekordbox::findAnlzPathForTrackId(
+                        pioneerRoot, static_cast<uint32_t>(std::stoul(item.targetTrack.sourceId)));
+                    if (analyzePath) {
+                        std::string extPath = infrastructure::rekordbox::extAnlzPath(pioneerRoot, *analyzePath);
+                        if (backedUpAnlz.insert(extPath).second) {
+                            auto anlzRecord = backupStore.backup({extPath}, "sync");
+                            log.record("sync: backed up -> " + anlzRecord.path);
+                        }
                     }
+                    writer.writeHotCues(item.targetTrack.sourceId, item.cuesToApply);
+                    cuesCopied += static_cast<int>(item.cuesToApply.size());
+                    log.record("sync: copied cues (" + describeCues(item.cuesToApply).toStdString() + ") from " +
+                               item.sourceFormat + " track \"" + item.sourceTitle + "\" (id=" + item.sourceSourceId +
+                               ") to rekordbox track id=" + item.targetTrack.sourceId);
+                    reporter->tick(++written);
                 }
-
-                writer.writeHotCues(plan.match.rekordboxTrack.sourceId, plan.cuesToApply);
-                rekordboxCuesCopied += plan.cuesToApply.size();
-                rekordboxLog.record("sync: copied cues (" + describeCues(plan.cuesToApply).toStdString() +
-                                     ") from engine track \"" + plan.match.engineTrack.title +
-                                     "\" (id=" + plan.match.engineTrack.sourceId +
-                                     ") to rekordbox track id=" + plan.match.rekordboxTrack.sourceId);
-
-                // Best-effort OneLibrary mirror, same secondary write
-                // every other rekordbox cue path here already does (Clean
-                // Up, Local Cue Backup, Add Cue), never fatal to the
-                // primary write above. plan.cuesToApply is already the
-                // complete replacement set for this track (Engine's own
-                // cues, the sync source), matching writeCuesForPath()'s
-                // "pass the whole set" contract directly.
-                if (hasOneLibrary && !plan.match.rekordboxTrack.filePath.empty()) {
-                    try {
-                        infrastructure::onelibrary::OneLibraryCueWriter oneLibWriter(pioneerRoot);
-                        oneLibWriter.writeCuesForPath(plan.match.rekordboxTrack.filePath, plan.cuesToApply);
-                        rekordboxLog.record("sync: also wrote into OneLibrary for track id=" +
-                                             plan.match.rekordboxTrack.sourceId);
-                    } catch (const std::exception &e) {
-                        rekordboxLog.record(std::string("sync: OneLibrary write failed: ") + e.what());
-                    }
+            } else if (targetFormat == "engine") {
+                infrastructure::engine::LibdjinteropEngineCueWriter writer(path.toStdString());
+                std::string engineDbFile = (fs::path(path.toStdString()) / "Database2" / "m.db").string();
+                auto record = backupStore.backup({engineDbFile}, "sync");
+                log.record("sync: backed up m.db -> " + record.path);
+                result.backups.push_back({QString::fromStdString(fs::path(record.path).parent_path().string()),
+                                           QString::fromStdString(record.id)});
+                for (const auto &item : items) {
+                    writer.writeHotCues(item.targetTrack.sourceId, item.cuesToApply);
+                    cuesCopied += static_cast<int>(item.cuesToApply.size());
+                    log.record("sync: copied cues (" + describeCues(item.cuesToApply).toStdString() + ") from " +
+                               item.sourceFormat + " track \"" + item.sourceTitle + "\" (id=" + item.sourceSourceId +
+                               ") to engine track id=" + item.targetTrack.sourceId);
+                    reporter->tick(++written);
                 }
-                reporter->tick(++written);
+            } else if (targetFormat == "onelibrary") {
+                infrastructure::onelibrary::OneLibraryCueWriter writer(path.toStdString());
+                std::string dbFile = infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(path.toStdString());
+                auto record = backupStore.backup({dbFile}, "sync");
+                log.record("sync: backed up exportLibrary.db -> " + record.path);
+                result.backups.push_back({QString::fromStdString(fs::path(record.path).parent_path().string()),
+                                           QString::fromStdString(record.id)});
+                for (const auto &item : items) {
+                    writer.writeCuesForPath(item.targetTrack.filePath, item.cuesToApply);
+                    cuesCopied += static_cast<int>(item.cuesToApply.size());
+                    log.record("sync: copied cues (" + describeCues(item.cuesToApply).toStdString() + ") from " +
+                               item.sourceFormat + " track \"" + item.sourceTitle + "\" to OneLibrary track path=" +
+                               item.targetTrack.filePath);
+                    reporter->tick(++written);
+                }
             }
+
+            summaryParts << QString("%1 track(s) to %2 (%3 cue(s))")
+                                .arg(items.size())
+                                .arg(formatLabel(targetFormat))
+                                .arg(cuesCopied);
         }
         reporter->finish();
-
-        QStringList parts;
-        if (!toEngine.empty()) {
-            parts << QString("%1 track(s) to Engine (%2 cue(s))").arg(toEngine.size()).arg(engineCuesCopied);
-        }
-        if (!toRekordbox.empty()) {
-            parts << QString("%1 track(s) to Rekordbox (%2 cue(s))").arg(toRekordbox.size()).arg(rekordboxCuesCopied);
-        }
-        result.statusMessage = "Synced " + parts.join(", ");
+        result.statusMessage = "Synced " + summaryParts.join(", ");
     } catch (const std::exception &e) {
         result.errorMessage = QString::fromStdString(e.what());
     }
@@ -481,22 +540,19 @@ SyncWriteResult runUndoTask(std::vector<UndoableBackup> backups, std::shared_ptr
 }  // namespace
 
 // Phase 2 (the confirmation gate) + phase 3: writes every plan currently in
-// the model. See startApply() for the actual backup/write logic.
+// the model. See runApplyTask() for the actual backup/write logic.
 void SyncController::apply()
 {
     if (m_busy) {
         return;
     }
-    std::vector<SyncPlan> toEngine;
-    std::vector<SyncPlan> toRekordbox;
+    std::vector<SyncPlan> actionable;
     for (const auto &plan : m_model.plans()) {
-        if (plan.direction == SyncPlan::Direction::ToEngine) {
-            toEngine.push_back(plan);
-        } else if (plan.direction == SyncPlan::Direction::ToRekordbox) {
-            toRekordbox.push_back(plan);
+        if (plan.direction != SyncPlan::Direction::None) {
+            actionable.push_back(plan);
         }
     }
-    startApply(std::move(toEngine), std::move(toRekordbox));
+    startApply(std::move(actionable));
 }
 
 void SyncController::applyOne(int index)
@@ -509,19 +565,13 @@ void SyncController::applyOne(int index)
         return;
     }
     const SyncPlan &plan = plans[static_cast<size_t>(index)];
-    std::vector<SyncPlan> toEngine;
-    std::vector<SyncPlan> toRekordbox;
-    if (plan.direction == SyncPlan::Direction::ToEngine) {
-        toEngine.push_back(plan);
-    } else if (plan.direction == SyncPlan::Direction::ToRekordbox) {
-        toRekordbox.push_back(plan);
-    } else {
+    if (plan.direction == SyncPlan::Direction::None) {
         return;
     }
-    startApply(std::move(toEngine), std::move(toRekordbox));
+    startApply({plan});
 }
 
-void SyncController::startApply(std::vector<SyncPlan> toEngine, std::vector<SyncPlan> toRekordbox)
+void SyncController::startApply(std::vector<SyncPlan> plans)
 {
     setErrorMessage({});
     setStatusMessage({});
@@ -531,8 +581,7 @@ void SyncController::startApply(std::vector<SyncPlan> toEngine, std::vector<Sync
     m_lastBackups.clear();
     emit canUndoChanged();
 
-    m_writeWatcher.setFuture(QtConcurrent::run(runApplyTask, m_rekordboxPath, m_enginePath, std::move(toEngine),
-                                                std::move(toRekordbox), makeReporter()));
+    m_writeWatcher.setFuture(QtConcurrent::run(runApplyTask, m_rekordboxPath, m_enginePath, std::move(plans), makeReporter()));
 }
 
 // Common completion path for apply()/applyOne()/undoLastOperation().

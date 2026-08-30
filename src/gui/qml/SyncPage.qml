@@ -14,6 +14,17 @@ Page {
         id: syncController
     }
 
+    // Original/generic labels, not either company's real branding -- same
+    // convention as every other catalog badge/glyph in this app.
+    function formatLabel(format) {
+        if (format === "engine") return "Engine";
+        if (format === "onelibrary") return "OneLibrary";
+        return "Rekordbox";
+    }
+    function pathForFormat(format) {
+        return format === "engine" ? root.enginePath : root.rekordboxPath;
+    }
+
     Component.onCompleted: syncController.analyze(root.rekordboxPath, root.enginePath)
 
     header: ToolBar {
@@ -37,7 +48,7 @@ Page {
                 onClicked: root.StackView.view.pop()
             }
             Label {
-                text: root.stickLabel + " - Sync Cues Between Rekordbox and Engine"
+                text: root.stickLabel + " - Sync Cue Points"
                 font.bold: true
                 font.pointSize: Theme.fontLarge
             }
@@ -80,24 +91,28 @@ Page {
 
         ColumnLayout {
             spacing: 8
-            Label {
-                visible: syncController.toEngineCount > 0
-                text: "Copy cues to Engine for " + syncController.toEngineCount + " track(s)."
-                wrapMode: Text.WordWrap
+            Repeater {
+                model: syncController.directionCounts
+                delegate: Label {
+                    required property var modelData
+                    text: "Copy cues to " + root.formatLabel(modelData.targetFormat) + " from "
+                        + root.formatLabel(modelData.sourceFormat) + " for " + modelData.count + " track(s)."
+                    wrapMode: Text.WordWrap
+                }
             }
             Label {
-                visible: syncController.toRekordboxCount > 0
-                text: "Copy cues to Rekordbox for " + syncController.toRekordboxCount + " track(s)."
-                wrapMode: Text.WordWrap
-            }
-            Label {
-                visible: syncController.toRekordboxCount > 0
+                visible: {
+                    for (var i = 0; i < syncController.directionCounts.length; i++) {
+                        if (syncController.directionCounts[i].targetFormat === "rekordbox") return true;
+                    }
+                    return false;
+                }
                 text: "Rekordbox writing is the least-proven part of djconvert. Verify the result\non real hardware before trusting it for a gig."
                 color: Theme.conflictText
                 wrapMode: Text.WordWrap
             }
             Label {
-                text: "Both sides are backed up before anything is written. Once this finishes, "
+                text: "Every catalog involved is backed up before anything is written. Once this finishes, "
                     + "\"Undo\" reverts every file it touched. Do not remove the stick while it's running."
                 color: Theme.textMuted
                 wrapMode: Text.WordWrap
@@ -133,7 +148,8 @@ Page {
             visible: !syncController.busy
             text: "Rekordbox tracks: " + syncController.rekordboxTrackCount
                 + "   Engine tracks: " + syncController.engineTrackCount
-                + "   matched, needing sync: " + plansListView.count
+                + (syncController.oneLibraryTrackCount > 0 ? "   OneLibrary tracks: " + syncController.oneLibraryTrackCount : "")
+                + "   needing sync: " + plansListView.count
             color: Theme.textMuted
         }
 
@@ -151,12 +167,12 @@ Page {
                 spacing: 4
 
                 required property int index
-                required property string direction
+                required property string sourceFormat
+                required property string targetFormat
                 required property string filename
                 required property string description
                 required property bool conflict
                 required property var tracks
-                required property bool willMirrorToOneLibrary
 
                 property bool expanded: false
 
@@ -174,9 +190,9 @@ Page {
                         RowLayout {
                             Layout.fillWidth: true
                             Label {
-                                text: delegateRoot.direction === "toEngine" ? "Rekordbox -> Engine" : "Engine -> Rekordbox"
+                                text: root.formatLabel(delegateRoot.sourceFormat) + " -> " + root.formatLabel(delegateRoot.targetFormat)
                                 font.bold: true
-                                color: delegateRoot.direction === "toEngine" ? Theme.good : Theme.info
+                                color: Theme.good
                                 Layout.preferredWidth: 160
                             }
                             Label {
@@ -204,8 +220,7 @@ Page {
                             }
                         }
                         Label {
-                            text: delegateRoot.description +
-                                (delegateRoot.willMirrorToOneLibrary ? "  •  also mirrored into OneLibrary" : "")
+                            text: delegateRoot.description
                             color: Theme.textMuted
                             leftPadding: 168
                         }
@@ -255,8 +270,7 @@ Page {
                                 RowLayout {
                                     Layout.fillWidth: true
                                     Label {
-                                        text: (modelData.side === "rekordbox" ? "Rekordbox: " : "Engine: ")
-                                            + modelData.title + " - " + modelData.artist
+                                        text: root.formatLabel(modelData.side) + ": " + modelData.title + " - " + modelData.artist
                                         font.bold: true
                                     }
                                     Item { Layout.fillWidth: true }
@@ -265,7 +279,7 @@ Page {
                                         enabled: modelData.filePath.length > 0
                                         ToolTip.visible: hovered
                                         ToolTip.text: "Play this copy of the track"
-                                        onClicked: root.playbackController.load(modelData.side, modelData.side === "rekordbox" ? root.rekordboxPath : root.enginePath,
+                                        onClicked: root.playbackController.load(modelData.side, root.pathForFormat(modelData.side),
                                             modelData.sourceId, modelData.filePath, modelData.title, modelData.artist, modelData.artworkPath,
                                             modelData.cues)
                                     }

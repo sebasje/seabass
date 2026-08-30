@@ -140,6 +140,37 @@ int main()
         std::cout << "case 8 (matchTracks: filename fallback when metadata missing) OK\n";
     }
 
+    // matchTracks: exact file path is decisive on its own, even when
+    // title/artist/duration all differ wildly -- the two rows describe
+    // the same physical file on the same stick, which is stronger
+    // evidence than any metadata heuristic. Confirmed on real data: 100%
+    // of rekordbox tracks matched their Engine counterpart by path,
+    // vs. ~94% by title+artist+duration even after fixing that
+    // heuristic's own duration-0 bug (see case 9 below).
+    {
+        Track a;
+        a.sourceId = "a";
+        a.filePath = "/stick/Contents/Artist/Song.mp3";
+        a.title = "Totally Different Title";
+        a.artist = "Totally Different Artist";
+        a.durationSeconds = 200.0;
+
+        Track b;
+        b.sourceId = "b";
+        b.filePath = "/stick/Contents/Artist/Song.mp3";
+        b.title = "Not Even Close";
+        b.artist = "Someone Else";
+        b.durationSeconds = 45.0;
+
+        std::vector<Track> as = {a};
+        std::vector<Track> bs = {b};
+        auto matches = matchTracks(as, bs);
+        assert(matches.size() == 1);
+        assert(matches[0].first->sourceId == "a");
+        assert(matches[0].second->sourceId == "b");
+        std::cout << "case 8b (matchTracks: exact file path match wins regardless of metadata) OK\n";
+    }
+
     // matchTracks: a duration of 0 means "unreadable" (same fallback
     // convention as the rest of Track's fields), not a real zero-length
     // track -- a track whose duration failed to read on one side must
