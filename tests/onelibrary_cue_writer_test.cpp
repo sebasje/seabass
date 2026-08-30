@@ -9,8 +9,8 @@
 #include "infrastructure/onelibrary/onelibrary_key.hpp"
 #include "infrastructure/onelibrary/sqlcipher_dyn.hpp"
 
-using namespace djconvert::infrastructure::onelibrary;
-using namespace djconvert::domain;
+using namespace seabass::infrastructure::onelibrary;
+using namespace seabass::domain;
 namespace fs = std::filesystem;
 
 namespace
@@ -53,7 +53,7 @@ std::vector<CuePoint> sampleCues()
 // Fresh empty scratch dir with a fixture in it, ready for one test case.
 fs::path freshScratch()
 {
-    fs::path scratch = fs::temp_directory_path() / "djconvert_onelibrary_test";
+    fs::path scratch = fs::temp_directory_path() / "seabass_onelibrary_test";
     std::error_code ec;
     fs::remove_all(scratch, ec);
     fs::create_directories(scratch);
@@ -331,6 +331,46 @@ int main()
         }
         assert(threw);
         std::cout << "case 8 (staleness guard refuses removeTrackByPath after external modification) OK\n";
+    }
+
+    // Case 9: the writer can be pointed at a relocated copy of the
+    // database (e.g. a fast local scratch copy built to avoid slow
+    // removable-media I/O) while content-path lookups still resolve
+    // against the real stick root, passed explicitly. Regression test
+    // for a real bug: sync's whole-file-replace path redirected this
+    // writer at a scratch directory without this parameter, so every
+    // content.path lookup was computed relative to the scratch
+    // directory's own parent (e.g. /tmp) instead of the real stick,
+    // silently failing every single write.
+    {
+        fs::path scratch = freshScratch();
+        fs::path pioneerRoot = scratch / "PIONEER";
+        createFixture(pioneerRoot.string());
+        std::string realFilePath = (scratch / "Contents" / "Test Track.mp3").string();
+
+        fs::path relocated = fs::temp_directory_path() / "seabass_onelibrary_relocated_test";
+        std::error_code ec;
+        fs::remove_all(relocated, ec);
+        fs::create_directories(relocated / "rekordbox");
+        fs::copy_file(OneLibraryCueWriter::dbPathFor(pioneerRoot.string()), relocated / "rekordbox" / "exportLibrary.db");
+
+        // Without realStickRoot, this would derive the stick root as
+        // relocated's own parent (fs::temp_directory_path()) -- nothing
+        // under there matches realFilePath, so the lookup would fail.
+        // Passing it explicitly is what this test actually verifies.
+        OneLibraryCueWriter writer(relocated.string(), scratch.string());
+        writer.writeCuesForPath(realFilePath, sampleCues());
+
+        std::string key = deriveOneLibraryKey();
+        SqlCipherLibrary lib;
+        SqlCipherDb db(lib, OneLibraryCueWriter::dbPathFor(relocated.string()), /*readOnly=*/true);
+        db.exec("PRAGMA key = '" + key + "';");
+        SqlCipherStatement countStmt(db, "SELECT count(*) FROM cue WHERE content_id = 1");
+        countStmt.step();
+        assert(countStmt.columnInt64(0) == 3);
+
+        fs::remove_all(relocated, ec);
+        std::cout << "case 9 (writer against a relocated db resolves content paths via the real stick root) OK\n";
     }
 
     std::cout << "All onelibrary_cue_writer_test cases passed.\n";

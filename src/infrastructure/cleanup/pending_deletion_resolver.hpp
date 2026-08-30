@@ -5,7 +5,7 @@
 #include "domain/track.hpp"
 #include "infrastructure/cleanup/pending_deletion_manifest.hpp"
 
-namespace djconvert::infrastructure::cleanup
+namespace seabass::infrastructure::cleanup
 {
 
 struct PendingDeletionResolution
@@ -35,4 +35,4 @@ struct PendingDeletionResolution
 PendingDeletionResolution resolvePendingDeletions(const std::vector<PendingDeletion> &pending,
                                                     const std::vector<domain::Track> &currentTracks);
 
-}  // namespace djconvert::infrastructure::cleanup
+}  // namespace seabass::infrastructure::cleanup

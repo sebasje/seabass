@@ -16,7 +16,7 @@
 #include <windows.h>
 #endif
 
-namespace djconvert::infrastructure::backup
+namespace seabass::infrastructure::backup
 {
 
 namespace fs = std::filesystem;
@@ -91,4 +91,4 @@ StickWriteLock::~StickWriteLock() = default;
 
 #endif
 
-}  // namespace djconvert::infrastructure::backup
+}  // namespace seabass::infrastructure::backup

@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-namespace djconvert::infrastructure::benchmark
+namespace seabass::infrastructure::benchmark
 {
 
 struct SpeedBenchmarkResult
@@ -41,4 +41,4 @@ public:
                                      std::uint64_t sampleBytesPerFile = 4 * 1024 * 1024);
 };
 
-}  // namespace djconvert::infrastructure::benchmark
+}  // namespace seabass::infrastructure::benchmark

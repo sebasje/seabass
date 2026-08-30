@@ -4,7 +4,7 @@
 
 #include "infrastructure/system/rekordbox_process_detector.hpp"
 
-namespace djconvert::gui
+namespace seabass::gui
 {
 
 namespace
@@ -38,4 +38,4 @@ void RekordboxGuardController::onPollFinished()
     emit rekordboxRunningChanged();
 }
 
-}  // namespace djconvert::gui
+}  // namespace seabass::gui

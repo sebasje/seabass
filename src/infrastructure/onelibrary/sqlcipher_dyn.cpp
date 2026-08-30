@@ -6,7 +6,7 @@
 #include <dlfcn.h>
 #endif
 
-namespace djconvert::infrastructure::onelibrary
+namespace seabass::infrastructure::onelibrary
 {
 
 namespace
@@ -278,4 +278,4 @@ bool SqlCipherStatement::columnIsNull(int index)
     return m_db.lib().columnType(m_stmt, index) == SQLITE_NULL;
 }
 
-}  // namespace djconvert::infrastructure::onelibrary
+}  // namespace seabass::infrastructure::onelibrary

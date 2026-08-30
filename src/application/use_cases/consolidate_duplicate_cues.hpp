@@ -5,7 +5,7 @@
 #include "domain/duplicate_cue_consolidation.hpp"
 #include "domain/track.hpp"
 
-namespace djconvert::application
+namespace seabass::application
 {
 
 // Read-only use case: find duplicate tracks within one library scan and
@@ -25,4 +25,4 @@ public:
     }
 };
 
-}  // namespace djconvert::application
+}  // namespace seabass::application

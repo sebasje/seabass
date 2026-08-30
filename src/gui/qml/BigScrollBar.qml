@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Controls
-import DjConvertGui
+import SeabassGui
 
 // Explicit, custom-drawn ScrollBar -- the platform style's own auto-attached
 // overlay scrollbar (KDE Breeze, on this project's dev desktop) renders as a

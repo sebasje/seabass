@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import DjConvertGui
+import SeabassGui
 
 Page {
     id: root
@@ -84,7 +84,7 @@ Page {
             font.italic: true
         }
 
-        // Absent entirely in a build compiled with DJCONVERT_EXPERIMENTAL
+        // Absent entirely in a build compiled with SEABASS_EXPERIMENTAL
         // off -- see docs/experimental-features.md and
         // AppSettingsController::experimentalBuildSupported()'s own doc
         // comment for why that's a real "stable-only build" rather than

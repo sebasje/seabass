@@ -5,7 +5,7 @@
 
 #include "domain/track.hpp"
 
-namespace djconvert::domain
+namespace seabass::domain
 {
 
 class TrackPrioritizer
@@ -19,4 +19,4 @@ public:
     static std::vector<Track> tracksNeedingCues(const std::vector<Track> &tracks, size_t limit = 0);
 };
 
-}  // namespace djconvert::domain
+}  // namespace seabass::domain

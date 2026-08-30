@@ -7,7 +7,7 @@
 
 #include "application/ports/removable_media_monitor.hpp"
 
-namespace djconvert::infrastructure::media
+namespace seabass::infrastructure::media
 {
 
 // Watches for removable-drive hotplug changes on Windows by polling
@@ -43,4 +43,4 @@ private:
     std::uint32_t m_lastDriveMask = 0;
 };
 
-}  // namespace djconvert::infrastructure::media
+}  // namespace seabass::infrastructure::media

@@ -4,7 +4,7 @@
 
 #include <vector>
 
-namespace djconvert::gui
+namespace seabass::gui
 {
 
 // One backup made as part of a just-completed write operation, kept just
@@ -20,4 +20,4 @@ struct UndoableBackup
     QString id;
 };
 
-}  // namespace djconvert::gui
+}  // namespace seabass::gui

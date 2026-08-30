@@ -3,7 +3,7 @@
 
 #include "domain/library_consistency.hpp"
 
-using namespace djconvert::domain;
+using namespace seabass::domain;
 
 namespace
 {

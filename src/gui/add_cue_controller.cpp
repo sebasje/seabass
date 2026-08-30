@@ -21,7 +21,7 @@
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 #include "infrastructure/rekordbox/rekordbox_cue_writer.hpp"
 
-namespace djconvert::gui
+namespace seabass::gui
 {
 
 namespace fs = std::filesystem;
@@ -42,9 +42,9 @@ AddCueResult runAddCueTask(QString format, QString path, QString sourceId, doubl
     }
     try {
         fs::path stickRoot = fs::path(path.toStdString()).parent_path();
-        infrastructure::backup::StickWriteLock lock((stickRoot / ".djconvert-backups" / ".write.lock").string());
-        infrastructure::backup::FilesystemBackupStore backupStore((stickRoot / ".djconvert-backups").string());
-        infrastructure::logging::FileOperationLog log((stickRoot / ".djconvert.log").string());
+        infrastructure::backup::StickWriteLock lock((stickRoot / ".seabass-backups" / ".write.lock").string());
+        infrastructure::backup::FilesystemBackupStore backupStore((stickRoot / ".seabass-backups").string());
+        infrastructure::logging::FileOperationLog log((stickRoot / ".seabass.log").string());
 
         // Never trust whatever cue list the calling page had cached --
         // re-scan fresh so the augmented list below always starts from
@@ -280,4 +280,4 @@ void AddCueController::setStatusMessage(const QString &message)
     emit statusMessageChanged();
 }
 
-}  // namespace djconvert::gui
+}  // namespace seabass::gui

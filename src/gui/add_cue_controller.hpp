@@ -8,7 +8,7 @@
 
 #include "gui/qt_progress_reporter.hpp"
 
-namespace djconvert::gui
+namespace seabass::gui
 {
 
 // Result of a background add-cue task -- see AddCueController::addCue().
@@ -92,4 +92,4 @@ private:
     QString m_statusMessage;
 };
 
-}  // namespace djconvert::gui
+}  // namespace seabass::gui

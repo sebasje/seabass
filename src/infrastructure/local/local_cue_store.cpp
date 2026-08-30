@@ -13,7 +13,7 @@
 #include "domain/track_matching.hpp"
 #include "infrastructure/compression/zlib_compressor.hpp"
 
-namespace djconvert::infrastructure::local
+namespace seabass::infrastructure::local
 {
 
 namespace fs = std::filesystem;
@@ -279,7 +279,7 @@ std::vector<Track> deserializeTracksV1(const std::string &data)
 // Dispatches to the parser for whichever version the snapshot was actually
 // written with -- see CurrentSnapshotFormatVersion's comment: every past
 // version's parser stays available here forever, so a snapshot backed up
-// years ago on an older djconvert always reads back correctly.
+// years ago on an older Seabass always reads back correctly.
 std::vector<Track> deserializeTracks(const std::string &data, int formatVersion)
 {
     switch (formatVersion) {
@@ -310,7 +310,7 @@ std::string LocalCueStore::defaultPath()
     fs::path dataDir = (xdgDataHome && *xdgDataHome) ? fs::path(xdgDataHome)
                                                       : fs::path(std::getenv("HOME")) / ".local" / "share";
 #endif
-    return (dataDir / "djconvert" / "cues.db").string();
+    return (dataDir / "seabass" / "cues.db").string();
 }
 
 LocalCueStore::LocalCueStore(std::string path)
@@ -591,4 +591,4 @@ bool LocalCueStore::deleteSnapshot(std::int64_t id)
     return sqlite3_changes(m_db) > 0;
 }
 
-}  // namespace djconvert::infrastructure::local
+}  // namespace seabass::infrastructure::local

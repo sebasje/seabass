@@ -11,7 +11,7 @@
 
 #include "application/ports/backup_store.hpp"
 
-namespace djconvert::gui
+namespace seabass::gui
 {
 
 // Read-only Qt list model over the backups BackupsController last listed.
@@ -62,7 +62,7 @@ struct BackupsTaskResult
 };
 
 // Wraps FilesystemBackupStore for QML: lists the backups made under a
-// stick's .djconvert-backups directory (shared across rekordbox/Engine on
+// stick's .seabass-backups directory (shared across rekordbox/Engine on
 // that stick, see backupDirFor() in cli/main.cpp), prunes old ones,
 // restores/deletes individual ones, and edits their descriptions. Every
 // operation -- even a plain list -- is disk I/O against a directory that
@@ -73,7 +73,7 @@ class BackupsController : public QObject
 {
     Q_OBJECT
     QML_ELEMENT
-    Q_PROPERTY(djconvert::gui::BackupListModel *backups READ backupsModel CONSTANT)
+    Q_PROPERTY(seabass::gui::BackupListModel *backups READ backupsModel CONSTANT)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(QString totalSizeHuman READ totalSizeHuman NOTIFY backupsChanged)
     Q_PROPERTY(QString backupDir READ backupDir NOTIFY backupsChanged)
@@ -128,4 +128,4 @@ private:
     QString m_statusMessage;
 };
 
-}  // namespace djconvert::gui
+}  // namespace seabass::gui

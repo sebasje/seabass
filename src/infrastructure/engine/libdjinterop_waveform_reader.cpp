@@ -6,7 +6,7 @@
 
 #include <djinterop/djinterop.hpp>
 
-namespace djconvert::infrastructure::engine
+namespace seabass::infrastructure::engine
 {
 
 namespace
@@ -68,4 +68,4 @@ std::vector<domain::WaveformColumn> readWaveformPreview(const std::string &engin
     return waveform;
 }
 
-}  // namespace djconvert::infrastructure::engine
+}  // namespace seabass::infrastructure::engine

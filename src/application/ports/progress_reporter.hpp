@@ -3,7 +3,7 @@
 #include <cstddef>
 #include <string>
 
-namespace djconvert::application
+namespace seabass::application
 {
 
 // Port for reporting progress of a long-running use case (e.g. scanning a
@@ -37,4 +37,4 @@ public:
     void warn(const std::string &message) override;
 };
 
-}  // namespace djconvert::application
+}  // namespace seabass::application

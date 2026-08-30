@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import DjConvertGui
+import SeabassGui
 
 // USB Stick Statistics: filesystem/hardware facts, per-catalog library
 // stats, a Filelight-style disk usage breakdown, and a local read-speed

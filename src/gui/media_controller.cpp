@@ -4,7 +4,7 @@
 
 #include "infrastructure/media/media_factory.hpp"
 
-namespace djconvert::gui
+namespace seabass::gui
 {
 
 namespace
@@ -159,4 +159,4 @@ void MediaController::setErrorMessage(const QString &message)
     emit errorMessageChanged();
 }
 
-}  // namespace djconvert::gui
+}  // namespace seabass::gui

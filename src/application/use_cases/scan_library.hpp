@@ -5,7 +5,7 @@
 #include "application/ports/library_reader.hpp"
 #include "domain/track.hpp"
 
-namespace djconvert::application
+namespace seabass::application
 {
 
 // Read-only use case: return every track (with cues) found in a library.
@@ -22,4 +22,4 @@ private:
     LibraryReader &m_reader;
 };
 
-}  // namespace djconvert::application
+}  // namespace seabass::application

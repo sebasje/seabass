@@ -6,7 +6,7 @@
 
 #include "infrastructure/rekordbox/generated/rekordbox_pdb.h"
 
-namespace djconvert::infrastructure::rekordbox
+namespace seabass::infrastructure::rekordbox
 {
 
 // Shared helpers for working with export.pdb, used by both the reader and
@@ -50,4 +50,4 @@ void forEachDataPage(rekordbox_pdb_t::table_t &table, Visitor visitDataPage)
 // analyze_path recorded.
 std::optional<std::string> findAnlzPathForTrackId(const std::string &pioneerRoot, uint32_t trackId);
 
-}  // namespace djconvert::infrastructure::rekordbox
+}  // namespace seabass::infrastructure::rekordbox

@@ -2,12 +2,13 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "domain/track.hpp"
 
-namespace djconvert::infrastructure::onelibrary
+namespace seabass::infrastructure::onelibrary
 {
 
 // Best-effort writer for Rekordbox's newer "OneLibrary" / "Device Library
@@ -36,12 +37,23 @@ namespace djconvert::infrastructure::onelibrary
 class OneLibraryCueWriter
 {
 public:
-    // pioneerRoot: the stick's "PIONEER" folder (same argument
-    // RekordboxCleanupWriter/RekordboxCueWriter take). exportLibrary.db
-    // lives at pioneerRoot/rekordbox/exportLibrary.db; content.path
-    // values inside it are relative to pioneerRoot's *parent* (the stick
-    // root), e.g. "/Contents/Artist/Track.mp3".
-    explicit OneLibraryCueWriter(std::string pioneerRoot);
+    // pioneerRoot: where to find/open exportLibrary.db
+    // (pioneerRoot/rekordbox/exportLibrary.db) -- normally the stick's
+    // "PIONEER" folder (same argument RekordboxCleanupWriter/
+    // RekordboxCueWriter take), but callers may point this at a
+    // relocated copy of the database instead (see realStickRoot below).
+    //
+    // realStickRoot: the stick's actual root directory, used to convert
+    // each track's absolute file path into the stick-root-relative form
+    // content.path values use, e.g. "/Contents/Artist/Track.mp3".
+    // Defaults to pioneerRoot's own parent directory, which is correct
+    // whenever pioneerRoot really is the stick's PIONEER folder. Only
+    // needs to be passed explicitly when pioneerRoot points somewhere
+    // else -- e.g. a fast local scratch copy of exportLibrary.db built to
+    // avoid many slow round trips against real removable media -- where
+    // pioneerRoot's own parent is no longer the stick at all, but the
+    // file paths being looked up still are.
+    explicit OneLibraryCueWriter(std::string pioneerRoot, std::optional<std::string> realStickRoot = std::nullopt);
 
     // True if exportLibrary.db exists for this stick. OneLibrary isn't
     // present on every export (only newer hardware/newer rekordbox
@@ -79,9 +91,10 @@ public:
 
 private:
     std::string m_pioneerRoot;
+    std::string m_stickRoot;
     std::string m_dbPath;
     std::uintmax_t m_originalFileSize = 0;
     std::filesystem::file_time_type m_originalMtime;
 };
 
-}  // namespace djconvert::infrastructure::onelibrary
+}  // namespace seabass::infrastructure::onelibrary

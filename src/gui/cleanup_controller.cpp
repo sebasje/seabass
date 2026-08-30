@@ -31,7 +31,7 @@
 #include "infrastructure/rekordbox/rekordbox_cleanup_writer.hpp"
 #include "infrastructure/rekordbox/rekordbox_cue_writer.hpp"
 
-namespace djconvert::gui
+namespace seabass::gui
 {
 
 namespace fs = std::filesystem;
@@ -355,9 +355,9 @@ FormatContext makeContext(const QString &format, const QString &path)
 
     FormatContext ctx;
     ctx.backupStore = std::make_unique<infrastructure::backup::FilesystemBackupStore>(
-        (stickRoot / ".djconvert-backups").string());
-    ctx.log = std::make_unique<infrastructure::logging::FileOperationLog>((stickRoot / ".djconvert.log").string());
-    ctx.pendingDeletionManifestPath = (stickRoot / ".djconvert-pending-deletions.jsonl").string();
+        (stickRoot / ".seabass-backups").string());
+    ctx.log = std::make_unique<infrastructure::logging::FileOperationLog>((stickRoot / ".seabass.log").string());
+    ctx.pendingDeletionManifestPath = (stickRoot / ".seabass-pending-deletions.jsonl").string();
 
     if (format == "rekordbox") {
         std::string pioneerRoot = path.toStdString();
@@ -397,7 +397,7 @@ CleanupWriteResult runApplyTask(QString format, QString path, std::vector<domain
         return result;
     }
     try {
-        std::string backupDir = (fs::path(path.toStdString()).parent_path() / ".djconvert-backups").string();
+        std::string backupDir = (fs::path(path.toStdString()).parent_path() / ".seabass-backups").string();
         infrastructure::backup::StickWriteLock lock(backupDir + "/.write.lock");
 
         auto ctx = makeContext(format, path);
@@ -587,10 +587,10 @@ PendingDeletionApplyResult runDeletePendingTask(QString format, QString path,
     }
     try {
         fs::path stickRoot = fs::path(path.toStdString()).parent_path();
-        infrastructure::backup::StickWriteLock lock((stickRoot / ".djconvert-backups" / ".write.lock").string());
+        infrastructure::backup::StickWriteLock lock((stickRoot / ".seabass-backups" / ".write.lock").string());
         infrastructure::cleanup::PendingDeletionManifest manifest(
-            (stickRoot / ".djconvert-pending-deletions.jsonl").string());
-        infrastructure::logging::FileOperationLog log((stickRoot / ".djconvert.log").string());
+            (stickRoot / ".seabass-pending-deletions.jsonl").string());
+        infrastructure::logging::FileOperationLog log((stickRoot / ".seabass.log").string());
 
         std::vector<domain::Track> tracks;
         if (format == "rekordbox") {
@@ -917,7 +917,7 @@ void CleanupController::refreshPendingDeletions()
     }
     fs::path stickRoot = fs::path(m_path.toStdString()).parent_path();
     infrastructure::cleanup::PendingDeletionManifest manifest(
-        (stickRoot / ".djconvert-pending-deletions.jsonl").string());
+        (stickRoot / ".seabass-pending-deletions.jsonl").string());
 
     // rekordbox and Engine each accumulate their own separate pending
     // entries (see PendingDeletion::format). This page only ever shows
@@ -1047,4 +1047,4 @@ void CleanupController::setStatusMessage(const QString &message)
     emit statusMessageChanged();
 }
 
-}  // namespace djconvert::gui
+}  // namespace seabass::gui

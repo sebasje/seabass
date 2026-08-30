@@ -14,7 +14,7 @@
 #include <windows.h>
 #endif
 
-namespace djconvert::infrastructure::system
+namespace seabass::infrastructure::system
 {
 
 namespace
@@ -199,4 +199,4 @@ StickHardwareInfo readStickHardwareInfo(const std::string & /*mountPoint*/, cons
 
 #endif
 
-}  // namespace djconvert::infrastructure::system
+}  // namespace seabass::infrastructure::system

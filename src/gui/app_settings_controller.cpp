@@ -1,15 +1,15 @@
 #include "app_settings_controller.hpp"
 
-namespace djconvert::gui
+namespace seabass::gui
 {
 
 AppSettingsController::AppSettingsController(QObject *parent)
-    : QObject(parent), m_settings("djconvert", "djconvert-gui")
+    : QObject(parent), m_settings("seabass", "seabass")
 {
     m_useSystemTheme = m_settings.value("useSystemTheme", false).toBool();
     m_preferredFormat = m_settings.value("preferredFormat", "rekordbox").toString();
     m_hideStreamingTracks = m_settings.value("hideStreamingTracks", false).toBool();
-#ifdef DJCONVERT_EXPERIMENTAL_BUILD
+#ifdef SEABASS_EXPERIMENTAL_BUILD
     m_experimentalFeaturesEnabled = m_settings.value("experimentalFeaturesEnabled", false).toBool();
 #endif
 }
@@ -44,7 +44,7 @@ void AppSettingsController::setHideStreamingTracks(bool value)
     emit hideStreamingTracksChanged();
 }
 
-#ifdef DJCONVERT_EXPERIMENTAL_BUILD
+#ifdef SEABASS_EXPERIMENTAL_BUILD
 void AppSettingsController::setExperimentalFeaturesEnabled(bool value)
 {
     if (m_experimentalFeaturesEnabled == value) {
@@ -56,4 +56,4 @@ void AppSettingsController::setExperimentalFeaturesEnabled(bool value)
 }
 #endif
 
-}  // namespace djconvert::gui
+}  // namespace seabass::gui

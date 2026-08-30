@@ -8,7 +8,7 @@
 #include "infrastructure/onelibrary/onelibrary_key.hpp"
 #include "infrastructure/onelibrary/sqlcipher_dyn.hpp"
 
-namespace djconvert::infrastructure::onelibrary
+namespace seabass::infrastructure::onelibrary
 {
 
 namespace fs = std::filesystem;
@@ -187,4 +187,4 @@ std::vector<Track> OneLibraryReader::readAll()
     return tracks;
 }
 
-}  // namespace djconvert::infrastructure::onelibrary
+}  // namespace seabass::infrastructure::onelibrary

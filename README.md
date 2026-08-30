@@ -1,4 +1,4 @@
-# djconvert
+# Seabass
 
 Reads and manages DJ track libraries across the three catalogs found on a
 rekordbox/Engine DJ USB stick: rekordbox's classic per-device export
@@ -11,12 +11,12 @@ architecture and current status.
 
 Two ways to use it:
 
-- **`djconvert`** -- a command-line tool: `scan` (read-only reporting plus
+- **`seabass-cli`** -- a command-line tool: `scan` (read-only reporting plus
   duplicate-track cue consolidation), `sync` (match tracks between a
   rekordbox and an Engine source by filename/duration and reconcile their
-  cues), and `backups` (list/prune the backups djconvert makes before any
-  write). Run `djconvert --help` for full usage.
-- **Seabass** (`djconvert-gui`) -- a Qt6 desktop app covering the same
+  cues), and `backups` (list/prune the backups seabass-cli makes before any
+  write). Run `seabass-cli --help` for full usage.
+- **Seabass** (`seabass`) -- a Qt6 desktop app covering the same
   ground with a UI: browse all three catalogs (including read-only
   OneLibrary browsing), play tracks with waveform/cue display, manually
   merge duplicate tracks, add cues by clicking the waveform, clean up
@@ -30,11 +30,11 @@ sections) and Engine (`LibdjinteropEngineCueWriter`, via `libdjinterop`).
 OneLibrary support is read-only (browsing and a best-effort mirror of
 writes made through rekordbox/Engine); there is no direct OneLibrary write
 path yet. Full bidirectional sync between rekordbox and Engine works via
-`djconvert sync`, matching by filename and duration.
+`seabass-cli sync`, matching by filename and duration.
 
 ## License
 
-djconvert's own code is licensed under the **GNU General Public License,
+Seabass's own code is licensed under the **GNU General Public License,
 version 2 or (at your option) any later version** (GPL-2.0-or-later). See
 [`LICENSE`](LICENSE) for the full GPLv2 text.
 

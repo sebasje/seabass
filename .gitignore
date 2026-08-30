@@ -9,13 +9,17 @@
 # hardware exports - not for version control (size + personal data).
 /testdata/
 
-# Backups djconvert creates before a mutating write (e.g. under
-# .djconvert-backups/ next to whatever it just backed up) -- local-only,
+# Backups Seabass creates before a mutating write (e.g. under
+# .seabass-backups/ next to whatever it just backed up) -- local-only,
 # never meant to be committed, including under test fixtures.
-.djconvert-backups/
-.djconvert.log
+.seabass-backups/
+.seabass.log
 
 # Claude Code project memory, moved here from ~/.claude/projects/.../
 # memory/ so it's readable from other machines this repo is checked
 # out on -- local-only by default, not confirmed for git tracking.
 /.claude/
+
+# Real webserver host/path for the website deploy scripts -- local-only,
+# never committed (see website/scripts/deploy.sh).
+/website/scripts/deploy.local.env

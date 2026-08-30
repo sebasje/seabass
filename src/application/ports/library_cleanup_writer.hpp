@@ -2,7 +2,7 @@
 
 #include <string>
 
-namespace djconvert::application
+namespace seabass::application
 {
 
 // Port for permanently removing a duplicate track from a library, as
@@ -24,4 +24,4 @@ public:
     virtual void removeTrackReplacingWith(const std::string &doomedTrackId, const std::string &survivorTrackId) = 0;
 };
 
-}  // namespace djconvert::application
+}  // namespace seabass::application

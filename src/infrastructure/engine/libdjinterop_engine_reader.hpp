@@ -6,7 +6,7 @@
 #include "application/ports/library_reader.hpp"
 #include "domain/track.hpp"
 
-namespace djconvert::infrastructure::engine
+namespace seabass::infrastructure::engine
 {
 
 // Reads an Engine Library (Database2/m.db etc.) using the vendored
@@ -25,4 +25,4 @@ private:
     std::string m_engineLibraryPath;
 };
 
-}  // namespace djconvert::infrastructure::engine
+}  // namespace seabass::infrastructure::engine

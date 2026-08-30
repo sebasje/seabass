@@ -4,7 +4,7 @@
 #include <utility>
 #include <vector>
 
-namespace djconvert::infrastructure::rekordbox
+namespace seabass::infrastructure::rekordbox
 {
 
 // One decoded settings file: player/mixer preferences as human-readable
@@ -31,4 +31,4 @@ struct SettingsFile
 // only its header.
 std::vector<SettingsFile> readDeviceSettings(const std::string &pioneerRoot);
 
-}  // namespace djconvert::infrastructure::rekordbox
+}  // namespace seabass::infrastructure::rekordbox

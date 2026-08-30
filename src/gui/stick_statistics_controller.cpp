@@ -19,7 +19,7 @@
 #include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
 #include "infrastructure/system/stick_hardware_info.hpp"
 
-namespace djconvert::gui
+namespace seabass::gui
 {
 
 namespace fs = std::filesystem;
@@ -439,4 +439,4 @@ void StickStatisticsController::setBenchmarkErrorMessage(const QString &message)
     emit benchmarkErrorMessageChanged();
 }
 
-}  // namespace djconvert::gui
+}  // namespace seabass::gui

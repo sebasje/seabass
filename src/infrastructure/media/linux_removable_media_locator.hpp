@@ -4,7 +4,7 @@
 
 #include "application/ports/removable_media_locator.hpp"
 
-namespace djconvert::infrastructure::media
+namespace seabass::infrastructure::media
 {
 
 // Finds candidate USB sticks via udev: every USB block device (mounted or
@@ -16,4 +16,4 @@ public:
     std::vector<application::DetectedStick> detect() override;
 };
 
-}  // namespace djconvert::infrastructure::media
+}  // namespace seabass::infrastructure::media

@@ -2,7 +2,7 @@
 
 #include <filesystem>
 
-namespace djconvert::infrastructure::media
+namespace seabass::infrastructure::media
 {
 
 namespace fs = std::filesystem;
@@ -23,4 +23,4 @@ void scanMountedRoot(const std::string &mountPoint, DetectedStick &stick)
     }
 }
 
-}  // namespace djconvert::infrastructure::media
+}  // namespace seabass::infrastructure::media

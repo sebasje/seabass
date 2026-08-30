@@ -4,7 +4,7 @@
 #include <fstream>
 #include <format>
 
-namespace djconvert::infrastructure::logging
+namespace seabass::infrastructure::logging
 {
 
 namespace
@@ -26,4 +26,4 @@ void FileOperationLog::record(const std::string &message)
     out << timestampNow() << "  " << message << "\n";
 }
 
-}  // namespace djconvert::infrastructure::logging
+}  // namespace seabass::infrastructure::logging

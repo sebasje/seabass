@@ -5,7 +5,7 @@
 
 #include "domain/waveform.hpp"
 
-namespace djconvert::infrastructure::rekordbox
+namespace seabass::infrastructure::rekordbox
 {
 
 // Reads the low-resolution monochrome waveform preview (the "PWAV" tag,
@@ -25,4 +25,4 @@ namespace djconvert::infrastructure::rekordbox
 std::vector<domain::WaveformColumn> readWaveformPreview(const std::string &pioneerRoot,
                                                           const std::string &trackSourceId);
 
-}  // namespace djconvert::infrastructure::rekordbox
+}  // namespace seabass::infrastructure::rekordbox

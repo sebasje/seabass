@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <map>
 
-namespace djconvert::domain
+namespace seabass::domain
 {
 
 namespace
@@ -79,4 +79,4 @@ DiskUsageNode DiskUsageAnalyzer::byPlaylist(const std::vector<Track> &tracks, st
     return node;
 }
 
-}  // namespace djconvert::domain
+}  // namespace seabass::domain

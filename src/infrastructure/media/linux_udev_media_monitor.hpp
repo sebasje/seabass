@@ -9,7 +9,7 @@
 struct udev;
 struct udev_monitor;
 
-namespace djconvert::infrastructure::media
+namespace seabass::infrastructure::media
 {
 
 // Watches udev for block-device hotplug events (USB sticks inserted,
@@ -35,4 +35,4 @@ private:
     std::function<void()> m_onChange;
 };
 
-}  // namespace djconvert::infrastructure::media
+}  // namespace seabass::infrastructure::media

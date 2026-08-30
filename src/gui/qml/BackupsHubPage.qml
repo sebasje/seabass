@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import DjConvertGui
+import SeabassGui
 
 // Fans out the "Backups" top-level card into its two sub-features --
 // LocalCuePage (cue backup/restore to/from this computer) and BackupsPage

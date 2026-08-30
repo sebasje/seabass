@@ -2,7 +2,7 @@
 
 #include "application/ports/removable_media_mounter.hpp"
 
-namespace djconvert::infrastructure::media
+namespace seabass::infrastructure::media
 {
 
 // Mounts/unmounts removable devices via the "udisksctl" command-line tool
@@ -15,4 +15,4 @@ public:
     bool unmount(const std::string &devicePath, std::string &errorMessage) override;
 };
 
-}  // namespace djconvert::infrastructure::media
+}  // namespace seabass::infrastructure::media

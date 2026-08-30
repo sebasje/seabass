@@ -2,7 +2,7 @@
 
 #include "infrastructure/system/rekordbox_process_detector.hpp"
 
-namespace djconvert::gui
+namespace seabass::gui
 {
 
 QString refuseIfRekordboxRunning()
@@ -14,4 +14,4 @@ QString refuseIfRekordboxRunning()
     return {};
 }
 
-}  // namespace djconvert::gui
+}  // namespace seabass::gui

@@ -33,20 +33,20 @@
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 #include "infrastructure/rekordbox/rekordbox_cue_writer.hpp"
 
-using djconvert::application::BackupStore;
-using djconvert::application::ConsolidateDuplicateCues;
-using djconvert::application::CueWriter;
-using djconvert::application::DetectedStick;
-using djconvert::application::LibraryReader;
-using djconvert::application::OperationLog;
-using djconvert::application::RemovableMediaLocator;
-using djconvert::application::ScanLibrary;
-using djconvert::cli::Color;
-using djconvert::cli::Console;
-using djconvert::domain::ConsolidationPlan;
-using djconvert::domain::FuzzyMatcher;
-using djconvert::domain::Track;
-using djconvert::domain::TrackPrioritizer;
+using seabass::application::BackupStore;
+using seabass::application::ConsolidateDuplicateCues;
+using seabass::application::CueWriter;
+using seabass::application::DetectedStick;
+using seabass::application::LibraryReader;
+using seabass::application::OperationLog;
+using seabass::application::RemovableMediaLocator;
+using seabass::application::ScanLibrary;
+using seabass::cli::Color;
+using seabass::cli::Console;
+using seabass::domain::ConsolidationPlan;
+using seabass::domain::FuzzyMatcher;
+using seabass::domain::Track;
+using seabass::domain::TrackPrioritizer;
 
 namespace fs = std::filesystem;
 
@@ -58,20 +58,20 @@ constexpr size_t DefaultNeedsCuesLimit = 20;
 
 void printUsage()
 {
-    Console::heading("djconvert -- sync rekordbox and Denon Engine DJ libraries");
+    Console::heading("Seabass -- sync rekordbox and Denon Engine DJ libraries");
     Console::info("");
-    Console::info("djconvert reads DJ track libraries off USB sticks prepared by rekordbox or");
+    Console::info("Seabass reads DJ track libraries off USB sticks prepared by rekordbox or");
     Console::info("Engine DJ (the format Denon's Prime-series gear uses), so cue points can");
     Console::info("eventually be kept in sync between the two. Right now, scanning (read-only");
     Console::info("reporting) and duplicate-track cue consolidation are implemented; syncing");
     Console::info("between the two formats is still in development.");
     Console::info("");
     Console::heading("Usage");
-    Console::info("  djconvert scan [--rekordbox [PATH]] [--engine [PATH]] [--verbose] [--auto]");
+    Console::info("  seabass-cli scan [--rekordbox [PATH]] [--engine [PATH]] [--verbose] [--auto]");
     Console::info("                 [--track NAME] [--needs-cues [N]]");
-    Console::info("  djconvert sync --rekordbox [PATH] --engine [PATH] [--dry-run] [--auto]");
-    Console::info("  djconvert backups [--rekordbox [PATH]] [--engine [PATH]] [--clean] [--keep N]");
-    Console::info("  djconvert --help");
+    Console::info("  seabass-cli sync --rekordbox [PATH] --engine [PATH] [--dry-run] [--auto]");
+    Console::info("  seabass-cli backups [--rekordbox [PATH]] [--engine [PATH]] [--clean] [--keep N]");
+    Console::info("  seabass-cli --help");
     Console::info("");
     Console::heading("Commands");
     Console::info("  scan     Reports every track and cue point found in a library, then checks");
@@ -86,7 +86,7 @@ void printUsage()
     Console::info("           full proposal -- what would move where, and what can't be applied");
     Console::info("           yet -- without touching anything; only then does it ask you to");
     Console::info("           confirm (unless --auto or --dry-run) before writing anything.");
-    Console::info("  backups  Lists the backups djconvert has made on a stick (see \"Backups\"");
+    Console::info("  backups  Lists the backups seabass-cli has made on a stick (see \"Backups\"");
     Console::info("           below). With --clean, deletes the oldest ones so at most --keep");
     Console::info("           N remain (default " + std::to_string(DefaultKeepBackups) +
                    "), freeing space on the stick.");
@@ -124,18 +124,18 @@ void printUsage()
     Console::info("  --help, -h          Show this help and exit.");
     Console::info("");
     Console::heading("Auto-detection");
-    Console::info("  Run \"djconvert scan\" with no --rekordbox/--engine PATH to auto-detect");
+    Console::info("  Run \"seabass-cli scan\" with no --rekordbox/--engine PATH to auto-detect");
     Console::info("  inserted USB stick(s). A single stick often carries both a \"PIONEER\" folder");
     Console::info("  and an \"Engine Library\" folder side by side -- if so, both are scanned and");
     Console::info("  reported. Scanning is read-only, so if more than one stick is mounted, ALL of");
     Console::info("  them get scanned (each report labeled with the stick it came from); pass");
     Console::info("  --rekordbox/--engine with a PATH to scan just one specific stick instead.");
-    Console::info("  \"djconvert backups\", which can delete old backups, is stricter: it always");
+    Console::info("  \"seabass-cli backups\", which can delete old backups, is stricter: it always");
     Console::info("  requires a single unambiguous stick and will ask you to specify one.");
     Console::info("");
     Console::heading("Duplicate-track cue consolidation");
     Console::info("  A stick can hold the same track more than once (re-imports, duplicate");
-    Console::info("  rows). If exactly one copy has hot cues and the others have none, djconvert");
+    Console::info("  rows). If exactly one copy has hot cues and the others have none, Seabass");
     Console::info("  offers to copy those cues onto the cue-less copies -- this runs as the last");
     Console::info("  step of a scan, after all reporting is done, for both rekordbox and Engine.");
     Console::info("  If copies have cues that actually *differ*, that's reported as a conflict and");
@@ -149,7 +149,7 @@ void printUsage()
     Console::info("  file was modified more recently (a heuristic, not a true edit timestamp --");
     Console::info("  documented as such, not treated as certain). Both directions can be written");
     Console::info("  now. Writing to rekordbox (rewriting the target track's ANLZ .EXT file) is the");
-    Console::info("  least-proven part of djconvert -- validated by round-tripping real files and");
+    Console::info("  least-proven part of Seabass -- validated by round-tripping real files and");
     Console::info("  cross-checking with an independent reader, but not yet confirmed against real");
     Console::info("  rekordbox software or real CDJ/XDJ hardware. Verify on your own gear before");
     Console::info("  trusting it for a gig. The full proposal is always printed before anything is");
@@ -157,29 +157,29 @@ void printUsage()
     Console::info("  skips the analysis step.");
     Console::info("");
     Console::heading("Backups");
-    Console::info("  Every write djconvert makes (duplicate-cue consolidation, sync) backs up the");
+    Console::info("  Every write Seabass makes (duplicate-cue consolidation, sync) backs up the");
     Console::info("  file(s) it's about to touch first, under");
-    Console::info("  \"<stick root>/.djconvert-backups/<timestamp>-<label>/\" -- shared across");
+    Console::info("  \"<stick root>/.seabass-backups/<timestamp>-<label>/\" -- shared across");
     Console::info("  rekordbox and Engine, since both live under the same stick root. Nothing");
-    Console::info("  is ever deleted automatically; run \"djconvert backups --clean\" yourself to");
+    Console::info("  is ever deleted automatically; run \"seabass-cli backups --clean\" yourself to");
     Console::info("  prune old ones once they've accumulated (default: keep the " +
                    std::to_string(DefaultKeepBackups) + " most recent).");
     Console::info("  Every write is also appended to a plain-text log at");
-    Console::info("  \"<stick root>/.djconvert.log\" (what was copied, to/from which track id,");
+    Console::info("  \"<stick root>/.seabass.log\" (what was copied, to/from which track id,");
     Console::info("  and which backup covers it) -- kept forever, since it's just text.");
     Console::info("");
     Console::heading("Examples");
-    Console::info("  djconvert scan                              # auto-detect an inserted stick");
-    Console::info("  djconvert scan --rekordbox                  # auto-detect, rekordbox side only");
-    Console::info("  djconvert scan --rekordbox /media/me/NEXUS  # scan a specific rekordbox stick");
-    Console::info("  djconvert scan --engine /media/me/NEXUS --verbose");
-    Console::info("  djconvert scan --engine --auto              # also auto-fix unambiguous duplicates");
-    Console::info("  djconvert backups                           # list backups on an inserted stick");
-    Console::info("  djconvert backups --clean --keep 3          # keep only the 3 most recent");
-    Console::info("  djconvert scan --engine --track concorde    # look up a track by (fuzzy) name");
-    Console::info("  djconvert scan --rekordbox --needs-cues 10  # top 10 most-played tracks with no cues");
-    Console::info("  djconvert sync --rekordbox --engine --dry-run  # see the proposal, change nothing");
-    Console::info("  djconvert sync --rekordbox --engine            # analyze, then confirm before writing");
+    Console::info("  seabass-cli scan                              # auto-detect an inserted stick");
+    Console::info("  seabass-cli scan --rekordbox                  # auto-detect, rekordbox side only");
+    Console::info("  seabass-cli scan --rekordbox /media/me/NEXUS  # scan a specific rekordbox stick");
+    Console::info("  seabass-cli scan --engine /media/me/NEXUS --verbose");
+    Console::info("  seabass-cli scan --engine --auto              # also auto-fix unambiguous duplicates");
+    Console::info("  seabass-cli backups                           # list backups on an inserted stick");
+    Console::info("  seabass-cli backups --clean --keep 3          # keep only the 3 most recent");
+    Console::info("  seabass-cli scan --engine --track concorde    # look up a track by (fuzzy) name");
+    Console::info("  seabass-cli scan --rekordbox --needs-cues 10  # top 10 most-played tracks with no cues");
+    Console::info("  seabass-cli sync --rekordbox --engine --dry-run  # see the proposal, change nothing");
+    Console::info("  seabass-cli sync --rekordbox --engine            # analyze, then confirm before writing");
 }
 
 // Which tracks printReport shows detail for, beyond the always-printed
@@ -220,7 +220,7 @@ void printTrackDetail(const Track &track)
         return;
     }
     for (const auto &cue : track.cues) {
-        bool isHot = cue.kind == djconvert::domain::CuePoint::Kind::Hot;
+        bool isHot = cue.kind == seabass::domain::CuePoint::Kind::Hot;
         std::string line = std::string("  ") + (isHot ? "hot" : "mem") + " " + std::to_string(cue.hotCueNumber) +
                             " @ " + std::to_string(static_cast<long>(cue.positionMs)) + "ms";
         Console::info(Console::colorize(line, isHot ? Color::Cyan : Color::Gray) + " " + cue.color +
@@ -299,7 +299,7 @@ void printReport(const std::string &heading, const std::vector<Track> &tracks, c
 
 std::vector<Track> scanPath(std::unique_ptr<LibraryReader> reader)
 {
-    djconvert::cli::TerminalProgressReporter progress;
+    seabass::cli::TerminalProgressReporter progress;
     reader->setProgressReporter(progress);
 
     ScanLibrary useCase(*reader);
@@ -466,7 +466,7 @@ ResolvedLibraryPaths resolveLibraryPaths(bool &wantRekordbox, bool &wantEngine,
                                           const std::optional<std::string> &rekordboxPathArg,
                                           const std::optional<std::string> &enginePathArg)
 {
-    auto locator = djconvert::infrastructure::media::createRemovableMediaLocator();
+    auto locator = seabass::infrastructure::media::createRemovableMediaLocator();
     bool needsDetection = (wantRekordbox && !rekordboxPathArg) || (wantEngine && !enginePathArg) ||
                           (!wantRekordbox && !wantEngine);
     std::vector<DetectedStick> detected;
@@ -538,7 +538,7 @@ ResolvedScanTargets resolveScanTargets(bool wantRekordbox, bool wantEngine,
     std::vector<DetectedStick> detected;
     if ((!rekordboxPathArg && (bareInvocation || wantRekordbox)) ||
         (!enginePathArg && (bareInvocation || wantEngine))) {
-        auto locator = djconvert::infrastructure::media::createRemovableMediaLocator();
+        auto locator = seabass::infrastructure::media::createRemovableMediaLocator();
         detected = locator->detect();
     }
 
@@ -592,12 +592,12 @@ std::string humanSize(std::uint64_t bytes)
     return buf;
 }
 
-// Backups live under <stick root>/.djconvert-backups, shared across formats
+// Backups live under <stick root>/.seabass-backups, shared across formats
 // (the rekordbox and Engine folders on one stick share the same parent).
 std::string backupDirFor(const ResolvedLibraryPaths &resolved)
 {
     fs::path anyPath = resolved.enginePath ? *resolved.enginePath : *resolved.rekordboxPath;
-    return (anyPath.parent_path() / ".djconvert-backups").string();
+    return (anyPath.parent_path() / ".seabass-backups").string();
 }
 
 int runBackupsCommand(bool wantRekordbox, bool wantEngine, const std::optional<std::string> &rekordboxPath,
@@ -608,7 +608,7 @@ int runBackupsCommand(bool wantRekordbox, bool wantEngine, const std::optional<s
         return 1;
     }
 
-    djconvert::infrastructure::backup::FilesystemBackupStore store(backupDirFor(resolved));
+    seabass::infrastructure::backup::FilesystemBackupStore store(backupDirFor(resolved));
 
     if (clean) {
         auto freed = store.prune(keepCount);
@@ -640,12 +640,12 @@ std::chrono::system_clock::time_point fileMtime(const std::string &path)
     return std::chrono::clock_cast<std::chrono::system_clock>(std::filesystem::last_write_time(path));
 }
 
-std::string describeCues(const std::vector<djconvert::domain::CuePoint> &cues)
+std::string describeCues(const std::vector<seabass::domain::CuePoint> &cues)
 {
     int hot = 0;
     int memory = 0;
     for (const auto &cue : cues) {
-        (cue.kind == djconvert::domain::CuePoint::Kind::Hot ? hot : memory)++;
+        (cue.kind == seabass::domain::CuePoint::Kind::Hot ? hot : memory)++;
     }
     std::string result = std::to_string(hot) + " hot";
     if (memory > 0) {
@@ -670,18 +670,18 @@ int runSyncCommand(bool wantRekordbox, bool wantEngine, const std::optional<std:
         return 1;
     }
 
-    using djconvert::domain::SyncPlan;
+    using seabass::domain::SyncPlan;
 
-    std::vector<djconvert::domain::Track> rekordboxTracks;
-    std::vector<djconvert::domain::Track> engineTracks;
+    std::vector<seabass::domain::Track> rekordboxTracks;
+    std::vector<seabass::domain::Track> engineTracks;
     std::string rekordboxDbFile = (fs::path(*resolved.rekordboxPath) / "rekordbox" / "export.pdb").string();
     std::string engineDbFile = (fs::path(*resolved.enginePath) / "Database2" / "m.db").string();
 
     try {
         rekordboxTracks = scanPath(
-            std::make_unique<djconvert::infrastructure::rekordbox::KaitaiRekordboxReader>(*resolved.rekordboxPath));
+            std::make_unique<seabass::infrastructure::rekordbox::KaitaiRekordboxReader>(*resolved.rekordboxPath));
         engineTracks = scanPath(
-            std::make_unique<djconvert::infrastructure::engine::LibdjinteropEngineReader>(*resolved.enginePath));
+            std::make_unique<seabass::infrastructure::engine::LibdjinteropEngineReader>(*resolved.enginePath));
     } catch (const std::exception &e) {
         Console::error(e.what());
         return 1;
@@ -689,7 +689,7 @@ int runSyncCommand(bool wantRekordbox, bool wantEngine, const std::optional<std:
 
     auto rekordboxMtime = fileMtime(rekordboxDbFile);
     auto engineMtime = fileMtime(engineDbFile);
-    auto plans = djconvert::application::SyncLibraries().execute(rekordboxTracks, engineTracks, rekordboxMtime,
+    auto plans = seabass::application::SyncLibraries().execute(rekordboxTracks, engineTracks, rekordboxMtime,
                                                                    engineMtime);
 
     // --- Phase 1: analyze and propose, no writes yet ---
@@ -732,7 +732,7 @@ int runSyncCommand(bool wantRekordbox, bool wantEngine, const std::optional<std:
             Console::info("  \"" + plan->match.trackB.filename + "\": " + describeCues(plan->cuesToApply) +
                            (conflict ? "  [conflict resolved: Engine's m.db is newer]" : ""));
         }
-        Console::warn("rekordbox writing is the least-proven part of djconvert -- verify the result in rekordbox");
+        Console::warn("rekordbox writing is the least-proven part of Seabass -- verify the result in rekordbox");
         Console::warn("and on real hardware before trusting it for a gig (see --help's Sync section).");
     }
 
@@ -752,18 +752,18 @@ int runSyncCommand(bool wantRekordbox, bool wantEngine, const std::optional<std:
 
     // --- Phase 3: apply ---
     try {
-        djconvert::infrastructure::backup::FilesystemBackupStore engineBackupStore(
-            (fs::path(*resolved.enginePath).parent_path() / ".djconvert-backups").string());
-        djconvert::infrastructure::logging::FileOperationLog engineLog(
-            (fs::path(*resolved.enginePath).parent_path() / ".djconvert.log").string());
-        djconvert::infrastructure::backup::FilesystemBackupStore rekordboxBackupStore(
-            (fs::path(*resolved.rekordboxPath).parent_path() / ".djconvert-backups").string());
-        djconvert::infrastructure::logging::FileOperationLog rekordboxLog(
-            (fs::path(*resolved.rekordboxPath).parent_path() / ".djconvert.log").string());
+        seabass::infrastructure::backup::FilesystemBackupStore engineBackupStore(
+            (fs::path(*resolved.enginePath).parent_path() / ".seabass-backups").string());
+        seabass::infrastructure::logging::FileOperationLog engineLog(
+            (fs::path(*resolved.enginePath).parent_path() / ".seabass.log").string());
+        seabass::infrastructure::backup::FilesystemBackupStore rekordboxBackupStore(
+            (fs::path(*resolved.rekordboxPath).parent_path() / ".seabass-backups").string());
+        seabass::infrastructure::logging::FileOperationLog rekordboxLog(
+            (fs::path(*resolved.rekordboxPath).parent_path() / ".seabass.log").string());
 
         size_t engineCuesCopied = 0;
         if (!toEngine.empty()) {
-            djconvert::infrastructure::engine::LibdjinteropEngineCueWriter writer(*resolved.enginePath);
+            seabass::infrastructure::engine::LibdjinteropEngineCueWriter writer(*resolved.enginePath);
             auto record = engineBackupStore.backup({engineDbFile}, "sync");
             Console::info("");
             Console::info("backed up Engine to " + record.path);
@@ -781,15 +781,15 @@ int runSyncCommand(bool wantRekordbox, bool wantEngine, const std::optional<std:
 
         size_t rekordboxCuesCopied = 0;
         if (!toRekordbox.empty()) {
-            djconvert::infrastructure::rekordbox::RekordboxCueWriter writer(*resolved.rekordboxPath);
+            seabass::infrastructure::rekordbox::RekordboxCueWriter writer(*resolved.rekordboxPath);
             std::string pioneerRoot = *resolved.rekordboxPath;
             std::set<std::string> backedUpFiles;
 
             for (const auto *plan : toRekordbox) {
-                auto analyzePath = djconvert::infrastructure::rekordbox::findAnlzPathForTrackId(
+                auto analyzePath = seabass::infrastructure::rekordbox::findAnlzPathForTrackId(
                     pioneerRoot, static_cast<uint32_t>(std::stoul(plan->match.trackA.sourceId)));
                 if (analyzePath) {
-                    std::string extPath = djconvert::infrastructure::rekordbox::extAnlzPath(pioneerRoot,
+                    std::string extPath = seabass::infrastructure::rekordbox::extAnlzPath(pioneerRoot,
                                                                                               *analyzePath);
                     if (backedUpFiles.insert(extPath).second) {
                         auto record = rekordboxBackupStore.backup({extPath}, "sync");
@@ -939,22 +939,22 @@ int main(int argc, char **argv)
         for (const auto &target : scanTargets.rekordboxTargets) {
             std::string heading = multipleRekordbox ? "rekordbox (" + target.label + ")" : "rekordbox";
             auto tracks = scanPath(
-                std::make_unique<djconvert::infrastructure::rekordbox::KaitaiRekordboxReader>(target.path));
+                std::make_unique<seabass::infrastructure::rekordbox::KaitaiRekordboxReader>(target.path));
             printReport(heading, tracks, reportOptions);
 
-            djconvert::infrastructure::rekordbox::RekordboxCueWriter writer(target.path);
+            seabass::infrastructure::rekordbox::RekordboxCueWriter writer(target.path);
             fs::path stickRoot = fs::path(target.path).parent_path();
-            djconvert::infrastructure::backup::FilesystemBackupStore backupStore(
-                (stickRoot / ".djconvert-backups").string());
-            djconvert::infrastructure::logging::FileOperationLog log((stickRoot / ".djconvert.log").string());
+            seabass::infrastructure::backup::FilesystemBackupStore backupStore(
+                (stickRoot / ".seabass-backups").string());
+            seabass::infrastructure::logging::FileOperationLog log((stickRoot / ".seabass.log").string());
             std::string pioneerRoot = target.path;
             auto filesToBackUpFor = [pioneerRoot](const std::string &trackSourceId) -> std::vector<std::string> {
-                auto analyzePath = djconvert::infrastructure::rekordbox::findAnlzPathForTrackId(
+                auto analyzePath = seabass::infrastructure::rekordbox::findAnlzPathForTrackId(
                     pioneerRoot, static_cast<uint32_t>(std::stoul(trackSourceId)));
                 if (!analyzePath) {
                     return {};
                 }
-                return {djconvert::infrastructure::rekordbox::extAnlzPath(pioneerRoot, *analyzePath)};
+                return {seabass::infrastructure::rekordbox::extAnlzPath(pioneerRoot, *analyzePath)};
             };
             handleDuplicates(heading, tracks, &writer, &backupStore, &log, filesToBackUpFor, autoMode);
         }
@@ -963,14 +963,14 @@ int main(int argc, char **argv)
         for (const auto &target : scanTargets.engineTargets) {
             std::string heading = multipleEngine ? "engine (" + target.label + ")" : "engine";
             auto tracks =
-                scanPath(std::make_unique<djconvert::infrastructure::engine::LibdjinteropEngineReader>(target.path));
+                scanPath(std::make_unique<seabass::infrastructure::engine::LibdjinteropEngineReader>(target.path));
             printReport(heading, tracks, reportOptions);
 
-            djconvert::infrastructure::engine::LibdjinteropEngineCueWriter writer(target.path);
+            seabass::infrastructure::engine::LibdjinteropEngineCueWriter writer(target.path);
             fs::path stickRoot = fs::path(target.path).parent_path();
-            djconvert::infrastructure::backup::FilesystemBackupStore backupStore(
-                (stickRoot / ".djconvert-backups").string());
-            djconvert::infrastructure::logging::FileOperationLog log((stickRoot / ".djconvert.log").string());
+            seabass::infrastructure::backup::FilesystemBackupStore backupStore(
+                (stickRoot / ".seabass-backups").string());
+            seabass::infrastructure::logging::FileOperationLog log((stickRoot / ".seabass.log").string());
             std::string engineDbFile = (fs::path(target.path) / "Database2" / "m.db").string();
             auto filesToBackUpFor = [engineDbFile](const std::string &) -> std::vector<std::string> {
                 return {engineDbFile};

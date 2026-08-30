@@ -7,15 +7,19 @@
 #include <filesystem>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 
 #include "application/ports/backup_store.hpp"
 #include "application/use_cases/scan_library.hpp"
 #include "application/use_cases/sync_libraries.hpp"
+#include "domain/cross_source_sync_conflict.hpp"
 #include "gui/qt_progress_reporter.hpp"
 #include "gui/write_guard.hpp"
 #include "infrastructure/backup/filesystem_backup_store.hpp"
 #include "infrastructure/backup/stick_write_lock.hpp"
+#include "infrastructure/bulk_write_strategy.hpp"
+#include "infrastructure/durable_file_write.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cue_writer.hpp"
 #include "infrastructure/engine/libdjinterop_engine_reader.hpp"
 #include "infrastructure/engine/libdjinterop_waveform_reader.hpp"
@@ -26,8 +30,9 @@
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 #include "infrastructure/rekordbox/rekordbox_cue_writer.hpp"
 #include "infrastructure/rekordbox/rekordbox_waveform_reader.hpp"
+#include "infrastructure/scratch_dir_guard.hpp"
 
-namespace djconvert::gui
+namespace seabass::gui
 {
 
 namespace fs = std::filesystem;
@@ -35,6 +40,27 @@ using domain::SyncPlan;
 
 namespace
 {
+
+using infrastructure::ScratchDirGuard;
+
+// Soft preflight only: false just means "use the direct per-item writes
+// instead", never an error. Running out of space mid-swap (old file +
+// new temp file briefly coexisting on the target's filesystem, plus the
+// scratch copy on temp storage) would be a strictly worse failure mode
+// than the simpler path this falls back to.
+bool hasRoomForWholeFileReplace(const fs::path &targetDir, std::uintmax_t existingFileBytes)
+{
+    std::error_code ec;
+    auto targetSpace = fs::space(targetDir, ec);
+    if (ec) {
+        return false;
+    }
+    auto tempSpace = fs::space(fs::temp_directory_path(), ec);
+    if (ec) {
+        return false;
+    }
+    return targetSpace.available >= 2 * existingFileBytes && tempSpace.available >= existingFileBytes;
+}
 
 // Mirrors cli/main.cpp's describeCues() exactly.
 QString describeCues(const std::vector<domain::CuePoint> &cues)
@@ -158,6 +184,14 @@ void SyncPlanListModel::setPlans(std::vector<domain::SyncPlan> plans,
     endResetModel();
 }
 
+void SyncPlanListModel::addPlan(domain::SyncPlan plan)
+{
+    int row = static_cast<int>(m_plans.size());
+    beginInsertRows(QModelIndex(), row, row);
+    m_plans.push_back(std::move(plan));
+    endInsertRows();
+}
+
 namespace
 {
 
@@ -232,6 +266,17 @@ SyncTaskResult runAnalyzeTask(QString rekordboxPath, QString enginePath, std::sh
         if (hasEngine && hasOneLibrary) {
             addPairPlans(engineTracks, oneLibraryTracks, engineMtime, oneLibraryMtime);
         }
+
+        // Two different pairs can independently target the same third
+        // catalog's track (e.g. both rekordbox and Engine have cues
+        // OneLibrary lacks) -- neither pairwise SyncPlanner can see the
+        // other pair, so it can't know this is happening. Split those
+        // out into unresolved conflicts (requires a manual pick, see
+        // SyncController::resolveConflict()) before anything below
+        // treats `actionable` as safe to apply directly.
+        auto conflictSplit = domain::CrossSourceConflictDetector::detect(actionable);
+        actionable = std::move(conflictSplit.nonConflicting);
+        result.conflicts = std::move(conflictSplit.conflicts);
 
         // Waveforms need their own file I/O per track, so only decode them
         // for tracks actually being displayed here. A second phase after
@@ -317,7 +362,75 @@ void SyncController::onAnalyzeFinished()
     m_oneLibraryTrackCount = result.oneLibraryTrackCount;
     m_model.setPlans(std::move(result.plans), std::move(result.waveformsByKey));
     recomputeDirectionCounts();
+    // A rescan is a fresh snapshot -- any conflict resolved against the
+    // previous one no longer means anything (the plan it produced is
+    // already gone too, replaced by whatever this scan found), so this
+    // never tries to carry old resolutions forward.
+    m_conflicts = std::move(result.conflicts);
+    rebuildUnresolvedConflictsList();
     setBusy(false);
+}
+
+namespace
+{
+
+QString summarizeCueCounts(const std::vector<domain::CuePoint> &cues)
+{
+    int hot = 0;
+    int memory = 0;
+    for (const auto &cue : cues) {
+        (cue.kind == domain::CuePoint::Kind::Hot ? hot : memory)++;
+    }
+    QStringList parts;
+    if (hot > 0) {
+        parts << QString("%1 hot cue(s)").arg(hot);
+    }
+    if (memory > 0) {
+        parts << QString("%1 memory cue(s)").arg(memory);
+    }
+    return parts.isEmpty() ? "no cues" : parts.join(", ");
+}
+
+}  // namespace
+
+void SyncController::rebuildUnresolvedConflictsList()
+{
+    QVariantList list;
+    for (const auto &conflict : m_conflicts) {
+        QVariantMap m;
+        m["targetPath"] = QString::fromStdString(conflict.target.filePath);
+        m["targetTitle"] = QString::fromStdString(conflict.target.title);
+        m["targetFormat"] = QString::fromStdString(conflict.target.format);
+        m["sourceAFormat"] = QString::fromStdString(conflict.sourceA.format);
+        m["sourceASummary"] = summarizeCueCounts(conflict.cuesFromA);
+        m["sourceAHasJunkCue"] = conflict.sourceAHasJunkCue;
+        m["sourceBFormat"] = QString::fromStdString(conflict.sourceB.format);
+        m["sourceBSummary"] = summarizeCueCounts(conflict.cuesFromB);
+        m["sourceBHasJunkCue"] = conflict.sourceBHasJunkCue;
+        list << m;
+    }
+    m_unresolvedConflicts = list;
+    emit conflictsChanged();
+}
+
+void SyncController::resolveConflict(int index, bool useSourceA)
+{
+    if (index < 0 || static_cast<size_t>(index) >= m_conflicts.size()) {
+        return;
+    }
+    const domain::CrossSourceSyncConflict &conflict = m_conflicts[static_cast<size_t>(index)];
+
+    domain::SyncPlan plan;
+    plan.kind = domain::SyncPlan::Kind::AOnly;
+    plan.match.trackA = useSourceA ? conflict.sourceA : conflict.sourceB;
+    plan.match.trackB = conflict.target;
+    plan.direction = domain::SyncPlan::Direction::ToB;
+    plan.cuesToApply = useSourceA ? conflict.cuesFromA : conflict.cuesFromB;
+    m_model.addPlan(std::move(plan));
+    recomputeDirectionCounts();
+
+    m_conflicts.erase(m_conflicts.begin() + index);
+    rebuildUnresolvedConflictsList();
 }
 
 void SyncController::recomputeDirectionCounts()
@@ -347,7 +460,7 @@ namespace
 // Acquires one StickWriteLock per distinct directory (sorted first so two
 // concurrent multi-lock callers always acquire in the same order, and
 // deduped so locking the same directory twice, e.g. rekordbox and
-// OneLibrary sharing one stick root's .djconvert-backups, never self-
+// OneLibrary sharing one stick root's .seabass-backups, never self-
 // deadlocks). Held for the caller's whole scope via RAII.
 std::vector<std::unique_ptr<infrastructure::backup::StickWriteLock>> acquireStickLocks(std::vector<std::string> dirs)
 {
@@ -410,10 +523,10 @@ SyncWriteResult runApplyTask(QString rekordboxPath, QString enginePath, std::vec
 
         std::vector<std::string> lockDirs;
         if (!rekordboxPath.isEmpty()) {
-            lockDirs.push_back((fs::path(rekordboxPath.toStdString()).parent_path() / ".djconvert-backups").string());
+            lockDirs.push_back((fs::path(rekordboxPath.toStdString()).parent_path() / ".seabass-backups").string());
         }
         if (!enginePath.isEmpty()) {
-            lockDirs.push_back((fs::path(enginePath.toStdString()).parent_path() / ".djconvert-backups").string());
+            lockDirs.push_back((fs::path(enginePath.toStdString()).parent_path() / ".seabass-backups").string());
         }
         auto locks = acquireStickLocks(lockDirs);
 
@@ -424,10 +537,11 @@ SyncWriteResult runApplyTask(QString rekordboxPath, QString enginePath, std::vec
         for (const auto &[targetFormat, items] : byTargetFormat) {
             QString path = pathForFormat(targetFormat);
             std::string stickRoot = fs::path(path.toStdString()).parent_path().string();
-            infrastructure::backup::FilesystemBackupStore backupStore((fs::path(stickRoot) / ".djconvert-backups").string());
-            infrastructure::logging::FileOperationLog log((fs::path(stickRoot) / ".djconvert.log").string());
+            infrastructure::backup::FilesystemBackupStore backupStore((fs::path(stickRoot) / ".seabass-backups").string());
+            infrastructure::logging::FileOperationLog log((fs::path(stickRoot) / ".seabass.log").string());
             int cuesCopied = 0;
 
+            try {
             if (targetFormat == "rekordbox") {
                 infrastructure::rekordbox::RekordboxCueWriter writer(path.toStdString());
                 std::string pioneerRoot = path.toStdString();
@@ -454,12 +568,39 @@ SyncWriteResult runApplyTask(QString rekordboxPath, QString enginePath, std::vec
                     reporter->tick(++written);
                 }
             } else if (targetFormat == "engine") {
-                infrastructure::engine::LibdjinteropEngineCueWriter writer(path.toStdString());
                 std::string engineDbFile = (fs::path(path.toStdString()) / "Database2" / "m.db").string();
                 auto record = backupStore.backup({engineDbFile}, "sync");
                 log.record("sync: backed up m.db -> " + record.path);
                 result.backups.push_back({QString::fromStdString(fs::path(record.path).parent_path().string()),
                                            QString::fromStdString(record.id)});
+
+                std::error_code sizeEc;
+                auto existingBytes = fs::file_size(engineDbFile, sizeEc);
+                infrastructure::BulkWriteStrategyInputs strategyInputs;
+                strategyInputs.itemCount = static_cast<int>(items.size());
+                strategyInputs.existingFileBytes = sizeEc ? 0 : existingBytes;
+                bool useWholeFile = !sizeEc && infrastructure::shouldUseWholeFileReplace(strategyInputs) &&
+                                     hasRoomForWholeFileReplace(fs::path(engineDbFile).parent_path(), existingBytes);
+
+                std::optional<fs::path> scratchDir;
+                std::optional<ScratchDirGuard> scratchGuard;
+                std::string writeTargetPath = path.toStdString();
+                if (useWholeFile) {
+                    scratchDir = fs::temp_directory_path() /
+                                 ("seabass-sync-scratch-engine-" +
+                                  std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+                    std::error_code cleanupEc;
+                    fs::remove_all(*scratchDir, cleanupEc);
+                    fs::create_directories(*scratchDir / "Database2");
+                    fs::copy_file(engineDbFile, *scratchDir / "Database2" / "m.db");
+                    scratchGuard.emplace(*scratchDir);
+                    writeTargetPath = scratchDir->string();
+                    log.record("sync: applying " + std::to_string(items.size()) +
+                               " engine cue update(s) to a local scratch copy first (m.db is " +
+                               std::to_string(existingBytes) + " bytes)");
+                }
+
+                infrastructure::engine::LibdjinteropEngineCueWriter writer(writeTargetPath);
                 for (const auto &item : items) {
                     writer.writeHotCues(item.targetTrack.sourceId, item.cuesToApply);
                     cuesCopied += static_cast<int>(item.cuesToApply.size());
@@ -468,13 +609,54 @@ SyncWriteResult runApplyTask(QString rekordboxPath, QString enginePath, std::vec
                                ") to engine track id=" + item.targetTrack.sourceId);
                     reporter->tick(++written);
                 }
+
+                if (scratchDir &&
+                    !infrastructure::copyFileDurablyAtomic((*scratchDir / "Database2" / "m.db").string(), engineDbFile)) {
+                    throw std::runtime_error(
+                        "sync: failed to commit the scratch-built engine library back onto the stick");
+                }
             } else if (targetFormat == "onelibrary") {
-                infrastructure::onelibrary::OneLibraryCueWriter writer(path.toStdString());
                 std::string dbFile = infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(path.toStdString());
                 auto record = backupStore.backup({dbFile}, "sync");
                 log.record("sync: backed up exportLibrary.db -> " + record.path);
                 result.backups.push_back({QString::fromStdString(fs::path(record.path).parent_path().string()),
                                            QString::fromStdString(record.id)});
+
+                std::error_code sizeEc;
+                auto existingBytes = fs::file_size(dbFile, sizeEc);
+                infrastructure::BulkWriteStrategyInputs strategyInputs;
+                strategyInputs.itemCount = static_cast<int>(items.size());
+                strategyInputs.existingFileBytes = sizeEc ? 0 : existingBytes;
+                bool useWholeFile = !sizeEc && infrastructure::shouldUseWholeFileReplace(strategyInputs) &&
+                                     hasRoomForWholeFileReplace(fs::path(dbFile).parent_path(), existingBytes);
+
+                std::optional<fs::path> scratchDir;
+                std::optional<ScratchDirGuard> scratchGuard;
+                std::string writeTargetRoot = path.toStdString();
+                if (useWholeFile) {
+                    scratchDir = fs::temp_directory_path() /
+                                 ("seabass-sync-scratch-onelibrary-" +
+                                  std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+                    std::error_code cleanupEc;
+                    fs::remove_all(*scratchDir, cleanupEc);
+                    fs::create_directories(*scratchDir / "rekordbox");
+                    fs::copy_file(dbFile, *scratchDir / "rekordbox" / "exportLibrary.db");
+                    scratchGuard.emplace(*scratchDir);
+                    writeTargetRoot = scratchDir->string();
+                    log.record("sync: applying " + std::to_string(items.size()) +
+                               " OneLibrary cue update(s) to a local scratch copy first (exportLibrary.db is " +
+                               std::to_string(existingBytes) + " bytes)");
+                }
+
+                // realStickRoot is passed explicitly (not left to the
+                // writer's own pioneerRoot-parent default) because
+                // writeTargetRoot may be the scratch copy above, whose
+                // parent is just a temp directory, not the stick --
+                // content.path lookups need the *real* stick root
+                // regardless of where the database file itself is being
+                // read from right now.
+                infrastructure::onelibrary::OneLibraryCueWriter writer(
+                    writeTargetRoot, fs::path(path.toStdString()).parent_path().string());
                 for (const auto &item : items) {
                     writer.writeCuesForPath(item.targetTrack.filePath, item.cuesToApply);
                     cuesCopied += static_cast<int>(item.cuesToApply.size());
@@ -483,6 +665,19 @@ SyncWriteResult runApplyTask(QString rekordboxPath, QString enginePath, std::vec
                                item.targetTrack.filePath);
                     reporter->tick(++written);
                 }
+
+                if (scratchDir && !infrastructure::copyFileDurablyAtomic(
+                                       (*scratchDir / "rekordbox" / "exportLibrary.db").string(), dbFile)) {
+                    throw std::runtime_error(
+                        "sync: failed to commit the scratch-built OneLibrary database back onto the stick");
+                }
+            }
+
+            } catch (const std::exception &e) {
+                log.record("sync: FAILED writing " + targetFormat + " (" + std::to_string(items.size()) +
+                           " item(s) queued, " + std::to_string(cuesCopied) + " cue(s) actually copied first): " +
+                           e.what());
+                throw;
             }
 
             summaryParts << QString("%1 track(s) to %2 (%3 cue(s))")
@@ -668,4 +863,4 @@ void SyncController::setStatusMessage(const QString &message)
     emit statusMessageChanged();
 }
 
-}  // namespace djconvert::gui
+}  // namespace seabass::gui

@@ -10,7 +10,7 @@
 
 #include "domain/track.hpp"
 
-namespace djconvert::gui
+namespace seabass::gui
 {
 
 // Read-only Qt list model over the tracks ScanController last read.
@@ -68,7 +68,7 @@ class ScanController : public QObject
 {
     Q_OBJECT
     QML_ELEMENT
-    Q_PROPERTY(djconvert::gui::TrackListModel *tracks READ tracksModel CONSTANT)
+    Q_PROPERTY(seabass::gui::TrackListModel *tracks READ tracksModel CONSTANT)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(int scanCurrent READ scanCurrent NOTIFY scanProgressChanged)
     Q_PROPERTY(int scanTotal READ scanTotal NOTIFY scanProgressChanged)
@@ -167,4 +167,4 @@ private:
     QString m_errorMessage;
 };
 
-}  // namespace djconvert::gui
+}  // namespace seabass::gui

@@ -8,7 +8,7 @@
 #include "infrastructure/rekordbox/big_endian.hpp"
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 
-namespace djconvert::infrastructure::rekordbox
+namespace seabass::infrastructure::rekordbox
 {
 
 namespace
@@ -92,4 +92,4 @@ void RekordboxCueWriter::writeHotCues(const std::string &trackSourceId, const st
     file.writeRaw(extPath);
 }
 
-}  // namespace djconvert::infrastructure::rekordbox
+}  // namespace seabass::infrastructure::rekordbox

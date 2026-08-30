@@ -4,13 +4,13 @@
 
 #include "application/ports/backup_store.hpp"
 
-namespace djconvert::infrastructure::backup
+namespace seabass::infrastructure::backup
 {
 
 // Stores backups as plain directories under baseDirectory, one per backup:
 // baseDirectory/<timestamp>-<label>/<original file basenames>. Deliberately
 // simple (no compression/archive format) so a user can just look inside and
-// copy a file back by hand if djconvert itself isn't available.
+// copy a file back by hand if Seabass itself is not available.
 class FilesystemBackupStore : public application::BackupStore
 {
 public:
@@ -27,4 +27,4 @@ private:
     std::string m_baseDirectory;
 };
 
-}  // namespace djconvert::infrastructure::backup
+}  // namespace seabass::infrastructure::backup

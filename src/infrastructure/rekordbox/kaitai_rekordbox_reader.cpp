@@ -9,12 +9,12 @@
 #include "infrastructure/rekordbox/generated/rekordbox_pdb.h"
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 
-namespace djconvert::infrastructure::rekordbox
+namespace seabass::infrastructure::rekordbox
 {
 
 using Pdb = rekordbox_pdb_t;
 using Anlz = rekordbox_anlz_t;
-namespace domain = djconvert::domain;
+namespace domain = seabass::domain;
 
 namespace
 {
@@ -338,4 +338,4 @@ std::vector<domain::Track> KaitaiRekordboxReader::readAll()
     return tracks;
 }
 
-}  // namespace djconvert::infrastructure::rekordbox
+}  // namespace seabass::infrastructure::rekordbox

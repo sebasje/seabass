@@ -5,7 +5,7 @@
 #include <cmath>
 #include <map>
 
-namespace djconvert::domain
+namespace seabass::domain
 {
 
 namespace
@@ -165,4 +165,4 @@ bool cueSetsEqual(const std::vector<CuePoint> &a, const std::vector<CuePoint> &b
     return true;
 }
 
-}  // namespace djconvert::domain
+}  // namespace seabass::domain

@@ -5,7 +5,7 @@
 
 #include <djinterop/djinterop.hpp>
 
-namespace djconvert::infrastructure::engine
+namespace seabass::infrastructure::engine
 {
 
 namespace
@@ -85,4 +85,4 @@ void LibdjinteropEngineCueWriter::writeHotCues(const std::string &trackSourceId,
     }
 }
 
-}  // namespace djconvert::infrastructure::engine
+}  // namespace seabass::infrastructure::engine

@@ -4,7 +4,7 @@
 #include <cctype>
 #include <set>
 
-namespace djconvert::domain
+namespace seabass::domain
 {
 
 namespace
@@ -76,4 +76,4 @@ LibraryStatistics LibraryStatisticsCalculator::calculate(const std::vector<Track
     return stats;
 }
 
-}  // namespace djconvert::domain
+}  // namespace seabass::domain

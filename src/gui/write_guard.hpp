@@ -2,7 +2,7 @@
 
 #include <QString>
 
-namespace djconvert::gui
+namespace seabass::gui
 {
 
 // Empty if it's safe to proceed with a write; otherwise the exact error
@@ -13,4 +13,4 @@ namespace djconvert::gui
 // detection can only ever be advisory, never a substitute for that lock.
 QString refuseIfRekordboxRunning();
 
-}  // namespace djconvert::gui
+}  // namespace seabass::gui

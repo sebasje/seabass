@@ -24,7 +24,7 @@
 #include "infrastructure/rekordbox/rekordbox_cleanup_writer.hpp"
 #include "infrastructure/rekordbox/rekordbox_cue_writer.hpp"
 
-namespace djconvert::gui
+namespace seabass::gui
 {
 
 namespace fs = std::filesystem;
@@ -308,9 +308,9 @@ LibraryConsistencyWriteResult runRepairTask(QString format, QString path,
     }
     try {
         fs::path stickRoot = fs::path(path.toStdString()).parent_path();
-        infrastructure::backup::StickWriteLock lock((stickRoot / ".djconvert-backups" / ".write.lock").string());
-        infrastructure::backup::FilesystemBackupStore backupStore((stickRoot / ".djconvert-backups").string());
-        infrastructure::logging::FileOperationLog log((stickRoot / ".djconvert.log").string());
+        infrastructure::backup::StickWriteLock lock((stickRoot / ".seabass-backups" / ".write.lock").string());
+        infrastructure::backup::FilesystemBackupStore backupStore((stickRoot / ".seabass-backups").string());
+        infrastructure::logging::FileOperationLog log((stickRoot / ".seabass.log").string());
 
         int cuesMerged = 0;
         int rowsRemoved = 0;
@@ -446,9 +446,9 @@ LibraryConsistencyWriteResult runDeleteOrphanTask(QString path, LibraryConsisten
     }
     try {
         fs::path stickRoot = fs::path(path.toStdString()).parent_path();
-        infrastructure::backup::StickWriteLock lock((stickRoot / ".djconvert-backups" / ".write.lock").string());
-        infrastructure::backup::FilesystemBackupStore backupStore((stickRoot / ".djconvert-backups").string());
-        infrastructure::logging::FileOperationLog log((stickRoot / ".djconvert.log").string());
+        infrastructure::backup::StickWriteLock lock((stickRoot / ".seabass-backups" / ".write.lock").string());
+        infrastructure::backup::FilesystemBackupStore backupStore((stickRoot / ".seabass-backups").string());
+        infrastructure::logging::FileOperationLog log((stickRoot / ".seabass.log").string());
 
         std::string pioneerRoot = path.toStdString();
         std::string dbFile = infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(pioneerRoot);
@@ -491,9 +491,9 @@ LibraryConsistencyWriteResult runRemoveJunkCuesTask(QString format, QString path
     }
     try {
         fs::path stickRoot = fs::path(path.toStdString()).parent_path();
-        infrastructure::backup::StickWriteLock lock((stickRoot / ".djconvert-backups" / ".write.lock").string());
-        infrastructure::backup::FilesystemBackupStore backupStore((stickRoot / ".djconvert-backups").string());
-        infrastructure::logging::FileOperationLog log((stickRoot / ".djconvert.log").string());
+        infrastructure::backup::StickWriteLock lock((stickRoot / ".seabass-backups" / ".write.lock").string());
+        infrastructure::backup::FilesystemBackupStore backupStore((stickRoot / ".seabass-backups").string());
+        infrastructure::logging::FileOperationLog log((stickRoot / ".seabass.log").string());
 
         std::string backupComment = tracks.size() > 1 ? "junk-cue-cleanup (bulk)" : "junk-cue-cleanup";
         int removed = 0;
@@ -908,4 +908,4 @@ void LibraryConsistencyController::setStatusMessage(const QString &message)
     emit statusMessageChanged();
 }
 
-}  // namespace djconvert::gui
+}  // namespace seabass::gui

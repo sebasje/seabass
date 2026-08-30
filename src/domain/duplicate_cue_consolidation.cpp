@@ -7,7 +7,7 @@
 
 #include "domain/track_matching.hpp"
 
-namespace djconvert::domain
+namespace seabass::domain
 {
 
 namespace
@@ -151,4 +151,4 @@ ConsolidationPlan DuplicateCueConsolidator::plan(const DuplicateGroup &group)
     return result;
 }
 
-}  // namespace djconvert::domain
+}  // namespace seabass::domain

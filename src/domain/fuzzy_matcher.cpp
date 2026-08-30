@@ -4,7 +4,7 @@
 #include <cctype>
 #include <vector>
 
-namespace djconvert::domain
+namespace seabass::domain
 {
 
 namespace
@@ -58,4 +58,4 @@ double FuzzyMatcher::score(const std::string &query, const std::string &candidat
     return 1.0 - static_cast<double>(distance) / static_cast<double>(longest);
 }
 
-}  // namespace djconvert::domain
+}  // namespace seabass::domain

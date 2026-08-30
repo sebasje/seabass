@@ -8,7 +8,7 @@
 #include "infrastructure/engine/libdjinterop_engine_library_creator.hpp"
 #include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
 
-namespace djconvert::gui
+namespace seabass::gui
 {
 
 namespace fs = std::filesystem;
@@ -41,7 +41,12 @@ EngineLibraryCreationTaskResult runCreateTask(QString rekordboxPath, int schemaG
 
         std::string engineLibraryPath =
             (fs::path(rekordboxPath.toStdString()).parent_path() / "Engine Library").string();
-        auto creation = EngineLibraryCreator::create(engineLibraryPath, tracks, schemaFromInt(schemaGeneration));
+        // Same reporter as the scan above -- a second start()/tick() run
+        // for this second phase, same idiom SyncController's own analyze
+        // task uses, rather than leaving the bar looking stalled once the
+        // scan's own 100% has already been reported.
+        auto creation =
+            EngineLibraryCreator::create(engineLibraryPath, tracks, schemaFromInt(schemaGeneration), *reporter);
 
         result.tracksCreated = creation.tracksCreated;
         result.tracksSkipped = creation.tracksSkipped;
@@ -66,8 +71,10 @@ EngineLibraryCreatorController::EngineLibraryCreatorController(QObject *parent) 
 std::shared_ptr<QtProgressReporter> EngineLibraryCreatorController::makeReporter()
 {
     auto reporter = std::make_shared<QtProgressReporter>();
-    connect(reporter.get(), &QtProgressReporter::started, this,
-            [this](const QString &, int total) { setScanProgress(0, total); });
+    connect(reporter.get(), &QtProgressReporter::started, this, [this](const QString &label, int total) {
+        setCurrentPhase(label);
+        setScanProgress(0, total);
+    });
     connect(reporter.get(), &QtProgressReporter::progressed, this,
             [this](int current) { setScanProgress(current, m_scanTotal); });
     return reporter;
@@ -118,6 +125,15 @@ void EngineLibraryCreatorController::setScanProgress(int current, int total)
     emit scanProgressChanged();
 }
 
+void EngineLibraryCreatorController::setCurrentPhase(const QString &phase)
+{
+    if (m_currentPhase == phase) {
+        return;
+    }
+    m_currentPhase = phase;
+    emit currentPhaseChanged();
+}
+
 void EngineLibraryCreatorController::setErrorMessage(const QString &message)
 {
     if (m_errorMessage == message) {
@@ -136,4 +152,4 @@ void EngineLibraryCreatorController::setStatusMessage(const QString &message)
     emit statusMessageChanged();
 }
 
-}  // namespace djconvert::gui
+}  // namespace seabass::gui

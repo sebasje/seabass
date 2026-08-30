@@ -11,8 +11,8 @@
 #include "infrastructure/onelibrary/onelibrary_reader.hpp"
 #include "infrastructure/onelibrary/sqlcipher_dyn.hpp"
 
-using namespace djconvert::infrastructure::onelibrary;
-using namespace djconvert::domain;
+using namespace seabass::infrastructure::onelibrary;
+using namespace seabass::domain;
 namespace fs = std::filesystem;
 
 namespace
@@ -22,7 +22,7 @@ namespace
 // onelibrary_cue_writer_test.cpp uses.
 fs::path freshScratch()
 {
-    fs::path scratch = fs::temp_directory_path() / "djconvert_onelibrary_reader_test";
+    fs::path scratch = fs::temp_directory_path() / "seabass_onelibrary_reader_test";
     std::error_code ec;
     fs::remove_all(scratch, ec);
     fs::create_directories(scratch);

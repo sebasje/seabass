@@ -13,11 +13,11 @@
 
 #include <djinterop/djinterop.hpp>
 
-namespace djconvert::infrastructure::engine
+namespace seabass::infrastructure::engine
 {
 
-namespace application = djconvert::application;
-namespace domain = djconvert::domain;
+namespace application = seabass::application;
+namespace domain = seabass::domain;
 
 namespace
 {
@@ -77,7 +77,7 @@ void collectPlaylistMemberships(const djinterop::playlist &pl, const std::string
 // inline). <label> is whatever volume label the *original* Denon hardware
 // mounted the stick under, not necessarily this machine's, so this
 // anchors on the stable "PIONEER/Artwork/..." suffix instead of trying to
-// match the volume label. djconvert_core already links plain SQLite3
+// match the volume label. seabass_core already links plain SQLite3
 // directly for LocalCueStore, so this doesn't add a new dependency; opened
 // as a second, independent, read-only connection to the same m.db
 // djinterop::engine::load_database() above already has open, never
@@ -316,4 +316,4 @@ std::vector<domain::Track> LibdjinteropEngineReader::readAll()
     return tracks;
 }
 
-}  // namespace djconvert::infrastructure::engine
+}  // namespace seabass::infrastructure::engine

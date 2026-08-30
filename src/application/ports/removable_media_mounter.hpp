@@ -3,7 +3,7 @@
 #include <optional>
 #include <string>
 
-namespace djconvert::application
+namespace seabass::application
 {
 
 // Port for mounting/unmounting a removable device by its device path (e.g.
@@ -20,4 +20,4 @@ public:
     virtual bool unmount(const std::string &devicePath, std::string &errorMessage) = 0;
 };
 
-}  // namespace djconvert::application
+}  // namespace seabass::application

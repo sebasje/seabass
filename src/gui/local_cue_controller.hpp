@@ -15,7 +15,7 @@
 #include "gui/qt_progress_reporter.hpp"
 #include "gui/undo_tracking.hpp"
 
-namespace djconvert::gui
+namespace seabass::gui
 {
 
 // Read-only Qt list model over the RestoreCandidates LocalCueController
@@ -89,7 +89,7 @@ class LocalCueController : public QObject
 {
     Q_OBJECT
     QML_ELEMENT
-    Q_PROPERTY(djconvert::gui::RestoreCandidateListModel *restoreCandidates READ restoreCandidatesModel CONSTANT)
+    Q_PROPERTY(seabass::gui::RestoreCandidateListModel *restoreCandidates READ restoreCandidatesModel CONSTANT)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(int scanCurrent READ scanCurrent NOTIFY scanProgressChanged)
     Q_PROPERTY(int scanTotal READ scanTotal NOTIFY scanProgressChanged)
@@ -194,4 +194,4 @@ private:
     bool m_writing = false;
 };
 
-}  // namespace djconvert::gui
+}  // namespace seabass::gui

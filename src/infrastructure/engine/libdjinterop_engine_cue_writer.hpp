@@ -4,7 +4,7 @@
 
 #include "application/ports/cue_writer.hpp"
 
-namespace djconvert::infrastructure::engine
+namespace seabass::infrastructure::engine
 {
 
 // Writes hot cues back into an existing Engine Library track using
@@ -22,4 +22,4 @@ private:
     std::string m_engineLibraryPath;
 };
 
-}  // namespace djconvert::infrastructure::engine
+}  // namespace seabass::infrastructure::engine

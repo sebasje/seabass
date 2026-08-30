@@ -5,7 +5,7 @@
 #include <vector>
 #include <zlib.h>
 
-namespace djconvert::infrastructure::onelibrary
+namespace seabass::infrastructure::onelibrary
 {
 
 namespace
@@ -90,4 +90,4 @@ std::string deriveOneLibraryKey()
     return std::string(reinterpret_cast<char *>(dest.data()), destLen);
 }
 
-}  // namespace djconvert::infrastructure::onelibrary
+}  // namespace seabass::infrastructure::onelibrary

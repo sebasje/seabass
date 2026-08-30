@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import DjConvertGui
+import SeabassGui
 
 // A big icon+title+subtitle menu button -- the tappable tile used on
 // StickListPage and both hub pages (DuplicatesHubPage, BackupsHubPage) to

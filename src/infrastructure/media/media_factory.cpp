@@ -10,7 +10,7 @@
 #include "infrastructure/media/udisksctl_media_mounter.hpp"
 #endif
 
-namespace djconvert::infrastructure::media
+namespace seabass::infrastructure::media
 {
 
 std::unique_ptr<application::RemovableMediaLocator> createRemovableMediaLocator()
@@ -40,4 +40,4 @@ std::unique_ptr<application::RemovableMediaMounter> createRemovableMediaMounter(
 #endif
 }
 
-}  // namespace djconvert::infrastructure::media
+}  // namespace seabass::infrastructure::media

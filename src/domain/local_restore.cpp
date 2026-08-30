@@ -2,7 +2,7 @@
 
 #include <cmath>
 
-namespace djconvert::domain
+namespace seabass::domain
 {
 
 std::vector<CuePoint> LocalRestorePlanner::mergeCues(const std::vector<CuePoint> &existing,
@@ -53,4 +53,4 @@ std::vector<RestoreCandidate> LocalRestorePlanner::plan(
     return candidates;
 }
 
-}  // namespace djconvert::domain
+}  // namespace seabass::domain

@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-namespace djconvert::application
+namespace seabass::application
 {
 
 // A removable USB drive, mounted or not. Sticks that look like a rekordbox
@@ -30,4 +30,4 @@ public:
     virtual std::vector<DetectedStick> detect() = 0;
 };
 
-}  // namespace djconvert::application
+}  // namespace seabass::application

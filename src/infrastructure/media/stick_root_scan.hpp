@@ -4,7 +4,7 @@
 
 #include "application/ports/removable_media_locator.hpp"
 
-namespace djconvert::infrastructure::media
+namespace seabass::infrastructure::media
 {
 
 // Checks a mounted root directory for either format's on-disk signature
@@ -15,4 +15,4 @@ namespace djconvert::infrastructure::media
 // stick" is defined exactly once.
 void scanMountedRoot(const std::string &mountPoint, application::DetectedStick &stick);
 
-}  // namespace djconvert::infrastructure::media
+}  // namespace seabass::infrastructure::media

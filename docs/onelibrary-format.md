@@ -1,6 +1,6 @@
 # Rekordbox OneLibrary / Device Library Plus format notes
 
-djconvert reads and writes `<PIONEER root>/rekordbox/exportLibrary.db`
+Seabass reads and writes `<PIONEER root>/rekordbox/exportLibrary.db`
 ("OneLibrary", also called "Device Library Plus") on a stick. Writing
 (`OneLibraryCueWriter`) happens alongside the older `export.pdb` writer
 (`src/infrastructure/rekordbox/pdb_row_writer.*`) as a secondary,
@@ -55,7 +55,7 @@ against [pyrekordbox](https://github.com/dylanljones/pyrekordbox)'s source
 
 - **`cue.kind`'s exact meaning - confirmed.** The stick used during
   later development turned out to have real, pre-existing (genuinely
-  rekordbox-written, not djconvert-written) cue data once
+  rekordbox-written, not Seabass-written) cue data once
   `OneLibraryReader` was built to read the `cue` table back out
   (`src/infrastructure/onelibrary/onelibrary_reader.cpp`): `kind = 0` for
   a memory cue, `kind = 1..8` for a hot cue in that slot. Cross-checked
@@ -71,7 +71,7 @@ against [pyrekordbox](https://github.com/dylanljones/pyrekordbox)'s source
 - **`colorTableIndex`.** No color-lookup table exists anywhere in this
   schema (checked: none of the 26 real tables is a color palette), and
   no documentation of what indices map to what colors was found.
-  djconvert always writes `0` rather than fabricate a mapping from
+  Seabass always writes `0` rather than fabricate a mapping from
   `CuePoint::color`'s hex string. Cosmetic only - doesn't affect cue
   position/hot-cue-number correctness.
 
@@ -97,7 +97,7 @@ against [pyrekordbox](https://github.com/dylanljones/pyrekordbox)'s source
   forums, pyrekordbox's own test suite. It has no `devicelib_plus`
   tests at all) of anyone else having written to this format and
   reported back, good or bad. Absence of horror stories isn't proof of
-  safety. Treat this writer with at least the same caution djconvert
+  safety. Treat this writer with at least the same caution Seabass
   already applies to its (better-precedented) `export.pdb` writer.
 
 ## Deleting a `content` row (`OneLibraryCueWriter::removeTrackByPath()`)

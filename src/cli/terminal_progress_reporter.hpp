@@ -4,7 +4,7 @@
 
 #include "application/ports/progress_reporter.hpp"
 
-namespace djconvert::cli
+namespace seabass::cli
 {
 
 // Renders an in-place terminal progress bar (or, when the total is
@@ -29,4 +29,4 @@ private:
     bool m_active = false;
 };
 
-}  // namespace djconvert::cli
+}  // namespace seabass::cli

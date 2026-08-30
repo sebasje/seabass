@@ -8,7 +8,7 @@
 #include "infrastructure/durable_file_write.hpp"
 #include "infrastructure/rekordbox/big_endian.hpp"
 
-namespace djconvert::infrastructure::rekordbox
+namespace seabass::infrastructure::rekordbox
 {
 
 namespace fs = std::filesystem;
@@ -112,4 +112,4 @@ void AnlzFile::writeRaw(const std::string &path) const
     }
 }
 
-}  // namespace djconvert::infrastructure::rekordbox
+}  // namespace seabass::infrastructure::rekordbox

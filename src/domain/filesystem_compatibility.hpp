@@ -2,7 +2,7 @@
 
 #include <string>
 
-namespace djconvert::domain
+namespace seabass::domain
 {
 
 // Static knowledge about a filesystem's suitability for a DJ USB stick --
@@ -20,7 +20,7 @@ struct FilesystemCompatibilityInfo
     std::string hardwareNotes;  // free-text compatibility summary
     // Whether this project considers the filesystem a reasonable choice
     // for a stick meant to play on real CDJ/XDJ/Engine OS hardware, as
-    // opposed to "technically what djconvert can read, but you probably
+    // opposed to "technically what Seabass can read, but you probably
     // don't want this on a stick you're taking to a gig."
     bool recommendedForDjHardware = false;
 };
@@ -34,4 +34,4 @@ public:
     static FilesystemCompatibilityInfo lookup(const std::string &filesystem);
 };
 
-}  // namespace djconvert::domain
+}  // namespace seabass::domain

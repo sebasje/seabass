@@ -6,7 +6,7 @@
 #include "domain/sync_planning.hpp"
 #include "domain/track.hpp"
 
-namespace djconvert::application
+namespace seabass::application
 {
 
 // Read-only use case: match tracks across two catalog scans and decide
@@ -32,4 +32,4 @@ public:
     }
 };
 
-}  // namespace djconvert::application
+}  // namespace seabass::application

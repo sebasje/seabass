@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-namespace djconvert::infrastructure::cleanup
+namespace seabass::infrastructure::cleanup
 {
 
 struct PendingDeletion
@@ -58,4 +58,4 @@ private:
     std::string m_manifestPath;
 };
 
-}  // namespace djconvert::infrastructure::cleanup
+}  // namespace seabass::infrastructure::cleanup

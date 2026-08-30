@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Controls
-import DjConvertGui
+import SeabassGui
 
 // A simple slice-and-dice treemap (not a true "squarified" layout --
 // good enough for a stick's own top-level categories/artists/playlists,

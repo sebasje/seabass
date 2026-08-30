@@ -6,7 +6,7 @@
 #include <QVariantList>
 #include <QVariantMap>
 
-namespace djconvert::gui
+namespace seabass::gui
 {
 
 // Result of the background scan task, see
@@ -105,4 +105,4 @@ private:
     QVariantList m_benchmarkHistory;
 };
 
-}  // namespace djconvert::gui
+}  // namespace seabass::gui

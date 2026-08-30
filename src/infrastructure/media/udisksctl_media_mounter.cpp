@@ -6,7 +6,7 @@
 #include <array>
 #include <vector>
 
-namespace djconvert::infrastructure::media
+namespace seabass::infrastructure::media
 {
 
 namespace
@@ -102,4 +102,4 @@ bool UdisksctlMediaMounter::unmount(const std::string &devicePath, std::string &
     return true;
 }
 
-}  // namespace djconvert::infrastructure::media
+}  // namespace seabass::infrastructure::media

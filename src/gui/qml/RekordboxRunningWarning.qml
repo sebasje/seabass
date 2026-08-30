@@ -1,10 +1,10 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import DjConvertGui
+import SeabassGui
 
 // Shown globally, above every page, whenever Rekordbox appears to be
-// running on this machine -- both it and djconvert writing to the same
+// running on this machine -- both it and Seabass writing to the same
 // stick files at once risks corrupting them. This is a best-effort
 // detection (see RekordboxGuardController's doc comment), so every write
 // also refuses itself independently; this banner is the visible half of

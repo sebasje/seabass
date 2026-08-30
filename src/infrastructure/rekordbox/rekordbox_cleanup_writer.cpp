@@ -4,7 +4,7 @@
 
 #include "infrastructure/rekordbox/pdb_row_writer.hpp"
 
-namespace djconvert::infrastructure::rekordbox
+namespace seabass::infrastructure::rekordbox
 {
 
 RekordboxCleanupWriter::RekordboxCleanupWriter(std::string pioneerRoot) : m_pioneerRoot(std::move(pioneerRoot)) {}
@@ -30,4 +30,4 @@ void RekordboxCleanupWriter::removeTrackReplacingWith(const std::string &doomedT
     }
 }
 
-}  // namespace djconvert::infrastructure::rekordbox
+}  // namespace seabass::infrastructure::rekordbox

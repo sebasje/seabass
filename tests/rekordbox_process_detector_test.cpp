@@ -16,7 +16,7 @@
 
 #include "infrastructure/system/rekordbox_process_detector.hpp"
 
-using namespace djconvert::infrastructure::system;
+using namespace seabass::infrastructure::system;
 
 namespace
 {

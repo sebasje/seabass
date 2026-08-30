@@ -11,7 +11,7 @@
 #include <unistd.h>
 #endif
 
-namespace djconvert::infrastructure::benchmark
+namespace seabass::infrastructure::benchmark
 {
 
 namespace
@@ -109,4 +109,4 @@ SpeedBenchmarkResult StickSpeedBenchmark::run(const std::vector<std::string> &da
     return result;
 }
 
-}  // namespace djconvert::infrastructure::benchmark
+}  // namespace seabass::infrastructure::benchmark

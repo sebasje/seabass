@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import DjConvertGui
+import SeabassGui
 
 // Moved out of CleanupPage.qml into its own page (was an embedded panel
 // there, competing for space with the actual duplicate-group list it sat

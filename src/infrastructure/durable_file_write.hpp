@@ -2,7 +2,7 @@
 
 #include <string>
 
-namespace djconvert::infrastructure
+namespace seabass::infrastructure
 {
 
 // Atomically (same-directory temp file + rename) and durably (the temp
@@ -19,4 +19,15 @@ namespace djconvert::infrastructure
 // completely untouched, if the write, fsync, or rename failed.
 bool writeFileDurablyAtomic(const std::string &path, const std::string &data);
 
-}  // namespace djconvert::infrastructure
+// Same guarantee as writeFileDurablyAtomic(), but the new content comes
+// from an existing file (sourcePath) instead of an in-memory buffer --
+// for replacing a database file with a modified scratch copy of itself,
+// where reading the whole thing into one std::string first and reusing
+// the tested primitive above is simpler than a second streaming-copy
+// implementation, and these files (library metadata, not embedded
+// audio) are small enough that holding the whole thing in memory isn't
+// a concern. Returns false, leaving targetPath untouched, if sourcePath
+// can't be read.
+bool copyFileDurablyAtomic(const std::string &sourcePath, const std::string &targetPath);
+
+}  // namespace seabass::infrastructure

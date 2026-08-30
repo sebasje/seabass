@@ -7,7 +7,7 @@ cmake_minimum_required(VERSION 3.16)
 # from within third_party/libdjinterop's own project() call left
 # CMAKE_C_COMPILE_OBJECT unset for the Unix Makefiles generator when
 # cross-compiling, breaking the Generate step.
-project(djconvert CXX C)
+project(seabass CXX C)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -23,7 +23,7 @@ if(WIN32)
     # No SQLite3-for-mingw package exists for Ubuntu - libdjinterop
     # already has its own bundled-amalgamation fallback for exactly this
     # (see third_party/libdjinterop/CMakeLists.txt's SYSTEM_SQLITE
-    # option); djconvert_core's own direct SQLite3 use (LocalCueStore)
+    # option); seabass_core's own direct SQLite3 use (LocalCueStore)
     # gets the identical amalgamation compiled straight into it below,
     # instead of going through find_package(SQLite3) at all.
     set(SYSTEM_SQLITE OFF CACHE BOOL "" FORCE)
@@ -32,7 +32,7 @@ add_subdirectory(third_party/libdjinterop)
 
 # System SQLite3, already required to build libdjinterop (Engine's
 # library format is itself SQLite), so LocalCueStore reuses it rather
-# than vendoring a JSON library for the same job. djconvert_core itself
+# than vendoring a JSON library for the same job. seabass_core itself
 # doesn't use this on WIN32 (it compiles libdjinterop's bundled
 # amalgamation directly instead, see the WIN32 branch below). This
 # find_package call now runs unconditionally purely so local_cue_store_test
@@ -73,7 +73,7 @@ if(WIN32)
     target_compile_definitions(kaitai_cpp_stl_runtime PRIVATE WINICONV_CONST=)
     # win-iconv-mingw-w64-dev ships iconv.h but (unlike glibc) needs
     # explicitly linking - PUBLIC so it also reaches whatever links this
-    # static library's .a (djconvert.exe's final link), not just this
+    # static library's .a (seabass-cli.exe's final link), not just this
     # target's own compilation. Bare "iconv" resolves to libiconv.dll.a
     # (the *import* library for iconv.dll) by mingw ld's default
     # preference, silently making the exe depend on iconv.dll at runtime
@@ -94,10 +94,11 @@ target_include_directories(rekordbox_format PUBLIC
 )
 target_link_libraries(rekordbox_format PUBLIC kaitai_cpp_stl_runtime)
 
-# --- djconvert_core: domain -> application -> infrastructure, shared by ---
+# --- seabass_core: domain -> application -> infrastructure, shared by ---
 # --- both the CLI (src/cli/) and the Qt GUI (src/gui/) composition roots ---
 
-add_library(djconvert_core STATIC
+add_library(seabass_core STATIC
+    src/domain/cross_source_sync_conflict.cpp
     src/domain/disk_usage.cpp
     src/domain/duplicate_cleanup.cpp
     src/domain/duplicate_cue_consolidation.cpp
@@ -113,6 +114,7 @@ add_library(djconvert_core STATIC
     src/application/ports/progress_reporter.cpp
     src/infrastructure/benchmark/stick_benchmark_history.cpp
     src/infrastructure/benchmark/stick_speed_benchmark.cpp
+    src/infrastructure/bulk_write_strategy.cpp
     src/infrastructure/durable_file_write.cpp
     src/infrastructure/rekordbox/anlz_cue_codec.cpp
     src/infrastructure/rekordbox/anlz_file.cpp
@@ -143,41 +145,41 @@ add_library(djconvert_core STATIC
     src/infrastructure/system/rekordbox_process_detector.cpp
     src/infrastructure/system/stick_hardware_info.cpp
 )
-target_include_directories(djconvert_core PUBLIC src)
-target_link_libraries(djconvert_core PUBLIC rekordbox_format DjInterop ZLIB::ZLIB)
+target_include_directories(seabass_core PUBLIC src)
+target_link_libraries(seabass_core PUBLIC rekordbox_format DjInterop ZLIB::ZLIB)
 
 if(WIN32)
     # See the SYSTEM_SQLITE note above - same bundled amalgamation
-    # libdjinterop uses privately, compiled straight into djconvert_core
+    # libdjinterop uses privately, compiled straight into seabass_core
     # instead of going through find_package(SQLite3).
-    target_sources(djconvert_core PRIVATE
+    target_sources(seabass_core PRIVATE
         third_party/libdjinterop/ext/sqlite-amalgamation/sqlite3.c)
-    target_include_directories(djconvert_core PRIVATE
+    target_include_directories(seabass_core PRIVATE
         third_party/libdjinterop/ext/sqlite-amalgamation)
-    target_compile_definitions(djconvert_core PRIVATE SQLITE_OMIT_LOAD_EXTENSION)
+    target_compile_definitions(seabass_core PRIVATE SQLITE_OMIT_LOAD_EXTENSION)
 else()
-    target_link_libraries(djconvert_core PUBLIC SQLite::SQLite3)
+    target_link_libraries(seabass_core PUBLIC SQLite::SQLite3)
 endif()
 
 # --- platform-specific removable-media adapters (see media_factory.cpp) ---
-# --- -- the only part of djconvert_core with no single cross-platform ---
+# --- -- the only part of seabass_core with no single cross-platform ---
 # --- implementation, since "how do I see/mount/eject a USB stick" is ---
 # --- genuinely OS-specific (udev+udisksctl on Linux, drive letters + ---
 # --- DeviceIoControl on Windows). ---
 
 if(WIN32)
-    target_sources(djconvert_core PRIVATE
+    target_sources(seabass_core PRIVATE
         src/infrastructure/media/windows_removable_media_locator.cpp
         src/infrastructure/media/windows_removable_media_monitor.cpp
         src/infrastructure/media/windows_removable_media_mounter.cpp
     )
 else()
-    target_sources(djconvert_core PRIVATE
+    target_sources(seabass_core PRIVATE
         src/infrastructure/media/linux_removable_media_locator.cpp
         src/infrastructure/media/linux_udev_media_monitor.cpp
         src/infrastructure/media/udisksctl_media_mounter.cpp
     )
-    target_link_libraries(djconvert_core PUBLIC udev)
+    target_link_libraries(seabass_core PUBLIC udev)
 endif()
 
 # --- OneLibrary/Device Library Plus (exportLibrary.db) cue writer -- ---
@@ -185,33 +187,33 @@ endif()
 # --- GetProcAddress on Windows, dlopen/dlsym elsewhere) rather than ---
 # --- linking it, specifically to avoid a real symbol collision (see ---
 # --- sqlcipher_dyn.hpp's own doc comment) with the plain, unencrypted ---
-# --- SQLite3 djconvert_core already links above. See ---
+# --- SQLite3 seabass_core already links above. See ---
 # --- docs/onelibrary-format.md. Needs libsqlcipher's runtime library ---
-# --- present on the machine actually running djconvert (Windows: the ---
+# --- present on the machine actually running seabass (Windows: the ---
 # --- mingw-w64-ucrt-x86_64-sqlcipher package's DLL; Linux: the ---
 # --- libsqlcipher1 package or equivalent) -- OneLibraryCueWriter's own ---
 # --- callers already treat it as a best-effort secondary write target ---
 # --- and degrade gracefully if it's missing. ---
 
-target_sources(djconvert_core PRIVATE
+target_sources(seabass_core PRIVATE
     src/infrastructure/onelibrary/onelibrary_key.cpp
     src/infrastructure/onelibrary/sqlcipher_dyn.cpp
     src/infrastructure/onelibrary/onelibrary_cue_writer.cpp
     src/infrastructure/onelibrary/onelibrary_reader.cpp
 )
 if(NOT WIN32)
-    target_link_libraries(djconvert_core PUBLIC ${CMAKE_DL_LIBS})
+    target_link_libraries(seabass_core PUBLIC ${CMAKE_DL_LIBS})
 endif()
 
-# --- djconvert: the terminal composition root ---
+# --- seabass-cli: the terminal composition root ---
 
-add_executable(djconvert
+add_executable(seabass-cli
     src/cli/console.cpp
     src/cli/terminal_progress_reporter.cpp
     src/cli/main.cpp
 )
-target_include_directories(djconvert PRIVATE src)
-target_link_libraries(djconvert PRIVATE djconvert_core)
+target_include_directories(seabass-cli PRIVATE src)
+target_link_libraries(seabass-cli PRIVATE seabass_core)
 if(WIN32)
     # A portable single-file .exe - without these, mingw links
     # libgcc_s_seh-1.dll/libstdc++-6.dll dynamically, which aren't
@@ -221,10 +223,10 @@ if(WIN32)
     # variant (required to match Qt's prebuilt win64_mingw binaries,
     # see cmake/mingw-w64-toolchain.cmake). That variant also pulls
     # in libwinpthread-1.dll dynamically unless -static covers it too.
-    target_link_options(djconvert PRIVATE -static-libgcc -static-libstdc++ -static)
+    target_link_options(seabass-cli PRIVATE -static-libgcc -static-libstdc++ -static)
 endif()
 
-# --- djconvert-gui: the Qt Quick composition root (opt-in: only built ---
+# --- seabass: the Qt Quick composition root (opt-in: only built ---
 # --- when Qt6 is available, so machines without Qt still get the CLI) ---
 
 # Controls whether the experimental-features opt-in itself (the Settings
@@ -236,14 +238,14 @@ endif()
 # hidden until the user opts in at runtime; turning this OFF instead
 # produces a real "stable-only build" where that opt-in can't be reached
 # at all, regardless of anything already stored in QSettings.
-option(DJCONVERT_EXPERIMENTAL "Compile in the experimental-features opt-in (Settings toggle)" ON)
+option(SEABASS_EXPERIMENTAL "Compile in the experimental-features opt-in (Settings toggle)" ON)
 
 find_package(Qt6 QUIET COMPONENTS Core Gui Qml Quick QuickControls2 QuickLayouts QuickEffects Multimedia Concurrent Svg)
 if(Qt6_FOUND)
     qt_standard_project_setup(REQUIRES 6.5)
     if(WIN32)
         # Needed to compile src/gui/win/app_icon.rc (the .exe's icon
-        # resource), not enabled by the top-level project(djconvert CXX
+        # resource), not enabled by the top-level project(seabass CXX
         # C) call above since only the Windows GUI build needs it.
         enable_language(RC)
     endif()
@@ -254,10 +256,10 @@ if(Qt6_FOUND)
     # system Qt install.
     set(BUILD_SHARED_LIBS ON)
     add_subdirectory(src/gui)
-    target_compile_definitions(djconvert-gui PRIVATE
-        $<$<BOOL:${DJCONVERT_EXPERIMENTAL}>:DJCONVERT_EXPERIMENTAL_BUILD>)
+    target_compile_definitions(seabass PRIVATE
+        $<$<BOOL:${SEABASS_EXPERIMENTAL}>:SEABASS_EXPERIMENTAL_BUILD>)
 else()
-    message(STATUS "Qt6 not found, skipping djconvert-gui (CLI and tests still build)")
+    message(STATUS "Qt6 not found, skipping seabass (CLI and tests still build)")
 endif()
 
 # --- domain-layer unit tests (no infrastructure deps, no fixtures needed) ---
@@ -339,6 +341,15 @@ add_executable(sync_planning_test
 target_include_directories(sync_planning_test PRIVATE src)
 add_test(NAME sync_planning_test COMMAND sync_planning_test)
 
+add_executable(cross_source_sync_conflict_test
+    src/domain/cross_source_sync_conflict.cpp
+    src/domain/sync_planning.cpp
+    src/domain/track_matching.cpp
+    tests/cross_source_sync_conflict_test.cpp
+)
+target_include_directories(cross_source_sync_conflict_test PRIVATE src)
+add_test(NAME cross_source_sync_conflict_test COMMAND cross_source_sync_conflict_test)
+
 add_executable(fuzzy_matcher_test
     src/domain/fuzzy_matcher.cpp
     tests/fuzzy_matcher_test.cpp
@@ -376,6 +387,26 @@ add_executable(local_restore_test
 )
 target_include_directories(local_restore_test PRIVATE src)
 add_test(NAME local_restore_test COMMAND local_restore_test)
+
+add_executable(durable_file_write_test
+    src/infrastructure/durable_file_write.cpp
+    tests/durable_file_write_test.cpp
+)
+target_include_directories(durable_file_write_test PRIVATE src)
+add_test(NAME durable_file_write_test COMMAND durable_file_write_test)
+
+add_executable(scratch_dir_guard_test
+    tests/scratch_dir_guard_test.cpp
+)
+target_include_directories(scratch_dir_guard_test PRIVATE src)
+add_test(NAME scratch_dir_guard_test COMMAND scratch_dir_guard_test)
+
+add_executable(bulk_write_strategy_test
+    src/infrastructure/bulk_write_strategy.cpp
+    tests/bulk_write_strategy_test.cpp
+)
+target_include_directories(bulk_write_strategy_test PRIVATE src)
+add_test(NAME bulk_write_strategy_test COMMAND bulk_write_strategy_test)
 
 add_executable(filesystem_backup_store_test
     src/infrastructure/durable_file_write.cpp
@@ -468,6 +499,19 @@ target_include_directories(libdjinterop_engine_library_creator_test PRIVATE src)
 target_link_libraries(libdjinterop_engine_library_creator_test PRIVATE DjInterop)
 add_test(NAME libdjinterop_engine_library_creator_test COMMAND libdjinterop_engine_library_creator_test)
 
+add_executable(libdjinterop_engine_sync_scratch_replace_test
+    src/application/ports/progress_reporter.cpp
+    src/infrastructure/durable_file_write.cpp
+    src/infrastructure/engine/libdjinterop_engine_library_creator.cpp
+    src/infrastructure/engine/libdjinterop_engine_cue_writer.cpp
+    src/infrastructure/engine/libdjinterop_engine_reader.cpp
+    src/infrastructure/engine/rekordbox_key_parser.cpp
+    tests/libdjinterop_engine_sync_scratch_replace_test.cpp
+)
+target_include_directories(libdjinterop_engine_sync_scratch_replace_test PRIVATE src)
+target_link_libraries(libdjinterop_engine_sync_scratch_replace_test PRIVATE DjInterop)
+add_test(NAME libdjinterop_engine_sync_scratch_replace_test COMMAND libdjinterop_engine_sync_scratch_replace_test)
+
 add_executable(libdjinterop_engine_cleanup_writer_test
     src/infrastructure/engine/libdjinterop_engine_cleanup_writer.cpp
     tests/libdjinterop_engine_cleanup_writer_test.cpp
@@ -491,7 +535,7 @@ target_include_directories(pending_deletion_resolver_test PRIVATE src)
 add_test(NAME pending_deletion_resolver_test COMMAND pending_deletion_resolver_test)
 
 # Cross-platform now, talks to libsqlcipher via runtime LoadLibrary/
-# dlopen, same as djconvert_core's own onelibrary sources above. Needs
+# dlopen, same as seabass_core's own onelibrary sources above. Needs
 # libsqlcipher's runtime library actually present on whichever machine
 # runs this test (see the target_sources block above for package names).
 add_executable(onelibrary_cue_writer_test

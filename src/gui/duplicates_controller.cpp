@@ -27,7 +27,7 @@
 #include "infrastructure/rekordbox/rekordbox_cue_writer.hpp"
 #include "infrastructure/rekordbox/rekordbox_waveform_reader.hpp"
 
-namespace djconvert::gui
+namespace seabass::gui
 {
 
 namespace fs = std::filesystem;
@@ -197,8 +197,8 @@ FormatContext makeContext(const QString &format, const QString &path)
 
     FormatContext ctx;
     ctx.backupStore = std::make_unique<infrastructure::backup::FilesystemBackupStore>(
-        (stickRoot / ".djconvert-backups").string());
-    ctx.log = std::make_unique<infrastructure::logging::FileOperationLog>((stickRoot / ".djconvert.log").string());
+        (stickRoot / ".seabass-backups").string());
+    ctx.log = std::make_unique<infrastructure::logging::FileOperationLog>((stickRoot / ".seabass.log").string());
 
     if (format == "rekordbox") {
         std::string pioneerRoot = path.toStdString();
@@ -261,7 +261,7 @@ DuplicatesWriteResult runApplyTask(QString format, QString path, std::vector<Dup
         return result;
     }
     try {
-        std::string backupDir = (fs::path(path.toStdString()).parent_path() / ".djconvert-backups").string();
+        std::string backupDir = (fs::path(path.toStdString()).parent_path() / ".seabass-backups").string();
         infrastructure::backup::StickWriteLock lock(backupDir + "/.write.lock");
 
         auto ctx = makeContext(format, path);
@@ -641,4 +641,4 @@ void DuplicatesController::setStatusMessage(const QString &message)
     emit statusMessageChanged();
 }
 
-}  // namespace djconvert::gui
+}  // namespace seabass::gui

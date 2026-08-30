@@ -1,6 +1,6 @@
 #pragma once
 
-namespace djconvert::domain
+namespace seabass::domain
 {
 
 // One column of a waveform preview, split into three frequency bands (each
@@ -15,4 +15,4 @@ struct WaveformColumn
     double high = 0.0;
 };
 
-}  // namespace djconvert::domain
+}  // namespace seabass::domain

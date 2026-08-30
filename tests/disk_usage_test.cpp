@@ -3,7 +3,7 @@
 
 #include "domain/disk_usage.hpp"
 
-using namespace djconvert::domain;
+using namespace seabass::domain;
 
 namespace
 {

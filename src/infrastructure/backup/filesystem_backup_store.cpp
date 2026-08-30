@@ -12,7 +12,7 @@
 #include <fstream>
 #include <sstream>
 
-namespace djconvert::infrastructure::backup
+namespace seabass::infrastructure::backup
 {
 
 namespace fs = std::filesystem;
@@ -234,7 +234,7 @@ bool FilesystemBackupStore::restore(const std::string &id)
         return false;  // predates restore support, or nothing was ever backed up for this id
     }
     if (manifest.version > CurrentManifestFormatVersion) {
-        // Written by some future djconvert version this build doesn't
+        // Written by some future Seabass version this build doesn't
         // understand -- refuse rather than misinterpret it (the same
         // guarantee LocalCueStore's snapshot versioning makes).
         return false;
@@ -261,7 +261,7 @@ bool FilesystemBackupStore::restore(const std::string &id)
         }
         fs::create_directories(fs::path(originalPath).parent_path(), ec);
         // Durable + atomic, not a plain copy_file: this overwrites a
-        // *live* file, and it's specifically the moment djconvert is
+        // *live* file, and it's specifically the moment Seabass is
         // trusted to put things right -- a crash mid-copy must never
         // leave that file half-written (worse than either the backup or
         // what was there before).
@@ -281,4 +281,4 @@ bool FilesystemBackupStore::remove(const std::string &id)
     return fs::remove_all(dir, ec) > 0;
 }
 
-}  // namespace djconvert::infrastructure::backup
+}  // namespace seabass::infrastructure::backup

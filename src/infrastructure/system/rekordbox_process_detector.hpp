@@ -2,7 +2,7 @@
 
 #include <string>
 
-namespace djconvert::infrastructure::system
+namespace seabass::infrastructure::system
 {
 
 // Best-effort: scans this machine's running processes for one whose own
@@ -19,4 +19,4 @@ bool isProcessRunning(const std::string &name);
 // open is a real corruption risk.
 bool isRekordboxRunning();
 
-}  // namespace djconvert::infrastructure::system
+}  // namespace seabass::infrastructure::system

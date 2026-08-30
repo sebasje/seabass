@@ -27,7 +27,7 @@
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 #include "infrastructure/rekordbox/rekordbox_cue_writer.hpp"
 
-namespace djconvert::gui
+namespace seabass::gui
 {
 
 namespace fs = std::filesystem;
@@ -217,9 +217,9 @@ LocalCueWriteResult runApplyRestoreTask(QString format, QString path, std::vecto
     }
     try {
         fs::path stickRoot = fs::path(path.toStdString()).parent_path();
-        infrastructure::backup::StickWriteLock lock((stickRoot / ".djconvert-backups" / ".write.lock").string());
-        infrastructure::backup::FilesystemBackupStore backupStore((stickRoot / ".djconvert-backups").string());
-        infrastructure::logging::FileOperationLog log((stickRoot / ".djconvert.log").string());
+        infrastructure::backup::StickWriteLock lock((stickRoot / ".seabass-backups" / ".write.lock").string());
+        infrastructure::backup::FilesystemBackupStore backupStore((stickRoot / ".seabass-backups").string());
+        infrastructure::logging::FileOperationLog log((stickRoot / ".seabass.log").string());
 
         std::unique_ptr<application::CueWriter> writer;
         std::set<std::string> backedUpFiles;
@@ -619,4 +619,4 @@ void LocalCueController::setStatusMessage(const QString &message)
     emit statusMessageChanged();
 }
 
-}  // namespace djconvert::gui
+}  // namespace seabass::gui

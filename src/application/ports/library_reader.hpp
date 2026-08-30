@@ -5,7 +5,7 @@
 #include "application/ports/progress_reporter.hpp"
 #include "domain/track.hpp"
 
-namespace djconvert::application
+namespace seabass::application
 {
 
 // Port implemented by each format-specific infrastructure adapter
@@ -23,4 +23,4 @@ protected:
     ProgressReporter *m_progress = &NullProgressReporter::instance();
 };
 
-}  // namespace djconvert::application
+}  // namespace seabass::application

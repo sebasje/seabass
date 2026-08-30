@@ -10,7 +10,7 @@
 #include "infrastructure/backup/filesystem_backup_store.hpp"
 #include "infrastructure/backup/stick_write_lock.hpp"
 
-namespace djconvert::gui
+namespace seabass::gui
 {
 
 namespace fs = std::filesystem;
@@ -34,12 +34,12 @@ QString humanSize(std::uint64_t bytes)
 }
 
 // Mirrors cli/main.cpp's backupDirFor(): backups live under
-// <stick root>/.djconvert-backups, shared across formats.
+// <stick root>/.seabass-backups, shared across formats.
 std::string backupDirFor(const QString &rekordboxPath, const QString &enginePath)
 {
     fs::path anyPath = !enginePath.isEmpty() ? fs::path(enginePath.toStdString())
                                               : fs::path(rekordboxPath.toStdString());
-    return (anyPath.parent_path() / ".djconvert-backups").string();
+    return (anyPath.parent_path() / ".seabass-backups").string();
 }
 
 }  // namespace
@@ -276,4 +276,4 @@ void BackupsController::setStatusMessage(const QString &message)
     emit statusMessageChanged();
 }
 
-}  // namespace djconvert::gui
+}  // namespace seabass::gui

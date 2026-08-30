@@ -3,7 +3,7 @@
 
 #include "domain/sync_planning.hpp"
 
-using namespace djconvert::domain;
+using namespace seabass::domain;
 using namespace std::chrono;
 
 Track makeTrack(std::string id, std::string filename, double duration, std::vector<CuePoint> cues,

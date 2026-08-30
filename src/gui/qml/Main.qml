@@ -3,7 +3,7 @@ import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Effects
 import QtQuick.Layouts
-import DjConvertGui
+import SeabassGui
 
 ApplicationWindow {
     id: window
@@ -161,7 +161,7 @@ ApplicationWindow {
         // live current value regardless of connection order.
         var isArt = playbackCtrl.hasTrack && playbackCtrl.artworkPath.length > 0;
         var src = isArt ? playbackCtrl.artworkPath
-            : "qrc:/qt/qml/DjConvertGui/qml/icons/seabass_soundbass.svg";
+            : "qrc:/qt/qml/SeabassGui/qml/icons/seabass_soundbass.svg";
         var front = watermarkFrontIsA ? watermarkLayerA : watermarkLayerB;
         var back = watermarkFrontIsA ? watermarkLayerB : watermarkLayerA;
         if (front.source === src) {

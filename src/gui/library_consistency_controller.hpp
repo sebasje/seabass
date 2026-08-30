@@ -13,7 +13,7 @@
 #include "domain/library_consistency.hpp"
 #include "gui/qt_progress_reporter.hpp"
 
-namespace djconvert::gui
+namespace seabass::gui
 {
 
 // Read-only Qt list model over the LibraryConsistencyIssues
@@ -145,8 +145,8 @@ class LibraryConsistencyController : public QObject
 {
     Q_OBJECT
     QML_ELEMENT
-    Q_PROPERTY(djconvert::gui::LibraryConsistencyIssueListModel *issues READ issuesModel CONSTANT)
-    Q_PROPERTY(djconvert::gui::JunkCueIssueListModel *junkCues READ junkCuesModel CONSTANT)
+    Q_PROPERTY(seabass::gui::LibraryConsistencyIssueListModel *issues READ issuesModel CONSTANT)
+    Q_PROPERTY(seabass::gui::JunkCueIssueListModel *junkCues READ junkCuesModel CONSTANT)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(bool writing READ writing NOTIFY writingChanged)
     Q_PROPERTY(int scanCurrent READ scanCurrent NOTIFY scanProgressChanged)
@@ -258,4 +258,4 @@ private:
     QString m_statusMessage;
 };
 
-}  // namespace djconvert::gui
+}  // namespace seabass::gui

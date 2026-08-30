@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <string>
 
-namespace djconvert::infrastructure::rekordbox
+namespace seabass::infrastructure::rekordbox
 {
 
 // Bounds-checked (std::string::at(), not operator[]) throughout: a
@@ -46,4 +46,4 @@ inline void writeU32BE(std::string &data, size_t offset, uint32_t value)
     data.at(offset + 3) = static_cast<char>(value & 0xFF);
 }
 
-}  // namespace djconvert::infrastructure::rekordbox
+}  // namespace seabass::infrastructure::rekordbox

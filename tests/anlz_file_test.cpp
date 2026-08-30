@@ -8,7 +8,7 @@
 #include "infrastructure/rekordbox/anlz_file.hpp"
 #include "infrastructure/rekordbox/big_endian.hpp"
 
-using namespace djconvert::infrastructure::rekordbox;
+using namespace seabass::infrastructure::rekordbox;
 namespace fs = std::filesystem;
 
 namespace
@@ -51,7 +51,7 @@ std::string readFile(const fs::path &path)
 
 int main()
 {
-    fs::path root = fs::temp_directory_path() / "djconvert_anlz_file_test";
+    fs::path root = fs::temp_directory_path() / "seabass_anlz_file_test";
     fs::remove_all(root);
     fs::create_directories(root);
     fs::path path = root / "ANLZ0000.EXT";

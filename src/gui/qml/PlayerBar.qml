@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
-import DjConvertGui
+import SeabassGui
 
 Frame {
     id: root

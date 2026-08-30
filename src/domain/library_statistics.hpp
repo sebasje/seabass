@@ -6,7 +6,7 @@
 
 #include "domain/track.hpp"
 
-namespace djconvert::domain
+namespace seabass::domain
 {
 
 // One 10-BPM-wide bucket, e.g. rangeStart == 120 covers [120, 130).
@@ -47,4 +47,4 @@ public:
     static LibraryStatistics calculate(const std::vector<Track> &tracks);
 };
 
-}  // namespace djconvert::domain
+}  // namespace seabass::domain

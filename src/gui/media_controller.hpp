@@ -12,7 +12,7 @@
 #include "application/ports/removable_media_monitor.hpp"
 #include "application/ports/removable_media_mounter.hpp"
 
-namespace djconvert::gui
+namespace seabass::gui
 {
 
 // Read-only Qt list model over the sticks MediaController last detected.
@@ -64,7 +64,7 @@ class MediaController : public QObject
 {
     Q_OBJECT
     QML_ELEMENT
-    Q_PROPERTY(djconvert::gui::DetectedStickListModel *sticks READ sticksModel CONSTANT)
+    Q_PROPERTY(seabass::gui::DetectedStickListModel *sticks READ sticksModel CONSTANT)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(QString busyDevicePath READ busyDevicePath NOTIFY busyChanged)
@@ -109,4 +109,4 @@ private:
     QString m_busyDevicePath;
 };
 
-}  // namespace djconvert::gui
+}  // namespace seabass::gui

@@ -5,7 +5,7 @@
 
 #include <zlib.h>
 
-namespace djconvert::infrastructure::compression
+namespace seabass::infrastructure::compression
 {
 
 std::string compress(const std::string &data)
@@ -43,4 +43,4 @@ std::string decompress(const std::string &data, size_t originalSize)
     return std::string(reinterpret_cast<const char *>(buffer.data()), destLen);
 }
 
-}  // namespace djconvert::infrastructure::compression
+}  // namespace seabass::infrastructure::compression

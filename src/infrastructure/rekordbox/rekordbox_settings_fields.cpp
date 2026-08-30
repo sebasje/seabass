@@ -1,6 +1,6 @@
 #include "infrastructure/rekordbox/rekordbox_settings_fields.hpp"
 
-namespace djconvert::infrastructure::rekordbox
+namespace seabass::infrastructure::rekordbox
 {
 
 const std::vector<SettingsFieldDescriptor> &allSettingsFields()
@@ -160,9 +160,9 @@ size_t settingsDataSizeFor(const std::string &fileName)
     return fileName == "DJMMYSETTING.DAT" ? 52 : 40;
 }
 
-}  // namespace djconvert::infrastructure::rekordbox
+}  // namespace seabass::infrastructure::rekordbox
 
-namespace djconvert::infrastructure::rekordbox::detail
+namespace seabass::infrastructure::rekordbox::detail
 {
 
 uint16_t crc16Xmodem(const uint8_t *data, size_t length)
@@ -177,4 +177,4 @@ uint16_t crc16Xmodem(const uint8_t *data, size_t length)
     return crc;
 }
 
-}  // namespace djconvert::infrastructure::rekordbox::detail
+}  // namespace seabass::infrastructure::rekordbox::detail

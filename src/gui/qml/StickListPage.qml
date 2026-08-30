@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import DjConvertGui
+import SeabassGui
 
 // A Page, not a plain Item, specifically so it gets the same
 // Material-style implicit background every other page in this app gets

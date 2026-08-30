@@ -5,7 +5,7 @@
 
 #include "domain/track.hpp"
 
-namespace djconvert::application
+namespace seabass::application
 {
 
 // Port for writing a track's hot cues back into a library. Implemented for
@@ -18,4 +18,4 @@ public:
     virtual void writeHotCues(const std::string &trackSourceId, const std::vector<domain::CuePoint> &cues) = 0;
 };
 
-}  // namespace djconvert::application
+}  // namespace seabass::application

@@ -10,7 +10,7 @@
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 #include "infrastructure/rekordbox/rekordbox_cleanup_writer.hpp"
 
-using namespace djconvert::infrastructure::rekordbox;
+using namespace seabass::infrastructure::rekordbox;
 namespace fs = std::filesystem;
 using Pdb = rekordbox_pdb_t;
 
@@ -147,7 +147,7 @@ bool containsEntry(const std::vector<std::pair<uint32_t, uint32_t>> &v, uint32_t
 
 int main()
 {
-    fs::path scratchRoot = fs::temp_directory_path() / "djconvert_rekordbox_cleanup_writer_test";
+    fs::path scratchRoot = fs::temp_directory_path() / "seabass_rekordbox_cleanup_writer_test";
     fs::remove_all(scratchRoot);
     fs::create_directories(scratchRoot / "rekordbox");
     fs::path pdbPath = scratchRoot / "rekordbox" / "export.pdb";
