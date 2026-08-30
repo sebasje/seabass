@@ -53,9 +53,16 @@ std::optional<std::string> titleArtistKey(const Track &track)
 std::vector<std::pair<const Track *, const Track *>> matchTracks(const std::vector<Track> &a,
                                                                    const std::vector<Track> &b)
 {
+    std::map<std::string, const Track *> bByFilePath;
     std::map<std::string, std::vector<const Track *>> bByTitleArtist;
     std::map<std::string, std::vector<const Track *>> bByFilename;
     for (const auto &track : b) {
+        if (!track.filePath.empty()) {
+            // first-wins if somehow more than one row on this side
+            // resolves to the same path -- not expected in practice, and
+            // any candidate is as good as another for propagating cues.
+            bByFilePath.emplace(track.filePath, &track);
+        }
         if (auto key = titleArtistKey(track)) {
             bByTitleArtist[*key].push_back(&track);
         }
@@ -64,6 +71,22 @@ std::vector<std::pair<const Track *, const Track *>> matchTracks(const std::vect
 
     std::vector<std::pair<const Track *, const Track *>> matches;
     for (const auto &trackA : a) {
+        // Exact resolved file path is the strongest possible signal --
+        // the two rows describe the same physical file on the same
+        // stick, regardless of which catalog's database is doing the
+        // describing, so no metadata/duration check is needed at all.
+        // Confirmed on real data to be dramatically more complete than
+        // the metadata heuristic below: 100% of rekordbox tracks matched
+        // their Engine counterpart by path, vs. ~94% by title+artist+
+        // duration even after fixing that heuristic's own duration-0 bug.
+        if (!trackA.filePath.empty()) {
+            auto pathIt = bByFilePath.find(trackA.filePath);
+            if (pathIt != bByFilePath.end()) {
+                matches.emplace_back(&trackA, pathIt->second);
+                continue;
+            }
+        }
+
         const std::vector<const Track *> *candidates = nullptr;
 
         if (auto key = titleArtistKey(trackA)) {

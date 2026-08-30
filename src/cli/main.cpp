@@ -702,9 +702,9 @@ int runSyncCommand(bool wantRekordbox, bool wantEngine, const std::optional<std:
     std::vector<const SyncPlan *> toEngine;
     std::vector<const SyncPlan *> toRekordbox;
     for (const auto &plan : plans) {
-        if (plan.direction == SyncPlan::Direction::ToEngine) {
+        if (plan.direction == SyncPlan::Direction::ToB) {
             toEngine.push_back(&plan);
-        } else if (plan.direction == SyncPlan::Direction::ToRekordbox) {
+        } else if (plan.direction == SyncPlan::Direction::ToA) {
             toRekordbox.push_back(&plan);
         }
     }
@@ -719,7 +719,7 @@ int runSyncCommand(bool wantRekordbox, bool wantEngine, const std::optional<std:
         Console::info("Would copy cues to Engine for " + std::to_string(toEngine.size()) + " track(s):");
         for (const auto *plan : toEngine) {
             bool conflict = plan->kind == SyncPlan::Kind::Conflict;
-            Console::info("  \"" + plan->match.rekordboxTrack.filename + "\": " + describeCues(plan->cuesToApply) +
+            Console::info("  \"" + plan->match.trackA.filename + "\": " + describeCues(plan->cuesToApply) +
                            (conflict ? "  [conflict resolved: rekordbox's export.pdb is newer]" : ""));
         }
     }
@@ -729,7 +729,7 @@ int runSyncCommand(bool wantRekordbox, bool wantEngine, const std::optional<std:
         Console::info("Would copy cues to rekordbox for " + std::to_string(toRekordbox.size()) + " track(s):");
         for (const auto *plan : toRekordbox) {
             bool conflict = plan->kind == SyncPlan::Kind::Conflict;
-            Console::info("  \"" + plan->match.engineTrack.filename + "\": " + describeCues(plan->cuesToApply) +
+            Console::info("  \"" + plan->match.trackB.filename + "\": " + describeCues(plan->cuesToApply) +
                            (conflict ? "  [conflict resolved: Engine's m.db is newer]" : ""));
         }
         Console::warn("rekordbox writing is the least-proven part of djconvert -- verify the result in rekordbox");
@@ -770,12 +770,12 @@ int runSyncCommand(bool wantRekordbox, bool wantEngine, const std::optional<std:
             engineLog.record("sync: backed up before cross-format sync -> " + record.path);
 
             for (const auto *plan : toEngine) {
-                writer.writeHotCues(plan->match.engineTrack.sourceId, plan->cuesToApply);
+                writer.writeHotCues(plan->match.trackB.sourceId, plan->cuesToApply);
                 engineCuesCopied += plan->cuesToApply.size();
                 engineLog.record("sync: copied cues (" + describeCues(plan->cuesToApply) +
-                                  ") from rekordbox track \"" + plan->match.rekordboxTrack.title +
-                                  "\" (id=" + plan->match.rekordboxTrack.sourceId +
-                                  ") to engine track id=" + plan->match.engineTrack.sourceId);
+                                  ") from rekordbox track \"" + plan->match.trackA.title +
+                                  "\" (id=" + plan->match.trackA.sourceId +
+                                  ") to engine track id=" + plan->match.trackB.sourceId);
             }
         }
 
@@ -787,7 +787,7 @@ int runSyncCommand(bool wantRekordbox, bool wantEngine, const std::optional<std:
 
             for (const auto *plan : toRekordbox) {
                 auto analyzePath = djconvert::infrastructure::rekordbox::findAnlzPathForTrackId(
-                    pioneerRoot, static_cast<uint32_t>(std::stoul(plan->match.rekordboxTrack.sourceId)));
+                    pioneerRoot, static_cast<uint32_t>(std::stoul(plan->match.trackA.sourceId)));
                 if (analyzePath) {
                     std::string extPath = djconvert::infrastructure::rekordbox::extAnlzPath(pioneerRoot,
                                                                                               *analyzePath);
@@ -798,12 +798,12 @@ int runSyncCommand(bool wantRekordbox, bool wantEngine, const std::optional<std:
                     }
                 }
 
-                writer.writeHotCues(plan->match.rekordboxTrack.sourceId, plan->cuesToApply);
+                writer.writeHotCues(plan->match.trackA.sourceId, plan->cuesToApply);
                 rekordboxCuesCopied += plan->cuesToApply.size();
                 rekordboxLog.record("sync: copied cues (" + describeCues(plan->cuesToApply) +
-                                     ") from engine track \"" + plan->match.engineTrack.title +
-                                     "\" (id=" + plan->match.engineTrack.sourceId +
-                                     ") to rekordbox track id=" + plan->match.rekordboxTrack.sourceId);
+                                     ") from engine track \"" + plan->match.trackB.title +
+                                     "\" (id=" + plan->match.trackB.sourceId +
+                                     ") to rekordbox track id=" + plan->match.trackA.sourceId);
             }
         }
 

@@ -29,8 +29,8 @@ int main()
         std::vector<Track> engine = {makeTrack("e1", "song.mp3", 200.5, {})};
         auto matches = TrackMatcher::match(rekordbox, engine);
         assert(matches.size() == 1);
-        assert(matches[0].rekordboxTrack.sourceId == "r1");
-        assert(matches[0].engineTrack.sourceId == "e1");
+        assert(matches[0].trackA.sourceId == "r1");
+        assert(matches[0].trackB.sourceId == "e1");
         std::cout << "case 1 (matching) OK\n";
     }
 
@@ -54,8 +54,8 @@ int main()
             makeTrack("e1", "song (export).mp3", 200.5, {}, "Song", "Artist")};
         auto matches = TrackMatcher::match(rekordbox, engine);
         assert(matches.size() == 1);
-        assert(matches[0].rekordboxTrack.sourceId == "r1");
-        assert(matches[0].engineTrack.sourceId == "e1");
+        assert(matches[0].trackA.sourceId == "r1");
+        assert(matches[0].trackB.sourceId == "e1");
         std::cout << "case 2b (matching by title+artist despite differing filenames) OK\n";
     }
 
@@ -78,8 +78,8 @@ int main()
                               {CuePoint{CuePoint::Kind::Hot, 1, 1000.0, "#FF0000", "drop"}}),
                     makeTrack("e1", "song.mp3", 200.0, {})};
         auto plan = SyncPlanner::plan(m, now, now);
-        assert(plan.kind == SyncPlan::Kind::RekordboxOnly);
-        assert(plan.direction == SyncPlan::Direction::ToEngine);
+        assert(plan.kind == SyncPlan::Kind::AOnly);
+        assert(plan.direction == SyncPlan::Direction::ToB);
         assert(plan.cuesToApply.size() == 1);
         std::cout << "case 3 (rekordbox-only -> to engine) OK\n";
     }
@@ -90,8 +90,8 @@ int main()
                     makeTrack("e1", "song.mp3", 200.0,
                               {CuePoint{CuePoint::Kind::Hot, 1, 1000.0, "#FF0000", "drop"}})};
         auto plan = SyncPlanner::plan(m, now, now);
-        assert(plan.kind == SyncPlan::Kind::EngineOnly);
-        assert(plan.direction == SyncPlan::Direction::ToRekordbox);
+        assert(plan.kind == SyncPlan::Kind::BOnly);
+        assert(plan.direction == SyncPlan::Direction::ToA);
         std::cout << "case 4 (engine-only -> to rekordbox) OK\n";
     }
 
@@ -114,7 +114,7 @@ int main()
                               {CuePoint{CuePoint::Kind::Hot, 1, 5000.0, "#00FF00", "intro"}})};
         auto plan = SyncPlanner::plan(m, now, now - hours(1));
         assert(plan.kind == SyncPlan::Kind::Conflict);
-        assert(plan.direction == SyncPlan::Direction::ToEngine);
+        assert(plan.direction == SyncPlan::Direction::ToB);
         std::cout << "case 6 (conflict, rekordbox newer -> to engine) OK\n";
     }
 
@@ -126,7 +126,7 @@ int main()
                               {CuePoint{CuePoint::Kind::Hot, 1, 5000.0, "#00FF00", "intro"}})};
         auto plan = SyncPlanner::plan(m, now - hours(1), now);
         assert(plan.kind == SyncPlan::Kind::Conflict);
-        assert(plan.direction == SyncPlan::Direction::ToRekordbox);
+        assert(plan.direction == SyncPlan::Direction::ToA);
         std::cout << "case 7 (conflict, engine newer -> to rekordbox) OK\n";
     }
 

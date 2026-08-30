@@ -5,57 +5,56 @@
 namespace djconvert::domain
 {
 
-std::vector<SyncMatch> TrackMatcher::match(const std::vector<Track> &rekordboxTracks,
-                                            const std::vector<Track> &engineTracks)
+std::vector<SyncMatch> TrackMatcher::match(const std::vector<Track> &tracksA, const std::vector<Track> &tracksB)
 {
     std::vector<SyncMatch> matches;
-    for (const auto &[rekordboxTrack, engineTrack] : matchTracks(rekordboxTracks, engineTracks)) {
-        matches.push_back({*rekordboxTrack, *engineTrack});
+    for (const auto &[trackA, trackB] : matchTracks(tracksA, tracksB)) {
+        matches.push_back({*trackA, *trackB});
     }
     return matches;
 }
 
-SyncPlan SyncPlanner::plan(const SyncMatch &match, std::chrono::system_clock::time_point rekordboxMtime,
-                            std::chrono::system_clock::time_point engineMtime)
+SyncPlan SyncPlanner::plan(const SyncMatch &match, std::chrono::system_clock::time_point mtimeA,
+                            std::chrono::system_clock::time_point mtimeB)
 {
     SyncPlan result;
     result.match = match;
 
-    bool rekordboxHasCues = !match.rekordboxTrack.cues.empty();
-    bool engineHasCues = !match.engineTrack.cues.empty();
+    bool aHasCues = !match.trackA.cues.empty();
+    bool bHasCues = !match.trackB.cues.empty();
 
-    if (!rekordboxHasCues && !engineHasCues) {
+    if (!aHasCues && !bHasCues) {
         result.kind = SyncPlan::Kind::NoCues;
         return result;
     }
 
-    if (rekordboxHasCues && !engineHasCues) {
-        result.kind = SyncPlan::Kind::RekordboxOnly;
-        result.direction = SyncPlan::Direction::ToEngine;
-        result.cuesToApply = match.rekordboxTrack.cues;
+    if (aHasCues && !bHasCues) {
+        result.kind = SyncPlan::Kind::AOnly;
+        result.direction = SyncPlan::Direction::ToB;
+        result.cuesToApply = match.trackA.cues;
         return result;
     }
 
-    if (!rekordboxHasCues && engineHasCues) {
-        result.kind = SyncPlan::Kind::EngineOnly;
-        result.direction = SyncPlan::Direction::ToRekordbox;
-        result.cuesToApply = match.engineTrack.cues;
+    if (!aHasCues && bHasCues) {
+        result.kind = SyncPlan::Kind::BOnly;
+        result.direction = SyncPlan::Direction::ToA;
+        result.cuesToApply = match.trackB.cues;
         return result;
     }
 
     // Both sides have cues.
-    if (cueSetsEqual(match.rekordboxTrack.cues, match.engineTrack.cues)) {
+    if (cueSetsEqual(match.trackA.cues, match.trackB.cues)) {
         result.kind = SyncPlan::Kind::AlreadyConsistent;
         return result;
     }
 
     result.kind = SyncPlan::Kind::Conflict;
-    if (rekordboxMtime > engineMtime) {
-        result.direction = SyncPlan::Direction::ToEngine;
-        result.cuesToApply = match.rekordboxTrack.cues;
+    if (mtimeA > mtimeB) {
+        result.direction = SyncPlan::Direction::ToB;
+        result.cuesToApply = match.trackA.cues;
     } else {
-        result.direction = SyncPlan::Direction::ToRekordbox;
-        result.cuesToApply = match.engineTrack.cues;
+        result.direction = SyncPlan::Direction::ToA;
+        result.cuesToApply = match.trackB.cues;
     }
     return result;
 }

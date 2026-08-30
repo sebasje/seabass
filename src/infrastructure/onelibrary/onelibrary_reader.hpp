@@ -13,16 +13,13 @@ namespace djconvert::infrastructure::onelibrary
 // Engine (m.db) -- see docs/onelibrary-format.md for the schema this is
 // based on.
 //
-// Read-only and deliberately standalone: unlike OneLibraryCueWriter (which
-// only ever mirrors a write already made through the export.pdb path),
-// this is the first thing in this codebase that treats OneLibrary as a
-// real source of truth in its own right rather than a secondary target.
-// Tracks it returns carry format "onelibrary" -- every write-oriented
-// controller in this app (Clean Up, Sync, Local Cue Backup, Add Cue,
-// duplicate matching) only ever branches on "rekordbox"/"engine" and has
-// no path for a third format, so callers must keep tracks read this way
-// out of those flows; ScanPage.qml's own "browse this catalog" use is the
-// only place this is wired in.
+// Read-only. Tracks it returns carry format "onelibrary" -- SyncController
+// treats it as a real source of truth, running the same diff+direction
+// logic against it as against rekordbox/Engine (see SyncController's own
+// class comment); most other write-oriented controllers (Clean Up, Local
+// Cue Backup, Add Cue, duplicate matching) still only branch on
+// "rekordbox"/"engine" and have no path for a third format, so callers
+// there must keep tracks read this way out of those flows.
 class OneLibraryReader : public application::LibraryReader
 {
 public:

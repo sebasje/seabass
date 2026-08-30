@@ -4,6 +4,7 @@
 #include <QFutureWatcher>
 #include <QObject>
 #include <QQmlEngine>
+#include <QVariantList>
 
 #include <memory>
 #include <string>
@@ -18,10 +19,11 @@
 namespace djconvert::gui
 {
 
-// Read-only Qt list model over the SyncPlans SyncController last computed.
-// Only plans with an actual direction (ToEngine/ToRekordbox) are exposed.
-// AlreadyConsistent/NoCues need no attention, matching cli/main.cpp's
-// runSyncCommand's toEngine/toRekordbox split.
+// Read-only Qt list model over the SyncPlans SyncController last computed,
+// across every pair of catalogs actually present on the stick (rekordbox
+// <->Engine, rekordbox<->OneLibrary, Engine<->OneLibrary -- see
+// SyncController's own class comment). Only plans with an actual
+// direction are exposed; AlreadyConsistent/NoCues need no attention.
 class SyncPlanListModel : public QAbstractListModel
 {
     Q_OBJECT
@@ -30,12 +32,16 @@ class SyncPlanListModel : public QAbstractListModel
 
 public:
     enum Roles {
-        DirectionRole = Qt::UserRole + 1,
+        // "rekordbox"/"engine"/"onelibrary" -- which catalog the cues are
+        // coming from/going to for this specific plan. Read off the
+        // matched tracks' own Track::format rather than assuming a fixed
+        // pair, so the same role works for any of the three pairs.
+        SourceFormatRole = Qt::UserRole + 1,
+        TargetFormatRole,
         FilenameRole,
         DescriptionRole,
         ConflictRole,
         TracksRole,
-        WillMirrorToOneLibraryRole,
     };
 
     explicit SyncPlanListModel(QObject *parent = nullptr);
@@ -45,36 +51,30 @@ public:
     QHash<int, QByteArray> roleNames() const override;
 
     // waveformsByKey is best-effort, precomputed by the caller, keyed
-    // "rb:"+sourceId / "en:"+sourceId (rekordbox and Engine each have
-    // their own independent sourceId space, so the format prefix avoids
-    // collisions, see DuplicatesController::runRescanTask for the
-    // single-format equivalent that doesn't need this). onelibraryAvailable
-    // is whether exportLibrary.db exists on this stick at all, see
-    // WillMirrorToOneLibraryRole.
+    // "<format>:"+sourceId (each catalog has its own independent
+    // sourceId space, so the format prefix avoids collisions). OneLibrary
+    // has no waveform reader of its own, so a OneLibrary-side track
+    // simply has no entry -- trackToMap() already renders that as an
+    // empty waveform, same as any other best-effort-missing case.
     void setPlans(std::vector<domain::SyncPlan> plans,
-                  std::unordered_map<std::string, std::vector<domain::WaveformColumn>> waveformsByKey = {},
-                  bool onelibraryAvailable = false);
+                  std::unordered_map<std::string, std::vector<domain::WaveformColumn>> waveformsByKey = {});
     const std::vector<domain::SyncPlan> &plans() const { return m_plans; }
 
 private:
     std::vector<domain::SyncPlan> m_plans;
     std::unordered_map<std::string, std::vector<domain::WaveformColumn>> m_waveformsByKey;
-    bool m_onelibraryAvailable = false;
 };
 
 // Result of a background analyze task, see SyncController::analyze().
 // Built entirely on a worker thread, with no access to the controller.
 struct SyncTaskResult
 {
-    std::vector<domain::SyncPlan> plans;
+    std::vector<domain::SyncPlan> plans;  // combined across every present pair, actionable only
     std::unordered_map<std::string, std::vector<domain::WaveformColumn>> waveformsByKey;
     int rekordboxTrackCount = 0;
     int engineTrackCount = 0;
-    // Whether exportLibrary.db exists on this stick at all. A
-    // ToRekordbox plan's cues only ever mirror into OneLibrary when this
-    // is true (see SyncPlanListModel::WillMirrorToOneLibraryRole).
-    bool hasOneLibrary = false;
-    QString errorMessage;  // empty on success
+    int oneLibraryTrackCount = 0;  // 0 when this stick has no OneLibrary export
+    QString errorMessage;          // empty on success
 };
 
 // Result of a background write task, see SyncController::apply()/
@@ -90,11 +90,19 @@ struct SyncWriteResult
     std::vector<UndoableBackup> backups;
 };
 
-// Wraps SyncLibraries for QML: two-phase, non-destructive sync between a
-// stick's rekordbox and Engine libraries, mirroring cli/main.cpp's
-// runSyncCommand exactly, analyze() only ever reads (see
-// domain::TrackMatcher / domain::SyncPlanner), apply() is the single
-// confirmation gate the QML confirm dialog calls into.
+// Wraps SyncLibraries for QML: two-phase, non-destructive sync across
+// every pair of catalogs actually present on a stick. Originally this
+// only ever compared rekordbox against Engine, with OneLibrary bolted on
+// as a one-directional best-effort mirror whenever a write landed on
+// rekordbox; that meant OneLibrary's own cues (if it had any rekordbox/
+// Engine didn't) never propagated anywhere, and the mirror only fired for
+// one of the three possible pairs. Every pair now gets the exact same
+// real diff+direction treatment (domain::TrackMatcher / domain::
+// SyncPlanner, matching primarily by exact resolved file path -- the
+// same physical file on the same stick, format-agnostic and far more
+// reliable than title+artist+duration), and all three pairs' actionable
+// plans are combined into one list. analyze() only ever reads, apply()
+// is the single confirmation gate the QML confirm dialog calls into.
 class SyncController : public QObject
 {
     Q_OBJECT
@@ -105,8 +113,13 @@ class SyncController : public QObject
     Q_PROPERTY(int scanTotal READ scanTotal NOTIFY scanProgressChanged)
     Q_PROPERTY(int rekordboxTrackCount READ rekordboxTrackCount NOTIFY analysisChanged)
     Q_PROPERTY(int engineTrackCount READ engineTrackCount NOTIFY analysisChanged)
-    Q_PROPERTY(int toEngineCount READ toEngineCount NOTIFY analysisChanged)
-    Q_PROPERTY(int toRekordboxCount READ toRekordboxCount NOTIFY analysisChanged)
+    Q_PROPERTY(int oneLibraryTrackCount READ oneLibraryTrackCount NOTIFY analysisChanged)
+    // One entry per (sourceFormat, targetFormat, count) actually present
+    // among the current plans, e.g. [{sourceFormat:"engine",
+    // targetFormat:"rekordbox", count:12}, ...] -- replaces the old fixed
+    // toEngineCount/toRekordboxCount pair, which had no way to represent
+    // a third catalog's own counts.
+    Q_PROPERTY(QVariantList directionCounts READ directionCounts NOTIFY analysisChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
     Q_PROPERTY(QString statusMessage READ statusMessage NOTIFY statusMessageChanged)
     Q_PROPERTY(bool canUndo READ canUndo NOTIFY canUndoChanged)
@@ -125,18 +138,22 @@ public:
     int scanTotal() const { return m_scanTotal; }
     int rekordboxTrackCount() const { return m_rekordboxTrackCount; }
     int engineTrackCount() const { return m_engineTrackCount; }
-    int toEngineCount() const { return m_toEngineCount; }
-    int toRekordboxCount() const { return m_toRekordboxCount; }
+    int oneLibraryTrackCount() const { return m_oneLibraryTrackCount; }
+    QVariantList directionCounts() const { return m_directionCounts; }
     QString errorMessage() const { return m_errorMessage; }
     QString statusMessage() const { return m_statusMessage; }
     bool canUndo() const { return !m_lastBackups.empty(); }
 
     // Phase 1: read-only. rekordboxPath/enginePath are the stick's
-    // DetectedStick.rekordboxPath / .enginePath.
+    // DetectedStick.rekordboxPath / .enginePath (either may be empty if
+    // that catalog isn't present); OneLibrary is picked up automatically
+    // whenever exportLibrary.db exists under rekordboxPath, same
+    // convention as every other feature in this app.
     Q_INVOKABLE void analyze(const QString &rekordboxPath, const QString &enginePath);
 
     // Phase 2 (the confirmation gate) + phase 3: writes every plan
-    // currently in the model. Only call this from a confirm dialog.
+    // currently in the model, across every pair. Only call this from a
+    // confirm dialog.
     Q_INVOKABLE void apply();
 
     // Same as apply(), scoped to the single plan at index, lets a track
@@ -169,7 +186,7 @@ private:
     void setErrorMessage(const QString &message);
     void setStatusMessage(const QString &message);
     void recomputeDirectionCounts();
-    void startApply(std::vector<domain::SyncPlan> toEngine, std::vector<domain::SyncPlan> toRekordbox);
+    void startApply(std::vector<domain::SyncPlan> plans);
     std::shared_ptr<QtProgressReporter> makeReporter();
 
     SyncPlanListModel m_model;
@@ -182,8 +199,8 @@ private:
     int m_scanTotal = 0;
     int m_rekordboxTrackCount = 0;
     int m_engineTrackCount = 0;
-    int m_toEngineCount = 0;
-    int m_toRekordboxCount = 0;
+    int m_oneLibraryTrackCount = 0;
+    QVariantList m_directionCounts;
     QString m_errorMessage;
     QString m_statusMessage;
     std::vector<UndoableBackup> m_lastBackups;
