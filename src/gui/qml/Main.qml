@@ -215,6 +215,10 @@ ApplicationWindow {
                 rekordboxPath: rekordboxPath,
                 enginePath: enginePath,
             })
+            onEngineLibraryCreatorRequested: (stickLabel, rekordboxPath) => stackView.push(engineLibraryCreatorPageComponent, {
+                stickLabel: stickLabel,
+                rekordboxPath: rekordboxPath,
+            })
             onSettingsRequested: (stickLabel, pioneerRoot) => stackView.push(settingsPageComponent, {
                 stickLabel: stickLabel,
                 pioneerRoot: pioneerRoot,
@@ -302,6 +306,11 @@ ApplicationWindow {
                 enginePath: enginePath,
             })
         }
+    }
+
+    Component {
+        id: engineLibraryCreatorPageComponent
+        EngineLibraryCreatorPage {}
     }
 
     Component {

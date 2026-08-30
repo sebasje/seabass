@@ -26,6 +26,7 @@ Page {
     signal duplicateTracksHubRequested(string stickLabel, string rekordboxPath, string enginePath)
     signal libraryHealthRequested(string stickLabel, string rekordboxPath, string enginePath)
     signal stickStatisticsRequested(string stickLabel, string rekordboxPath, string enginePath)
+    signal engineLibraryCreatorRequested(string stickLabel, string rekordboxPath)
     signal settingsRequested(string stickLabel, string pioneerRoot)
     signal syncRequested(string stickLabel, string rekordboxPath, string enginePath)
     signal appSettingsRequested()
@@ -306,6 +307,21 @@ Page {
                             // use with no incidents.
                             enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
                             onClicked: root.stickStatisticsRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
+                        }
+                        ActionCard {
+                            cardTitle: "Create Engine Library"
+                            cardSubtitle: "Build a new Engine Library from this stick's rekordbox export"
+                            cardIcon: "⚙"
+                            cardIconFont: "Noto Sans Symbols"
+                            // Experimental (see docs/experimental-features.md):
+                            // the first feature here that fabricates a whole
+                            // new database from scratch. Only makes sense
+                            // when there's rekordbox data to build from and
+                            // no Engine Library already present to overwrite.
+                            experimental: true
+                            experimentalFeaturesEnabled: root.appSettingsController.experimentalFeaturesEnabled
+                            enabled: delegateRoot.hasRekordbox && !delegateRoot.hasEngine
+                            onClicked: root.engineLibraryCreatorRequested(delegateRoot.label, delegateRoot.rekordboxPath)
                         }
                         ActionCard {
                             cardTitle: "Sync Cue Points"
