@@ -6,15 +6,49 @@
 #include <fstream>
 #include <vector>
 
+#if defined(__linux__)
+#include <fcntl.h>
+#include <unistd.h>
+#endif
+
 namespace djconvert::infrastructure::benchmark
 {
 
 namespace
 {
 
+// Best-effort: asks the kernel to drop any cached pages for this file
+// before it's read, so a benchmark run measures real device I/O instead
+// of a page-cache hit left over from the earlier library scan or a
+// previous benchmark run -- confirmed on real hardware to otherwise make
+// repeat runs look inconsistently, misleadingly faster ("hit and miss,
+// faster on take two"). Linux-only: POSIX_FADV_DONTNEED isn't available
+// on macOS (this project has no macOS target anyway) or Windows, so this
+// is a no-op there, same "Linux fully verified, other platforms best-
+// effort" precedent as infrastructure::system::readStickHardwareInfo().
+void dropCacheFor(const std::string &path)
+{
+#if defined(__linux__)
+    int fd = ::open(path.c_str(), O_RDONLY);
+    if (fd >= 0) {
+        posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED);
+        ::close(fd);
+    }
+#else
+    (void)path;
+#endif
+}
+
 double measureGroup(const std::vector<std::string> &files, std::uint64_t sampleBytesPerFile,
                      std::uint64_t &bytesReadOut, int &filesReadOut)
 {
+    // Dropped before the timer starts, deliberately outside the measured
+    // window -- this is real overhead a cold read wouldn't otherwise
+    // pay, not something to charge against the throughput number.
+    for (const auto &path : files) {
+        dropCacheFor(path);
+    }
+
     std::vector<char> buffer(sampleBytesPerFile);
     std::uint64_t totalBytes = 0;
     int filesRead = 0;
