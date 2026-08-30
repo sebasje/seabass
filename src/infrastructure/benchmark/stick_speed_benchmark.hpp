@@ -30,8 +30,12 @@ public:
     // things: one small hot-path database read vs. many discrete audio
     // file opens). Best-effort: a file that fails to open is silently
     // skipped. Reads at most sampleBytesPerFile from the front of each
-    // file, a full read of a small cached file would measure page-cache
-    // speed, not real device I/O.
+    // file. Every file's cached pages are explicitly dropped (Linux only,
+    // see the .cpp's dropCacheFor()) before the timed read starts, so
+    // repeat runs measure real device I/O every time rather than getting
+    // faster/inconsistent once the earlier scan or a previous run has
+    // warmed the page cache -- this makes each call slower than a naive
+    // read, on purpose.
     static SpeedBenchmarkResult run(const std::vector<std::string> &databaseFiles,
                                      const std::vector<std::string> &audioFiles,
                                      std::uint64_t sampleBytesPerFile = 4 * 1024 * 1024);
