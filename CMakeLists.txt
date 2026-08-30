@@ -126,6 +126,8 @@ add_library(djconvert_core STATIC
     src/infrastructure/rekordbox/rekordbox_settings_reader.cpp
     src/infrastructure/rekordbox/rekordbox_settings_writer.cpp
     src/infrastructure/engine/libdjinterop_engine_reader.cpp
+    src/infrastructure/engine/libdjinterop_engine_library_creator.cpp
+    src/infrastructure/engine/rekordbox_key_parser.cpp
     src/infrastructure/engine/libdjinterop_waveform_reader.cpp
     src/infrastructure/engine/libdjinterop_engine_cue_writer.cpp
     src/infrastructure/engine/libdjinterop_engine_cleanup_writer.cpp
@@ -321,6 +323,14 @@ add_executable(track_matching_test
 target_include_directories(track_matching_test PRIVATE src)
 add_test(NAME track_matching_test COMMAND track_matching_test)
 
+add_executable(rekordbox_key_parser_test
+    src/infrastructure/engine/rekordbox_key_parser.cpp
+    tests/rekordbox_key_parser_test.cpp
+)
+target_include_directories(rekordbox_key_parser_test PRIVATE src)
+target_link_libraries(rekordbox_key_parser_test PRIVATE DjInterop)
+add_test(NAME rekordbox_key_parser_test COMMAND rekordbox_key_parser_test)
+
 add_executable(sync_planning_test
     src/domain/sync_planning.cpp
     src/domain/track_matching.cpp
@@ -445,6 +455,18 @@ add_executable(rekordbox_cleanup_writer_test
 target_include_directories(rekordbox_cleanup_writer_test PRIVATE src)
 target_link_libraries(rekordbox_cleanup_writer_test PRIVATE rekordbox_format)
 add_test(NAME rekordbox_cleanup_writer_test COMMAND rekordbox_cleanup_writer_test)
+
+add_executable(libdjinterop_engine_library_creator_test
+    src/application/ports/progress_reporter.cpp
+    src/infrastructure/engine/libdjinterop_engine_library_creator.cpp
+    src/infrastructure/engine/libdjinterop_engine_cue_writer.cpp
+    src/infrastructure/engine/libdjinterop_engine_reader.cpp
+    src/infrastructure/engine/rekordbox_key_parser.cpp
+    tests/libdjinterop_engine_library_creator_test.cpp
+)
+target_include_directories(libdjinterop_engine_library_creator_test PRIVATE src)
+target_link_libraries(libdjinterop_engine_library_creator_test PRIVATE DjInterop)
+add_test(NAME libdjinterop_engine_library_creator_test COMMAND libdjinterop_engine_library_creator_test)
 
 add_executable(libdjinterop_engine_cleanup_writer_test
     src/infrastructure/engine/libdjinterop_engine_cleanup_writer.cpp
