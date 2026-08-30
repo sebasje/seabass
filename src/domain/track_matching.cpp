@@ -83,7 +83,20 @@ std::vector<std::pair<const Track *, const Track *>> matchTracks(const std::vect
         }
 
         for (const auto *trackB : *candidates) {
-            if (std::abs(trackA.durationSeconds - trackB->durationSeconds) <= DurationToleranceSeconds) {
+            // durationSeconds == 0 means "unreadable," the same fallback
+            // convention used throughout Track's own fields (see
+            // DuplicateTrackFinder::find()'s identical handling), not a
+            // real zero-length track. Gating the match on a mismatch only
+            // when *both* readings are real avoids silently failing to
+            // match the same song across formats just because one side's
+            // duration failed to read -- confirmed as the dominant real
+            // cause of sync match failures on real data (1207 of 1566
+            // Engine tracks failed to match their exact title+artist
+            // rekordbox counterpart for this reason alone, zero from an
+            // actual duration mismatch).
+            bool bothDurationsKnown = trackA.durationSeconds > 0.0 && trackB->durationSeconds > 0.0;
+            if (!bothDurationsKnown ||
+                std::abs(trackA.durationSeconds - trackB->durationSeconds) <= DurationToleranceSeconds) {
                 matches.emplace_back(&trackA, trackB);
                 break;  // one match per `a` track is enough for propagating cues
             }

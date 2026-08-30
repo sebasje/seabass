@@ -140,6 +140,60 @@ int main()
         std::cout << "case 8 (matchTracks: filename fallback when metadata missing) OK\n";
     }
 
+    // matchTracks: a duration of 0 means "unreadable" (same fallback
+    // convention as the rest of Track's fields), not a real zero-length
+    // track -- a track whose duration failed to read on one side must
+    // still match its counterpart by title+artist. Regression case:
+    // found on real data, this exact bug silently failed to match 1207
+    // of 1566 Engine tracks against their rekordbox counterpart during
+    // Sync Cue Points, so most cues never actually propagated across
+    // formats.
+    {
+        Track engineTrack;
+        engineTrack.sourceId = "engine1";
+        engineTrack.title = "In My Head";
+        engineTrack.artist = "Domek";
+        engineTrack.durationSeconds = 0.0;  // unreadable, not "really 0 seconds"
+
+        Track rekordboxTrack;
+        rekordboxTrack.sourceId = "rb1";
+        rekordboxTrack.title = "In My Head";
+        rekordboxTrack.artist = "Domek";
+        rekordboxTrack.durationSeconds = 462.0;
+
+        std::vector<Track> engineTracks = {engineTrack};
+        std::vector<Track> rekordboxTracks = {rekordboxTrack};
+        auto matches = matchTracks(engineTracks, rekordboxTracks);
+        assert(matches.size() == 1);
+        assert(matches[0].first->sourceId == "engine1");
+        assert(matches[0].second->sourceId == "rb1");
+        std::cout << "case 9 (matchTracks: unreadable duration on one side doesn't block a real match) OK\n";
+    }
+
+    // matchTracks: a genuine duration mismatch (both sides have a real
+    // reading) still correctly rejects the match -- the fix above must
+    // not turn into "always match on title+artist regardless of
+    // duration."
+    {
+        Track a;
+        a.sourceId = "a";
+        a.title = "Song";
+        a.artist = "Artist";
+        a.durationSeconds = 200.0;
+
+        Track b;
+        b.sourceId = "b";
+        b.title = "Song";
+        b.artist = "Artist";
+        b.durationSeconds = 45.0;  // a genuinely different-length track, e.g. an intro edit
+
+        std::vector<Track> as = {a};
+        std::vector<Track> bs = {b};
+        auto matches = matchTracks(as, bs);
+        assert(matches.empty());
+        std::cout << "case 10 (matchTracks: a real duration mismatch still rejects the match) OK\n";
+    }
+
     std::cout << "all cases passed\n";
     return 0;
 }
