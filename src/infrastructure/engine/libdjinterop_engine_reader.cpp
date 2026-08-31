@@ -19,15 +19,31 @@ namespace seabass::infrastructure::engine
 namespace application = seabass::application;
 namespace domain = seabass::domain;
 
-namespace
-{
-
+// alpha == 0 is djinterop::pad_color's own default-constructed value (see
+// its own doc comment: "Construct a pad_color with a default black
+// color"), and the blob decoder (quick_cues_blob.cpp) reads whatever
+// alpha byte is actually stored -- it isn't synthesized by libdjinterop.
+// Confirmed on real data this session: hot cues never explicitly colored
+// on real hardware come through with alpha == 0, previously rendered as
+// the misleading "#000000" (indistinguishable from a genuinely
+// black-colored cue) instead of "no color at all". That false distinction
+// from rekordbox's own "no color" representation (color_id == 0, see
+// kaitai_rekordbox_reader.cpp's cueColor()) was making cueSetsEqual()
+// treat identical, uncolored cues from the two formats as a real
+// conflict -- confirmed as the actual cause of a full batch of "genuine"
+// cross-source sync conflicts that weren't genuine at all.
 std::string colorHex(const djinterop::pad_color &c)
 {
+    if (c.a == 0) {
+        return "";
+    }
     char buf[8];
     std::snprintf(buf, sizeof(buf), "#%02X%02X%02X", c.r, c.g, c.b);
     return buf;
 }
+
+namespace
+{
 
 // Some individual fields on some tracks (observed: sample_rate() on a
 // track just re-cued on real Denon hardware) throw a decode error from

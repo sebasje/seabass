@@ -395,18 +395,32 @@ QString summarizeCueCounts(const std::vector<domain::CuePoint> &cues)
 
 void SyncController::rebuildUnresolvedConflictsList()
 {
+    const auto &waveformsByKey = m_model.waveformsByKey();
     QVariantList list;
     for (const auto &conflict : m_conflicts) {
+        // Same trackToMap() shape (cues, waveform, artwork, play-ready
+        // filePath/sourceId) the ordinary plan list already renders with
+        // WaveformView/CueFallbackNotice -- so a conflict can be
+        // investigated the same way any other plan already is, not just
+        // read as a one-line summary.
+        domain::Track sourceATrack = conflict.sourceA;
+        sourceATrack.cues = conflict.cuesFromA;
+        domain::Track sourceBTrack = conflict.sourceB;
+        sourceBTrack.cues = conflict.cuesFromB;
+
         QVariantMap m;
         m["targetPath"] = QString::fromStdString(conflict.target.filePath);
         m["targetTitle"] = QString::fromStdString(conflict.target.title);
+        m["targetArtist"] = QString::fromStdString(conflict.target.artist);
         m["targetFormat"] = QString::fromStdString(conflict.target.format);
         m["sourceAFormat"] = QString::fromStdString(conflict.sourceA.format);
         m["sourceASummary"] = summarizeCueCounts(conflict.cuesFromA);
         m["sourceAHasJunkCue"] = conflict.sourceAHasJunkCue;
+        m["sourceATrack"] = trackToMap(sourceATrack, waveformsByKey);
         m["sourceBFormat"] = QString::fromStdString(conflict.sourceB.format);
         m["sourceBSummary"] = summarizeCueCounts(conflict.cuesFromB);
         m["sourceBHasJunkCue"] = conflict.sourceBHasJunkCue;
+        m["sourceBTrack"] = trackToMap(sourceBTrack, waveformsByKey);
         list << m;
     }
     m_unresolvedConflicts = list;
