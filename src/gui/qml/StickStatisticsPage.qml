@@ -534,4 +534,15 @@ Page {
             }
         }
     }
+
+    // Without this, the content area was just blank while the initial
+    // scan ran -- only a small BusyIndicator tucked into the header (see
+    // BusyOverlay.qml's own comment on exactly this problem elsewhere).
+    // No current/total to report here yet, so this renders as the
+    // indeterminate sweep animation rather than a real progress bar.
+    BusyOverlay {
+        anchors.fill: parent
+        busy: controller.busy
+        label: "Scanning stick statistics..."
+    }
 }
