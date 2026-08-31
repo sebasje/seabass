@@ -279,6 +279,8 @@ Page {
                             formatLabelText: root.formatLabel(root.format)
                             showPlaylists: true
                             actionButtonText: delegateRoot.kind === "conflict" ? "Copy" : ""
+                            actionButtonTooltip: delegateRoot.kind === "conflict"
+                                ? "Copy this copy's cue points onto the other copy" : ""
                             actionButtonEnabled: modelData.cues.length > 0 && !duplicatesController.busy
                             onActionTriggered: duplicatesController.copyFromTrack(delegateRoot.index, modelData.sourceId)
                             playbackController: root.playbackController

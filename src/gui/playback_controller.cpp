@@ -94,7 +94,13 @@ void PlaybackController::load(const QString &format, const QString &libraryPath,
 QVariantList PlaybackController::waveformFor(const QString &format, const QString &libraryPath,
                                               const QString &sourceId) const
 {
-    return readWaveform(format, libraryPath, sourceId);
+    const QString key = format + QLatin1Char('\x1f') + libraryPath + QLatin1Char('\x1f') + sourceId;
+    if (const QVariantList *cached = m_waveformCache.object(key)) {
+        return *cached;
+    }
+    QVariantList waveform = readWaveform(format, libraryPath, sourceId);
+    m_waveformCache.insert(key, new QVariantList(waveform));
+    return waveform;
 }
 
 void PlaybackController::togglePlay()
