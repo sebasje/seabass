@@ -14,18 +14,19 @@
 #include "application/use_cases/consolidate_duplicate_cues.hpp"
 #include "application/use_cases/scan_library.hpp"
 #include "gui/local_file_url.hpp"
+#include "gui/onelibrary_cue_writer_adapter.hpp"
 #include "gui/qt_progress_reporter.hpp"
 #include "gui/write_guard.hpp"
 #include "infrastructure/backup/filesystem_backup_store.hpp"
 #include "infrastructure/backup/stick_write_lock.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cue_writer.hpp"
 #include "infrastructure/engine/libdjinterop_engine_reader.hpp"
-#include "infrastructure/engine/libdjinterop_waveform_reader.hpp"
 #include "infrastructure/logging/file_operation_log.hpp"
+#include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
+#include "infrastructure/onelibrary/onelibrary_reader.hpp"
 #include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 #include "infrastructure/rekordbox/rekordbox_cue_writer.hpp"
-#include "infrastructure/rekordbox/rekordbox_waveform_reader.hpp"
 
 namespace seabass::gui
 {
@@ -107,6 +108,7 @@ QVariant ConsolidationPlanListModel::data(const QModelIndex &index, int role) co
         QVariantList result;
         for (const auto &t : plan.group.tracks) {
             QVariantMap trackMap;
+            trackMap["side"] = QString::fromStdString(t.format);
             trackMap["sourceId"] = QString::fromStdString(t.sourceId);
             trackMap["title"] = QString::fromStdString(t.title);
             trackMap["artist"] = QString::fromStdString(t.artist);
@@ -132,19 +134,6 @@ QVariant ConsolidationPlanListModel::data(const QModelIndex &index, int role) co
             trackMap["cues"] = cues;
             trackMap["durationMs"] = t.durationSeconds * 1000.0;
 
-            QVariantList waveform;
-            auto waveformIt = m_waveformsBySourceId.find(t.sourceId);
-            if (waveformIt != m_waveformsBySourceId.end()) {
-                for (const auto &col : waveformIt->second) {
-                    QVariantMap colMap;
-                    colMap["low"] = col.low;
-                    colMap["mid"] = col.mid;
-                    colMap["high"] = col.high;
-                    waveform << colMap;
-                }
-            }
-            trackMap["waveform"] = waveform;
-
             result << trackMap;
         }
         return result;
@@ -168,13 +157,10 @@ QHash<int, QByteArray> ConsolidationPlanListModel::roleNames() const
     };
 }
 
-void ConsolidationPlanListModel::setPlans(
-    std::vector<domain::ConsolidationPlan> plans,
-    std::unordered_map<std::string, std::vector<domain::WaveformColumn>> waveformsBySourceId)
+void ConsolidationPlanListModel::setPlans(std::vector<domain::ConsolidationPlan> plans)
 {
     beginResetModel();
     m_plans = std::move(plans);
-    m_waveformsBySourceId = std::move(waveformsBySourceId);
     endResetModel();
 }
 
@@ -191,7 +177,12 @@ struct FormatContext
     std::function<std::vector<std::string>(const std::string &)> filesToBackUpFor;
 };
 
-FormatContext makeContext(const QString &format, const QString &path)
+// oneLibrarySourceIdToPath is only consulted when format == "onelibrary"
+// -- built by the caller from the actual tracks about to be written
+// (OneLibraryCueWriterAdapter's own comment explains why sourceId alone
+// isn't enough for this format).
+FormatContext makeContext(const QString &format, const QString &path,
+                           const std::unordered_map<std::string, std::string> &oneLibrarySourceIdToPath = {})
 {
     fs::path stickRoot = fs::path(path.toStdString()).parent_path();
 
@@ -211,6 +202,11 @@ FormatContext makeContext(const QString &format, const QString &path)
             }
             return {infrastructure::rekordbox::extAnlzPath(pioneerRoot, *analyzePath)};
         };
+    } else if (format == "onelibrary") {
+        std::string pioneerRoot = path.toStdString();  // same PIONEER root rekordbox uses, see scan()'s own comment
+        ctx.writer = std::make_unique<OneLibraryCueWriterAdapter>(pioneerRoot, oneLibrarySourceIdToPath);
+        std::string dbFile = infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(pioneerRoot);
+        ctx.filesToBackUpFor = [dbFile](const std::string &) -> std::vector<std::string> { return {dbFile}; };
     } else {
         std::string engineLibraryPath = path.toStdString();
         ctx.writer = std::make_unique<infrastructure::engine::LibdjinteropEngineCueWriter>(engineLibraryPath);
@@ -264,7 +260,16 @@ DuplicatesWriteResult runApplyTask(QString format, QString path, std::vector<Dup
         std::string backupDir = (fs::path(path.toStdString()).parent_path() / ".seabass-backups").string();
         infrastructure::backup::StickWriteLock lock(backupDir + "/.write.lock");
 
-        auto ctx = makeContext(format, path);
+        std::unordered_map<std::string, std::string> oneLibrarySourceIdToPath;
+        if (format == "onelibrary") {
+            for (const auto &op : ops) {
+                oneLibrarySourceIdToPath[op.source.sourceId] = op.source.filePath;
+                for (const auto &target : op.targets) {
+                    oneLibrarySourceIdToPath[target.sourceId] = target.filePath;
+                }
+            }
+        }
+        auto ctx = makeContext(format, path, oneLibrarySourceIdToPath);
         std::set<std::string> backedUpFiles;
         int totalCues = 0;
         int totalTargets = 0;
@@ -359,6 +364,10 @@ DuplicatesTaskResult runRescanTask(QString format, QString path, std::shared_ptr
             infrastructure::rekordbox::KaitaiRekordboxReader reader(path.toStdString());
             reader.setProgressReporter(*reporter);
             tracks = application::ScanLibrary(reader).execute();
+        } else if (format == "onelibrary") {
+            infrastructure::onelibrary::OneLibraryReader reader(path.toStdString());
+            reader.setProgressReporter(*reporter);
+            tracks = application::ScanLibrary(reader).execute();
         } else {
             infrastructure::engine::LibdjinteropEngineReader reader(path.toStdString());
             reader.setProgressReporter(*reporter);
@@ -380,37 +389,13 @@ DuplicatesTaskResult runRescanTask(QString format, QString path, std::shared_ptr
             }
         }
 
-        // Waveforms need their own file I/O per track, so only decode them
-        // for tracks actually being displayed here, not the whole library.
-        // This is a second phase after the scan above already finished (and
-        // already reported 100%), give it its own start()/tick() run
-        // rather than leave the bar looking stalled while it happens.
-        size_t totalWaveformTracks = 0;
-        for (const auto &plan : actionable) {
-            totalWaveformTracks += plan.group.tracks.size();
-        }
-        reporter->start("Loading waveforms", totalWaveformTracks);
-        size_t waveformsProcessed = 0;
-
-        std::unordered_map<std::string, std::vector<domain::WaveformColumn>> waveformsBySourceId;
-        for (const auto &plan : actionable) {
-            for (const auto &track : plan.group.tracks) {
-                if (!waveformsBySourceId.contains(track.sourceId)) {
-                    std::vector<domain::WaveformColumn> waveform;
-                    if (format == "rekordbox") {
-                        waveform = infrastructure::rekordbox::readWaveformPreview(path.toStdString(), track.sourceId);
-                    } else {
-                        waveform = infrastructure::engine::readWaveformPreview(path.toStdString(), track.sourceId);
-                    }
-                    waveformsBySourceId[track.sourceId] = std::move(waveform);
-                }
-                reporter->tick(++waveformsProcessed);
-            }
-        }
-        reporter->finish();
-
+        // Waveforms are deliberately NOT loaded here -- QML fetches one
+        // on demand via PlaybackController::waveformFor() instead (see
+        // ConsolidationPlanListModel::setPlans()'s own comment for why:
+        // eagerly decoding one per displayed track here was the same
+        // shape of bug confirmed to make Sync's own "scanning" phase
+        // take 5+ minutes on a real library).
         result.plans = std::move(actionable);
-        result.waveformsBySourceId = std::move(waveformsBySourceId);
     } catch (const std::exception &e) {
         result.errorMessage = QString::fromStdString(e.what());
     }
@@ -441,6 +426,11 @@ void DuplicatesController::scan(const QString &format, const QString &path)
     m_format = format;
     m_path = path;
     rescan();
+}
+
+bool DuplicatesController::hasOneLibrary(const QString &pioneerRoot) const
+{
+    return infrastructure::onelibrary::OneLibraryCueWriter::existsFor(pioneerRoot.toStdString());
 }
 
 void DuplicatesController::rescan()
@@ -477,7 +467,7 @@ void DuplicatesController::onRescanFinished()
         return;
     }
 
-    m_model.setPlans(std::move(result.plans), std::move(result.waveformsBySourceId));
+    m_model.setPlans(std::move(result.plans));
     setBusy(false);
     emit plansChanged();
 }

@@ -215,56 +215,17 @@ Page {
                                     { track: conflictCard.modelData.sourceBTrack, format: conflictCard.modelData.sourceBFormat,
                                       summary: conflictCard.modelData.sourceBSummary, hasJunkCue: conflictCard.modelData.sourceBHasJunkCue, useSourceA: false }
                                 ]
-                                delegate: Frame {
+                                delegate: TrackWaveformCard {
                                     required property var modelData
-                                    Layout.fillWidth: true
-
-                                    ColumnLayout {
-                                        anchors.fill: parent
-                                        spacing: 4
-
-                                        RowLayout {
-                                            Layout.fillWidth: true
-                                            Label {
-                                                text: root.formatLabel(modelData.format) + ": " + modelData.summary
-                                                font.bold: true
-                                            }
-                                            Item { Layout.fillWidth: true }
-                                            Button {
-                                                text: "▶ Play"
-                                                enabled: modelData.track.filePath.length > 0
-                                                ToolTip.visible: hovered
-                                                ToolTip.text: "Play this copy of the track"
-                                                onClicked: root.playbackController.load(modelData.track.side,
-                                                    root.pathForFormat(modelData.track.side), modelData.track.sourceId,
-                                                    modelData.track.filePath, modelData.track.title, modelData.track.artist,
-                                                    modelData.track.artworkPath, modelData.track.cues)
-                                            }
-                                            Button {
-                                                text: "Use this"
-                                                onClicked: syncController.resolveConflict(conflictCard.index, modelData.useSourceA)
-                                            }
-                                        }
-                                        WaveformView {
-                                            Layout.fillWidth: true
-                                            Layout.preferredHeight: 40
-                                            waveformData: modelData.track.waveform
-                                            cueData: modelData.track.cues
-                                            trackDurationMs: modelData.track.durationMs
-                                        }
-                                        CueFallbackNotice {
-                                            cues: modelData.track.cues
-                                            durationMs: modelData.track.durationMs
-                                        }
-                                        Label {
-                                            visible: modelData.hasJunkCue
-                                            Layout.fillWidth: true
-                                            wrapMode: Text.WordWrap
-                                            font.italic: true
-                                            color: Theme.textMuted
-                                            text: "This side has a 0:00 memory cue that's usually accidental - consider cleaning it up in Clean Up before deciding."
-                                        }
-                                    }
+                                    track: modelData.track
+                                    formatLabelText: root.formatLabel(modelData.format) + " (" + modelData.summary + ")"
+                                    actionButtonText: "Use this"
+                                    onActionTriggered: syncController.resolveConflict(conflictCard.index, modelData.useSourceA)
+                                    hintText: modelData.hasJunkCue
+                                        ? "This side has a 0:00 memory cue that's usually accidental - consider cleaning it up in Clean Up before deciding."
+                                        : ""
+                                    playbackController: root.playbackController
+                                    playbackPath: root.pathForFormat(modelData.track.side)
                                 }
                             }
                         }
@@ -390,42 +351,12 @@ Page {
 
                     Repeater {
                         model: delegateRoot.tracks
-                        delegate: Frame {
-                            Layout.fillWidth: true
+                        delegate: TrackWaveformCard {
                             required property var modelData
-
-                            ColumnLayout {
-                                anchors.fill: parent
-                                spacing: 4
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    Label {
-                                        text: root.formatLabel(modelData.side) + ": " + modelData.title + " - " + modelData.artist
-                                        font.bold: true
-                                    }
-                                    Item { Layout.fillWidth: true }
-                                    Button {
-                                        text: "▶ Play"
-                                        enabled: modelData.filePath.length > 0
-                                        ToolTip.visible: hovered
-                                        ToolTip.text: "Play this copy of the track"
-                                        onClicked: root.playbackController.load(modelData.side, root.pathForFormat(modelData.side),
-                                            modelData.sourceId, modelData.filePath, modelData.title, modelData.artist, modelData.artworkPath,
-                                            modelData.cues)
-                                    }
-                                }
-                                WaveformView {
-                                    Layout.fillWidth: true
-                                    Layout.preferredHeight: 40
-                                    waveformData: modelData.waveform
-                                    cueData: modelData.cues
-                                    trackDurationMs: modelData.durationMs
-                                }
-                                CueFallbackNotice {
-                                    cues: modelData.cues
-                                    durationMs: modelData.durationMs
-                                }
-                            }
+                            track: modelData
+                            formatLabelText: root.formatLabel(modelData.side)
+                            playbackController: root.playbackController
+                            playbackPath: root.pathForFormat(modelData.side)
                         }
                     }
                     }

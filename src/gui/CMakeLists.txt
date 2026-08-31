@@ -58,6 +58,7 @@ qt_add_qml_module(seabass
         qml/StickWriteWarning.qml
         qml/RekordboxRunningWarning.qml
         qml/CueFallbackNotice.qml
+        qml/TrackWaveformCard.qml
         qml/BigScrollBar.qml
         qml/BusyOverlay.qml
     RESOURCES
