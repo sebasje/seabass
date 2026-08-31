@@ -21,6 +21,7 @@
 #include "gui/write_guard.hpp"
 #include "infrastructure/backup/filesystem_backup_store.hpp"
 #include "infrastructure/backup/stick_write_lock.hpp"
+#include "infrastructure/cleanup/pending_deletion_applier.hpp"
 #include "infrastructure/cleanup/pending_deletion_manifest.hpp"
 #include "infrastructure/cleanup/pending_deletion_resolver.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cleanup_writer.hpp"
@@ -796,33 +797,34 @@ PendingDeletionApplyResult runDeletePendingTask(QString format, QString path,
 
         auto resolution = infrastructure::cleanup::resolvePendingDeletions(selected, tracks);
 
-        std::set<std::string> processed;
+        // The actual deletion (the one place in the app that
+        // permanently destroys real audio file content) lives in
+        // infrastructure/cleanup/pending_deletion_applier.cpp, Qt-free
+        // and unit-tested there -- this just logs/formats its result.
+        auto outcomes = infrastructure::cleanup::applyPendingDeletions(resolution.safeToDelete, manifest);
+
         int deleted = 0;
         int failed = 0;
-        for (const auto &entry : resolution.safeToDelete) {
-            std::error_code ec;
-            bool existed = fs::exists(entry.filePath, ec);
-            if (!existed) {
-                // Already gone from disk (e.g. removed by hand since).
-                // Still clear it from the manifest, nothing left to do.
-                processed.insert(entry.filePath);
-                deleted++;
-                log.record("cleanup: pending deletion already absent from disk, clearing from manifest -> " +
-                            entry.filePath);
-                continue;
-            }
-            if (fs::remove(entry.filePath, ec)) {
-                processed.insert(entry.filePath);
-                deleted++;
-                log.record("cleanup: deleted orphaned duplicate file (backup " + entry.backupId + ") -> " +
-                            entry.filePath);
-            } else {
-                failed++;
-                log.record("cleanup: failed to delete orphaned duplicate file -> " + entry.filePath + " (" +
-                            ec.message() + ")");
+        using Status = infrastructure::cleanup::PendingDeletionOutcome::Status;
+        for (const auto &outcome : outcomes) {
+            switch (outcome.status) {
+                case Status::AlreadyAbsent:
+                    deleted++;
+                    log.record("cleanup: pending deletion already absent from disk, clearing from manifest -> " +
+                                outcome.entry.filePath);
+                    break;
+                case Status::Deleted:
+                    deleted++;
+                    log.record("cleanup: deleted orphaned duplicate file (backup " + outcome.entry.backupId +
+                                ") -> " + outcome.entry.filePath);
+                    break;
+                case Status::Failed:
+                    failed++;
+                    log.record("cleanup: failed to delete orphaned duplicate file -> " + outcome.entry.filePath +
+                                " (" + outcome.failureReason + ")");
+                    break;
             }
         }
-        manifest.removeProcessed(processed);
 
         QStringList parts;
         parts << QString("deleted %1 file(s) from disk").arg(deleted);

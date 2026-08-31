@@ -112,6 +112,7 @@ add_library(seabass_core STATIC
     src/domain/track_matching.cpp
     src/domain/track_queries.cpp
     src/application/ports/progress_reporter.cpp
+    src/application/use_cases/anonymize_library.cpp
     src/infrastructure/benchmark/stick_benchmark_history.cpp
     src/infrastructure/benchmark/stick_speed_benchmark.cpp
     src/infrastructure/bulk_write_strategy.cpp
@@ -127,18 +128,21 @@ add_library(seabass_core STATIC
     src/infrastructure/rekordbox/rekordbox_settings_fields.cpp
     src/infrastructure/rekordbox/rekordbox_settings_reader.cpp
     src/infrastructure/rekordbox/rekordbox_settings_writer.cpp
+    src/infrastructure/rekordbox/rekordbox_library_anonymizer.cpp
     src/infrastructure/engine/libdjinterop_engine_reader.cpp
     src/infrastructure/engine/libdjinterop_engine_library_creator.cpp
     src/infrastructure/engine/rekordbox_key_parser.cpp
     src/infrastructure/engine/libdjinterop_waveform_reader.cpp
     src/infrastructure/engine/libdjinterop_engine_cue_writer.cpp
     src/infrastructure/engine/libdjinterop_engine_cleanup_writer.cpp
+    src/infrastructure/engine/libdjinterop_engine_anonymizer.cpp
     src/infrastructure/media/media_factory.cpp
     src/infrastructure/media/stick_root_scan.cpp
     src/infrastructure/backup/filesystem_backup_store.cpp
     src/infrastructure/backup/stick_write_lock.cpp
     src/infrastructure/cleanup/pending_deletion_manifest.cpp
     src/infrastructure/cleanup/pending_deletion_resolver.cpp
+    src/infrastructure/cleanup/pending_deletion_applier.cpp
     src/infrastructure/compression/zlib_compressor.cpp
     src/infrastructure/logging/file_operation_log.cpp
     src/infrastructure/local/local_cue_store.cpp
@@ -240,7 +244,7 @@ endif()
 # at all, regardless of anything already stored in QSettings.
 option(SEABASS_EXPERIMENTAL "Compile in the experimental-features opt-in (Settings toggle)" ON)
 
-find_package(Qt6 QUIET COMPONENTS Core Gui Qml Quick QuickControls2 QuickLayouts QuickEffects Multimedia Concurrent Svg)
+find_package(Qt6 QUIET COMPONENTS Core Gui Qml Quick QuickControls2 QuickLayouts QuickEffects QuickDialogs2 Multimedia Concurrent Svg)
 if(Qt6_FOUND)
     qt_standard_project_setup(REQUIRES 6.5)
     if(WIN32)
@@ -488,6 +492,29 @@ target_include_directories(pdb_row_writer_test PRIVATE src)
 target_link_libraries(pdb_row_writer_test PRIVATE rekordbox_format)
 add_test(NAME pdb_row_writer_test COMMAND pdb_row_writer_test)
 
+add_executable(pdb_row_writer_string_test
+    src/infrastructure/durable_file_write.cpp
+    src/infrastructure/rekordbox/pdb_row_writer.cpp
+    src/infrastructure/rekordbox/pdb_lookup.cpp
+    tests/pdb_row_writer_string_test.cpp
+)
+target_include_directories(pdb_row_writer_string_test PRIVATE src)
+target_link_libraries(pdb_row_writer_string_test PRIVATE rekordbox_format)
+add_test(NAME pdb_row_writer_string_test COMMAND pdb_row_writer_string_test)
+
+add_executable(rekordbox_library_anonymizer_test
+    src/infrastructure/durable_file_write.cpp
+    src/infrastructure/rekordbox/pdb_row_writer.cpp
+    src/infrastructure/rekordbox/pdb_lookup.cpp
+    src/infrastructure/rekordbox/anlz_file.cpp
+    src/infrastructure/rekordbox/rekordbox_library_anonymizer.cpp
+    src/application/ports/progress_reporter.cpp
+    tests/rekordbox_library_anonymizer_test.cpp
+)
+target_include_directories(rekordbox_library_anonymizer_test PRIVATE src)
+target_link_libraries(rekordbox_library_anonymizer_test PRIVATE rekordbox_format)
+add_test(NAME rekordbox_library_anonymizer_test COMMAND rekordbox_library_anonymizer_test)
+
 add_executable(rekordbox_cleanup_writer_test
     src/infrastructure/durable_file_write.cpp
     src/infrastructure/rekordbox/pdb_row_writer.cpp
@@ -531,6 +558,40 @@ target_include_directories(libdjinterop_engine_cleanup_writer_test PRIVATE src)
 target_link_libraries(libdjinterop_engine_cleanup_writer_test PRIVATE DjInterop)
 add_test(NAME libdjinterop_engine_cleanup_writer_test COMMAND libdjinterop_engine_cleanup_writer_test)
 
+add_executable(duplicate_cleanup_interruption_test
+    src/infrastructure/engine/libdjinterop_engine_cleanup_writer.cpp
+    src/infrastructure/backup/filesystem_backup_store.cpp
+    src/infrastructure/durable_file_write.cpp
+    tests/duplicate_cleanup_interruption_test.cpp
+)
+target_include_directories(duplicate_cleanup_interruption_test PRIVATE src)
+target_link_libraries(duplicate_cleanup_interruption_test PRIVATE DjInterop)
+add_test(NAME duplicate_cleanup_interruption_test COMMAND duplicate_cleanup_interruption_test)
+
+add_executable(libdjinterop_engine_anonymizer_test
+    src/infrastructure/engine/libdjinterop_engine_anonymizer.cpp
+    src/application/ports/progress_reporter.cpp
+    tests/libdjinterop_engine_anonymizer_test.cpp
+)
+target_include_directories(libdjinterop_engine_anonymizer_test PRIVATE src)
+target_link_libraries(libdjinterop_engine_anonymizer_test PRIVATE DjInterop)
+add_test(NAME libdjinterop_engine_anonymizer_test COMMAND libdjinterop_engine_anonymizer_test)
+
+add_executable(anonymize_library_test
+    src/application/use_cases/anonymize_library.cpp
+    src/application/ports/progress_reporter.cpp
+    src/infrastructure/durable_file_write.cpp
+    src/infrastructure/rekordbox/pdb_row_writer.cpp
+    src/infrastructure/rekordbox/pdb_lookup.cpp
+    src/infrastructure/rekordbox/anlz_file.cpp
+    src/infrastructure/rekordbox/rekordbox_library_anonymizer.cpp
+    src/infrastructure/engine/libdjinterop_engine_anonymizer.cpp
+    tests/anonymize_library_test.cpp
+)
+target_include_directories(anonymize_library_test PRIVATE src)
+target_link_libraries(anonymize_library_test PRIVATE rekordbox_format DjInterop)
+add_test(NAME anonymize_library_test COMMAND anonymize_library_test)
+
 add_executable(libdjinterop_engine_cue_writer_propagate_test
     src/infrastructure/engine/libdjinterop_engine_cue_writer.cpp
     src/infrastructure/engine/rekordbox_key_parser.cpp
@@ -546,6 +607,14 @@ add_executable(pending_deletion_manifest_test
 )
 target_include_directories(pending_deletion_manifest_test PRIVATE src)
 add_test(NAME pending_deletion_manifest_test COMMAND pending_deletion_manifest_test)
+
+add_executable(pending_deletion_applier_test
+    src/infrastructure/cleanup/pending_deletion_manifest.cpp
+    src/infrastructure/cleanup/pending_deletion_applier.cpp
+    tests/pending_deletion_applier_test.cpp
+)
+target_include_directories(pending_deletion_applier_test PRIVATE src)
+add_test(NAME pending_deletion_applier_test COMMAND pending_deletion_applier_test)
 
 add_executable(pending_deletion_resolver_test
     src/infrastructure/cleanup/pending_deletion_resolver.cpp
@@ -604,3 +673,25 @@ if(NOT WIN32)
     target_link_libraries(onelibrary_reader_test PRIVATE ${CMAKE_DL_LIBS})
 endif()
 add_test(NAME onelibrary_reader_test COMMAND onelibrary_reader_test)
+
+# --- Integration suite: real use cases against tests/fixtures/anonymized_library ---
+# --- (a committed, de-identified copy of a real ~1,400-track library) ---
+# --- -- slower, gated with CTest LABEL "integration" so a default ---
+# --- `ctest` run (or `ctest -LE integration`) skips them; run before a ---
+# --- larger change or release with `ctest -L integration`. See ---
+# --- docs/testing.md and BRAINSTORM.md's "For Developers, Maintainers ---
+# --- and Testing". Links the whole seabass_core (unlike every test ---
+# --- above, which links just the handful of .cpp files it needs) ---
+# --- since this genuinely exercises most of the real app's read/write/ ---
+# --- sync/stats/consistency machinery together, the same way seabass- ---
+# --- cli itself does. ---
+
+add_executable(anonymized_fixture_integration_test
+    tests/anonymized_fixture_integration_test.cpp
+)
+target_include_directories(anonymized_fixture_integration_test PRIVATE src)
+target_link_libraries(anonymized_fixture_integration_test PRIVATE seabass_core)
+target_compile_definitions(anonymized_fixture_integration_test PRIVATE
+    SEABASS_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+add_test(NAME anonymized_fixture_integration_test COMMAND anonymized_fixture_integration_test)
+set_tests_properties(anonymized_fixture_integration_test PROPERTIES LABELS "integration")

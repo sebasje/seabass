@@ -54,6 +54,125 @@ constexpr size_t TrackArtworkIdOffset = 28;
 constexpr size_t TrackKeyIdOffset = 32;
 constexpr size_t TrackTempoOffset = 56;
 
+// track_row's ofs_strings array: 21 x u2, each the byte offset (relative
+// to row_base) of one device_sql_string field. Continuing the same
+// cumulative layout documented above from tempo (56): genre_id/album_id/
+// artist_id/id (4 x u4 = 16 bytes) + disc_number/play_count/year/
+// sample_depth/duration/unnamed (6 x u2 = 12 bytes) + color_id/rating (2
+// x u1 = 2 bytes) + two unnamed u2 fields (4 bytes) = 34 more bytes ->
+// 56 + 34 = 90, then tempo's own 4 bytes were already counted above (56
+// is tempo's *offset*, so add tempo's 4 bytes too) -> ofs_strings starts
+// at 60 + 34 = 94. Cross-checked directly against specs/rekordbox_pdb.
+// ksy's track_row seq, which is the authoritative source here.
+constexpr size_t TrackOfsStringsOffset = 94;
+// Indices into ofs_strings -- see specs/rekordbox_pdb.ksy's track_row
+// `instances`, which names each of the 21 entries in this exact order.
+constexpr int TrackStringIndexComment = 16;
+constexpr int TrackStringIndexTitle = 17;
+constexpr int TrackStringIndexFilename = 19;
+constexpr int TrackStringIndexFilePath = 20;
+
+// artist_row: subtype(u2) + index_shift(u2) + id(u4) + unnamed(u1) +
+// ofs_name_near(u1) = name's near offset lives at byte 9; ofs_name_far
+// (u2), used instead when subtype's 0x04 bit is set, lives at byte 10
+// -- see specs/rekordbox_pdb.ksy's artist_row.
+constexpr size_t ArtistSubtypeOffset = 0;
+constexpr size_t ArtistNameOffsetNear = 9;
+constexpr size_t ArtistNameOffsetFar = 10;
+constexpr uint16_t ArtistSubtypeFarNameFlag = 0x04;
+
+// playlist_tree_row: parent_id(u4) + unnamed(u4) + sort_order(u4) +
+// id(u4) + raw_is_folder(u4) = name starts right at byte 20, no
+// indirection -- see specs/rekordbox_pdb.ksy's playlist_tree_row.
+constexpr size_t PlaylistTreeNameOffset = 20;
+
+// One device_sql_string value's on-disk shape at some absolute buffer
+// offset: its total byte span (header + text, matching
+// specs/rekordbox_pdb.ksy's device_sql_string/device_sql_short_ascii/
+// device_sql_long_ascii/device_sql_long_utf16le) and how many text bytes
+// are actually available within it. Never includes the header itself --
+// overwriteDeviceSqlStringInPlace() below only ever touches text bytes,
+// so a value's length/kind framing is never disturbed.
+struct DeviceSqlStringSpan
+{
+    size_t totalBytes = 0;
+    size_t textCapacityBytes = 0;  // for UTF-16LE, a *byte* capacity (2 bytes/code unit), not a code-unit count
+    bool isUtf16 = false;
+};
+
+DeviceSqlStringSpan readDeviceSqlStringSpan(const std::string &buffer, size_t absOffset)
+{
+    auto lengthAndKind = static_cast<uint8_t>(buffer.at(absOffset));
+    DeviceSqlStringSpan span;
+    if (lengthAndKind == 0x40 || lengthAndKind == 0x90) {
+        // device_sql_long_ascii / device_sql_long_utf16le: 4-byte header
+        // (kind u1 + length u2 + one unused byte), length includes the
+        // header itself.
+        uint16_t length = readU16LE(buffer, absOffset + 1);
+        span.totalBytes = length;
+        span.textCapacityBytes = length >= 4 ? static_cast<size_t>(length) - 4 : 0;
+        span.isUtf16 = (lengthAndKind == 0x90);
+    } else {
+        // device_sql_short_ascii: length_and_kind is odd; the whole
+        // field (1 header byte + text) is length_and_kind >> 1 bytes.
+        size_t total = static_cast<size_t>(lengthAndKind) >> 1;
+        span.totalBytes = total;
+        span.textCapacityBytes = total >= 1 ? total - 1 : 0;
+    }
+    return span;
+}
+
+// Fits `text` into exactly `capacityBytes`: truncated if too long,
+// right-padded with ASCII spaces if shorter. Anonymized placeholder
+// text is always plain ASCII, so byte-level truncation/padding never
+// splits a multi-byte character.
+std::string fitAsciiToCapacity(const std::string &text, size_t capacityBytes)
+{
+    std::string fitted = text.substr(0, capacityBytes);
+    fitted.resize(capacityBytes, ' ');
+    return fitted;
+}
+
+// Re-encodes newText into the device_sql_string value already sitting
+// at absOffset, filling exactly its existing text capacity (never its
+// header) -- see DeviceSqlStringSpan's own comment for why this never
+// resizes or reflows anything.
+void overwriteDeviceSqlStringInPlace(std::string &buffer, size_t absOffset, const std::string &newText)
+{
+    DeviceSqlStringSpan span = readDeviceSqlStringSpan(buffer, absOffset);
+    size_t headerBytes = span.totalBytes - span.textCapacityBytes;
+    if (span.isUtf16) {
+        size_t capacityUnits = span.textCapacityBytes / 2;
+        std::string fitted = fitAsciiToCapacity(newText, capacityUnits);
+        for (size_t i = 0; i < capacityUnits; ++i) {
+            size_t textOffset = absOffset + headerBytes + i * 2;
+            buffer.at(textOffset) = fitted[i];
+            buffer.at(textOffset + 1) = '\0';
+        }
+    } else {
+        std::string fitted = fitAsciiToCapacity(newText, span.textCapacityBytes);
+        for (size_t i = 0; i < fitted.size(); ++i) {
+            buffer.at(absOffset + headerBytes + i) = fitted[i];
+        }
+    }
+}
+
+size_t trackStringAbsOffset(const std::string &buffer, size_t rowBodyOffset, int stringIndex)
+{
+    size_t ofsFieldOffset = rowBodyOffset + TrackOfsStringsOffset + static_cast<size_t>(stringIndex) * 2;
+    uint16_t relOffset = readU16LE(buffer, ofsFieldOffset);
+    return rowBodyOffset + relOffset;
+}
+
+size_t artistNameAbsOffset(const std::string &buffer, size_t rowBodyOffset)
+{
+    uint16_t subtype = readU16LE(buffer, rowBodyOffset + ArtistSubtypeOffset);
+    uint16_t relOffset = (subtype & ArtistSubtypeFarNameFlag)
+                              ? readU16LE(buffer, rowBodyOffset + ArtistNameOffsetFar)
+                              : static_cast<uint8_t>(buffer.at(rowBodyOffset + ArtistNameOffsetNear));
+    return rowBodyOffset + relOffset;
+}
+
 // Loose but real sanity bounds -- real rekordbox exports use len_page
 // 4096; this just rejects an obviously-wrong-format file (wrong file
 // entirely, truncated header, garbage) before any offset math trusts
@@ -99,8 +218,18 @@ void validateLooksLikeRealPdb(const std::string &buffer)
 // Re-parses the fully edited buffer with the real generated parser --
 // a structural sanity check that a bug in this class produced something
 // still readable, run before the result is ever written to disk. Only
-// walks the two tables this class can edit; a full library scan isn't
+// walks the tables this class can edit; a full library scan isn't
 // needed to catch a broken row/page/header.
+//
+// Deliberately only forces row->body() (a row's fixed seq fields), not
+// the device_sql_string `instances` overwriteTrackText()/
+// overwriteArtistName()/overwritePlaylistName() write into (title/
+// comment/filename/file_path/name) -- those are validated far more
+// precisely by pdb_row_writer_string_test.cpp actually reading the
+// written text back through the real accessors, and forcing them here
+// unconditionally would trip on any row whose *other*, untouched string
+// fields simply happen not to be pointing at another real
+// device_sql_string (as in this file's own synthetic test fixture).
 bool reparsesCleanly(const std::string &buffer)
 {
     try {
@@ -108,7 +237,8 @@ bool reparsesCleanly(const std::string &buffer)
         kaitai::kstream ks(&iss);
         Pdb pdb(false, &ks);
         for (const auto &table : *pdb.tables()) {
-            if (table->type() != Pdb::PAGE_TYPE_TRACKS && table->type() != Pdb::PAGE_TYPE_PLAYLIST_ENTRIES) {
+            if (table->type() != Pdb::PAGE_TYPE_TRACKS && table->type() != Pdb::PAGE_TYPE_PLAYLIST_ENTRIES &&
+                table->type() != Pdb::PAGE_TYPE_ARTISTS && table->type() != Pdb::PAGE_TYPE_PLAYLIST_TREE) {
                 continue;
             }
             forEachDataPage(*table, [&](Pdb::page_t *page) {
@@ -324,6 +454,55 @@ size_t PdbRowWriter::copyTrackFieldsIfMissing(uint32_t donorTrackId, uint32_t ta
     }
     m_editedPageIndices.insert(target->pageIndex);
     return affected;
+}
+
+bool PdbRowWriter::overwriteTrackText(uint32_t trackId, const TrackTextOverride &text)
+{
+    auto found = findRow(m_buffer, Pdb::PAGE_TYPE_TRACKS, [&](kaitai::kstruct *body) {
+        auto *t = dynamic_cast<Pdb::track_row_t *>(body);
+        return t != nullptr && t->id() == trackId;
+    });
+    if (!found) {
+        return false;
+    }
+    overwriteDeviceSqlStringInPlace(m_buffer, trackStringAbsOffset(m_buffer, found->rowBodyOffset, TrackStringIndexTitle),
+                                     text.title);
+    overwriteDeviceSqlStringInPlace(
+        m_buffer, trackStringAbsOffset(m_buffer, found->rowBodyOffset, TrackStringIndexComment), text.comment);
+    overwriteDeviceSqlStringInPlace(
+        m_buffer, trackStringAbsOffset(m_buffer, found->rowBodyOffset, TrackStringIndexFilename), text.filename);
+    overwriteDeviceSqlStringInPlace(
+        m_buffer, trackStringAbsOffset(m_buffer, found->rowBodyOffset, TrackStringIndexFilePath), text.filePath);
+    m_editedPageIndices.insert(found->pageIndex);
+    return true;
+}
+
+bool PdbRowWriter::overwriteArtistName(uint32_t artistId, const std::string &text)
+{
+    auto found = findRow(m_buffer, Pdb::PAGE_TYPE_ARTISTS, [&](kaitai::kstruct *body) {
+        auto *a = dynamic_cast<Pdb::artist_row_t *>(body);
+        return a != nullptr && a->id() == artistId;
+    });
+    if (!found) {
+        return false;
+    }
+    overwriteDeviceSqlStringInPlace(m_buffer, artistNameAbsOffset(m_buffer, found->rowBodyOffset), text);
+    m_editedPageIndices.insert(found->pageIndex);
+    return true;
+}
+
+bool PdbRowWriter::overwritePlaylistName(uint32_t playlistId, const std::string &text)
+{
+    auto found = findRow(m_buffer, Pdb::PAGE_TYPE_PLAYLIST_TREE, [&](kaitai::kstruct *body) {
+        auto *p = dynamic_cast<Pdb::playlist_tree_row_t *>(body);
+        return p != nullptr && p->id() == playlistId;
+    });
+    if (!found) {
+        return false;
+    }
+    overwriteDeviceSqlStringInPlace(m_buffer, found->rowBodyOffset + PlaylistTreeNameOffset, text);
+    m_editedPageIndices.insert(found->pageIndex);
+    return true;
 }
 
 bool PdbRowWriter::repointPlaylistEntry(uint32_t playlistId, uint32_t oldTrackId, uint32_t newTrackId)

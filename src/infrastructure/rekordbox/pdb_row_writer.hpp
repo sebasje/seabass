@@ -74,6 +74,37 @@ public:
     size_t copyTrackFieldsIfMissing(uint32_t donorTrackId, uint32_t targetTrackId, bool copyKey, bool copyTempo,
                                      bool copyArtwork);
 
+    // A track's free-text fields, to be written into the row's existing
+    // device_sql_string spans in place -- see overwriteTrackText()'s own
+    // doc comment for how each is fit into its field's fixed byte budget.
+    struct TrackTextOverride
+    {
+        std::string title;
+        std::string comment;
+        std::string filename;
+        std::string filePath;
+    };
+
+    // Overwrites title/comment/filename/file_path on the track row with
+    // this id, each re-encoded into the *exact* on-disk byte span its
+    // current value already occupies: the containing device_sql_string's
+    // own length/kind header is never touched, so (like every other edit
+    // in this class) the row is never resized or reflowed. Text longer
+    // than the available span is truncated to fit; shorter text is
+    // right-padded with ASCII spaces. All four fields are always
+    // overwritten -- pass a field's current value if you don't want it
+    // to change. Returns false if no track with this id exists.
+    bool overwriteTrackText(uint32_t trackId, const TrackTextOverride &text);
+
+    // Overwrites an artist_row's name field the same way (near/far
+    // offset per specs/rekordbox_pdb.ksy's artist_row -- see the .cpp).
+    // Returns false if no artist with this id exists.
+    bool overwriteArtistName(uint32_t artistId, const std::string &text);
+
+    // Overwrites a playlist_tree_row's name field the same way. Returns
+    // false if no playlist/folder with this id exists.
+    bool overwritePlaylistName(uint32_t playlistId, const std::string &text);
+
     // For every playlist_entry row currently pointing at oldTrackId:
     // if that same playlist already has an entry for newTrackId,
     // removes the oldTrackId entry (avoids a duplicate); otherwise

@@ -118,6 +118,87 @@ int main()
         std::cout << "case 4 (deleting one backup leaves the other intact) OK\n";
     }
 
+    // prune(): removes only the oldest backups beyond keepCount, leaves
+    // the newest keepCount intact, and returns exactly the bytes freed.
+    {
+        fs::remove_all(backupsDir);
+        FilesystemBackupStore store(backupsDir.string());
+        // Same label for every call, matching case 4's own convention:
+        // ids are timestamp-*and*-label-prefixed, so distinct labels
+        // created within the same second wouldn't sort chronologically
+        // (lexical order would go by label text, not creation order) --
+        // the same label instead forces the "-1"/"-2"/... disambiguating
+        // suffix (filesystem_backup_store.cpp's own backup() comment),
+        // which *does* sort chronologically.
+        auto r1 = store.backup({targetFile.string()}, "sync");
+        auto r2 = store.backup({targetFile.string()}, "sync");
+        auto r3 = store.backup({targetFile.string()}, "sync");
+        auto r4 = store.backup({targetFile.string()}, "sync");
+        auto r5 = store.backup({targetFile.string()}, "sync");
+        assert(store.list().size() == 5);
+
+        auto beforeRecords = store.list();
+        std::uint64_t expectedFreed = 0;
+        for (const auto &r : beforeRecords) {
+            if (r.id == r1.id || r.id == r2.id) {
+                expectedFreed += r.sizeBytes;
+            }
+        }
+
+        auto freed = store.prune(3);
+        assert(freed == expectedFreed);
+        assert(freed > 0);
+
+        auto remaining = store.list();
+        assert(remaining.size() == 3);
+        for (const auto &r : remaining) {
+            assert(r.id != r1.id);  // oldest two: pruned
+            assert(r.id != r2.id);
+        }
+        bool has3 = false, has4 = false, has5 = false;
+        for (const auto &r : remaining) {
+            if (r.id == r3.id) has3 = true;
+            if (r.id == r4.id) has4 = true;
+            if (r.id == r5.id) has5 = true;
+        }
+        assert(has3 && has4 && has5);  // newest three: kept
+        std::cout << "case 5 (prune: removes only the oldest backups beyond keepCount) OK\n";
+    }
+
+    // prune(): asking to keep at least as many as exist is a genuine
+    // no-op -- nothing removed, 0 bytes freed, not an error and not an
+    // off-by-one that removes one anyway.
+    {
+        fs::remove_all(backupsDir);
+        FilesystemBackupStore store(backupsDir.string());
+        store.backup({targetFile.string()}, "one");
+        store.backup({targetFile.string()}, "two");
+        assert(store.list().size() == 2);
+
+        assert(store.prune(2) == 0);
+        assert(store.list().size() == 2);
+
+        assert(store.prune(10) == 0);  // keepCount well beyond what exists
+        assert(store.list().size() == 2);
+        std::cout << "case 6 (prune: keepCount >= existing count is a true no-op) OK\n";
+    }
+
+    // prune(0): the explicit "keep nothing" edge case removes every
+    // backup, not just every-but-one -- worth pinning down since off-
+    // by-one bugs love this exact boundary.
+    {
+        fs::remove_all(backupsDir);
+        FilesystemBackupStore store(backupsDir.string());
+        store.backup({targetFile.string()}, "one");
+        store.backup({targetFile.string()}, "two");
+        assert(store.list().size() == 2);
+
+        auto freed = store.prune(0);
+        assert(freed > 0);
+        assert(store.list().empty());
+        std::cout << "case 7 (prune(0): removes every backup, the true empty-keep edge case) OK\n";
+    }
+
     fs::remove_all(root);
     std::cout << "all cases passed\n";
     return 0;

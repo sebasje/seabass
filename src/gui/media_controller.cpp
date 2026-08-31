@@ -82,6 +82,19 @@ QHash<int, QByteArray> DetectedStickListModel::roleNames() const
     };
 }
 
+QVariantMap DetectedStickListModel::get(int row) const
+{
+    QVariantMap result;
+    if (row < 0 || static_cast<size_t>(row) >= m_sticks.size()) {
+        return result;
+    }
+    const auto roles = roleNames();
+    for (auto it = roles.constBegin(); it != roles.constEnd(); ++it) {
+        result.insert(QString::fromUtf8(it.value()), data(index(row), it.key()));
+    }
+    return result;
+}
+
 void DetectedStickListModel::setSticks(std::vector<application::DetectedStick> sticks)
 {
     beginResetModel();
