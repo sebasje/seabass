@@ -155,95 +155,6 @@ Page {
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
         }
-        ColumnLayout {
-            Layout.fillWidth: true
-            spacing: 4
-            visible: syncController.unresolvedConflicts.length > 0
-
-            Label {
-                text: "Unresolved conflicts (" + syncController.unresolvedConflicts.length + ")"
-                font.bold: true
-                color: Theme.warnText
-            }
-
-            // Bounded and independently scrollable (BigScrollBar, same as
-            // every other list in this app -- plansListView below gets
-            // the same treatment) rather than growing the whole page
-            // unboundedly: with many conflicts this would otherwise push
-            // the plan list, and eventually the page itself, past the
-            // window with no way to reach the rest.
-            ListView {
-                id: conflictListView
-                Layout.fillWidth: true
-                Layout.preferredHeight: Math.min(contentHeight, 420)
-                clip: true
-                spacing: 8
-                model: syncController.unresolvedConflicts
-                ScrollBar.vertical: BigScrollBar {}
-
-                delegate: Rectangle {
-                    id: conflictCard
-                    required property var modelData
-                    required property int index
-                    width: ListView.view.width
-                    color: Theme.warnBg
-                    border.color: Theme.warnBorder
-                    radius: 4
-                    height: conflictColumn.implicitHeight + 16
-
-                    ColumnLayout {
-                        id: conflictColumn
-                        anchors.fill: parent
-                        anchors.margins: 8
-                        spacing: 6
-
-                        Label {
-                            Layout.fillWidth: true
-                            wrapMode: Text.WordWrap
-                            color: Theme.warnText
-                            font.bold: true
-                            text: root.conflictHeading(conflictCard.modelData)
-                                + "  (" + root.formatLabel(conflictCard.modelData.targetFormat) + " needs cues, but "
-                                + root.formatLabel(conflictCard.modelData.sourceAFormat) + " and "
-                                + root.formatLabel(conflictCard.modelData.sourceBFormat) + " disagree)"
-                        }
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 12
-
-                            // Same investigation tools (waveform with cue
-                            // markers, Play, CueFallbackNotice) the
-                            // ordinary plan list below already gives each
-                            // side of a match -- a conflict deserves the
-                            // same look, not just a one-line summary.
-                            Repeater {
-                                model: [
-                                    { track: conflictCard.modelData.sourceATrack, format: conflictCard.modelData.sourceAFormat,
-                                      summary: conflictCard.modelData.sourceASummary, hasJunkCue: conflictCard.modelData.sourceAHasJunkCue, useSourceA: true },
-                                    { track: conflictCard.modelData.sourceBTrack, format: conflictCard.modelData.sourceBFormat,
-                                      summary: conflictCard.modelData.sourceBSummary, hasJunkCue: conflictCard.modelData.sourceBHasJunkCue, useSourceA: false }
-                                ]
-                                delegate: TrackWaveformCard {
-                                    required property var modelData
-                                    track: modelData.track
-                                    formatLabelText: root.formatLabel(modelData.format) + " (" + modelData.summary + ")"
-                                    actionButtonText: "Use this"
-                                    actionButtonTooltip: "Apply (and overwrite) these cue points to the other track"
-                                    onActionTriggered: syncController.resolveConflict(conflictCard.index, modelData.useSourceA)
-                                    hintText: modelData.hasJunkCue
-                                        ? "This side has a 0:00 memory cue that's usually accidental - consider cleaning it up in Clean Up before deciding."
-                                        : ""
-                                    playbackController: root.playbackController
-                                    playbackPath: root.pathForFormat(modelData.track.side)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
         Label {
             visible: !syncController.busy
             text: "DeviceLibrary tracks: " + syncController.rekordboxTrackCount
@@ -261,6 +172,92 @@ Page {
             model: syncController.plans
             spacing: 4
             ScrollBar.vertical: BigScrollBar {}
+
+            // One list, one scrollbar: unresolved conflicts need
+            // resolving before their track can sync at all, so they
+            // belong above the actionable plans, not in a second,
+            // separately-scrolled list next to them. A ListView header
+            // (not a second ListView) keeps this one virtualized list
+            // for the -- potentially thousands-long -- plans below,
+            // while the conflicts themselves (always few) render plainly
+            // via Repeater.
+            header: Column {
+                width: plansListView.width
+                spacing: 8
+                bottomPadding: visible ? 12 : 0
+                visible: syncController.unresolvedConflicts.length > 0
+                height: visible ? implicitHeight : 0
+
+                Label {
+                    text: "Unresolved conflicts (" + syncController.unresolvedConflicts.length + ")"
+                    font.bold: true
+                    color: Theme.warnText
+                }
+
+                Repeater {
+                    model: syncController.unresolvedConflicts
+                    delegate: Rectangle {
+                        id: conflictCard
+                        required property var modelData
+                        required property int index
+                        width: plansListView.width
+                        color: Theme.warnBg
+                        border.color: Theme.warnBorder
+                        radius: 4
+                        height: conflictColumn.implicitHeight + 16
+
+                        ColumnLayout {
+                            id: conflictColumn
+                            anchors.fill: parent
+                            anchors.margins: 8
+                            spacing: 6
+
+                            Label {
+                                Layout.fillWidth: true
+                                wrapMode: Text.WordWrap
+                                color: Theme.warnText
+                                font.bold: true
+                                text: root.conflictHeading(conflictCard.modelData)
+                                    + "  (" + root.formatLabel(conflictCard.modelData.targetFormat) + " needs cues, but "
+                                    + root.formatLabel(conflictCard.modelData.sourceAFormat) + " and "
+                                    + root.formatLabel(conflictCard.modelData.sourceBFormat) + " disagree)"
+                            }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 12
+
+                                // Same investigation tools (waveform with cue
+                                // markers, Play, CueFallbackNotice) the
+                                // ordinary plan list below already gives each
+                                // side of a match -- a conflict deserves the
+                                // same look, not just a one-line summary.
+                                Repeater {
+                                    model: [
+                                        { track: conflictCard.modelData.sourceATrack, format: conflictCard.modelData.sourceAFormat,
+                                          summary: conflictCard.modelData.sourceASummary, hasJunkCue: conflictCard.modelData.sourceAHasJunkCue, useSourceA: true },
+                                        { track: conflictCard.modelData.sourceBTrack, format: conflictCard.modelData.sourceBFormat,
+                                          summary: conflictCard.modelData.sourceBSummary, hasJunkCue: conflictCard.modelData.sourceBHasJunkCue, useSourceA: false }
+                                    ]
+                                    delegate: TrackWaveformCard {
+                                        required property var modelData
+                                        track: modelData.track
+                                        formatLabelText: root.formatLabel(modelData.format) + " (" + modelData.summary + ")"
+                                        actionButtonText: "Use this"
+                                        actionButtonTooltip: "Apply (and overwrite) these cue points to the other track"
+                                        onActionTriggered: syncController.resolveConflict(conflictCard.index, modelData.useSourceA)
+                                        hintText: modelData.hasJunkCue
+                                            ? "This side has a 0:00 memory cue that's usually accidental - consider cleaning it up in Clean Up before deciding."
+                                            : ""
+                                        playbackController: root.playbackController
+                                        playbackPath: root.pathForFormat(modelData.track.side)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
 
             delegate: Column {
                 id: delegateRoot
