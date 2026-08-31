@@ -32,7 +32,8 @@ void createFixture(const std::string &pioneerRoot)
     SqlCipherDb db(lib, dbPath, /*readOnly=*/false);
     db.exec("PRAGMA key = '" + key + "';");
     db.exec(
-        "CREATE TABLE content(content_id integer primary key, title varchar, path varchar);");
+        "CREATE TABLE content(content_id integer primary key, title varchar, path varchar, "
+        "bpmx100 integer, key_id integer, image_id integer);");
     db.exec(
         "CREATE TABLE cue(cue_id integer primary key, content_id integer, kind integer, "
         "colorTableIndex integer, cueComment varchar, isActiveLoop integer, inUsec integer, "
@@ -371,6 +372,224 @@ int main()
 
         fs::remove_all(relocated, ec);
         std::cout << "case 9 (writer against a relocated db resolves content paths via the real stick root) OK\n";
+    }
+
+    // Case 10: removeTrackByPathReplacingWith() moves the doomed row's
+    // playlist membership onto the survivor instead of dropping it.
+    // Regression test for a real bug: every OneLibrary-mirror call site
+    // in this codebase used to call plain removeTrackByPath() even when
+    // a survivor was in scope, silently losing playlist membership on
+    // every duplicate-cleanup/consistency-repair operation that touched
+    // OneLibrary.
+    {
+        fs::path scratch = freshScratch();
+        fs::path pioneerRoot = scratch / "PIONEER";
+        createFixture(pioneerRoot.string());
+        std::string doomedPath = (scratch / "Contents" / "Test Track.mp3").string();
+        std::string survivorPath = (scratch / "Contents" / "Survivor Track.mp3").string();
+
+        {
+            std::string key = deriveOneLibraryKey();
+            SqlCipherLibrary lib;
+            SqlCipherDb db(lib, OneLibraryCueWriter::dbPathFor(pioneerRoot.string()), /*readOnly=*/false);
+            db.exec("PRAGMA key = '" + key + "';");
+            db.exec(
+                "INSERT INTO content (content_id, title, path) VALUES (2, 'Survivor', "
+                "'/Contents/Survivor Track.mp3');");
+            // Doomed track (content_id 1, from createFixture) is in
+            // playlist 99. Survivor isn't in any playlist yet.
+            db.exec("INSERT INTO playlist_content (content_id, playlist_id, sequenceNo) VALUES (1, 99, 0);");
+        }
+
+        {
+            OneLibraryCueWriter writer(pioneerRoot.string());
+            writer.removeTrackByPathReplacingWith(doomedPath, survivorPath);
+        }
+
+        std::string key = deriveOneLibraryKey();
+        SqlCipherLibrary lib;
+        SqlCipherDb db(lib, OneLibraryCueWriter::dbPathFor(pioneerRoot.string()), /*readOnly=*/true);
+        db.exec("PRAGMA key = '" + key + "';");
+
+        SqlCipherStatement doomedGone(db, "SELECT count(*) FROM content WHERE content_id = 1");
+        doomedGone.step();
+        assert(doomedGone.columnInt64(0) == 0);
+
+        SqlCipherStatement survivorInPlaylist(db, "SELECT count(*) FROM playlist_content WHERE content_id = 2 AND playlist_id = 99");
+        survivorInPlaylist.step();
+        assert(survivorInPlaylist.columnInt64(0) == 1);
+
+        SqlCipherStatement doomedPlaylistGone(db, "SELECT count(*) FROM playlist_content WHERE content_id = 1");
+        doomedPlaylistGone.step();
+        assert(doomedPlaylistGone.columnInt64(0) == 0);
+
+        std::cout << "case 10 (removeTrackByPathReplacingWith reassigns playlist membership to the survivor) OK\n";
+    }
+
+    // Case 11: the dedup rule -- if the survivor is already in a
+    // playlist the doomed track was also in, that membership is just
+    // dropped, not duplicated into a second row for the same
+    // (playlist, survivor) pair. Matches PdbRowWriter::
+    // reassignPlaylistMemberships()'s own rule exactly.
+    {
+        fs::path scratch = freshScratch();
+        fs::path pioneerRoot = scratch / "PIONEER";
+        createFixture(pioneerRoot.string());
+        std::string doomedPath = (scratch / "Contents" / "Test Track.mp3").string();
+        std::string survivorPath = (scratch / "Contents" / "Survivor Track.mp3").string();
+
+        {
+            std::string key = deriveOneLibraryKey();
+            SqlCipherLibrary lib;
+            SqlCipherDb db(lib, OneLibraryCueWriter::dbPathFor(pioneerRoot.string()), /*readOnly=*/false);
+            db.exec("PRAGMA key = '" + key + "';");
+            db.exec(
+                "INSERT INTO content (content_id, title, path) VALUES (2, 'Survivor', "
+                "'/Contents/Survivor Track.mp3');");
+            // Both doomed (content_id 1) and survivor (content_id 2)
+            // are already in playlist 99.
+            db.exec("INSERT INTO playlist_content (content_id, playlist_id, sequenceNo) VALUES (1, 99, 0);");
+            db.exec("INSERT INTO playlist_content (content_id, playlist_id, sequenceNo) VALUES (2, 99, 1);");
+        }
+
+        {
+            OneLibraryCueWriter writer(pioneerRoot.string());
+            writer.removeTrackByPathReplacingWith(doomedPath, survivorPath);
+        }
+
+        std::string key = deriveOneLibraryKey();
+        SqlCipherLibrary lib;
+        SqlCipherDb db(lib, OneLibraryCueWriter::dbPathFor(pioneerRoot.string()), /*readOnly=*/true);
+        db.exec("PRAGMA key = '" + key + "';");
+
+        // Exactly one row for (playlist 99, survivor) -- not duplicated.
+        SqlCipherStatement survivorInPlaylist(db, "SELECT count(*) FROM playlist_content WHERE content_id = 2 AND playlist_id = 99");
+        survivorInPlaylist.step();
+        assert(survivorInPlaylist.columnInt64(0) == 1);
+
+        SqlCipherStatement doomedPlaylistGone(db, "SELECT count(*) FROM playlist_content WHERE content_id = 1");
+        doomedPlaylistGone.step();
+        assert(doomedPlaylistGone.columnInt64(0) == 0);
+
+        std::cout << "case 11 (removeTrackByPathReplacingWith dedups a playlist the survivor is already in) OK\n";
+    }
+
+    // Case 12: propagateMissingFieldsForPath copies the donor's raw
+    // bpmx100/key_id/image_id values directly onto the target row, read
+    // back through an independent connection.
+    {
+        fs::path scratch = freshScratch();
+        fs::path pioneerRoot = scratch / "PIONEER";
+        createFixture(pioneerRoot.string());
+        std::string donorPath = (scratch / "Contents" / "Test Track.mp3").string();
+        std::string targetPath = (scratch / "Contents" / "Target Track.mp3").string();
+
+        {
+            std::string key = deriveOneLibraryKey();
+            SqlCipherLibrary lib;
+            SqlCipherDb db(lib, OneLibraryCueWriter::dbPathFor(pioneerRoot.string()), /*readOnly=*/false);
+            db.exec("PRAGMA key = '" + key + "';");
+            // Donor (content_id 1, from createFixture) gets real values;
+            // target (content_id 2) starts with none.
+            db.exec("UPDATE content SET bpmx100 = 12800, key_id = 7, image_id = 42 WHERE content_id = 1;");
+            db.exec(
+                "INSERT INTO content (content_id, title, path) VALUES (2, 'Target', "
+                "'/Contents/Target Track.mp3');");
+        }
+
+        {
+            OneLibraryCueWriter writer(pioneerRoot.string());
+            writer.propagateMissingFieldsForPath(donorPath, targetPath, /*copyBpm=*/true, /*copyKey=*/true,
+                                                  /*copyArtwork=*/true);
+        }
+
+        std::string key = deriveOneLibraryKey();
+        SqlCipherLibrary lib;
+        SqlCipherDb db(lib, OneLibraryCueWriter::dbPathFor(pioneerRoot.string()), /*readOnly=*/true);
+        db.exec("PRAGMA key = '" + key + "';");
+
+        SqlCipherStatement target(db, "SELECT bpmx100, key_id, image_id FROM content WHERE content_id = 2");
+        assert(target.step());
+        assert(target.columnInt64(0) == 12800);
+        assert(target.columnInt64(1) == 7);
+        assert(target.columnInt64(2) == 42);
+
+        // Donor row itself is untouched.
+        SqlCipherStatement donor(db, "SELECT bpmx100, key_id, image_id FROM content WHERE content_id = 1");
+        assert(donor.step());
+        assert(donor.columnInt64(0) == 12800);
+        assert(donor.columnInt64(1) == 7);
+        assert(donor.columnInt64(2) == 42);
+
+        std::cout << "case 12 (propagateMissingFieldsForPath copies bpm/key/artwork from donor onto target) OK\n";
+    }
+
+    // Case 13: only one field flagged -- the others stay untouched
+    // (NULL) on the target.
+    {
+        fs::path scratch = freshScratch();
+        fs::path pioneerRoot = scratch / "PIONEER";
+        createFixture(pioneerRoot.string());
+        std::string donorPath = (scratch / "Contents" / "Test Track.mp3").string();
+        std::string targetPath = (scratch / "Contents" / "Target Track.mp3").string();
+
+        {
+            std::string key = deriveOneLibraryKey();
+            SqlCipherLibrary lib;
+            SqlCipherDb db(lib, OneLibraryCueWriter::dbPathFor(pioneerRoot.string()), /*readOnly=*/false);
+            db.exec("PRAGMA key = '" + key + "';");
+            db.exec("UPDATE content SET bpmx100 = 12800, key_id = 7, image_id = 42 WHERE content_id = 1;");
+            db.exec(
+                "INSERT INTO content (content_id, title, path) VALUES (2, 'Target', "
+                "'/Contents/Target Track.mp3');");
+        }
+
+        {
+            OneLibraryCueWriter writer(pioneerRoot.string());
+            writer.propagateMissingFieldsForPath(donorPath, targetPath, /*copyBpm=*/false, /*copyKey=*/true,
+                                                  /*copyArtwork=*/false);
+        }
+
+        std::string key = deriveOneLibraryKey();
+        SqlCipherLibrary lib;
+        SqlCipherDb db(lib, OneLibraryCueWriter::dbPathFor(pioneerRoot.string()), /*readOnly=*/true);
+        db.exec("PRAGMA key = '" + key + "';");
+
+        SqlCipherStatement target(db, "SELECT bpmx100, key_id, image_id FROM content WHERE content_id = 2");
+        assert(target.step());
+        assert(target.columnIsNull(0));
+        assert(target.columnInt64(1) == 7);
+        assert(target.columnIsNull(2));
+
+        std::cout << "case 13 (propagateMissingFieldsForPath: only the flagged field is copied) OK\n";
+    }
+
+    // Case 14: unknown donor or target path throws, never touches the db.
+    {
+        fs::path scratch = freshScratch();
+        fs::path pioneerRoot = scratch / "PIONEER";
+        createFixture(pioneerRoot.string());
+        std::string donorPath = (scratch / "Contents" / "Test Track.mp3").string();
+        std::string missingPath = (scratch / "Contents" / "Nonexistent.mp3").string();
+
+        OneLibraryCueWriter writer(pioneerRoot.string());
+        bool threw = false;
+        try {
+            writer.propagateMissingFieldsForPath(missingPath, donorPath, true, true, true);
+        } catch (const std::exception &) {
+            threw = true;
+        }
+        assert(threw);
+
+        threw = false;
+        try {
+            writer.propagateMissingFieldsForPath(donorPath, missingPath, true, true, true);
+        } catch (const std::exception &) {
+            threw = true;
+        }
+        assert(threw);
+
+        std::cout << "case 14 (propagateMissingFieldsForPath: unknown path throws) OK\n";
     }
 
     std::cout << "All onelibrary_cue_writer_test cases passed.\n";

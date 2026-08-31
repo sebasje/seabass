@@ -65,6 +65,15 @@ public:
     // false if no (playlistId, oldTrackId) row is found.
     bool repointPlaylistEntry(uint32_t playlistId, uint32_t oldTrackId, uint32_t newTrackId);
 
+    // Copies key/tempo/artwork_id directly from donorTrackId's row onto
+    // targetTrackId's row, for whichever of copyKey/copyTempo/
+    // copyArtwork is true -- used to fill in a Clean Up survivor's
+    // missing bpm/key/artwork from another copy in its duplicate group
+    // (see domain::DuplicateCleanupPlan). Returns how many fields were
+    // actually copied. Throws if either track id doesn't exist.
+    size_t copyTrackFieldsIfMissing(uint32_t donorTrackId, uint32_t targetTrackId, bool copyKey, bool copyTempo,
+                                     bool copyArtwork);
+
     // For every playlist_entry row currently pointing at oldTrackId:
     // if that same playlist already has an entry for newTrackId,
     // removes the oldTrackId entry (avoids a duplicate); otherwise

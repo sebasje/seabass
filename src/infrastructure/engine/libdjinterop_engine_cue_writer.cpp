@@ -5,6 +5,8 @@
 
 #include <djinterop/djinterop.hpp>
 
+#include "infrastructure/engine/rekordbox_key_parser.hpp"
+
 namespace seabass::infrastructure::engine
 {
 
@@ -82,6 +84,32 @@ void LibdjinteropEngineCueWriter::writeHotCues(const std::string &trackSourceId,
     track->set_hot_cues(slots);
     if (earliestMemoryCueMs) {
         track->set_main_cue(*earliestMemoryCueMs / 1000.0 * sampleRate);
+    }
+}
+
+void LibdjinteropEngineCueWriter::propagateMissingFields(const std::string &trackSourceId,
+                                                           std::optional<double> bpm, std::optional<std::string> key)
+{
+    if (!bpm && !key) {
+        return;
+    }
+    auto db = djinterop::engine::load_database(m_engineLibraryPath);
+    auto track = db.track_by_id(std::stoll(trackSourceId));
+    if (!track) {
+        throw std::runtime_error("no Engine track with id=" + trackSourceId);
+    }
+    if (bpm) {
+        track->set_bpm(*bpm);
+    }
+    if (key) {
+        // Reuses the exact same string->musical_key parser
+        // EngineLibraryCreator already relies on, so a key propagated
+        // from a rekordbox-sourced donor round-trips through the same
+        // pitch-class/mode matching a fresh rekordbox->Engine sync
+        // would've used -- not a second, divergent parsing path.
+        if (auto parsed = parseRekordboxKey(*key)) {
+            track->set_key(*parsed);
+        }
     }
 }
 

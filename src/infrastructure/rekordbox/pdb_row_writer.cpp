@@ -40,6 +40,19 @@ constexpr size_t PageSequenceOffset = 16;
 // playlist_entry_row: u4(entry_index) + u4(track_id) + u4(playlist_id) --
 // track_id starts right after entry_index.
 constexpr size_t PlaylistEntryTrackIdOffset = 4;
+// track_row: derived from specs/rekordbox_pdb.ksy's seq field layout,
+// confirmed against the generated parser's own _read() order (rekordbox_
+// pdb.cpp) -- subtype(u2)+index_shift(u2)+bitmask(u4)+sample_rate(u4)+
+// composer_id(u4)+file_size(u4)+unnamed(u4)+unnamed(u2)+unnamed(u2) = 28
+// bytes before artwork_id, then key_id right after it, then
+// original_artist_id/label_id/remixer_id/bitrate/track_number (5 x u4 =
+// 20 bytes) before tempo. All three are plain fixed-size u4 fields (no
+// variable-length data anywhere before them in the row), so -- like
+// PlaylistEntryTrackIdOffset above -- they're safe to overwrite in place
+// without touching the row's length or anything after it.
+constexpr size_t TrackArtworkIdOffset = 28;
+constexpr size_t TrackKeyIdOffset = 32;
+constexpr size_t TrackTempoOffset = 56;
 
 // Loose but real sanity bounds -- real rekordbox exports use len_page
 // 4096; this just rejects an obviously-wrong-format file (wrong file
@@ -264,6 +277,53 @@ bool PdbRowWriter::removePlaylistEntry(uint32_t playlistId, uint32_t trackId)
     writeU16LE(m_buffer, found->presentFlagsOffset, flags);
     m_editedPageIndices.insert(found->pageIndex);
     return true;
+}
+
+size_t PdbRowWriter::copyTrackFieldsIfMissing(uint32_t donorTrackId, uint32_t targetTrackId, bool copyKey,
+                                               bool copyTempo, bool copyArtwork)
+{
+    if (!copyKey && !copyTempo && !copyArtwork) {
+        return 0;
+    }
+    auto donor = findRow(m_buffer, Pdb::PAGE_TYPE_TRACKS, [&](kaitai::kstruct *body) {
+        auto *t = dynamic_cast<Pdb::track_row_t *>(body);
+        return t != nullptr && t->id() == donorTrackId;
+    });
+    if (!donor) {
+        throw std::runtime_error("no rekordbox track with id=" + std::to_string(donorTrackId));
+    }
+    auto target = findRow(m_buffer, Pdb::PAGE_TYPE_TRACKS, [&](kaitai::kstruct *body) {
+        auto *t = dynamic_cast<Pdb::track_row_t *>(body);
+        return t != nullptr && t->id() == targetTrackId;
+    });
+    if (!target) {
+        throw std::runtime_error("no rekordbox track with id=" + std::to_string(targetTrackId));
+    }
+
+    // Copies the donor's own already-valid field value/reference
+    // directly (e.g. key_id -> the same keys-table row the donor
+    // already points at) rather than re-deriving one from a parsed
+    // string/double -- simpler and exact, no risk of picking a
+    // different keys-table row for an enharmonically-equivalent
+    // spelling the way a fresh string parse could.
+    size_t affected = 0;
+    if (copyKey) {
+        uint32_t keyId = readU32LE(m_buffer, donor->rowBodyOffset + TrackKeyIdOffset);
+        writeU32LE(m_buffer, target->rowBodyOffset + TrackKeyIdOffset, keyId);
+        ++affected;
+    }
+    if (copyTempo) {
+        uint32_t tempo = readU32LE(m_buffer, donor->rowBodyOffset + TrackTempoOffset);
+        writeU32LE(m_buffer, target->rowBodyOffset + TrackTempoOffset, tempo);
+        ++affected;
+    }
+    if (copyArtwork) {
+        uint32_t artworkId = readU32LE(m_buffer, donor->rowBodyOffset + TrackArtworkIdOffset);
+        writeU32LE(m_buffer, target->rowBodyOffset + TrackArtworkIdOffset, artworkId);
+        ++affected;
+    }
+    m_editedPageIndices.insert(target->pageIndex);
+    return affected;
 }
 
 bool PdbRowWriter::repointPlaylistEntry(uint32_t playlistId, uint32_t oldTrackId, uint32_t newTrackId)
