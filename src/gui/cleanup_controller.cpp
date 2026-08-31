@@ -8,6 +8,7 @@
 #include <functional>
 #include <memory>
 #include <set>
+#include <unordered_map>
 
 #include "application/ports/backup_store.hpp"
 #include "application/ports/cue_writer.hpp"
@@ -15,6 +16,7 @@
 #include "application/ports/operation_log.hpp"
 #include "application/use_cases/scan_library.hpp"
 #include "domain/duplicate_cue_consolidation.hpp"
+#include "gui/onelibrary_cue_writer_adapter.hpp"
 #include "gui/qt_progress_reporter.hpp"
 #include "gui/write_guard.hpp"
 #include "infrastructure/backup/filesystem_backup_store.hpp"
@@ -26,8 +28,10 @@
 #include "infrastructure/engine/libdjinterop_engine_reader.hpp"
 #include "infrastructure/logging/file_operation_log.hpp"
 #include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
+#include "infrastructure/onelibrary/onelibrary_reader.hpp"
 #include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
+#include "infrastructure/rekordbox/pdb_row_writer.hpp"
 #include "infrastructure/rekordbox/rekordbox_cleanup_writer.hpp"
 #include "infrastructure/rekordbox/rekordbox_cue_writer.hpp"
 
@@ -65,17 +69,34 @@ std::uint64_t wastedBytes(const domain::DuplicateCleanupPlan &plan)
     return total;
 }
 
+// side/artworkPath/cues added so this can feed TrackWaveformCard
+// directly (same shape trackToMap() produces elsewhere in this app) --
+// deliberately no "waveform" field, see TrackWaveformCard.qml's own
+// comment: that's fetched on demand by QML, not precomputed here.
 QVariantMap trackSummary(const domain::Track &t)
 {
     QVariantMap m;
+    m["side"] = QString::fromStdString(t.format);
     m["sourceId"] = QString::fromStdString(t.sourceId);
     m["title"] = QString::fromStdString(t.title);
     m["artist"] = QString::fromStdString(t.artist);
     m["filePath"] = QString::fromStdString(t.filePath);
+    m["artworkPath"] = QString::fromStdString(t.artworkPath);
     m["bitrate"] = t.bitrate;
     m["durationMs"] = t.durationSeconds * 1000.0;
     m["sizeBytes"] = static_cast<qulonglong>(t.fileSizeBytes);
     m["sizeHuman"] = humanSize(t.fileSizeBytes);
+
+    QVariantList cues;
+    for (const auto &c : t.cues) {
+        QVariantMap cueMap;
+        cueMap["kind"] = c.kind == domain::CuePoint::Kind::Hot ? QStringLiteral("hot") : QStringLiteral("memory");
+        cueMap["hotCueNumber"] = c.hotCueNumber;
+        cueMap["positionMs"] = c.positionMs;
+        cueMap["color"] = QString::fromStdString(c.color);
+        cues << cueMap;
+    }
+    m["cues"] = cues;
     return m;
 }
 
@@ -110,6 +131,8 @@ QVariant CleanupPlanListModel::data(const QModelIndex &index, int role) const
     }
     case DiffersRole:
         return plan.differs;
+    case HasUnpreservableDataAtRiskRole:
+        return plan.hasUnpreservableDataAtRisk;
     case WastedBytesHumanRole:
         return humanSize(wastedBytes(plan));
     case NewCueCountRole:
@@ -140,6 +163,7 @@ QHash<int, QByteArray> CleanupPlanListModel::roleNames() const
         {SurvivorRole, "survivor"},
         {ToRemoveRole, "toRemove"},
         {DiffersRole, "differs"},
+        {HasUnpreservableDataAtRiskRole, "hasUnpreservableDataAtRisk"},
         {WastedBytesHumanRole, "wastedBytesHuman"},
         {NewCueCountRole, "newCueCount"},
         {IncludedRole, "included"},
@@ -152,9 +176,12 @@ void CleanupPlanListModel::setPlans(std::vector<domain::DuplicateCleanupPlan> pl
     m_plans = std::move(plans);
     m_included.assign(m_plans.size(), true);
     for (size_t i = 0; i < m_plans.size(); ++i) {
-        // Groups where quality and length disagree default to excluded,
-        // see DuplicateCleanupPlan::differs' own doc comment.
-        m_included[i] = !m_plans[i].differs;
+        // Groups where quality and length disagree, or where a copy
+        // carries real rating/comment/play-count/last-played data that
+        // would be silently lost, default to excluded -- see
+        // DuplicateCleanupPlan::differs and ::hasUnpreservableDataAtRisk's
+        // own doc comments (deliberately separate flags/reasons).
+        m_included[i] = !m_plans[i].differs && !m_plans[i].hasUnpreservableDataAtRisk;
     }
     m_visibleIndices.resize(m_plans.size());
     for (size_t i = 0; i < m_plans.size(); ++i) {
@@ -349,7 +376,12 @@ struct FormatContext
     std::string pioneerRoot;
 };
 
-FormatContext makeContext(const QString &format, const QString &path)
+// oneLibrarySourceIdToPath is only consulted when format == "onelibrary"
+// -- built by the caller from the tracks actually about to be written
+// (OneLibraryCueWriterAdapter/OneLibraryCleanupWriterAdapter's own
+// comments explain why sourceId alone isn't enough for this format).
+FormatContext makeContext(const QString &format, const QString &path,
+                           const std::unordered_map<std::string, std::string> &oneLibrarySourceIdToPath = {})
 {
     fs::path stickRoot = fs::path(path.toStdString()).parent_path();
 
@@ -376,12 +408,24 @@ FormatContext makeContext(const QString &format, const QString &path)
         if (infrastructure::onelibrary::OneLibraryCueWriter::existsFor(pioneerRoot)) {
             ctx.extraFilesToBackUp.push_back(infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(pioneerRoot));
         }
-    } else {
+    } else if (format == "engine") {
         std::string engineLibraryPath = path.toStdString();
         ctx.cueWriter = std::make_unique<infrastructure::engine::LibdjinteropEngineCueWriter>(engineLibraryPath);
         ctx.cleanupWriter = std::make_unique<infrastructure::engine::LibdjinteropEngineCleanupWriter>(engineLibraryPath);
         std::string engineDbFile = (fs::path(engineLibraryPath) / "Database2" / "m.db").string();
         ctx.filesToBackUpFor = [engineDbFile](const std::string &) -> std::vector<std::string> { return {engineDbFile}; };
+    } else {
+        // onelibrary. `path` here is the PIONEER root, same as the
+        // rekordbox branch -- OneLibrary lives alongside export.pdb, see
+        // DuplicatesController's own onelibrary branch for the same
+        // convention.
+        std::string pioneerRoot = path.toStdString();
+        ctx.cueWriter =
+            std::make_unique<OneLibraryCueWriterAdapter>(pioneerRoot, oneLibrarySourceIdToPath);
+        ctx.cleanupWriter =
+            std::make_unique<OneLibraryCleanupWriterAdapter>(pioneerRoot, oneLibrarySourceIdToPath);
+        ctx.extraFilesToBackUp = {infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(pioneerRoot)};
+        ctx.filesToBackUpFor = [](const std::string &) -> std::vector<std::string> { return {}; };
     }
     return ctx;
 }
@@ -400,7 +444,16 @@ CleanupWriteResult runApplyTask(QString format, QString path, std::vector<domain
         std::string backupDir = (fs::path(path.toStdString()).parent_path() / ".seabass-backups").string();
         infrastructure::backup::StickWriteLock lock(backupDir + "/.write.lock");
 
-        auto ctx = makeContext(format, path);
+        std::unordered_map<std::string, std::string> oneLibrarySourceIdToPath;
+        if (format == "onelibrary") {
+            for (const auto &plan : includedPlans) {
+                oneLibrarySourceIdToPath[plan.survivor.sourceId] = plan.survivor.filePath;
+                for (const auto &doomed : plan.toRemove) {
+                    oneLibrarySourceIdToPath[doomed.sourceId] = doomed.filePath;
+                }
+            }
+        }
+        auto ctx = makeContext(format, path, oneLibrarySourceIdToPath);
         infrastructure::cleanup::PendingDeletionManifest manifest(ctx.pendingDeletionManifestPath);
 
         std::set<std::string> backedUpFiles;
@@ -434,11 +487,25 @@ CleanupWriteResult runApplyTask(QString format, QString path, std::vector<domain
         int filesRemoved = 0;
         int cuesPreserved = 0;
         QStringList oneLibraryWarnings;
+        QStringList propagationWarnings;
 
         for (const auto &plan : includedPlans) {
             for (const auto &f : ctx.filesToBackUpFor(plan.survivor.sourceId)) {
                 backupIfNeeded(f);
             }
+
+            // sourceId -> filePath among this group's own tracks -- only
+            // OneLibrary's propagateMissingFieldsForPath() below needs
+            // this (it identifies tracks by path, not sourceId, same
+            // reason OneLibraryCueWriter's class comment gives).
+            auto findTrackFilePath = [&plan](const std::string &sourceId) -> std::string {
+                for (const auto &t : plan.group.tracks) {
+                    if (t.sourceId == sourceId) {
+                        return t.filePath;
+                    }
+                }
+                return {};
+            };
 
             if (plan.mergedCuesForSurvivor.size() > plan.survivor.cues.size()) {
                 ctx.cueWriter->writeHotCues(plan.survivor.sourceId, plan.mergedCuesForSurvivor);
@@ -467,6 +534,120 @@ CleanupWriteResult runApplyTask(QString format, QString path, std::vector<domain
                 }
             }
 
+            // Fills in the survivor's missing bpm/key/artwork from
+            // whichever other copy in the group has each (see
+            // domain::DuplicateCleanupPlan's own comment on why this is
+            // a per-field "fill a gap", not a merge -- each field may
+            // have come from a different donor track). Primary-format
+            // writes here are treated exactly like the merged-cues write
+            // above: NOT best-effort, a failure aborts the whole
+            // operation (caught by this function's own outer try). Only
+            // the OneLibrary *mirror* of a rekordbox write, below, is
+            // best-effort, same as the merged-cues mirror.
+            if (plan.bpmForSurvivor || plan.keyForSurvivor || plan.artworkPathForSurvivor) {
+                if (format == "rekordbox") {
+                    std::string pdbPath = ctx.pioneerRoot + "/rekordbox/export.pdb";
+                    infrastructure::rekordbox::PdbRowWriter fieldWriter(pdbPath);
+                    uint32_t survivorId = static_cast<uint32_t>(std::stoul(plan.survivor.sourceId));
+                    if (plan.keyForSurvivor) {
+                        fieldWriter.copyTrackFieldsIfMissing(
+                            static_cast<uint32_t>(std::stoul(plan.keyDonorSourceId)), survivorId, true, false, false);
+                    }
+                    if (plan.bpmForSurvivor) {
+                        fieldWriter.copyTrackFieldsIfMissing(
+                            static_cast<uint32_t>(std::stoul(plan.bpmDonorSourceId)), survivorId, false, true, false);
+                    }
+                    if (plan.artworkPathForSurvivor) {
+                        fieldWriter.copyTrackFieldsIfMissing(
+                            static_cast<uint32_t>(std::stoul(plan.artworkDonorSourceId)), survivorId, false, false,
+                            true);
+                    }
+                    if (!fieldWriter.commit()) {
+                        throw std::runtime_error("failed to write " + pdbPath);
+                    }
+                    ctx.log->record("cleanup: propagated missing bpm/key/artwork onto survivor track id=" +
+                                     plan.survivor.sourceId);
+                } else if (format == "engine") {
+                    // Artwork is deliberately not offered here -- Engine
+                    // track artwork isn't writable through libdjinterop
+                    // today, see propagateMissingFields()'s own doc
+                    // comment. ctx.cueWriter is always this concrete type
+                    // for format == "engine" (see makeContext()).
+                    auto *engineCueWriter =
+                        static_cast<infrastructure::engine::LibdjinteropEngineCueWriter *>(ctx.cueWriter.get());
+                    engineCueWriter->propagateMissingFields(plan.survivor.sourceId, plan.bpmForSurvivor,
+                                                              plan.keyForSurvivor);
+                    ctx.log->record("cleanup: propagated missing bpm/key onto survivor track id=" +
+                                     plan.survivor.sourceId);
+                } else if (format == "onelibrary") {
+                    infrastructure::onelibrary::OneLibraryCueWriter fieldWriter(path.toStdString());
+                    if (plan.keyForSurvivor) {
+                        std::string donorPath = findTrackFilePath(plan.keyDonorSourceId);
+                        if (!donorPath.empty() && !plan.survivor.filePath.empty()) {
+                            fieldWriter.propagateMissingFieldsForPath(donorPath, plan.survivor.filePath, false, true,
+                                                                       false);
+                        }
+                    }
+                    if (plan.bpmForSurvivor) {
+                        std::string donorPath = findTrackFilePath(plan.bpmDonorSourceId);
+                        if (!donorPath.empty() && !plan.survivor.filePath.empty()) {
+                            fieldWriter.propagateMissingFieldsForPath(donorPath, plan.survivor.filePath, true, false,
+                                                                       false);
+                        }
+                    }
+                    if (plan.artworkPathForSurvivor) {
+                        std::string donorPath = findTrackFilePath(plan.artworkDonorSourceId);
+                        if (!donorPath.empty() && !plan.survivor.filePath.empty()) {
+                            fieldWriter.propagateMissingFieldsForPath(donorPath, plan.survivor.filePath, false, false,
+                                                                       true);
+                        }
+                    }
+                    ctx.log->record("cleanup: propagated missing bpm/key/artwork onto survivor track id=" +
+                                     plan.survivor.sourceId);
+                }
+
+                // Best-effort mirror onto OneLibrary too, same reasoning
+                // and structure as the merged-cues mirror write above --
+                // only reachable when this run's primary format is
+                // rekordbox (format == "onelibrary" already wrote
+                // OneLibrary directly above, as the primary write).
+                if (format == "rekordbox" && !ctx.pioneerRoot.empty() && !plan.survivor.filePath.empty() &&
+                    infrastructure::onelibrary::OneLibraryCueWriter::existsFor(ctx.pioneerRoot)) {
+                    try {
+                        infrastructure::onelibrary::OneLibraryCueWriter oneLibFieldWriter(ctx.pioneerRoot);
+                        if (plan.keyForSurvivor) {
+                            std::string donorPath = findTrackFilePath(plan.keyDonorSourceId);
+                            if (!donorPath.empty()) {
+                                oneLibFieldWriter.propagateMissingFieldsForPath(donorPath, plan.survivor.filePath,
+                                                                                 false, true, false);
+                            }
+                        }
+                        if (plan.bpmForSurvivor) {
+                            std::string donorPath = findTrackFilePath(plan.bpmDonorSourceId);
+                            if (!donorPath.empty()) {
+                                oneLibFieldWriter.propagateMissingFieldsForPath(donorPath, plan.survivor.filePath,
+                                                                                 true, false, false);
+                            }
+                        }
+                        if (plan.artworkPathForSurvivor) {
+                            std::string donorPath = findTrackFilePath(plan.artworkDonorSourceId);
+                            if (!donorPath.empty()) {
+                                oneLibFieldWriter.propagateMissingFieldsForPath(donorPath, plan.survivor.filePath,
+                                                                                 false, false, true);
+                            }
+                        }
+                        ctx.log->record("cleanup: also propagated missing bpm/key/artwork into OneLibrary (id=" +
+                                         plan.survivor.sourceId + ")");
+                    } catch (const std::exception &e) {
+                        QString warning = QString("OneLibrary field propagation failed for \"%1\": %2")
+                                               .arg(QString::fromStdString(plan.survivor.title))
+                                               .arg(QString::fromStdString(e.what()));
+                        propagationWarnings << warning;
+                        ctx.log->record("cleanup: " + warning.toStdString());
+                    }
+                }
+            }
+
             for (const auto &doomed : plan.toRemove) {
                 ctx.cleanupWriter->removeTrackReplacingWith(doomed.sourceId, plan.survivor.sourceId);
                 ctx.log->record("cleanup: removed duplicate track id=" + doomed.sourceId + " (\"" + doomed.title +
@@ -478,11 +659,15 @@ CleanupWriteResult runApplyTask(QString format, QString path, std::vector<domain
                 // (this is exactly how real orphaned rows were found on
                 // production data, see docs/onelibrary-format.md).
                 // Never fatal to the primary write above.
-                if (!ctx.pioneerRoot.empty() && !doomed.filePath.empty() &&
+                if (!ctx.pioneerRoot.empty() && !doomed.filePath.empty() && !plan.survivor.filePath.empty() &&
                     infrastructure::onelibrary::OneLibraryCueWriter::existsFor(ctx.pioneerRoot)) {
                     try {
                         infrastructure::onelibrary::OneLibraryCueWriter oneLibWriter(ctx.pioneerRoot);
-                        oneLibWriter.removeTrackByPath(doomed.filePath);
+                        // Reassigns the doomed row's OneLibrary playlist
+                        // memberships onto the survivor instead of
+                        // dropping them -- see OneLibraryCueWriter::
+                        // removeTrackByPathReplacingWith()'s own comment.
+                        oneLibWriter.removeTrackByPathReplacingWith(doomed.filePath, plan.survivor.filePath);
                         ctx.log->record("cleanup: also removed OneLibrary row for id=" + doomed.sourceId);
                     } catch (const std::exception &e) {
                         QString warning = QString("OneLibrary row removal failed for \"%1\": %2")
@@ -520,6 +705,12 @@ CleanupWriteResult runApplyTask(QString format, QString path, std::vector<domain
                                              "above still succeeded and was not affected: %2)")
                                          .arg(oneLibraryWarnings.size())
                                          .arg(oneLibraryWarnings.join("; "));
+        }
+        if (!propagationWarnings.isEmpty()) {
+            result.statusMessage += QString(" (%1 OneLibrary bpm/key/artwork mirror write(s) failed. The primary "
+                                             "library write above still succeeded and was not affected: %2)")
+                                         .arg(propagationWarnings.size())
+                                         .arg(propagationWarnings.join("; "));
         }
     } catch (const std::exception &e) {
         result.errorMessage = QString::fromStdString(e.what());
@@ -656,6 +847,10 @@ CleanupTaskResult runRescanTask(QString format, QString path, std::shared_ptr<Qt
         std::vector<domain::Track> tracks;
         if (format == "rekordbox") {
             infrastructure::rekordbox::KaitaiRekordboxReader reader(path.toStdString());
+            reader.setProgressReporter(*reporter);
+            tracks = application::ScanLibrary(reader).execute();
+        } else if (format == "onelibrary") {
+            infrastructure::onelibrary::OneLibraryReader reader(path.toStdString());
             reader.setProgressReporter(*reporter);
             tracks = application::ScanLibrary(reader).execute();
         } else {

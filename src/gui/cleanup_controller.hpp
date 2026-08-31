@@ -36,6 +36,7 @@ public:
         WastedBytesHumanRole,
         NewCueCountRole,
         IncludedRole,
+        HasUnpreservableDataAtRiskRole,
     };
 
     explicit CleanupPlanListModel(QObject *parent = nullptr);

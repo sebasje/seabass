@@ -361,10 +361,15 @@ LibraryConsistencyWriteResult runRepairTask(QString format, QString path,
                                 "\"), replaced by survivor id=" + survivor.sourceId);
                     rowsRemoved++;
 
-                    if (hasOneLib && !broken.filePath.empty()) {
+                    if (hasOneLib && !broken.filePath.empty() && !survivor.filePath.empty()) {
                         try {
                             infrastructure::onelibrary::OneLibraryCueWriter oneLibWriter(pioneerRoot);
-                            oneLibWriter.removeTrackByPath(broken.filePath);
+                            // Reassigns playlist membership onto the
+                            // survivor instead of dropping it -- see
+                            // OneLibraryCueWriter::
+                            // removeTrackByPathReplacingWith()'s own
+                            // comment.
+                            oneLibWriter.removeTrackByPathReplacingWith(broken.filePath, survivor.filePath);
                         } catch (const std::exception &e) {
                             log.record(std::string("consistency: OneLibrary row removal failed: ") + e.what());
                         }
@@ -414,7 +419,7 @@ LibraryConsistencyWriteResult runRepairTask(QString format, QString path,
                     log.record("consistency: merged cues onto survivor \"" + survivor.title + "\"");
                 }
                 for (const auto &broken : issue.brokenGroup) {
-                    writer.removeTrackByPath(broken.filePath);
+                    writer.removeTrackByPathReplacingWith(broken.filePath, survivor.filePath);
                     log.record("consistency: removed broken row \"" + broken.title + "\"");
                     rowsRemoved++;
                 }

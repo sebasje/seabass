@@ -87,7 +87,44 @@ public:
     // changed since this writer was constructed (staleness guard), or if
     // the post-commit read-back doesn't show the row actually gone.
     // Same "secondary, best-effort write" caution applies to callers.
+    //
+    // Deliberately does NOT reassign playlist membership to any other
+    // row -- there's no replacement in scope here (a genuinely orphaned
+    // row, see removeTrackByPathReplacingWith() below for the case where
+    // there is one). Callers that DO have a survivor to reassign to must
+    // use that instead: using this method there would silently drop the
+    // doomed row's playlist membership instead of preserving it, exactly
+    // the failure application::LibraryCleanupWriter::
+    // removeTrackReplacingWith()'s own contract exists to prevent for
+    // every other format's writer -- confirmed as a real, already-shipped
+    // bug in this codebase's own OneLibrary-mirror call sites before this
+    // second method was added to fix it.
     void removeTrackByPath(const std::string &filePath);
+
+    // Same removal as removeTrackByPath(), except the doomed row's
+    // playlist memberships are reassigned to survivorFilePath's row
+    // first, not dropped -- for callers that have a real survivor in
+    // scope (a duplicate-consolidation cleanup, not a genuine orphan).
+    // Matches PdbRowWriter::reassignPlaylistMemberships()'s own
+    // dedup rule exactly: if the survivor is already in a playlist the
+    // doomed row was also in, that membership is just dropped (not
+    // duplicated) rather than inserting a second row for the same
+    // (playlist, survivor) pair.
+    void removeTrackByPathReplacingWith(const std::string &doomedFilePath, const std::string &survivorFilePath);
+
+    // Fills in a Clean Up survivor's missing bpm/key/artwork from
+    // another copy in its duplicate group (see domain::
+    // DuplicateCleanupPlan). Copies the donor row's own already-valid
+    // bpmx100/key_id/image_id column values directly onto the target
+    // row -- key_id/image_id are references into the key/image tables,
+    // so this reuses whichever row the donor already points at rather
+    // than re-deriving a lookup from a parsed key string or artwork
+    // file path. Each of copyBpm/copyKey/copyArtwork independently
+    // opts that one field in; throws if either path has no matching
+    // content row, or if the file changed since this writer was
+    // constructed (same staleness guard as writeCuesForPath()).
+    void propagateMissingFieldsForPath(const std::string &donorFilePath, const std::string &targetFilePath,
+                                        bool copyBpm, bool copyKey, bool copyArtwork);
 
 private:
     std::string m_pioneerRoot;

@@ -279,6 +279,7 @@ ApplicationWindow {
         id: cleanupPageComponent
         CleanupPage {
             appSettingsController: appSettingsCtrl
+            playbackController: playbackCtrl
         }
     }
 

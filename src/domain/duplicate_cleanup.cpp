@@ -50,6 +50,27 @@ size_t bestIndex(const std::vector<Track> &tracks, Score score)
     return best;
 }
 
+// True if some track about to be removed carries a value `get` doesn't
+// find on the survivor -- checked against the survivor specifically,
+// NOT "are there 2+ distinct values anywhere in the group": a group
+// where only ONE doomed copy (not the survivor) has a value, and every
+// other copy including the survivor has none, has exactly one distinct
+// value in the whole group, but removing that doomed copy still
+// silently discards the only copy of it. That's a real loss and must be
+// flagged, even though nothing in the group technically "disagrees".
+template<typename Get>
+bool losesDataFromRemoval(const Track &survivor, const std::vector<Track> &toRemove, Get get)
+{
+    auto survivorValue = get(survivor);
+    for (const auto &doomed : toRemove) {
+        auto doomedValue = get(doomed);
+        if (doomedValue.has_value() && doomedValue != survivorValue) {
+            return true;
+        }
+    }
+    return false;
+}
+
 }  // namespace
 
 DuplicateCleanupPlan DuplicateCleanupPlanner::plan(const DuplicateGroup &group)
@@ -98,6 +119,55 @@ DuplicateCleanupPlan DuplicateCleanupPlanner::plan(const DuplicateGroup &group)
         merged = LocalRestorePlanner::mergeCues(merged, group.tracks[i].cues);
     }
     result.mergedCuesForSurvivor = std::move(merged);
+
+    // Fill-a-gap propagation: only when the survivor itself lacks the
+    // field, and only the first donor found (deterministic group order)
+    // -- there's exactly one bpm/key/artwork to end up with, not several
+    // to reconcile, unlike cues above.
+    if (result.survivor.bpm <= 0.0) {
+        for (size_t i = 0; i < group.tracks.size(); ++i) {
+            if (i != survivorIndex && group.tracks[i].bpm > 0.0) {
+                result.bpmForSurvivor = group.tracks[i].bpm;
+                result.bpmDonorSourceId = group.tracks[i].sourceId;
+                break;
+            }
+        }
+    }
+    if (result.survivor.key.empty()) {
+        for (size_t i = 0; i < group.tracks.size(); ++i) {
+            if (i != survivorIndex && !group.tracks[i].key.empty()) {
+                result.keyForSurvivor = group.tracks[i].key;
+                result.keyDonorSourceId = group.tracks[i].sourceId;
+                break;
+            }
+        }
+    }
+    if (result.survivor.artworkPath.empty()) {
+        for (size_t i = 0; i < group.tracks.size(); ++i) {
+            if (i != survivorIndex && !group.tracks[i].artworkPath.empty()) {
+                result.artworkPathForSurvivor = group.tracks[i].artworkPath;
+                result.artworkDonorSourceId = group.tracks[i].sourceId;
+                break;
+            }
+        }
+    }
+
+    // Real, currently-unpreservable per-copy data: rating/comment/
+    // playCount/lastPlayedAt are never propagated by this planner or any
+    // writer, unlike bpm/key/artwork above -- so a genuine disagreement
+    // here means removing the other copies really would discard one of
+    // these values with no way to keep it.
+    bool ratingLoses = losesDataFromRemoval(result.survivor, result.toRemove,
+                                             [](const Track &t) -> std::optional<int> { return t.rating; });
+    bool commentLoses =
+        losesDataFromRemoval(result.survivor, result.toRemove, [](const Track &t) -> std::optional<std::string> {
+            return t.comment.empty() ? std::nullopt : std::optional<std::string>(t.comment);
+        });
+    bool playCountLoses = losesDataFromRemoval(result.survivor, result.toRemove,
+                                                [](const Track &t) -> std::optional<int> { return t.playCount; });
+    bool lastPlayedLoses = losesDataFromRemoval(result.survivor, result.toRemove,
+                                                 [](const Track &t) { return t.lastPlayedAt; });
+    result.hasUnpreservableDataAtRisk = ratingLoses || commentLoses || playCountLoses || lastPlayedLoses;
 
     return result;
 }

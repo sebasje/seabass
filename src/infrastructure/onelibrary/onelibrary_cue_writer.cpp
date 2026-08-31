@@ -289,4 +289,209 @@ void OneLibraryCueWriter::removeTrackByPath(const std::string &filePath)
     m_originalMtime = fs::last_write_time(m_dbPath, refreshEc);
 }
 
+void OneLibraryCueWriter::removeTrackByPathReplacingWith(const std::string &doomedFilePath,
+                                                           const std::string &survivorFilePath)
+{
+    // Same staleness guard as writeCuesForPath(), see its own comment
+    // for the reasoning.
+    std::error_code statEc;
+    auto currentSize = fs::file_size(m_dbPath, statEc);
+    auto currentMtime = fs::last_write_time(m_dbPath, statEc);
+    if (statEc || currentSize != m_originalFileSize || currentMtime != m_originalMtime) {
+        throw std::runtime_error("onelibrary: " + m_dbPath +
+                                  " changed since this writer was opened, refusing to write a stale copy");
+    }
+
+    std::string doomedContentPath = toContentPath(m_stickRoot, doomedFilePath);
+    std::string survivorContentPath = toContentPath(m_stickRoot, survivorFilePath);
+    std::string key = deriveOneLibraryKey();
+
+    SqlCipherLibrary lib;
+    {
+        SqlCipherDb db(lib, m_dbPath, /*readOnly=*/false);
+        db.exec("PRAGMA key = '" + key + "';");
+
+        int64_t doomedId = -1;
+        {
+            SqlCipherStatement find(db, "SELECT content_id FROM content WHERE path = ?");
+            find.bindText(1, doomedContentPath);
+            if (!find.step()) {
+                throw std::runtime_error("onelibrary: no content row for path " + doomedContentPath);
+            }
+            doomedId = find.columnInt64(0);
+        }
+        int64_t survivorId = -1;
+        {
+            SqlCipherStatement find(db, "SELECT content_id FROM content WHERE path = ?");
+            find.bindText(1, survivorContentPath);
+            if (!find.step()) {
+                throw std::runtime_error("onelibrary: no content row for path " + survivorContentPath);
+            }
+            survivorId = find.columnInt64(0);
+        }
+
+        db.exec("BEGIN IMMEDIATE;");
+        try {
+            {
+                SqlCipherStatement delBank(db,
+                                            "DELETE FROM hotCueBankList_cue WHERE cue_id IN "
+                                            "(SELECT cue_id FROM cue WHERE content_id = ?)");
+                delBank.bindInt64(1, doomedId);
+                delBank.run();
+            }
+            {
+                SqlCipherStatement delCue(db, "DELETE FROM cue WHERE content_id = ?");
+                delCue.bindInt64(1, doomedId);
+                delCue.run();
+            }
+            {
+                // Reassign the doomed row's playlist memberships onto the
+                // survivor first (matches PdbRowWriter::
+                // reassignPlaylistMemberships()'s own dedup rule exactly):
+                // a playlist the survivor is already in is left alone --
+                // its doomed-side entry is just dropped below, not turned
+                // into a second row for the same (playlist, survivor)
+                // pair. Everything else genuinely moves.
+                SqlCipherStatement reassign(db,
+                                             "UPDATE playlist_content SET content_id = ? WHERE content_id = ? "
+                                             "AND playlist_id NOT IN "
+                                             "(SELECT playlist_id FROM playlist_content WHERE content_id = ?)");
+                reassign.bindInt64(1, survivorId);
+                reassign.bindInt64(2, doomedId);
+                reassign.bindInt64(3, survivorId);
+                reassign.run();
+            }
+            {
+                // Whatever's left under doomedId at this point is exactly
+                // the memberships the UPDATE above skipped (survivor
+                // already had them) -- safe to drop outright now.
+                SqlCipherStatement delPlaylist(db, "DELETE FROM playlist_content WHERE content_id = ?");
+                delPlaylist.bindInt64(1, doomedId);
+                delPlaylist.run();
+            }
+            {
+                SqlCipherStatement delContent(db, "DELETE FROM content WHERE content_id = ?");
+                delContent.bindInt64(1, doomedId);
+                delContent.run();
+            }
+            db.exec("COMMIT;");
+        } catch (...) {
+            try {
+                db.exec("ROLLBACK;");
+            } catch (...) {
+            }
+            throw;
+        }
+    }  // db closed here
+
+    // Correctness verification: re-open fresh and confirm the doomed row
+    // is gone AND the survivor's own row still exists (a broken
+    // survivor-lookup above would otherwise silently produce a no-op
+    // reassignment followed by a real deletion, losing memberships
+    // instead of moving them).
+    SqlCipherLibrary verifyLib;
+    SqlCipherDb verifyDb(verifyLib, m_dbPath, /*readOnly=*/true);
+    verifyDb.exec("PRAGMA key = '" + key + "';");
+    {
+        SqlCipherStatement verify(verifyDb, "SELECT count(*) FROM content WHERE path = ?");
+        verify.bindText(1, doomedContentPath);
+        verify.step();
+        if (verify.columnInt64(0) != 0) {
+            throw std::runtime_error("onelibrary: post-removal verification failed, content row still present");
+        }
+    }
+    {
+        SqlCipherStatement verify(verifyDb, "SELECT count(*) FROM content WHERE path = ?");
+        verify.bindText(1, survivorContentPath);
+        verify.step();
+        if (verify.columnInt64(0) != 1) {
+            throw std::runtime_error("onelibrary: post-removal verification failed, survivor content row missing");
+        }
+    }
+
+    std::error_code refreshEc;
+    m_originalFileSize = fs::file_size(m_dbPath, refreshEc);
+    m_originalMtime = fs::last_write_time(m_dbPath, refreshEc);
+}
+
+void OneLibraryCueWriter::propagateMissingFieldsForPath(const std::string &donorFilePath,
+                                                          const std::string &targetFilePath, bool copyBpm,
+                                                          bool copyKey, bool copyArtwork)
+{
+    if (!copyBpm && !copyKey && !copyArtwork) {
+        return;
+    }
+
+    std::error_code statEc;
+    auto currentSize = fs::file_size(m_dbPath, statEc);
+    auto currentMtime = fs::last_write_time(m_dbPath, statEc);
+    if (statEc || currentSize != m_originalFileSize || currentMtime != m_originalMtime) {
+        throw std::runtime_error("onelibrary: " + m_dbPath +
+                                  " changed since this writer was opened, refusing to write a stale copy");
+    }
+
+    std::string donorContentPath = toContentPath(m_stickRoot, donorFilePath);
+    std::string targetContentPath = toContentPath(m_stickRoot, targetFilePath);
+    std::string key = deriveOneLibraryKey();
+
+    SqlCipherLibrary lib;
+    SqlCipherDb db(lib, m_dbPath, /*readOnly=*/false);
+    db.exec("PRAGMA key = '" + key + "';");
+
+    int64_t donorId = -1;
+    {
+        SqlCipherStatement find(db, "SELECT content_id FROM content WHERE path = ?");
+        find.bindText(1, donorContentPath);
+        if (!find.step()) {
+            throw std::runtime_error("onelibrary: no content row for path " + donorContentPath);
+        }
+        donorId = find.columnInt64(0);
+    }
+    int64_t targetId = -1;
+    {
+        SqlCipherStatement find(db, "SELECT content_id FROM content WHERE path = ?");
+        find.bindText(1, targetContentPath);
+        if (!find.step()) {
+            throw std::runtime_error("onelibrary: no content row for path " + targetContentPath);
+        }
+        targetId = find.columnInt64(0);
+    }
+
+    db.exec("BEGIN IMMEDIATE;");
+    try {
+        if (copyBpm) {
+            SqlCipherStatement copy(db, "UPDATE content SET bpmx100 = (SELECT bpmx100 FROM content WHERE "
+                                         "content_id = ?) WHERE content_id = ?");
+            copy.bindInt64(1, donorId);
+            copy.bindInt64(2, targetId);
+            copy.run();
+        }
+        if (copyKey) {
+            SqlCipherStatement copy(db, "UPDATE content SET key_id = (SELECT key_id FROM content WHERE "
+                                         "content_id = ?) WHERE content_id = ?");
+            copy.bindInt64(1, donorId);
+            copy.bindInt64(2, targetId);
+            copy.run();
+        }
+        if (copyArtwork) {
+            SqlCipherStatement copy(db, "UPDATE content SET image_id = (SELECT image_id FROM content WHERE "
+                                         "content_id = ?) WHERE content_id = ?");
+            copy.bindInt64(1, donorId);
+            copy.bindInt64(2, targetId);
+            copy.run();
+        }
+        db.exec("COMMIT;");
+    } catch (...) {
+        try {
+            db.exec("ROLLBACK;");
+        } catch (...) {
+        }
+        throw;
+    }
+
+    std::error_code refreshEc;
+    m_originalFileSize = fs::file_size(m_dbPath, refreshEc);
+    m_originalMtime = fs::last_write_time(m_dbPath, refreshEc);
+}
+
 }  // namespace seabass::infrastructure::onelibrary

@@ -143,11 +143,20 @@ std::string readFile(const fs::path &path)
 // generated parser and reports which track ids and (playlist,track)
 // entries are present. This is what proves an edit actually did (and
 // only did) what it claims.
+struct TrackFields
+{
+    uint32_t id = 0;
+    uint32_t keyId = 0;
+    uint32_t tempo = 0;
+    uint32_t artworkId = 0;
+};
+
 struct ReadBack
 {
     std::vector<uint32_t> presentTrackIds;
     std::vector<std::pair<uint32_t, uint32_t>> presentEntries;  // (playlistId, trackId)
     std::vector<uint32_t> presentEntryTrackIdsForPlaylist1;
+    std::vector<TrackFields> trackFields;
 };
 
 ReadBack readBack(const fs::path &path)
@@ -167,6 +176,8 @@ ReadBack readBack(const fs::path &path)
                         auto *t = dynamic_cast<Pdb::track_row_t *>(row->body());
                         if (t) {
                             result.presentTrackIds.push_back(t->id());
+                            result.trackFields.push_back(
+                                TrackFields{t->id(), t->key_id(), t->tempo(), t->artwork_id()});
                         }
                     }
                 }
@@ -208,6 +219,16 @@ bool containsEntry(const std::vector<std::pair<uint32_t, uint32_t>> &v, uint32_t
 uint32_t pageSequence(const std::string &buf, uint32_t pageIndex)
 {
     return readU32LE(buf, static_cast<size_t>(LenPage) * pageIndex + 16);
+}
+
+std::optional<TrackFields> findTrackFields(const ReadBack &rb, uint32_t id)
+{
+    for (const auto &f : rb.trackFields) {
+        if (f.id == id) {
+            return f;
+        }
+    }
+    return std::nullopt;
 }
 
 }  // namespace
@@ -409,6 +430,94 @@ int main()
         assert(!writer.commit());
         assert(readFile(pdbPath) == externallyModified);
         std::cout << "case 8 (file changed since construction -> commit() refuses) OK\n";
+    }
+
+    // copyTrackFieldsIfMissing: track 101 (donor) has real key_id/tempo/
+    // artwork_id; track 100 (target) has none of them (all zero, same as
+    // the pristine fixture). Copying all three should land exactly the
+    // donor's raw values on the target row, leaving the donor untouched.
+    {
+        constexpr size_t HeapStart = 40;
+        constexpr size_t TrackRowSize = 136;
+        constexpr size_t TrackArtworkIdOffset = 28;
+        constexpr size_t TrackKeyIdOffset = 32;
+        constexpr size_t TrackTempoOffset = 56;
+        size_t page1 = LenPage * 1;
+        size_t donorRowStart = page1 + HeapStart + TrackRowSize;  // track id=101
+
+        std::string withDonorFields = pristine;
+        writeU32LE(withDonorFields, donorRowStart + TrackKeyIdOffset, 7);
+        writeU32LE(withDonorFields, donorRowStart + TrackTempoOffset, 12800);  // 128.00 bpm, fixed-point
+        writeU32LE(withDonorFields, donorRowStart + TrackArtworkIdOffset, 42);
+        writeFile(pdbPath, withDonorFields);
+
+        PdbRowWriter writer(pdbPath.string());
+        assert(writer.copyTrackFieldsIfMissing(101, 100, true, true, true) == 3);
+        assert(writer.commit());
+
+        auto rb = readBack(pdbPath);
+        auto target = findTrackFields(rb, 100);
+        auto donor = findTrackFields(rb, 101);
+        assert(target.has_value() && donor.has_value());
+        assert(target->keyId == 7);
+        assert(target->tempo == 12800);
+        assert(target->artworkId == 42);
+        assert(donor->keyId == 7);  // donor row itself untouched
+        assert(donor->tempo == 12800);
+        assert(donor->artworkId == 42);
+        std::cout << "case 9 (copyTrackFieldsIfMissing: copies key/tempo/artwork from donor onto target) OK\n";
+    }
+
+    // copyTrackFieldsIfMissing: only one field flagged -- the other two
+    // stay untouched (zero) on the target, and the return count reflects
+    // just the one field actually copied.
+    {
+        constexpr size_t HeapStart = 40;
+        constexpr size_t TrackRowSize = 136;
+        constexpr size_t TrackKeyIdOffset = 32;
+        size_t page1 = LenPage * 1;
+        size_t donorRowStart = page1 + HeapStart + TrackRowSize;  // track id=101
+
+        std::string withDonorFields = pristine;
+        writeU32LE(withDonorFields, donorRowStart + TrackKeyIdOffset, 9);
+        writeFile(pdbPath, withDonorFields);
+
+        PdbRowWriter writer(pdbPath.string());
+        assert(writer.copyTrackFieldsIfMissing(101, 100, true, false, false) == 1);
+        assert(writer.commit());
+
+        auto rb = readBack(pdbPath);
+        auto target = findTrackFields(rb, 100);
+        assert(target.has_value());
+        assert(target->keyId == 9);
+        assert(target->tempo == 0);
+        assert(target->artworkId == 0);
+        std::cout << "case 10 (copyTrackFieldsIfMissing: only the flagged field is copied) OK\n";
+    }
+
+    // copyTrackFieldsIfMissing: unknown donor or target track id throws,
+    // never marks anything dirty.
+    {
+        writeFile(pdbPath, pristine);
+        PdbRowWriter writer(pdbPath.string());
+        bool threw = false;
+        try {
+            writer.copyTrackFieldsIfMissing(999999, 100, true, true, true);
+        } catch (const std::exception &) {
+            threw = true;
+        }
+        assert(threw);
+
+        threw = false;
+        try {
+            writer.copyTrackFieldsIfMissing(101, 999999, true, true, true);
+        } catch (const std::exception &) {
+            threw = true;
+        }
+        assert(threw);
+        assert(!writer.commit());
+        assert(readFile(pdbPath) == pristine);
+        std::cout << "case 11 (copyTrackFieldsIfMissing: unknown track id throws, no edit) OK\n";
     }
 
     std::cout << "all cases passed\n";

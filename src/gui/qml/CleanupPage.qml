@@ -9,6 +9,7 @@ Page {
     required property string rekordboxPath
     required property string enginePath
     required property var appSettingsController
+    required property var playbackController
 
     readonly property bool hasRekordbox: rekordboxPath.length > 0
     readonly property bool hasEngine: enginePath.length > 0
@@ -20,6 +21,11 @@ Page {
     }
     function currentPath() {
         return root.format === "engine" ? root.enginePath : root.rekordboxPath;
+    }
+    function formatLabel(format) {
+        if (format === "engine") return "Engine";
+        if (format === "onelibrary") return "OneLibrary";
+        return "Rekordbox";
     }
     readonly property bool hasOneLibrary: root.hasRekordbox && cleanupController.hasOneLibrary(root.rekordboxPath)
 
@@ -72,10 +78,12 @@ Page {
                     font.pointSize: Theme.fontLarge
                 }
                 Item { Layout.fillWidth: true }
-                FormatToggle {
-                    appSettingsController: root.appSettingsController
+                LibrarySourceToggle {
+                    current: root.format
                     hasRekordbox: root.hasRekordbox
                     hasEngine: root.hasEngine
+                    hasOneLibrary: root.hasOneLibrary
+                    onSourceRequested: (value) => root.appSettingsController.preferredFormat = value
                 }
             }
 
@@ -226,6 +234,7 @@ Page {
                 required property var survivor
                 required property var toRemove
                 required property bool differs
+                required property bool hasUnpreservableDataAtRisk
                 required property string wastedBytesHuman
                 required property int newCueCount
                 required property bool included
@@ -263,6 +272,11 @@ Page {
                                 text: "  ⚠ copies differ"
                                 color: Theme.conflictText
                             }
+                            Label {
+                                visible: delegateRoot.hasUnpreservableDataAtRisk
+                                text: "  ⚠ data would be lost"
+                                color: Theme.conflictText
+                            }
                             Item { Layout.fillWidth: true }
                             Label {
                                 text: delegateRoot.expanded ? "▾" : "▸"
@@ -280,12 +294,18 @@ Page {
                             Layout.fillWidth: true
                             wrapMode: Text.WordWrap
                             text: "Conserved: cues (merged, never lost) and playlist membership on both formats. "
-                                + "Every playlist a removed copy was in now points at the kept copy instead."
+                                + "Every playlist a removed copy was in now points at the kept copy instead. "
+                                + "If the kept copy is missing bpm, musical key"
+                                + (root.format === "engine" ? "" : ", or artwork")
+                                + " and another copy has it, that's filled in too"
+                                + (root.format === "engine"
+                                    ? " (artwork isn't included: Engine's library format has no way to write it back)."
+                                    : ".")
                                 + (root.hasOneLibrary
                                     ? " Also mirrored into OneLibrary (exportLibrary.db), including removing the "
                                       + "duplicate's own OneLibrary row."
                                     : "")
-                                + " Not conserved yet: rating, color tag, genre and other tag fields on the "
+                                + " Not conserved: rating, comment, play count, and last-played date on the "
                                 + "removed copies aren't copied over."
                             color: Theme.textMuted
                             font.italic: true
@@ -298,6 +318,16 @@ Page {
                             text: "These copies differ in quality and length. The higher-bitrate copy isn't the "
                                 + "longest one. This may be intentional (e.g. a shorter edit kept for specific "
                                 + "hardware), so this group is excluded by default. Check it above to include it anyway."
+                            color: Theme.conflictText
+                        }
+                        Label {
+                            visible: delegateRoot.hasUnpreservableDataAtRisk
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                            text: "These copies have different rating, comment, play count, or last-played data, "
+                                + "none of which carries over to the kept copy. Removing the others would permanently "
+                                + "lose whichever values didn't happen to land on the kept copy, so this group is "
+                                + "excluded by default. Check it above to include it anyway."
                             color: Theme.conflictText
                         }
                     }
@@ -317,35 +347,40 @@ Page {
                         anchors.margins: 8
                         spacing: 8
 
-                        Label {
-                            Layout.fillWidth: true
-                            text: "Kept copy (id=" + delegateRoot.survivor.sourceId + ")"
-                            font.bold: true
-                            color: Theme.good
-                        }
-                        Label {
-                            Layout.fillWidth: true
-                            text: (delegateRoot.survivor.bitrate > 0 ? delegateRoot.survivor.bitrate + " kbps, " : "")
+                        // Richer per-copy view (waveform + real cues, not
+                        // just bitrate/duration/size) so it's directly
+                        // visible -- not just claimed in the text above --
+                        // that a removed copy's cues really do end up on
+                        // the kept one. Status pill makes which is which
+                        // impossible to miss at a glance.
+                        TrackWaveformCard {
+                            track: delegateRoot.survivor
+                            formatLabelText: root.formatLabel(delegateRoot.survivor.side) + " - "
+                                + (delegateRoot.survivor.bitrate > 0 ? delegateRoot.survivor.bitrate + " kbps, " : "")
                                 + root.formatDuration(delegateRoot.survivor.durationMs) + ", "
                                 + delegateRoot.survivor.sizeHuman
-                            color: Theme.textMuted
+                            statusBadgeText: "KEEPING"
+                            statusBadgeBg: Theme.groupBackground
+                            statusBadgeBorder: Theme.good
+                            statusBadgeTextColor: Theme.good
+                            playbackController: root.playbackController
+                            playbackPath: root.currentPath()
                         }
 
-                        Label {
-                            Layout.fillWidth: true
-                            text: "Removed cop" + (delegateRoot.toRemove.length === 1 ? "y" : "ies")
-                            font.bold: true
-                            Layout.topMargin: 8
-                        }
                         Repeater {
                             model: delegateRoot.toRemove
-                            delegate: Label {
-                                Layout.fillWidth: true
+                            delegate: TrackWaveformCard {
                                 required property var modelData
-                                text: "id=" + modelData.sourceId + " - "
+                                track: modelData
+                                formatLabelText: root.formatLabel(modelData.side) + " - "
                                     + (modelData.bitrate > 0 ? modelData.bitrate + " kbps, " : "")
                                     + root.formatDuration(modelData.durationMs) + ", " + modelData.sizeHuman
-                                color: Theme.textMuted
+                                statusBadgeText: "REMOVING"
+                                statusBadgeBg: Theme.dangerBg
+                                statusBadgeBorder: Theme.dangerBorder
+                                statusBadgeTextColor: Theme.dangerText
+                                playbackController: root.playbackController
+                                playbackPath: root.currentPath()
                             }
                         }
                     }

@@ -16,6 +16,19 @@ RowLayout {
     property bool hasRekordbox: true
     property bool hasEngine: true
     property bool hasOneLibrary: true
+    // Distinct from hasOneLibrary: a page can have a real OneLibrary
+    // export present (hasOneLibrary true) but still not support it for
+    // the specific operation this toggle drives -- e.g. CleanupPage's
+    // destructive removal, which needs OneLibraryCueWriter to reassign a
+    // removed track's playlist membership to the survivor and doesn't
+    // yet (see cleanup_controller.cpp's own comment). Defaults to
+    // mirroring hasOneLibrary, so a page that never sets this keeps the
+    // exact same enabled/disabled behavior as before this existed.
+    property bool oneLibrarySupported: hasOneLibrary
+    // Overrides the disabled tooltip specifically for the "present but
+    // not supported here" case above -- the default tooltip below
+    // ("Not present on this export") would be actively wrong there.
+    property string oneLibraryUnsupportedReason: ""
     // Not named currentChanged -- `property string current` already
     // auto-generates that signal (with no arguments) for its own change
     // notification; declaring another signal with the same name here
@@ -84,14 +97,20 @@ RowLayout {
         glyph: "◈"
         label: "OneLibrary"
         checked: root.current === "onelibrary"
-        enabled: root.hasOneLibrary
+        enabled: root.hasOneLibrary && root.oneLibrarySupported
         ButtonGroup.group: group
         ToolTip.visible: hovered
-        ToolTip.text: root.hasOneLibrary
-            ? "Rekordbox 7's newer unified library format (exportLibrary.db) -- mirrors the Device "
-                + "Library's tracks in a richer schema. You can add cues here directly; merging "
-                + "duplicates isn't supported on this catalog yet."
-            : "Not present on this export -- OneLibrary only exists on newer rekordbox exports."
+        ToolTip.text: {
+            if (!root.hasOneLibrary) {
+                return "Not present on this export -- OneLibrary only exists on newer rekordbox exports.";
+            }
+            if (!root.oneLibrarySupported && root.oneLibraryUnsupportedReason.length > 0) {
+                return root.oneLibraryUnsupportedReason;
+            }
+            return "Rekordbox 7's newer unified library format (exportLibrary.db) -- mirrors the Device "
+                + "Library's tracks in a richer schema. You can add cues here directly, and duplicate "
+                + "cues can be copied across copies the same way as the other two catalogs.";
+        }
         onClicked: root.sourceRequested("onelibrary")
     }
 }

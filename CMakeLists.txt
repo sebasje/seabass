@@ -531,6 +531,15 @@ target_include_directories(libdjinterop_engine_cleanup_writer_test PRIVATE src)
 target_link_libraries(libdjinterop_engine_cleanup_writer_test PRIVATE DjInterop)
 add_test(NAME libdjinterop_engine_cleanup_writer_test COMMAND libdjinterop_engine_cleanup_writer_test)
 
+add_executable(libdjinterop_engine_cue_writer_propagate_test
+    src/infrastructure/engine/libdjinterop_engine_cue_writer.cpp
+    src/infrastructure/engine/rekordbox_key_parser.cpp
+    tests/libdjinterop_engine_cue_writer_propagate_test.cpp
+)
+target_include_directories(libdjinterop_engine_cue_writer_propagate_test PRIVATE src)
+target_link_libraries(libdjinterop_engine_cue_writer_propagate_test PRIVATE DjInterop)
+add_test(NAME libdjinterop_engine_cue_writer_propagate_test COMMAND libdjinterop_engine_cue_writer_propagate_test)
+
 add_executable(pending_deletion_manifest_test
     src/infrastructure/cleanup/pending_deletion_manifest.cpp
     tests/pending_deletion_manifest_test.cpp
@@ -563,6 +572,21 @@ if(NOT WIN32)
     target_link_libraries(onelibrary_cue_writer_test PRIVATE ${CMAKE_DL_LIBS})
 endif()
 add_test(NAME onelibrary_cue_writer_test COMMAND onelibrary_cue_writer_test)
+
+add_executable(onelibrary_cue_writer_adapter_test
+    src/application/ports/progress_reporter.cpp
+    src/infrastructure/onelibrary/onelibrary_key.cpp
+    src/infrastructure/onelibrary/sqlcipher_dyn.cpp
+    src/infrastructure/onelibrary/onelibrary_cue_writer.cpp
+    src/infrastructure/onelibrary/onelibrary_reader.cpp
+    tests/onelibrary_cue_writer_adapter_test.cpp
+)
+target_include_directories(onelibrary_cue_writer_adapter_test PRIVATE src)
+target_link_libraries(onelibrary_cue_writer_adapter_test PRIVATE ZLIB::ZLIB)
+if(NOT WIN32)
+    target_link_libraries(onelibrary_cue_writer_adapter_test PRIVATE ${CMAKE_DL_LIBS})
+endif()
+add_test(NAME onelibrary_cue_writer_adapter_test COMMAND onelibrary_cue_writer_adapter_test)
 
 # Covers OneLibraryReader::readAll(), the read side (content/artist/key/
 # image/playlist/cue joins), independent of the write-path fixture above.
