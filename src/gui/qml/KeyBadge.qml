@@ -43,7 +43,7 @@ Item {
 
         Label {
             anchors.centerIn: parent
-            text: root.keyName
+            text: root.camelot
             font.bold: true
             font.pointSize: Theme.fontSmall
             color: Theme.contrastingTextColor(parent.color)
@@ -54,7 +54,7 @@ Item {
             anchors.fill: parent
             hoverEnabled: true
             ToolTip.visible: containsMouse
-            ToolTip.text: "Camelot " + root.camelot
+            ToolTip.text: "Key: " + root.keyName
         }
     }
 }

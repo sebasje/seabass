@@ -57,6 +57,10 @@ qt_add_qml_module(seabass
         qml/AppSettingsPage.qml
         qml/AnonymizeLibraryPage.qml
         qml/InfoButton.qml
+        qml/PageTitle.qml
+        qml/Subtitle.qml
+        qml/TableHeaderLabel.qml
+        qml/StatValue.qml
         qml/UsbStickIcon.qml
         qml/StickWriteWarning.qml
         qml/RekordboxRunningWarning.qml

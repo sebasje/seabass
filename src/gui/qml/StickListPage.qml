@@ -65,10 +65,9 @@ Page {
         spacing: 12
 
         RowLayout {
-            Label {
+            PageTitle {
                 text: "USB Sticks"
-                font.bold: true
-                font.pointSize: Theme.fontXLarge
+                level: "page"
             }
             Item { Layout.fillWidth: true }
             ToolButton {
@@ -189,11 +188,9 @@ Page {
                                 spacing: 2
                                 RowLayout {
                                     Layout.fillWidth: true
-                                    Label {
+                                    Subtitle {
                                         text: delegateRoot.label
                                         color: Theme.text
-                                        font.bold: true
-                                        font.pointSize: Theme.baseFontPointSize * 1.2
                                     }
                                     Label {
                                         text: delegateRoot.mounted ? "" : "(not mounted)"

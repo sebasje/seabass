@@ -191,4 +191,29 @@ QtObject {
     readonly property real fontLarge: baseFontPointSize * 1.4
     readonly property real fontXLarge: baseFontPointSize * 1.6
     readonly property real fontHuge: baseFontPointSize * 2.2
+
+    // ---- Titles -- a dedicated (non-bold) display face + scale, set once
+    // here and consumed only via PageTitle.qml, so every page title stays
+    // consistent. Falls back to the platform's default sans if "Manrope"
+    // isn't installed, same as this app already does elsewhere for named
+    // fonts (e.g. "Noto Sans Symbols2" for the warning glyph) -- no font
+    // is bundled with the app.
+    readonly property string titleFamily: "Manrope"
+    readonly property int titleWeight: Font.Medium
+    readonly property real titleMedium: baseFontPointSize * 2.0
+    readonly property real titleLarge: baseFontPointSize * 2.6
+
+    // ---- Rest of the type system -- see docs/design/type-scale.html.
+    // Subtitle/card title share the title family, just smaller than a
+    // page title; table headers and stat values get their own dedicated
+    // (mono, for tabular figures) family so numeric columns actually
+    // line up. Card titles get their own weight, a step heavier than
+    // titleWeight -- at card-title size, Medium next to the card's own
+    // muted description text didn't read as distinct enough. ----
+    readonly property real subtitleSize: baseFontPointSize * 1.3
+    readonly property int cardTitleWeight: Font.DemiBold
+    readonly property real cardTitleSize: baseFontPointSize * 1.15
+    readonly property string dataFamily: "IBM Plex Mono"
+    readonly property real dataSize: baseFontPointSize * 1.8
+    readonly property real tableHeaderSize: baseFontPointSize * 0.85
 }

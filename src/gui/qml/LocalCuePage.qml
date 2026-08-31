@@ -74,10 +74,8 @@ Page {
                     ? "Wait for the write to finish before leaving this page" : "Back"
                 onClicked: root.StackView.view.pop()
             }
-            Label {
-                text: root.stickLabel + " -- Local Cue Backup"
-                font.bold: true
-                font.pointSize: Theme.fontLarge
+            PageTitle {
+                text: root.stickLabel + " · Local Cue Backup"
             }
             Item { Layout.fillWidth: true }
         }

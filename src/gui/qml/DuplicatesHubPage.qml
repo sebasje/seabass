@@ -75,10 +75,8 @@ Page {
                 ToolTip.text: "Back"
                 onClicked: root.StackView.view.pop()
             }
-            Label {
-                text: root.stickLabel + " - Clean-up and Housekeeping"
-                font.bold: true
-                font.pointSize: Theme.fontLarge
+            PageTitle {
+                text: root.stickLabel + " · Clean-up and Housekeeping"
             }
             Item { Layout.fillWidth: true }
         }

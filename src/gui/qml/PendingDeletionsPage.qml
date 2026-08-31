@@ -56,10 +56,8 @@ Page {
                     ? "Wait for the write to finish before leaving this page" : "Back"
                 onClicked: root.StackView.view.pop()
             }
-            Label {
-                text: root.stickLabel + " -- Delete Orphaned Files"
-                font.bold: true
-                font.pointSize: Theme.fontLarge
+            PageTitle {
+                text: root.stickLabel + " · Delete Orphaned Files"
             }
             Item { Layout.fillWidth: true }
             FormatToggle {

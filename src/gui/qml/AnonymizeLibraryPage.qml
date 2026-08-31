@@ -95,10 +95,8 @@ Page {
                 ToolTip.text: controller.busy ? "Wait for it to finish before leaving this page" : "Back"
                 onClicked: root.StackView.view.pop()
             }
-            Label {
+            PageTitle {
                 text: "Export Anonymized Library"
-                font.bold: true
-                font.pointSize: Theme.fontLarge
             }
             Item { Layout.fillWidth: true }
             BusyIndicator { running: controller.busy; visible: controller.busy; implicitWidth: 20; implicitHeight: 20 }
@@ -135,7 +133,7 @@ Page {
             }
 
             GroupBox {
-                title: "Source library"
+                label: Subtitle { text: "Source library" }
                 Layout.fillWidth: true
                 ColumnLayout {
                     anchors.fill: parent
@@ -177,7 +175,7 @@ Page {
             }
 
             GroupBox {
-                title: "Output folder"
+                label: Subtitle { text: "Output folder" }
                 Layout.fillWidth: true
                 ColumnLayout {
                     anchors.fill: parent
@@ -239,7 +237,7 @@ Page {
             }
 
             GroupBox {
-                title: "For the submission (optional; saved into MANIFEST.txt as entered)"
+                label: Subtitle { text: "For the submission (optional; saved into MANIFEST.txt as entered)" }
                 Layout.fillWidth: true
                 ColumnLayout {
                     anchors.fill: parent
@@ -347,7 +345,7 @@ Page {
                 }
 
                 GroupBox {
-                    title: "MANIFEST.txt"
+                    label: Subtitle { text: "MANIFEST.txt" }
                     Layout.fillWidth: true
                     ScrollView {
                         anchors.fill: parent

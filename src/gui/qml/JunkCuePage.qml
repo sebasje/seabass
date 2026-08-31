@@ -55,10 +55,8 @@ Page {
                     ? "Wait for the write to finish before leaving this page" : "Back"
                 onClicked: root.StackView.view.pop()
             }
-            Label {
-                text: root.stickLabel + " - Clean Up Stray Cues"
-                font.bold: true
-                font.pointSize: Theme.fontLarge
+            PageTitle {
+                text: root.stickLabel + " · Clean Up Stray Cues"
             }
             Item { Layout.fillWidth: true }
             RowLayout {

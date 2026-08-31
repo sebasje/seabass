@@ -34,10 +34,8 @@ Page {
                 ToolTip.text: "Back"
                 onClicked: root.StackView.view.pop()
             }
-            Label {
+            PageTitle {
                 text: "App Settings"
-                font.bold: true
-                font.pointSize: Theme.fontLarge
             }
             Item { Layout.fillWidth: true }
         }
@@ -49,9 +47,8 @@ Page {
         anchors.margins: 24
         spacing: 12
 
-        Label {
+        Subtitle {
             text: "Theme"
-            font.bold: true
         }
         ButtonGroup { id: themeGroup }
         RadioButton {
@@ -67,9 +64,8 @@ Page {
             onCheckedChanged: if (checked) root.appSettingsController.useSystemTheme = true
         }
 
-        Label {
+        Subtitle {
             text: "Streaming tracks"
-            font.bold: true
             Layout.topMargin: 12
         }
         CheckBox {
@@ -83,7 +79,6 @@ Page {
                 + "only controls whether they show up in Browse Library at all."
             color: Theme.textMuted
             font.pointSize: Theme.fontSmall
-            font.italic: true
         }
 
         // Absent entirely in a build compiled with SEABASS_EXPERIMENTAL
@@ -97,9 +92,8 @@ Page {
             Layout.fillWidth: true
             spacing: 8
 
-            Label {
+            Subtitle {
                 text: "Experimental features"
-                font.bold: true
             }
 
             // Always visible in this section, not just when checked --
