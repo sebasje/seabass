@@ -142,9 +142,6 @@ void AnonymizeLibraryController::run(const QString &rekordboxPath, const QString
 void AnonymizeLibraryController::onRunFinished()
 {
     AnonymizeLibraryTaskResult result = m_watcher.result();
-    qWarning("SEABASS_DEBUG onRunFinished: succeeded=%d summaryLen=%d manifestLen=%d outputDir=%s errLen=%d",
-             (int) result.succeeded, (int) result.summaryText.size(), (int) result.manifestText.size(),
-             qPrintable(result.outputDir), (int) result.errorMessage.size());
     setBusy(false);
     if (!result.succeeded) {
         setErrorMessage(result.errorMessage.isEmpty() ? "Anonymization failed." : result.errorMessage);
@@ -153,7 +150,6 @@ void AnonymizeLibraryController::onRunFinished()
     m_summaryText = result.summaryText;
     m_manifestText = result.manifestText;
     m_outputDir = result.outputDir;
-    qWarning("SEABASS_DEBUG after assign: m_summaryText.size=%d", (int) m_summaryText.size());
     emit resultChanged();
 }
 
