@@ -113,12 +113,20 @@ AnonymizeLibraryController::AnonymizeLibraryController(QObject *parent) : QObjec
 std::shared_ptr<QtProgressReporter> AnonymizeLibraryController::makeReporter()
 {
     auto reporter = std::make_shared<QtProgressReporter>();
+    // Two sequential phases (rekordbox, then Engine) previously each called
+    // setProgress(0, total) here, so the bar visibly restarted from 0% at
+    // the halfway point -- looked like the whole operation had reset, not
+    // like phase two beginning. Folding the previous phase's total into a
+    // running baseline (only ever grows, reset just once in run()) keeps
+    // the bar moving forward through both phases as one continuous run.
     connect(reporter.get(), &QtProgressReporter::started, this, [this](const QString &label, int total) {
         setCurrentPhase(label);
-        setProgress(0, total);
+        m_phaseBaseline += m_currentPhaseTotal;
+        m_currentPhaseTotal = total;
+        setProgress(m_phaseBaseline, m_phaseBaseline + total);
     });
     connect(reporter.get(), &QtProgressReporter::progressed, this,
-            [this](int current) { setProgress(current, m_progressTotal); });
+            [this](int current) { setProgress(m_phaseBaseline + current, m_progressTotal); });
     return reporter;
 }
 
@@ -133,6 +141,8 @@ void AnonymizeLibraryController::run(const QString &rekordboxPath, const QString
     m_manifestText.clear();
     m_outputDir.clear();
     emit resultChanged();
+    m_phaseBaseline = 0;
+    m_currentPhaseTotal = 0;
     setProgress(0, 0);
     setBusy(true);
     m_watcher.setFuture(

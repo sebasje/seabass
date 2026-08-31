@@ -71,12 +71,20 @@ EngineLibraryCreatorController::EngineLibraryCreatorController(QObject *parent) 
 std::shared_ptr<QtProgressReporter> EngineLibraryCreatorController::makeReporter()
 {
     auto reporter = std::make_shared<QtProgressReporter>();
+    // Scan, then create, then copy-to-stick each used to call
+    // setScanProgress(0, total) here, so the bar visibly restarted from 0%
+    // at every phase boundary -- looked like the operation kept resetting,
+    // not progressing. Folding each finished phase's total into a running
+    // baseline (only ever grows, reset just once in create()) keeps the
+    // bar moving forward through every phase as one continuous run.
     connect(reporter.get(), &QtProgressReporter::started, this, [this](const QString &label, int total) {
         setCurrentPhase(label);
-        setScanProgress(0, total);
+        m_phaseBaseline += m_currentPhaseTotal;
+        m_currentPhaseTotal = total;
+        setScanProgress(m_phaseBaseline, m_phaseBaseline + total);
     });
     connect(reporter.get(), &QtProgressReporter::progressed, this,
-            [this](int current) { setScanProgress(current, m_scanTotal); });
+            [this](int current) { setScanProgress(m_phaseBaseline + current, m_scanTotal); });
     return reporter;
 }
 
@@ -87,6 +95,8 @@ void EngineLibraryCreatorController::create(const QString &rekordboxPath, int sc
     }
     setErrorMessage({});
     setStatusMessage({});
+    m_phaseBaseline = 0;
+    m_currentPhaseTotal = 0;
     setScanProgress(0, 0);
     setBusy(true);
     m_watcher.setFuture(QtConcurrent::run(runCreateTask, rekordboxPath, schemaGeneration, makeReporter()));
