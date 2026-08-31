@@ -282,8 +282,8 @@ Page {
                             onClicked: root.browseRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
                         }
                         ActionCard {
-                            cardTitle: "Deduplication"
-                            cardSubtitle: "Stats, sync metadata across copies, and clean up"
+                            cardTitle: "Clean-up and Housekeeping"
+                            cardSubtitle: "Duplicate stats, sync metadata across copies, and clean up"
                             cardIcon: "▣"
                             enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
                             onClicked: root.duplicateTracksHubRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
