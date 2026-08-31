@@ -60,6 +60,13 @@ public:
     void setPlans(std::vector<domain::SyncPlan> plans,
                   std::unordered_map<std::string, std::vector<domain::WaveformColumn>> waveformsByKey = {});
     const std::vector<domain::SyncPlan> &plans() const { return m_plans; }
+    // For rendering unresolvedConflicts with the same waveform+cue
+    // display the plan list already uses -- see SyncController::
+    // rebuildUnresolvedConflictsList().
+    const std::unordered_map<std::string, std::vector<domain::WaveformColumn>> &waveformsByKey() const
+    {
+        return m_waveformsByKey;
+    }
 
     // Appends one plan without disturbing the rest (in particular,
     // m_waveformsByKey, which setPlans() would otherwise reset) -- for a

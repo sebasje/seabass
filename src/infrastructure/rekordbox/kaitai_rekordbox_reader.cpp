@@ -16,24 +16,43 @@ using Pdb = rekordbox_pdb_t;
 using Anlz = rekordbox_anlz_t;
 namespace domain = seabass::domain;
 
+std::string rekordboxCueColor(bool hasRgb, unsigned char r, unsigned char g, unsigned char b, int colorId)
+{
+    if (hasRgb) {
+        char buf[8];
+        std::snprintf(buf, sizeof(buf), "#%02X%02X%02X", r, g, b);
+        return buf;
+    }
+    // color_id == 0 is documented (community ANLZ reverse-engineering,
+    // e.g. crate-digger) as "no color", the same nxs1-era legacy slot
+    // Rekordbox itself falls back to displaying an uncolored pad from.
+    // Previously returned as the literal string "0", which doesn't match
+    // any other format's own "no color" representation (see
+    // libdjinterop_engine_reader.cpp's colorHex()) -- cueSetsEqual()'s
+    // exact color comparison was treating every uncolored cue pair as a
+    // real conflict because of this string mismatch alone, confirmed as
+    // the actual cause of a full batch of "genuine" cross-source sync
+    // conflicts that weren't genuine at all.
+    if (colorId == 0) {
+        return "";
+    }
+    return std::to_string(colorId);
+}
+
 namespace
 {
 
-// Extended cue color, when present (color_code/red/green/blue), as
-// "#RRGGBB"; falls back to the legacy color_id as a bare number, since
-// nxs2-era hot cues store their color there rather than in color_id.
-//
-// Takes a non-const reference because the generated _is_null_*()/accessor
-// methods are not declared const (they lazily compute and cache the field
-// on first access).
+// Non-const reference because the generated _is_null_*()/accessor
+// methods are not declared const (they lazily compute and cache the
+// field on first access). Thin wrapper around rekordboxCueColor() (see
+// that function's own doc comment in the header for the actual logic
+// and why it matters) -- extracted there specifically so it has direct
+// unit test coverage without needing a full parsed ANLZ file.
 std::string cueColor(Anlz::cue_extended_entry_t &cue)
 {
-    if (!cue._is_null_color_red() && !cue._is_null_color_green() && !cue._is_null_color_blue()) {
-        char buf[8];
-        std::snprintf(buf, sizeof(buf), "#%02X%02X%02X", cue.color_red(), cue.color_green(), cue.color_blue());
-        return buf;
-    }
-    return std::to_string(static_cast<int>(cue.color_id()));
+    bool hasRgb = !cue._is_null_color_red() && !cue._is_null_color_green() && !cue._is_null_color_blue();
+    return rekordboxCueColor(hasRgb, hasRgb ? cue.color_red() : 0, hasRgb ? cue.color_green() : 0,
+                              hasRgb ? cue.color_blue() : 0, static_cast<int>(cue.color_id()));
 }
 
 std::vector<domain::CuePoint> readCues(const std::string &anlzPath)

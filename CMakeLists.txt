@@ -364,6 +364,17 @@ add_executable(track_queries_test
 target_include_directories(track_queries_test PRIVATE src)
 add_test(NAME track_queries_test COMMAND track_queries_test)
 
+add_executable(cue_color_normalization_test
+    src/application/ports/progress_reporter.cpp
+    src/infrastructure/engine/libdjinterop_engine_reader.cpp
+    src/infrastructure/rekordbox/kaitai_rekordbox_reader.cpp
+    src/infrastructure/rekordbox/pdb_lookup.cpp
+    tests/cue_color_normalization_test.cpp
+)
+target_include_directories(cue_color_normalization_test PRIVATE src)
+target_link_libraries(cue_color_normalization_test PRIVATE DjInterop rekordbox_format kaitai_cpp_stl_runtime)
+add_test(NAME cue_color_normalization_test COMMAND cue_color_normalization_test)
+
 add_executable(anlz_cue_codec_test
     src/infrastructure/durable_file_write.cpp
     src/infrastructure/rekordbox/anlz_cue_codec.cpp

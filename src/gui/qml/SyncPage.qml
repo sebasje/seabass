@@ -146,7 +146,7 @@ Page {
         }
         ColumnLayout {
             Layout.fillWidth: true
-            spacing: 8
+            spacing: 4
             visible: syncController.unresolvedConflicts.length > 0
 
             Label {
@@ -155,17 +155,30 @@ Page {
                 color: Theme.warnText
             }
 
-            Repeater {
+            // Bounded and independently scrollable (BigScrollBar, same as
+            // every other list in this app -- plansListView below gets
+            // the same treatment) rather than growing the whole page
+            // unboundedly: with many conflicts this would otherwise push
+            // the plan list, and eventually the page itself, past the
+            // window with no way to reach the rest.
+            ListView {
+                id: conflictListView
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.min(contentHeight, 420)
+                clip: true
+                spacing: 8
                 model: syncController.unresolvedConflicts
+                ScrollBar.vertical: BigScrollBar {}
+
                 delegate: Rectangle {
                     id: conflictCard
                     required property var modelData
                     required property int index
-                    Layout.fillWidth: true
+                    width: ListView.view.width
                     color: Theme.warnBg
                     border.color: Theme.warnBorder
                     radius: 4
-                    implicitHeight: conflictColumn.implicitHeight + 16
+                    height: conflictColumn.implicitHeight + 16
 
                     ColumnLayout {
                         id: conflictColumn
@@ -177,50 +190,81 @@ Page {
                             Layout.fillWidth: true
                             wrapMode: Text.WordWrap
                             color: Theme.warnText
+                            font.bold: true
                             text: (conflictCard.modelData.targetTitle.length > 0
-                                    ? conflictCard.modelData.targetTitle : conflictCard.modelData.targetPath)
-                                + " - " + root.formatLabel(conflictCard.modelData.targetFormat)
-                                + " needs cues, but " + root.formatLabel(conflictCard.modelData.sourceAFormat)
-                                + " and " + root.formatLabel(conflictCard.modelData.sourceBFormat)
-                                + " disagree. Choose which to use:"
+                                    ? conflictCard.modelData.targetTitle + " - " + conflictCard.modelData.targetArtist
+                                    : conflictCard.modelData.targetPath)
+                                + "  (" + root.formatLabel(conflictCard.modelData.targetFormat) + " needs cues, but "
+                                + root.formatLabel(conflictCard.modelData.sourceAFormat) + " and "
+                                + root.formatLabel(conflictCard.modelData.sourceBFormat) + " disagree)"
                         }
 
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: 12
 
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: 2
-                                Button {
-                                    text: "Use " + root.formatLabel(conflictCard.modelData.sourceAFormat)
-                                        + " (" + conflictCard.modelData.sourceASummary + ")"
-                                    onClicked: syncController.resolveConflict(conflictCard.index, true)
-                                }
-                                Label {
-                                    visible: conflictCard.modelData.sourceAHasJunkCue
+                            // Same investigation tools (waveform with cue
+                            // markers, Play, CueFallbackNotice) the
+                            // ordinary plan list below already gives each
+                            // side of a match -- a conflict deserves the
+                            // same look, not just a one-line summary.
+                            Repeater {
+                                model: [
+                                    { track: conflictCard.modelData.sourceATrack, format: conflictCard.modelData.sourceAFormat,
+                                      summary: conflictCard.modelData.sourceASummary, hasJunkCue: conflictCard.modelData.sourceAHasJunkCue, useSourceA: true },
+                                    { track: conflictCard.modelData.sourceBTrack, format: conflictCard.modelData.sourceBFormat,
+                                      summary: conflictCard.modelData.sourceBSummary, hasJunkCue: conflictCard.modelData.sourceBHasJunkCue, useSourceA: false }
+                                ]
+                                delegate: Frame {
+                                    required property var modelData
                                     Layout.fillWidth: true
-                                    wrapMode: Text.WordWrap
-                                    font.italic: true
-                                    color: Theme.textMuted
-                                    text: "This side has a 0:00 memory cue that's usually accidental - consider cleaning it up in Clean Up before deciding."
-                                }
-                            }
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: 2
-                                Button {
-                                    text: "Use " + root.formatLabel(conflictCard.modelData.sourceBFormat)
-                                        + " (" + conflictCard.modelData.sourceBSummary + ")"
-                                    onClicked: syncController.resolveConflict(conflictCard.index, false)
-                                }
-                                Label {
-                                    visible: conflictCard.modelData.sourceBHasJunkCue
-                                    Layout.fillWidth: true
-                                    wrapMode: Text.WordWrap
-                                    font.italic: true
-                                    color: Theme.textMuted
-                                    text: "This side has a 0:00 memory cue that's usually accidental - consider cleaning it up in Clean Up before deciding."
+
+                                    ColumnLayout {
+                                        anchors.fill: parent
+                                        spacing: 4
+
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            Label {
+                                                text: root.formatLabel(modelData.format) + ": " + modelData.summary
+                                                font.bold: true
+                                            }
+                                            Item { Layout.fillWidth: true }
+                                            Button {
+                                                text: "▶ Play"
+                                                enabled: modelData.track.filePath.length > 0
+                                                ToolTip.visible: hovered
+                                                ToolTip.text: "Play this copy of the track"
+                                                onClicked: root.playbackController.load(modelData.track.side,
+                                                    root.pathForFormat(modelData.track.side), modelData.track.sourceId,
+                                                    modelData.track.filePath, modelData.track.title, modelData.track.artist,
+                                                    modelData.track.artworkPath, modelData.track.cues)
+                                            }
+                                            Button {
+                                                text: "Use this"
+                                                onClicked: syncController.resolveConflict(conflictCard.index, modelData.useSourceA)
+                                            }
+                                        }
+                                        WaveformView {
+                                            Layout.fillWidth: true
+                                            Layout.preferredHeight: 40
+                                            waveformData: modelData.track.waveform
+                                            cueData: modelData.track.cues
+                                            trackDurationMs: modelData.track.durationMs
+                                        }
+                                        CueFallbackNotice {
+                                            cues: modelData.track.cues
+                                            durationMs: modelData.track.durationMs
+                                        }
+                                        Label {
+                                            visible: modelData.hasJunkCue
+                                            Layout.fillWidth: true
+                                            wrapMode: Text.WordWrap
+                                            font.italic: true
+                                            color: Theme.textMuted
+                                            text: "This side has a 0:00 memory cue that's usually accidental - consider cleaning it up in Clean Up before deciding."
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -245,6 +289,7 @@ Page {
             clip: true
             model: syncController.plans
             spacing: 4
+            ScrollBar.vertical: BigScrollBar {}
 
             delegate: Column {
                 id: delegateRoot
