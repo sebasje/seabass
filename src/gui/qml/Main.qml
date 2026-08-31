@@ -120,6 +120,16 @@ ApplicationWindow {
             anchors.fill: parent
             fillMode: Image.PreserveAspectFit
             smooth: true
+            // Without this, the vector brand SVG still gets rasterized
+            // once at whatever small default size the source reports
+            // (not "crisp at any size" as the comment above assumes),
+            // then that raster is upscaled to ~0.75x the window's
+            // shorter side -- soft/blurry despite being vector source.
+            // Binding sourceSize to the actual on-screen size makes Qt's
+            // SVG renderer rasterize at target resolution instead.
+            // Harmless for the artwork-cover-art case too: that path
+            // already relies on MultiEffect's blur, not sharpness.
+            sourceSize: Qt.size(layer.width, layer.height)
         }
 
         // Cover art is a small source image (a rekordbox/Engine
