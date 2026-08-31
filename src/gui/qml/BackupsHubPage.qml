@@ -36,10 +36,8 @@ Page {
                 ToolTip.text: "Back"
                 onClicked: root.StackView.view.pop()
             }
-            Label {
-                text: root.stickLabel + " -- Backups"
-                font.bold: true
-                font.pointSize: Theme.fontLarge
+            PageTitle {
+                text: root.stickLabel + " · Backups"
             }
             Item { Layout.fillWidth: true }
         }

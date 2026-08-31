@@ -106,10 +106,8 @@ Page {
                 ToolTip.text: "Back"
                 onClicked: root.StackView.view.pop()
             }
-            Label {
-                text: root.stickLabel + " - Stick Statistics"
-                font.bold: true
-                font.pointSize: Theme.fontLarge
+            PageTitle {
+                text: root.stickLabel + " · Stick Statistics"
             }
             Item { Layout.fillWidth: true }
             BusyIndicator { running: controller.busy; visible: controller.busy; implicitWidth: 20; implicitHeight: 20 }
@@ -135,7 +133,7 @@ Page {
 
             // -- Filesystem & capacity --------------------------------
             GroupBox {
-                title: "Filesystem"
+                label: Subtitle { text: "Filesystem" }
                 Layout.fillWidth: true
                 visible: Object.keys(controller.filesystemInfo).length > 0
 
@@ -217,7 +215,7 @@ Page {
 
             // -- Library statistics ------------------------------------
             GroupBox {
-                title: "Library Statistics"
+                label: Subtitle { text: "Library Statistics" }
                 Layout.fillWidth: true
 
                 ColumnLayout {
@@ -281,11 +279,16 @@ Page {
                             rowSpacing: 8
 
                             component StatTile: ColumnLayout {
+                                id: statTile
                                 property string label
                                 property string value
-                                spacing: 0
-                                Label { text: value; font.bold: true; font.pointSize: Theme.fontLarge }
-                                Label { text: label; color: Theme.textMuted; font.pointSize: Theme.fontSmall }
+                                spacing: 2
+                                StatValue { text: statTile.value }
+                                // Qualified with statTile.: an unqualified `label: label`
+                                // here would bind TableHeaderLabel's own `label` property
+                                // to itself (same scoping gotcha PageTitle.qml hit with
+                                // `text`), not to StatTile's outer one.
+                                TableHeaderLabel { label: statTile.label }
                             }
 
                             StatTile { label: "Tracks"; value: statsSection.stats.trackCount || 0 }
@@ -337,7 +340,7 @@ Page {
                             Layout.fillWidth: true
                             spacing: 4
                             visible: entries.length > 0
-                            Label { text: title; font.bold: true; Layout.topMargin: 8 }
+                            Subtitle { text: distSection.title; Layout.topMargin: 8 }
                             Repeater {
                                 model: entries
                                 delegate: RowLayout {
@@ -418,7 +421,7 @@ Page {
 
             // -- Disk usage ---------------------------------------------
             GroupBox {
-                title: "Disk Usage"
+                label: Subtitle { text: "Disk Usage" }
                 Layout.fillWidth: true
                 Layout.preferredHeight: 420
 
@@ -459,7 +462,7 @@ Page {
 
             // -- Speed benchmark -----------------------------------------
             GroupBox {
-                title: "Read-Speed Benchmark"
+                label: Subtitle { text: "Read-Speed Benchmark" }
                 Layout.fillWidth: true
 
                 ColumnLayout {

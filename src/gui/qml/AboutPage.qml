@@ -25,10 +25,8 @@ Page {
                 ToolTip.text: "Back"
                 onClicked: root.StackView.view.pop()
             }
-            Label {
+            PageTitle {
                 text: "About"
-                font.bold: true
-                font.pointSize: Theme.fontLarge
             }
             Item { Layout.fillWidth: true }
         }
@@ -84,7 +82,7 @@ Page {
             ColumnLayout {
                 spacing: 6
                 Layout.fillWidth: true
-                Label { text: "What Seabass does"; font.bold: true; font.pointSize: Theme.fontMedium }
+                Subtitle { text: "What Seabass does" }
                 Label {
                     text: "• Browses tracks, playlists and cue points on Rekordbox and Engine sticks\n"
                         + "• Finds duplicate tracks and consolidates their cue points onto every copy\n"
@@ -102,7 +100,7 @@ Page {
             ColumnLayout {
                 spacing: 6
                 Layout.fillWidth: true
-                Label { text: "The three library catalogs"; font.bold: true; font.pointSize: Theme.fontMedium }
+                Subtitle { text: "The three library catalogs" }
                 Label {
                     text: "A stick can carry up to three separate, independently-maintained catalogs of "
                         + "the same tracks. Browse Library can switch between whichever ones are present:"
@@ -129,7 +127,6 @@ Page {
                         + "Merging duplicates isn't supported on this catalog yet."
                     wrapMode: Text.WordWrap
                     font.pointSize: Theme.baseFontPointSize
-                    font.italic: true
                     color: Theme.textMuted
                     Layout.fillWidth: true
                 }
@@ -141,7 +138,6 @@ Page {
                         + "Browse Library entirely instead."
                     wrapMode: Text.WordWrap
                     font.pointSize: Theme.baseFontPointSize
-                    font.italic: true
                     color: Theme.textMuted
                     Layout.fillWidth: true
                 }
@@ -150,7 +146,7 @@ Page {
             ColumnLayout {
                 spacing: 6
                 Layout.fillWidth: true
-                Label { text: "What Seabass doesn't do"; font.bold: true; font.pointSize: Theme.fontMedium }
+                Subtitle { text: "What Seabass doesn't do" }
                 Label {
                     text: "Seabass never analyzes audio. Beatgridding, BPM/key detection, and waveform "
                         + "analysis all have to happen in Rekordbox or Engine DJ software first. "

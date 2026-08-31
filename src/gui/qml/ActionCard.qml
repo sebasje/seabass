@@ -44,7 +44,9 @@ Button {
                 spacing: 6
                 Label {
                     text: card.cardTitle
-                    font.bold: true
+                    font.family: Theme.titleFamily
+                    font.weight: Theme.cardTitleWeight
+                    font.pointSize: Theme.cardTitleSize
                     Layout.fillWidth: true
                     elide: Text.ElideRight
                 }

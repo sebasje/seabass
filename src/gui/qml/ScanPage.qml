@@ -128,10 +128,8 @@ Page {
                     ToolTip.text: "Back"
                     onClicked: root.StackView.view.pop()
                 }
-                Label {
-                    text: root.stickLabel + " - Library"
-                    font.bold: true
-                    font.pointSize: Theme.fontLarge
+                PageTitle {
+                    text: root.stickLabel + " · Library"
                 }
                 Item { Layout.fillWidth: true }
                 LibrarySourceToggle {
@@ -267,12 +265,12 @@ Page {
                 Layout.bottomMargin: 4
                 spacing: 8
                 Label { text: ""; Layout.preferredWidth: 40 }
-                Label { text: "Title"; font.bold: true; Layout.fillWidth: true }
-                Label { text: "Key"; font.bold: true; Layout.preferredWidth: 50 }
-                Label { text: "BPM"; font.bold: true; Layout.preferredWidth: 50 }
-                Label { text: "Time"; font.bold: true; Layout.preferredWidth: 60 }
-                Label { text: "Cues"; font.bold: true; Layout.preferredWidth: 50 }
-                Label { text: "Plays"; font.bold: true; Layout.preferredWidth: 50 }
+                TableHeaderLabel { label: "Title"; Layout.fillWidth: true }
+                TableHeaderLabel { label: "Key"; Layout.preferredWidth: 50 }
+                TableHeaderLabel { label: "BPM"; Layout.preferredWidth: 50 }
+                TableHeaderLabel { label: "Time"; Layout.preferredWidth: 60 }
+                TableHeaderLabel { label: "Cues"; Layout.preferredWidth: 50 }
+                TableHeaderLabel { label: "Plays"; Layout.preferredWidth: 50 }
                 // 32 (info button) + 8 (row spacing) + 32 (merge button),
                 // both trailing ToolButtons in the delegate below, not
                 // just one. Getting this narrower than the delegate's
@@ -577,7 +575,6 @@ Page {
                         text: "Streaming source: " + trackInfoPopup.trackStreamingSource
                             + " - no local file; playback, merging, and adding cues aren't available for this track."
                         color: Theme.textMuted
-                        font.italic: true
                     }
 
                     WaveformView {
@@ -600,7 +597,6 @@ Page {
                         text: "Click the waveform above to add a cue there."
                         color: Theme.textMuted
                         font.pointSize: Theme.fontSmall
-                        font.italic: true
                     }
 
                     // Position-only for now, no beatgrid snap, see
@@ -834,10 +830,8 @@ Page {
                     width: parent.width
                     spacing: 10
 
-                    Label {
+                    PageTitle {
                         text: "Merge Tracks"
-                        font.bold: true
-                        font.pointSize: Theme.fontLarge
                     }
                     Label {
                         Layout.fillWidth: true
@@ -919,7 +913,6 @@ Page {
                                     + "Every playlist the removed copy was in now points at the kept copy instead. "
                                     + "Not conserved yet: rating, color tag, genre and other tag fields."
                                 color: Theme.textMuted
-                                font.italic: true
                                 font.pointSize: Theme.fontSmall
                             }
                             Label {

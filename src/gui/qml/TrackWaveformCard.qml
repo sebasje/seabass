@@ -149,7 +149,6 @@ Frame {
             visible: root.hintText.length > 0
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
-            font.italic: true
             color: Theme.textMuted
             text: root.hintText
         }

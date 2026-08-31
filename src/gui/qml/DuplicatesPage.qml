@@ -82,10 +82,8 @@ Page {
                         ? "Wait for the write to finish before leaving this page" : "Back"
                     onClicked: root.StackView.view.pop()
                 }
-                Label {
-                    text: root.stickLabel + " - Clean-up and Housekeeping"
-                    font.bold: true
-                    font.pointSize: Theme.fontLarge
+                PageTitle {
+                    text: root.stickLabel + " · Clean-up and Housekeeping"
                 }
                 Item { Layout.fillWidth: true }
                 LibrarySourceToggle {
@@ -235,7 +233,6 @@ Page {
                                 ? "Conserved: only cues are copied onto the copies missing them -- files, playlists and other metadata are untouched."
                                 : "Nothing is copied automatically here -- the copies disagree, so you decide per-track with the Copy buttons below."
                             color: Theme.textMuted
-                            font.italic: true
                             font.pointSize: Theme.fontSmall
                         }
                     }

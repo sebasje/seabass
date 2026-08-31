@@ -72,10 +72,8 @@ Page {
                         ? "Wait for the write to finish before leaving this page" : "Back"
                     onClicked: root.StackView.view.pop()
                 }
-                Label {
-                    text: root.stickLabel + " - Clean Up Duplicates"
-                    font.bold: true
-                    font.pointSize: Theme.fontLarge
+                PageTitle {
+                    text: root.stickLabel + " · Clean Up Duplicates"
                 }
                 Item { Layout.fillWidth: true }
                 LibrarySourceToggle {
@@ -308,7 +306,6 @@ Page {
                                 + " Not conserved: rating, comment, play count, and last-played date on the "
                                 + "removed copies aren't copied over."
                             color: Theme.textMuted
-                            font.italic: true
                             font.pointSize: Theme.fontSmall
                         }
                         Label {

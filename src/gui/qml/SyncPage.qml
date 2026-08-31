@@ -47,10 +47,8 @@ Page {
                 ToolTip.text: syncController.writing ? "Wait for the write to finish before leaving this page" : "Back"
                 onClicked: root.StackView.view.pop()
             }
-            Label {
-                text: root.stickLabel + " - Sync Cue Points"
-                font.bold: true
-                font.pointSize: Theme.fontLarge
+            PageTitle {
+                text: root.stickLabel + " · Sync Cue Points"
             }
             Item { Layout.fillWidth: true }
             Button {

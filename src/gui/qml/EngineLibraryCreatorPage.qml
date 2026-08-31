@@ -39,10 +39,8 @@ Page {
                 ToolTip.text: controller.busy ? "Wait for creation to finish before leaving this page" : "Back"
                 onClicked: root.StackView.view.pop()
             }
-            Label {
-                text: root.stickLabel + " - Create Engine Library"
-                font.bold: true
-                font.pointSize: Theme.fontLarge
+            PageTitle {
+                text: root.stickLabel + " · Create Engine Library"
             }
             Item { Layout.fillWidth: true }
             BusyIndicator { running: controller.busy; visible: controller.busy; implicitWidth: 20; implicitHeight: 20 }
@@ -93,7 +91,7 @@ Page {
             spacing: 16
 
             GroupBox {
-                title: "What's included"
+                label: Subtitle { text: "What's included" }
                 Layout.fillWidth: true
                 ColumnLayout {
                     anchors.fill: parent
@@ -118,7 +116,7 @@ Page {
             }
 
             GroupBox {
-                title: "Engine schema generation"
+                label: Subtitle { text: "Engine schema generation" }
                 Layout.fillWidth: true
                 ColumnLayout {
                     anchors.fill: parent

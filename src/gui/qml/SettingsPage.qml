@@ -34,10 +34,8 @@ Page {
                 ToolTip.text: settingsController.busy ? "Wait for the write to finish before leaving this page" : "Back"
                 onClicked: root.StackView.view.pop()
             }
-            Label {
-                text: root.stickLabel + " -- Device Settings"
-                font.bold: true
-                font.pointSize: Theme.fontLarge
+            PageTitle {
+                text: root.stickLabel + " · Device Settings"
             }
             ToolButton {
                 text: "ⓘ"

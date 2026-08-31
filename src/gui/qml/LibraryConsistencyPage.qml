@@ -62,10 +62,8 @@ Page {
                     ? "Wait for the write to finish before leaving this page" : "Back"
                 onClicked: root.StackView.view.pop()
             }
-            Label {
-                text: root.stickLabel + " - Library Health"
-                font.bold: true
-                font.pointSize: Theme.fontLarge
+            PageTitle {
+                text: root.stickLabel + " · Library Health"
             }
             Item { Layout.fillWidth: true }
             RowLayout {
@@ -238,10 +236,8 @@ Page {
             width: parent.width
             spacing: 10
 
-            Label {
+            PageTitle {
                 text: "Resolve Conflict"
-                font.bold: true
-                font.pointSize: Theme.fontLarge
             }
             Label {
                 Layout.fillWidth: true

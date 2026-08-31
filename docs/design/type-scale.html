@@ -1,0 +1,256 @@
+<title>Seabass Type Scale</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root{
+    --bg:#14181c; --surface:#1a1f24; --surface-raised:#20262c;
+    --border:#333a40; --border-subtle:#2c3238;
+    --text:#e8ecef; --text-muted:#898d90;
+    --current-hi:#74cdf5; --current-lo:#123a52;
+    --kelp-hi:#5be0c0; --kelp-lo:#0b6852;
+    --grad-accent: linear-gradient(90deg, var(--kelp-hi), var(--current-hi));
+    --accent:#3daee9;
+    --title: "Manrope", sans-serif;
+    --system-ui: -apple-system,"Segoe UI","Noto Sans","Cantarell",sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Consolas, monospace;
+  }
+  *{box-sizing:border-box;}
+  body{background:var(--bg); color:var(--text); font-family:var(--system-ui); font-size:15px; line-height:1.6; padding:56px 24px 100px;}
+  .wrap{max-width:980px; margin:0 auto;}
+
+  .eyebrow{font-family:var(--mono); font-size:11.5px; letter-spacing:.14em; text-transform:uppercase; background:var(--grad-accent); -webkit-background-clip:text; background-clip:text; color:transparent; margin:0 0 12px; display:inline-block;}
+  h1{font-family:var(--title); font-weight:500; font-size:clamp(30px,4.6vw,40px); letter-spacing:-.005em; margin:0 0 16px; text-wrap:balance;}
+  .lede{max-width:64ch; color:var(--text-muted); font-size:15.5px; margin:0 0 10px;}
+  .lede b{color:var(--text); font-weight:600;}
+  code.inline{font-family:var(--mono); font-size:.9em; color:#a8dff0; background:rgba(61,174,233,.08); padding:1px 5px; border-radius:4px;}
+
+  section{margin-top:60px;}
+  h2{font-family:var(--title); font-weight:500; font-size:19px; margin:0 0 6px;}
+  .section-note{color:var(--text-muted); font-size:13.5px; margin:0 0 22px; max-width:62ch;}
+  .done-badge{display:inline-block; font-family:var(--mono); font-size:10px; letter-spacing:.05em; text-transform:uppercase; color:#8fce8f; border:1px solid rgba(143,206,143,.4); border-radius:4px; padding:2px 7px; margin-left:10px; vertical-align:3px;}
+  .new-badge{display:inline-block; font-family:var(--mono); font-size:10px; letter-spacing:.05em; text-transform:uppercase; color:#7fd0ff; border:1px solid rgba(61,174,233,.4); border-radius:4px; padding:2px 7px; margin-left:10px; vertical-align:3px;}
+
+  /* ---- recap block (titles, already implemented) ---- */
+  .recap{border:1px solid var(--border); border-radius:12px; background:var(--surface); padding:24px 28px;}
+  .recap .row{display:flex; align-items:baseline; gap:16px; margin-bottom:14px;}
+  .recap .row:last-child{margin-bottom:0;}
+  .recap .row .tag{width:110px; flex-shrink:0; font-family:var(--mono); font-size:11px; color:var(--text-muted);}
+  .recap .row .sample{font-family:var(--title); font-weight:500;}
+  .recap .row.page .sample{font-size:28px;}
+  .recap .row.section .sample{font-size:22px;}
+
+  /* ---- device chrome ---- */
+  .device{border:1px solid var(--border); border-radius:12px; overflow:hidden; margin-top:22px; box-shadow:0 24px 60px -32px rgba(0,0,0,.7);}
+  .toolbar{background:var(--surface); border-bottom:1px solid var(--border); display:flex; align-items:center; gap:14px; padding:18px 24px;}
+  .chevron{font-size:19px; color:var(--text-muted); line-height:1;}
+  .toolbar h3{margin:0; font-family:var(--title); font-weight:500; font-size:21px;}
+  .body-fill{background:var(--bg); padding:22px 24px 26px;}
+
+  /* ---- subtitle / section header ---- */
+  .subtitle{font-family:var(--title); font-weight:500; font-size:16.5px; color:var(--text); margin:0 0 8px;}
+  .subtitle + p{margin-top:0;}
+  .section-block{margin-bottom:22px;}
+  .section-block:last-child{margin-bottom:0;}
+  .body-copy{font-size:13.5px; color:var(--text-muted); max-width:52ch; margin:0;}
+
+  /* ---- card ---- */
+  .card-row{display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-top:4px;}
+  @media (max-width:760px){.card-row{grid-template-columns:1fr;}}
+  .card{border:1px solid var(--border); border-radius:10px; padding:16px 18px; background:var(--surface);}
+  .card .card-title{font-family:var(--title); font-weight:500; font-size:15px; margin-bottom:4px;}
+  .card .card-desc{font-size:12.5px; color:var(--text-muted); line-height:1.5;}
+
+  /* ---- muted caption ---- */
+  .caption-box{border:1px dashed var(--border-subtle); border-radius:8px; padding:14px 16px; margin-top:10px;}
+  .caption-box .label{font-family:var(--mono); font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:var(--text-muted); margin-bottom:8px; display:block;}
+  .caption{font-size:12.5px; color:var(--text-muted); max-width:56ch; line-height:1.55;}
+  .caption.italic{font-style:italic;}
+
+  /* ---- table header options ---- */
+  .toggle{display:inline-flex; border:1px solid var(--border); border-radius:9px; padding:3px; background:var(--surface); gap:2px;}
+  .toggle button{font-family:var(--system-ui); font-size:13px; font-weight:600; color:var(--text-muted); background:transparent; border:none; border-radius:6px; padding:8px 15px; cursor:pointer; transition:background .15s ease,color .15s ease;}
+  .toggle button:hover{color:var(--text);}
+  .toggle button.active{background:var(--kelp-lo); color:#eafff8;}
+  .toggle button:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
+  .opt-caption{margin-top:10px; font-size:13px; color:var(--text-muted); max-width:60ch;}
+
+  table{width:100%; border-collapse:collapse; font-size:13.5px; margin-top:16px;}
+  thead th{text-align:left; padding:0 12px 10px; border-bottom:1px solid var(--border); font-weight:400;}
+  thead th:first-child{padding-left:0;}
+  tbody td{padding:10px 12px; border-bottom:1px solid var(--border-subtle);}
+  tbody td:first-child{padding-left:0;}
+  tbody tr:last-child td{border-bottom:none;}
+  .th-plain{font-family:var(--title); font-weight:500; font-size:12.5px; color:var(--text-muted);}
+  .th-eyebrow{font-family:var(--mono); font-weight:400; font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--text-muted);}
+  .cell-track{font-size:13px;}
+  .cell-num{font-family:var(--mono); font-variant-numeric:tabular-nums; color:var(--text-muted); font-size:12.5px;}
+
+  /* ---- data / stat values ---- */
+  .stat-grid{display:flex; gap:28px; flex-wrap:wrap; margin-top:6px;}
+  .stat .n{font-family:var(--mono); font-weight:500; font-variant-numeric:tabular-nums; font-size:26px; display:block; color:var(--text);}
+  .stat .l{font-family:var(--mono); font-size:10.5px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.06em; margin-top:2px; display:block;}
+
+  /* ---- scale table ---- */
+  .scale-table{width:100%; border-collapse:collapse; font-size:13px; margin-top:16px;}
+  .scale-table thead th{text-align:left; font-weight:600; color:var(--text-muted); font-size:11px; letter-spacing:.06em; text-transform:uppercase; padding:0 12px 10px; border-bottom:1px solid var(--border);}
+  .scale-table tbody td{padding:10px 12px; border-bottom:1px solid var(--border-subtle); vertical-align:middle;}
+  .scale-table tbody tr:last-child td{border-bottom:none;}
+  .scale-table td.token{font-family:var(--mono); color:#7fd0ff; font-size:12px;}
+  .scale-table td.num{font-family:var(--mono); font-variant-numeric:tabular-nums; color:var(--text-muted);}
+
+  pre{background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:18px 20px; overflow-x:auto; font-family:var(--mono); font-size:12px; line-height:1.6; color:#c8e6fa;}
+  pre .c{color:var(--text-muted);} pre .k{color:#7fd0ff;} pre .s{color:#a8e6a0;}
+
+  footer{margin-top:64px; padding-top:24px; border-top:1px solid var(--border-subtle); color:var(--text-muted); font-size:13px;}
+</style>
+
+<div class="wrap">
+  <span class="eyebrow">Design review · Seabass desktop UI · revision 3</span>
+  <h1>The Rest of the Type System</h1>
+  <p class="lede">Titles are settled (<b>Quiet</b> — Manrope Medium, never bold) and already live in the app. This extends the same system to every other text role: section subtitles, card titles, table headers, stat values, and muted captions — the ~60 remaining <code class="inline">font.bold: true</code> spots across the UI.</p>
+
+  <section>
+    <h2>Titles <span class="done-badge">implemented</span></h2>
+    <p class="section-note">For reference only — this part shipped already.</p>
+    <div class="recap">
+      <div class="row page"><span class="tag">level: page</span><span class="sample">USB Sticks</span></div>
+      <div class="row section"><span class="tag">level: section</span><span class="sample">Sync Cue Points</span></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Subtitle / section header <span class="done-badge">implemented</span></h2>
+    <p class="section-note">The "Theme", "Streaming tracks", "What Seabass does" pattern — one step below a page title, currently just bold body text at an inconsistent size. Same family as titles (Manrope Medium) so it reads as part of the same hierarchy, one clear step down in size and never competing with the title above it.</p>
+    <div class="device">
+      <div class="toolbar"><span class="chevron">‹</span><h3>App Settings</h3></div>
+      <div class="body-fill">
+        <div class="section-block">
+          <div class="subtitle">Theme</div>
+        </div>
+        <div class="section-block">
+          <div class="subtitle">Streaming tracks</div>
+          <p class="body-copy">Streaming-linked tracks (e.g. TIDAL, via Engine DJ) have no local file on the stick.</p>
+        </div>
+        <div class="section-block">
+          <div class="subtitle">Experimental features</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Card title <span class="done-badge">implemented</span></h2>
+    <p class="section-note">The dashboard's <code class="inline">ActionCard.qml</code> titles — first thing scanned on the whole app, worth tying visually to the title system too. Manrope Medium again, smaller still, description stays on the body font.</p>
+    <div class="card-row">
+      <div class="card"><div class="card-title">Browse Library</div><div class="card-desc">View tracks, playlists and cues</div></div>
+      <div class="card"><div class="card-title">Clean-up and Housekeeping</div><div class="card-desc">Duplicate stats, sync metadata across copies, and clean up</div></div>
+      <div class="card"><div class="card-title">Sync Cue Points</div><div class="card-desc">Copy cues between DeviceLibrary and Engine</div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Table headers <span class="done-badge">implemented — eyebrow</span></h2>
+    <p class="section-note">The <code class="inline">Title / Key / BPM / Time / Cues / Plays</code> column headers in Browse Library. Two directions — neither is bold, per your note.</p>
+    <div class="toggle" role="group" aria-label="Table header style">
+      <button id="btn-plain" class="active">Plain</button>
+      <button id="btn-eyebrow">Eyebrow</button>
+    </div>
+    <p class="opt-caption" id="th-caption"></p>
+    <table id="preview-table">
+      <thead>
+        <tr><th class="th-cell">Title</th><th class="th-cell">Key</th><th class="th-cell">BPM</th><th class="th-cell">Time</th><th class="th-cell">Cues</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="cell-track">Voices in My Head</td><td class="cell-num">8A</td><td class="cell-num">126.0</td><td class="cell-num">6:12</td><td class="cell-num">4</td></tr>
+        <tr><td class="cell-track">Second Sun</td><td class="cell-num">5A</td><td class="cell-num">122.0</td><td class="cell-num">5:48</td><td class="cell-num">2</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Data / stat values <span class="done-badge">implemented</span></h2>
+    <p class="section-note">Track counts, BPM, durations, playlist/artist tallies in Stick Statistics and elsewhere — currently bold body text. Tabular monospace (already planned for this role) makes columns of numbers actually line up, and reads distinctly "data" rather than "heading."</p>
+    <div class="stat-grid">
+      <div class="stat"><span class="n">1,370</span><span class="l">Tracks</span></div>
+      <div class="stat"><span class="n">738</span><span class="l">Artists</span></div>
+      <div class="stat"><span class="n">126.0</span><span class="l">Avg BPM</span></div>
+      <div class="stat"><span class="n">42</span><span class="l">With cues</span></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Muted captions <span class="done-badge">implemented — italic dropped</span></h2>
+    <p class="section-note">Explanatory notes under a control (e.g. below "Hide tracks from streaming services"). Several currently use <code class="inline">font.italic: true</code>; dropping italic is worth considering — synthetic italics on a system font that has no real italic design tend to render as a crude slant, and the muted color + smaller size already carries the "secondary text" signal on its own.</p>
+    <div class="caption-box">
+      <span class="label">font.italic: true (today)</span>
+      <p class="caption italic">Streaming-linked tracks (e.g. TIDAL, via Engine DJ) have no local file on the stick. Seabass never plays, merges, syncs, or cleans them up regardless of this setting.</p>
+    </div>
+    <div class="caption-box">
+      <span class="label">proposed — no italic</span>
+      <p class="caption">Streaming-linked tracks (e.g. TIDAL, via Engine DJ) have no local file on the stick. Seabass never plays, merges, syncs, or cleans them up regardless of this setting.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Full scale</h2>
+    <p class="section-note">Every size stays a multiple of the system font point size, same mechanism as today.</p>
+    <table class="scale-table">
+      <thead><tr><th>Token</th><th>Family</th><th>Weight</th><th>× base</th><th>Role</th></tr></thead>
+      <tbody>
+        <tr><td class="token">fontNormal</td><td>System</td><td>Regular</td><td class="num">1.0×</td><td>Body text</td></tr>
+        <tr><td class="token">fontSmall</td><td>System</td><td>Regular</td><td class="num">0.92×</td><td>Muted caption <span class="new-badge">new role</span></td></tr>
+        <tr><td class="token">cardTitleSize <span class="new-badge">new</span></td><td>Manrope</td><td>Medium</td><td class="num">1.0×</td><td>Card title</td></tr>
+        <tr><td class="token">subtitleSize <span class="new-badge">new</span></td><td>Manrope</td><td>Medium</td><td class="num">1.3×</td><td>Section header</td></tr>
+        <tr><td class="token">titleMedium</td><td>Manrope</td><td>Medium</td><td class="num">2.0×</td><td>Page/section title</td></tr>
+        <tr><td class="token">titleLarge</td><td>Manrope</td><td>Medium</td><td class="num">2.6×</td><td>Top-level title</td></tr>
+        <tr><td class="token">dataSize <span class="new-badge">new</span></td><td>IBM Plex Mono</td><td>Medium</td><td class="num">1.8×</td><td>Stat value</td></tr>
+        <tr><td class="token">tableHeaderSize <span class="new-badge">new</span></td><td>Manrope or Mono</td><td>Regular</td><td class="num">0.85×</td><td>Table column header</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>As shared components</h2>
+    <pre><span class="c">// SubtitleLabel.qml — "Theme", "Experimental features", ...</span>
+Label { font.family: Theme.titleFamily; font.weight: Theme.titleWeight
+         font.pointSize: Theme.subtitleSize }
+
+<span class="c">// StatValue.qml — the number half of a StatTile</span>
+Label { font.family: Theme.dataFamily; font.weight: Font.Medium
+         font.pointSize: Theme.dataSize
+         <span class="k">property alias</span> value: root.text }
+
+<span class="c">// ActionCard.qml's title Label — same treatment, smaller</span>
+Label { font.family: Theme.titleFamily; font.weight: Theme.titleWeight
+         font.pointSize: Theme.cardTitleSize }</pre>
+  </section>
+
+  <footer>Pick Plain or Eyebrow for table headers, sign off (or adjust) the rest, and say whether to drop italic captions — then I'll roll all of this into <code class="inline">Theme.qml</code> and the new shared components.</footer>
+</div>
+
+<script>
+(function(){
+  var btnPlain = document.getElementById('btn-plain');
+  var btnEyebrow = document.getElementById('btn-eyebrow');
+  var caption = document.getElementById('th-caption');
+  var ths = document.querySelectorAll('.th-cell');
+  var texts = ['Title','Key','BPM','Time','Cues'];
+  function apply(mode){
+    ths.forEach(function(el, i){
+      el.className = 'th-cell ' + (mode === 'plain' ? 'th-plain' : 'th-eyebrow');
+      el.textContent = mode === 'eyebrow' ? texts[i].toUpperCase() : texts[i];
+    });
+    btnPlain.classList.toggle('active', mode === 'plain');
+    btnEyebrow.classList.toggle('active', mode === 'eyebrow');
+    caption.textContent = mode === 'plain'
+      ? 'Plain: Manrope Medium, small, muted — quietest option, closest to today.'
+      : 'Eyebrow: mono, uppercase, letter-spaced, muted — reads clearly as structure, common data-table convention, ties to the mono data face used for stat values.';
+    try { localStorage.setItem('seabass-th-style', mode); } catch(e){}
+  }
+  btnPlain.addEventListener('click', function(){ apply('plain'); });
+  btnEyebrow.addEventListener('click', function(){ apply('eyebrow'); });
+  var saved = 'eyebrow';
+  try { saved = localStorage.getItem('seabass-th-style') || 'eyebrow'; } catch(e){}
+  apply(saved);
+})();
+</script>
