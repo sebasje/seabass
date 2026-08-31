@@ -253,9 +253,9 @@ Page {
                                 Layout.fillWidth: true
                                 wrapMode: Text.WordWrap
                                 color: Theme.warnText
-                                text: "Rekordbox has " + (controller.rekordboxStats.totalCuePoints || 0)
+                                text: "DeviceLibrary has " + (controller.rekordboxStats.totalCuePoints || 0)
                                     + " cue point(s), Engine has " + (controller.engineStats.totalCuePoints || 0)
-                                    + " -- these catalogs look out of sync."
+                                    + "; these catalogs look out of sync."
                             }
                             Button {
                                 text: "Go to Sync Cue Points"

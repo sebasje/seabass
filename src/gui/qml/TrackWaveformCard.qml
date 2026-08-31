@@ -33,6 +33,7 @@ Frame {
     // Empty actionButtonText hides the button entirely (SyncPage's plan
     // list has no per-track action, just Play).
     property string actionButtonText: ""
+    property string actionButtonTooltip: ""
     property bool actionButtonEnabled: true
     signal actionTriggered()
 
@@ -109,6 +110,8 @@ Frame {
                 text: root.actionButtonText
                 visible: root.actionButtonText.length > 0
                 enabled: root.actionButtonEnabled
+                ToolTip.visible: root.actionButtonTooltip.length > 0 && hovered
+                ToolTip.text: root.actionButtonTooltip
                 onClicked: root.actionTriggered()
             }
             Button {

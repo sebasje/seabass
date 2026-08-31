@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QAudioOutput>
+#include <QCache>
 #include <QMediaPlayer>
 #include <QObject>
 #include <QQmlEngine>
@@ -64,10 +65,13 @@ public:
 
     // Reads a track's waveform preview without touching playback state --
     // for a read-only preview (e.g. the Library page's per-track info
-    // popup) that shouldn't interrupt whatever's currently loaded/playing.
+    // popup, or a TrackWaveformCard delegate in a conflict/duplicate
+    // list) that shouldn't interrupt whatever's currently loaded/playing.
     // Same on-demand, synchronous-on-the-UI-thread read as load() itself
     // uses; a single track's preview blob is small enough that this
     // hasn't needed backgrounding so far (see load()'s own doc comment).
+    // Cached (see m_waveformCache) since list views re-decode the same
+    // few tracks' waveforms repeatedly as delegates scroll in and out.
     Q_INVOKABLE QVariantList waveformFor(const QString &format, const QString &libraryPath,
                                           const QString &sourceId) const;
 
@@ -97,6 +101,11 @@ private:
     QVariantList m_waveform;
     QVariantList m_cues;
     QString m_errorMessage;
+    // Keyed on format+libraryPath+sourceId (see waveformFor()'s own doc
+    // comment) -- QCache owns the heap-allocated values it stores; 300
+    // is comfortably more than a scrollable list ever has on screen or
+    // recently scrolled past at once.
+    mutable QCache<QString, QVariantList> m_waveformCache{300};
 };
 
 }  // namespace seabass::gui

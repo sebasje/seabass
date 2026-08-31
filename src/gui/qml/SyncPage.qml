@@ -19,10 +19,23 @@ Page {
     function formatLabel(format) {
         if (format === "engine") return "Engine";
         if (format === "onelibrary") return "OneLibrary";
-        return "Rekordbox";
+        return "DeviceLibrary";
     }
     function pathForFormat(format) {
         return format === "engine" ? root.enginePath : root.rekordboxPath;
+    }
+
+    // A conflict's own title/artist alone can't tell two conflicts on
+    // duplicate copies of the same track apart (same title, same
+    // artist, different file) -- appending the actual filename makes
+    // "this title shown 5 times" legible as 5 distinct files instead
+    // of looking like a bug.
+    function conflictHeading(conflict) {
+        var filename = conflict.targetPath.split("/").pop();
+        if (conflict.targetTitle.length === 0) {
+            return conflict.targetPath;
+        }
+        return conflict.targetTitle + " - " + conflict.targetArtist + "  [" + filename + "]";
     }
 
     Component.onCompleted: syncController.analyze(root.rekordboxPath, root.enginePath)
@@ -105,7 +118,7 @@ Page {
                     }
                     return false;
                 }
-                text: "Rekordbox writing is the least-proven part of Seabass. Verify the result\non real hardware before trusting it for a gig."
+                text: "DeviceLibrary writing is the least-proven part of Seabass. Verify the result\non real hardware before trusting it for a gig."
                 color: Theme.conflictText
                 wrapMode: Text.WordWrap
             }
@@ -189,9 +202,7 @@ Page {
                             wrapMode: Text.WordWrap
                             color: Theme.warnText
                             font.bold: true
-                            text: (conflictCard.modelData.targetTitle.length > 0
-                                    ? conflictCard.modelData.targetTitle + " - " + conflictCard.modelData.targetArtist
-                                    : conflictCard.modelData.targetPath)
+                            text: root.conflictHeading(conflictCard.modelData)
                                 + "  (" + root.formatLabel(conflictCard.modelData.targetFormat) + " needs cues, but "
                                 + root.formatLabel(conflictCard.modelData.sourceAFormat) + " and "
                                 + root.formatLabel(conflictCard.modelData.sourceBFormat) + " disagree)"
@@ -218,6 +229,7 @@ Page {
                                     track: modelData.track
                                     formatLabelText: root.formatLabel(modelData.format) + " (" + modelData.summary + ")"
                                     actionButtonText: "Use this"
+                                    actionButtonTooltip: "Apply (and overwrite) these cue points to the other track"
                                     onActionTriggered: syncController.resolveConflict(conflictCard.index, modelData.useSourceA)
                                     hintText: modelData.hasJunkCue
                                         ? "This side has a 0:00 memory cue that's usually accidental - consider cleaning it up in Clean Up before deciding."
@@ -234,7 +246,7 @@ Page {
 
         Label {
             visible: !syncController.busy
-            text: "Rekordbox tracks: " + syncController.rekordboxTrackCount
+            text: "DeviceLibrary tracks: " + syncController.rekordboxTrackCount
                 + "   Engine tracks: " + syncController.engineTrackCount
                 + (syncController.oneLibraryTrackCount > 0 ? "   OneLibrary tracks: " + syncController.oneLibraryTrackCount : "")
                 + "   needing sync: " + plansListView.count
