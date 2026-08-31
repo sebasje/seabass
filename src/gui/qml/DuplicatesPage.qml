@@ -13,7 +13,15 @@ Page {
 
     readonly property bool hasRekordbox: rekordboxPath.length > 0
     readonly property bool hasEngine: enginePath.length > 0
+    readonly property bool hasOneLibrary: root.hasRekordbox && duplicatesController.hasOneLibrary(root.rekordboxPath)
+    // OneLibrary selection is deliberately page-local, not persisted into
+    // appSettingsController.preferredFormat -- that setting is shared
+    // with ScanPage/LocalCuePage (see FormatToggle.qml's own comment),
+    // neither of which know what to do with "onelibrary" as a value.
+    // Rekordbox/Engine still persist exactly as before.
+    property string localFormatOverride: ""
     readonly property string format: {
+        if (root.localFormatOverride.length > 0) return root.localFormatOverride;
         var pref = appSettingsController.preferredFormat;
         if (pref === "engine" && hasEngine) return "engine";
         if (pref === "rekordbox" && hasRekordbox) return "rekordbox";
@@ -24,7 +32,14 @@ Page {
     // reading a cached path here could see the previous format's value.
     // A function call is always evaluated fresh against the current format.
     function currentPath() {
+        // OneLibrary shares rekordbox's own PIONEER root -- exportLibrary.db
+        // lives alongside export.pdb there.
         return root.format === "engine" ? root.enginePath : root.rekordboxPath;
+    }
+    function formatLabel(format) {
+        if (format === "engine") return "Engine";
+        if (format === "onelibrary") return "OneLibrary";
+        return "Rekordbox";
     }
 
     DuplicatesController {
@@ -68,15 +83,24 @@ Page {
                     onClicked: root.StackView.view.pop()
                 }
                 Label {
-                    text: root.stickLabel + " - Deduplication"
+                    text: root.stickLabel + " - Clean-up and Housekeeping"
                     font.bold: true
                     font.pointSize: Theme.fontLarge
                 }
                 Item { Layout.fillWidth: true }
-                FormatToggle {
-                    appSettingsController: root.appSettingsController
+                LibrarySourceToggle {
+                    current: root.format
                     hasRekordbox: root.hasRekordbox
                     hasEngine: root.hasEngine
+                    hasOneLibrary: root.hasOneLibrary
+                    onSourceRequested: (value) => {
+                        if (value === "onelibrary") {
+                            root.localFormatOverride = "onelibrary";
+                        } else {
+                            root.localFormatOverride = "";
+                            root.appSettingsController.preferredFormat = value;
+                        }
+                    }
                 }
             }
 
@@ -252,55 +276,16 @@ Page {
 
                     Repeater {
                         model: delegateRoot.tracks
-                        delegate: Frame {
-                            Layout.fillWidth: true
+                        delegate: TrackWaveformCard {
                             required property var modelData
-
-                            ColumnLayout {
-                                anchors.fill: parent
-                                spacing: 4
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    Label { text: modelData.title + "  (id=" + modelData.sourceId + ")"; font.bold: true }
-                                    Item { Layout.fillWidth: true }
-                                    Button {
-                                        text: "Copy"
-                                        visible: delegateRoot.kind === "conflict"
-                                        enabled: modelData.cues.length > 0 && !duplicatesController.busy
-                                        ToolTip.visible: hovered
-                                        ToolTip.text: "Copy this track's cues to the other copies of the same track"
-                                        onClicked: duplicatesController.copyFromTrack(delegateRoot.index, modelData.sourceId)
-                                    }
-                                    Button {
-                                        text: "▶ Play"
-                                        enabled: modelData.filePath.length > 0
-                                        ToolTip.visible: hovered
-                                        ToolTip.text: "Preview this copy's audio and cues"
-                                        onClicked: root.playbackController.load(root.format, root.currentPath(), modelData.sourceId,
-                                            modelData.filePath, modelData.title, modelData.artist, modelData.artworkPath,
-                                            modelData.cues)
-                                    }
-                                }
-                                Label {
-                                    text: modelData.playlists.length > 0
-                                        ? "Playlists: " + modelData.playlists.join(", ")
-                                        : "Playlists: (none)"
-                                    color: Theme.textMuted
-                                    wrapMode: Text.WordWrap
-                                    Layout.fillWidth: true
-                                }
-                                WaveformView {
-                                    Layout.fillWidth: true
-                                    Layout.preferredHeight: 40
-                                    waveformData: modelData.waveform
-                                    cueData: modelData.cues
-                                    trackDurationMs: modelData.durationMs
-                                }
-                                CueFallbackNotice {
-                                    cues: modelData.cues
-                                    durationMs: modelData.durationMs
-                                }
-                            }
+                            track: modelData
+                            formatLabelText: root.formatLabel(root.format)
+                            showPlaylists: true
+                            actionButtonText: delegateRoot.kind === "conflict" ? "Copy" : ""
+                            actionButtonEnabled: modelData.cues.length > 0 && !duplicatesController.busy
+                            onActionTriggered: duplicatesController.copyFromTrack(delegateRoot.index, modelData.sourceId)
+                            playbackController: root.playbackController
+                            playbackPath: root.currentPath()
                         }
                     }
                     }

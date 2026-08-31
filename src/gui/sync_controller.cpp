@@ -22,14 +22,12 @@
 #include "infrastructure/durable_file_write.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cue_writer.hpp"
 #include "infrastructure/engine/libdjinterop_engine_reader.hpp"
-#include "infrastructure/engine/libdjinterop_waveform_reader.hpp"
 #include "infrastructure/logging/file_operation_log.hpp"
 #include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
 #include "infrastructure/onelibrary/onelibrary_reader.hpp"
 #include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 #include "infrastructure/rekordbox/rekordbox_cue_writer.hpp"
-#include "infrastructure/rekordbox/rekordbox_waveform_reader.hpp"
 #include "infrastructure/scratch_dir_guard.hpp"
 
 namespace seabass::gui
@@ -92,8 +90,11 @@ int SyncPlanListModel::rowCount(const QModelIndex &parent) const
 namespace
 {
 
-QVariantMap trackToMap(const domain::Track &track,
-                        const std::unordered_map<std::string, std::vector<domain::WaveformColumn>> &waveformsByKey)
+// No waveform field here -- see sync_controller.hpp's own comment on
+// SyncPlanListModel::setPlans() for why: QML fetches a track's waveform
+// on demand via PlaybackController::waveformFor() instead of this
+// controller decoding one eagerly for every actionable track up front.
+QVariantMap trackToMap(const domain::Track &track)
 {
     QVariantMap m;
     m["side"] = QString::fromStdString(track.format);
@@ -114,23 +115,6 @@ QVariantMap trackToMap(const domain::Track &track,
         cues << cueMap;
     }
     m["cues"] = cues;
-
-    // OneLibrary has no waveform reader of its own -- simply absent from
-    // waveformsByKey, which renders as an empty list here, same as any
-    // other best-effort-missing waveform.
-    std::string key = track.format + ":" + track.sourceId;
-    QVariantList waveform;
-    auto it = waveformsByKey.find(key);
-    if (it != waveformsByKey.end()) {
-        for (const auto &col : it->second) {
-            QVariantMap colMap;
-            colMap["low"] = col.low;
-            colMap["mid"] = col.mid;
-            colMap["high"] = col.high;
-            waveform << colMap;
-        }
-    }
-    m["waveform"] = waveform;
     return m;
 }
 
@@ -157,7 +141,7 @@ QVariant SyncPlanListModel::data(const QModelIndex &index, int role) const
     case ConflictRole:
         return plan.kind == SyncPlan::Kind::Conflict;
     case TracksRole:
-        return QVariantList{trackToMap(plan.match.trackA, m_waveformsByKey), trackToMap(plan.match.trackB, m_waveformsByKey)};
+        return QVariantList{trackToMap(plan.match.trackA), trackToMap(plan.match.trackB)};
     default:
         return {};
     }
@@ -175,12 +159,10 @@ QHash<int, QByteArray> SyncPlanListModel::roleNames() const
     };
 }
 
-void SyncPlanListModel::setPlans(std::vector<domain::SyncPlan> plans,
-                                  std::unordered_map<std::string, std::vector<domain::WaveformColumn>> waveformsByKey)
+void SyncPlanListModel::setPlans(std::vector<domain::SyncPlan> plans)
 {
     beginResetModel();
     m_plans = std::move(plans);
-    m_waveformsByKey = std::move(waveformsByKey);
     endResetModel();
 }
 
@@ -278,34 +260,16 @@ SyncTaskResult runAnalyzeTask(QString rekordboxPath, QString enginePath, std::sh
         actionable = std::move(conflictSplit.nonConflicting);
         result.conflicts = std::move(conflictSplit.conflicts);
 
-        // Waveforms need their own file I/O per track, so only decode them
-        // for tracks actually being displayed here. A second phase after
-        // the main scan above already reported 100%, so it gets its own
-        // start()/tick() run rather than leave the bar looking stalled.
-        reporter->start("Loading waveforms", actionable.size() * 2);
-        size_t waveformsProcessed = 0;
-        std::unordered_map<std::string, std::vector<domain::WaveformColumn>> waveformsByKey;
-        for (const auto &plan : actionable) {
-            for (const domain::Track *side : {&plan.match.trackA, &plan.match.trackB}) {
-                std::string key = side->format + ":" + side->sourceId;
-                if (!waveformsByKey.contains(key)) {
-                    if (side->format == "rekordbox") {
-                        waveformsByKey[key] =
-                            infrastructure::rekordbox::readWaveformPreview(rekordboxPath.toStdString(), side->sourceId);
-                    } else if (side->format == "engine") {
-                        waveformsByKey[key] =
-                            infrastructure::engine::readWaveformPreview(enginePath.toStdString(), side->sourceId);
-                    }
-                    // No waveform reader for OneLibrary -- left absent,
-                    // see trackToMap()'s own handling of a missing key.
-                }
-                reporter->tick(++waveformsProcessed);
-            }
-        }
-        reporter->finish();
-
+        // Waveforms are deliberately NOT loaded here -- see
+        // sync_controller.hpp's own comment on SyncPlanList Model::
+        // setPlans() for why eagerly decoding one per actionable track
+        // (thousands, on a real library where most of it is actionable)
+        // was the actual cause of a real "scanning takes forever" report,
+        // confirmed at over 5 minutes on real removable media for a
+        // ~1400-track library, against ~4 seconds for everything else in
+        // this function combined. QML fetches a waveform on demand
+        // instead, only for whichever rows are actually rendered.
         result.plans = std::move(actionable);
-        result.waveformsByKey = std::move(waveformsByKey);
     } catch (const std::exception &e) {
         result.errorMessage = QString::fromStdString(e.what());
     }
@@ -360,7 +324,7 @@ void SyncController::onAnalyzeFinished()
     m_rekordboxTrackCount = result.rekordboxTrackCount;
     m_engineTrackCount = result.engineTrackCount;
     m_oneLibraryTrackCount = result.oneLibraryTrackCount;
-    m_model.setPlans(std::move(result.plans), std::move(result.waveformsByKey));
+    m_model.setPlans(std::move(result.plans));
     recomputeDirectionCounts();
     // A rescan is a fresh snapshot -- any conflict resolved against the
     // previous one no longer means anything (the plan it produced is
@@ -395,14 +359,14 @@ QString summarizeCueCounts(const std::vector<domain::CuePoint> &cues)
 
 void SyncController::rebuildUnresolvedConflictsList()
 {
-    const auto &waveformsByKey = m_model.waveformsByKey();
     QVariantList list;
     for (const auto &conflict : m_conflicts) {
-        // Same trackToMap() shape (cues, waveform, artwork, play-ready
+        // Same trackToMap() shape (cues, artwork, play-ready
         // filePath/sourceId) the ordinary plan list already renders with
-        // WaveformView/CueFallbackNotice -- so a conflict can be
-        // investigated the same way any other plan already is, not just
-        // read as a one-line summary.
+        // TrackWaveformCard -- so a conflict can be investigated the
+        // same way any other plan already is, not just read as a
+        // one-line summary. Waveform itself is fetched on demand by
+        // QML, not included here (see trackToMap()'s own comment).
         domain::Track sourceATrack = conflict.sourceA;
         sourceATrack.cues = conflict.cuesFromA;
         domain::Track sourceBTrack = conflict.sourceB;
@@ -416,11 +380,11 @@ void SyncController::rebuildUnresolvedConflictsList()
         m["sourceAFormat"] = QString::fromStdString(conflict.sourceA.format);
         m["sourceASummary"] = summarizeCueCounts(conflict.cuesFromA);
         m["sourceAHasJunkCue"] = conflict.sourceAHasJunkCue;
-        m["sourceATrack"] = trackToMap(sourceATrack, waveformsByKey);
+        m["sourceATrack"] = trackToMap(sourceATrack);
         m["sourceBFormat"] = QString::fromStdString(conflict.sourceB.format);
         m["sourceBSummary"] = summarizeCueCounts(conflict.cuesFromB);
         m["sourceBHasJunkCue"] = conflict.sourceBHasJunkCue;
-        m["sourceBTrack"] = trackToMap(sourceBTrack, waveformsByKey);
+        m["sourceBTrack"] = trackToMap(sourceBTrack);
         list << m;
     }
     m_unresolvedConflicts = list;

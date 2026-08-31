@@ -13,7 +13,6 @@
 
 #include "domain/cross_source_sync_conflict.hpp"
 #include "domain/sync_planning.hpp"
-#include "domain/waveform.hpp"
 #include "gui/qt_progress_reporter.hpp"
 #include "gui/undo_tracking.hpp"
 
@@ -51,35 +50,27 @@ public:
     QVariant data(const QModelIndex &index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
 
-    // waveformsByKey is best-effort, precomputed by the caller, keyed
-    // "<format>:"+sourceId (each catalog has its own independent
-    // sourceId space, so the format prefix avoids collisions). OneLibrary
-    // has no waveform reader of its own, so a OneLibrary-side track
-    // simply has no entry -- trackToMap() already renders that as an
-    // empty waveform, same as any other best-effort-missing case.
-    void setPlans(std::vector<domain::SyncPlan> plans,
-                  std::unordered_map<std::string, std::vector<domain::WaveformColumn>> waveformsByKey = {});
+    // Waveforms are NOT precomputed here -- see this class's own history:
+    // this used to take a waveformsByKey map built eagerly (one file read
+    // per actionable track) during the whole analyze() scan, which for a
+    // stick where most of the library is actionable meant thousands of
+    // individual reads against removable media before the user had even
+    // looked at a single row -- confirmed as the actual cause of a real
+    // "scanning takes forever" report. QML now fetches a given track's
+    // waveform on demand via PlaybackController::waveformFor(), the same
+    // already-proven pattern LibraryConsistencyPage's own track cards use
+    // -- only the rows actually rendered (ListView's own virtualization)
+    // ever pay for a waveform read at all.
+    void setPlans(std::vector<domain::SyncPlan> plans);
     const std::vector<domain::SyncPlan> &plans() const { return m_plans; }
-    // For rendering unresolvedConflicts with the same waveform+cue
-    // display the plan list already uses -- see SyncController::
-    // rebuildUnresolvedConflictsList().
-    const std::unordered_map<std::string, std::vector<domain::WaveformColumn>> &waveformsByKey() const
-    {
-        return m_waveformsByKey;
-    }
 
-    // Appends one plan without disturbing the rest (in particular,
-    // m_waveformsByKey, which setPlans() would otherwise reset) -- for a
-    // manually-resolved cross-source conflict (see SyncController::
-    // resolveConflict()) becoming an ordinary, immediately-appliable
-    // plan. The newly added plan simply has no waveform entry, same
-    // "best-effort missing" handling trackToMap() already gives a
-    // OneLibrary-side track.
+    // Appends one plan without disturbing the rest -- for a manually-
+    // resolved cross-source conflict (see SyncController::
+    // resolveConflict()) becoming an ordinary, immediately-appliable plan.
     void addPlan(domain::SyncPlan plan);
 
 private:
     std::vector<domain::SyncPlan> m_plans;
-    std::unordered_map<std::string, std::vector<domain::WaveformColumn>> m_waveformsByKey;
 };
 
 // Result of a background analyze task, see SyncController::analyze().
@@ -88,7 +79,6 @@ struct SyncTaskResult
 {
     std::vector<domain::SyncPlan> plans;  // combined across every present pair, actionable only, conflict-free
     std::vector<domain::CrossSourceSyncConflict> conflicts;  // see CrossSourceConflictDetector::detect()
-    std::unordered_map<std::string, std::vector<domain::WaveformColumn>> waveformsByKey;
     int rekordboxTrackCount = 0;
     int engineTrackCount = 0;
     int oneLibraryTrackCount = 0;  // 0 when this stick has no OneLibrary export

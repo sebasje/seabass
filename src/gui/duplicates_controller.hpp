@@ -12,7 +12,6 @@
 #include <memory>
 
 #include "domain/duplicate_cue_consolidation.hpp"
-#include "domain/waveform.hpp"
 #include "gui/qt_progress_reporter.hpp"
 #include "gui/undo_tracking.hpp"
 
@@ -45,16 +44,17 @@ public:
     QVariant data(const QModelIndex &index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
 
-    // waveformsBySourceId is best-effort, precomputed by the caller (only
-    // for tracks actually being displayed -- see DuplicatesController::
-    // rescan()) since decoding a waveform needs its own file I/O per track.
-    void setPlans(std::vector<domain::ConsolidationPlan> plans,
-                  std::unordered_map<std::string, std::vector<domain::WaveformColumn>> waveformsBySourceId = {});
+    // Waveforms are NOT precomputed here -- QML fetches a track's
+    // waveform on demand via PlaybackController::waveformFor() instead
+    // of this controller decoding one eagerly for every displayed track
+    // up front (see sync_controller.hpp's own comment on the same
+    // change, made for the same reason: it's what made a real "scanning
+    // takes forever" report possible in the first place).
+    void setPlans(std::vector<domain::ConsolidationPlan> plans);
     const std::vector<domain::ConsolidationPlan> &plans() const { return m_plans; }
 
 private:
     std::vector<domain::ConsolidationPlan> m_plans;
-    std::unordered_map<std::string, std::vector<domain::WaveformColumn>> m_waveformsBySourceId;
 };
 
 // Result of a background rescan task -- see DuplicatesController::rescan().
@@ -62,7 +62,6 @@ private:
 struct DuplicatesTaskResult
 {
     std::vector<domain::ConsolidationPlan> plans;
-    std::unordered_map<std::string, std::vector<domain::WaveformColumn>> waveformsBySourceId;
     QString errorMessage;  // empty on success
 };
 
@@ -132,9 +131,16 @@ public:
     QString statusMessage() const { return m_statusMessage; }
     bool canUndo() const { return !m_lastBackups.empty(); }
 
-    // format is "rekordbox" or "engine"; path is the corresponding
-    // DetectedStick.rekordboxPath / .enginePath.
+    // format is "rekordbox", "engine", or "onelibrary"; path is the
+    // corresponding DetectedStick.rekordboxPath / .enginePath (OneLibrary
+    // shares rekordboxPath -- exportLibrary.db lives alongside
+    // export.pdb under the same PIONEER root).
     Q_INVOKABLE void scan(const QString &format, const QString &path);
+
+    // Same convention as CleanupController::hasOneLibrary()/
+    // ScanController::hasOneLibrary().
+    Q_INVOKABLE bool hasOneLibrary(const QString &pioneerRoot) const;
+
     Q_INVOKABLE void applyOne(int index);
     Q_INVOKABLE void applyAllUnambiguous();
 
