@@ -1,0 +1,43 @@
+Seabass anonymized library export
+==================================
+
+Seabass version: 0.5 (beta)
+Host OS: Linux
+Hardware (as entered by the submitter): generated from Sebas's real whaleshark SD card, 2026-08-31
+Notes (as entered by the submitter): committed integration-test fixture for the Seabass test suite
+
+rekordbox:
+Tracks kept: 1370
+Tracks dropped (--max-tracks): 0
+Distinct artists renamed: 738
+Playlists/folders renamed: 20
+
+Engine:
+Tracks kept: 1376
+Tracks dropped (--max-tracks): 0
+Playlists/folders renamed: 20
+
+What's included vs. stripped, on every track:
+  KEPT as-is: format, file size, bitrate, duration, BPM, key,
+    hot/memory cue positions and colors, rating, play count,
+    last-played date, whether it's a streaming-service track,
+    playlist membership/position, the low-resolution monochrome
+    waveform preview actually used by this app, beatgrid.
+  REPLACED with placeholder text (e.g. "Track 014"): title,
+    artist, comment, cue comments, filename/file path,
+    playlist/folder names.
+  REMOVED entirely: artwork images, the detailed color and
+    scrolling waveform data rekordbox's own UI uses during
+    playback (not read by this app), original file paths.
+
+Output size: 20.3 MB raw, roughly 9.8 MB estimated once zipped.
+
+Nothing has been sent anywhere; this only wrote files to this
+directory. Review them, then attach this folder (zipped) to an
+email to sebas@kde.org if you'd like to help test against your
+hardware/library. This dataset may be published as part of the
+project's test suite. If there's anything in the hardware or
+notes text above you'd rather not have published, leave it out
+here and mention it directly in your email instead. If this is
+too large to attach, re-run with --max-tracks to include a
+smaller sample.

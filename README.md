@@ -22,6 +22,10 @@ Two ways to use it:
   merge duplicate tracks, add cues by clicking the waveform, clean up
   orphaned files, and manage backups.
 
+See [`docs/testing.md`](docs/testing.md) for the test suite (including the committed
+real-library integration fixture) and how to submit your own library to help test
+against hardware Sebas doesn't have.
+
 ## Status
 
 Scanning, duplicate-track cue consolidation, and cue writing are

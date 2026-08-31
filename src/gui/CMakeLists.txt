@@ -55,6 +55,8 @@ qt_add_qml_module(seabass
         qml/WaveformView.qml
         qml/SettingsPage.qml
         qml/AppSettingsPage.qml
+        qml/AnonymizeLibraryPage.qml
+        qml/InfoButton.qml
         qml/UsbStickIcon.qml
         qml/StickWriteWarning.qml
         qml/RekordboxRunningWarning.qml
@@ -93,6 +95,8 @@ qt_add_qml_module(seabass
         settings_controller.cpp
         app_settings_controller.hpp
         app_settings_controller.cpp
+        anonymize_library_controller.hpp
+        anonymize_library_controller.cpp
         rekordbox_guard_controller.hpp
         rekordbox_guard_controller.cpp
         write_guard.hpp
@@ -110,6 +114,7 @@ target_link_libraries(seabass PRIVATE
     Qt6::QuickControls2
     Qt6::QuickLayouts
     Qt6::QuickEffects
+    Qt6::QuickDialogs2
     Qt6::Multimedia
     Qt6::Concurrent
     Qt6::Svg

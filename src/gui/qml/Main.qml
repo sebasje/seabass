@@ -341,6 +341,14 @@ ApplicationWindow {
         id: appSettingsPageComponent
         AppSettingsPage {
             appSettingsController: appSettingsCtrl
+            onAnonymizeLibraryRequested: stackView.push(anonymizeLibraryPageComponent)
+        }
+    }
+
+    Component {
+        id: anonymizeLibraryPageComponent
+        AnonymizeLibraryPage {
+            mediaController: mediaCtrl
         }
     }
 

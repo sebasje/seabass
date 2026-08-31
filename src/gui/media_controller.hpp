@@ -41,6 +41,13 @@ public:
     QVariant data(const QModelIndex &index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
 
+    // The whole row as a plain object, for QML call sites that need more
+    // than one field for a specific row at once (e.g. "the currently
+    // selected stick's rekordboxPath and enginePath together") rather
+    // than binding a delegate to individual roles. Empty map for an
+    // out-of-range row.
+    Q_INVOKABLE QVariantMap get(int row) const;
+
     void setSticks(std::vector<application::DetectedStick> sticks);
 
 private:

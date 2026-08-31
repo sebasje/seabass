@@ -7,6 +7,8 @@ Page {
     id: root
     required property var appSettingsController
 
+    signal anonymizeLibraryRequested()
+
     header: ToolBar {
         // Explicit opaque background. KDE's platform theme integration
         // resolves ToolBar to its own "org.kde.breeze" style regardless of
@@ -76,7 +78,7 @@ Page {
             onToggled: root.appSettingsController.hideStreamingTracks = checked
         }
         Label {
-            text: "Streaming-linked tracks (e.g. TIDAL, via Engine DJ) have no local file on the stick --\n"
+            text: "Streaming-linked tracks (e.g. TIDAL, via Engine DJ) have no local file on the stick:\n"
                 + "Seabass never plays, merges, syncs, or cleans them up regardless of this setting. This\n"
                 + "only controls whether they show up in Browse Library at all."
             color: Theme.textMuted
@@ -126,7 +128,7 @@ Page {
                         Layout.fillWidth: true
                         wrapMode: Text.WordWrap
                         color: Theme.warnText
-                        text: "Experimental features are newer, less-tested parts of Seabass -- they may be "
+                        text: "Experimental features are newer, less-tested parts of Seabass; they may be "
                             + "unstable, incomplete, or change without notice."
                     }
                 }
@@ -136,6 +138,22 @@ Page {
                 text: "Enable experimental features"
                 checked: root.appSettingsController.experimentalFeaturesEnabled
                 onToggled: root.appSettingsController.experimentalFeaturesEnabled = checked
+            }
+
+            // Same gating ActionCard.qml uses for an experimental
+            // feature (visible: !experimental || experimentalFeaturesEnabled)
+            // -- hidden unless the toggle above is actually on, not just
+            // whether this is an experimental-capable build. A plain
+            // option here rather than an ActionCard on the main screen:
+            // this is a maintainer/power-user tool (regenerating the
+            // project's own test fixture, or submitting a library to
+            // help test hardware Sebas doesn't have), not a per-stick
+            // everyday action -- see docs/testing.md.
+            Button {
+                visible: root.appSettingsController.experimentalFeaturesEnabled
+                Layout.topMargin: 8
+                text: "Export Anonymized Library for Testing…"
+                onClicked: root.anonymizeLibraryRequested()
             }
         }
     }
