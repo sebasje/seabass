@@ -39,6 +39,7 @@ qt_add_qml_module(seabass
         qml/DuplicatesPage.qml
         qml/CleanupPage.qml
         qml/PendingDeletionsPage.qml
+        qml/JunkCuePage.qml
         qml/LibraryConsistencyPage.qml
         qml/StickStatisticsPage.qml
         qml/TreemapView.qml

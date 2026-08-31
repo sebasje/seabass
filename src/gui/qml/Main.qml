@@ -264,6 +264,17 @@ ApplicationWindow {
                 rekordboxPath: rekordboxPath,
                 enginePath: enginePath,
             })
+            onJunkCueCleanupRequested: (stickLabel, rekordboxPath, enginePath) => stackView.push(junkCuePageComponent, {
+                stickLabel: stickLabel,
+                rekordboxPath: rekordboxPath,
+                enginePath: enginePath,
+            })
+        }
+    }
+
+    Component {
+        id: junkCuePageComponent
+        JunkCuePage {
         }
     }
 

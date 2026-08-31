@@ -19,6 +19,7 @@ Page {
     signal duplicatesStatsRequested(string stickLabel, string rekordboxPath, string enginePath)
     signal cleanupRequested(string stickLabel, string rekordboxPath, string enginePath)
     signal pendingDeletionsRequested(string stickLabel, string rekordboxPath, string enginePath)
+    signal junkCueCleanupRequested(string stickLabel, string rekordboxPath, string enginePath)
 
     readonly property bool hasRekordbox: rekordboxPath.length > 0
     readonly property bool hasEngine: enginePath.length > 0
@@ -75,7 +76,7 @@ Page {
                 onClicked: root.StackView.view.pop()
             }
             Label {
-                text: root.stickLabel + " - Deduplication"
+                text: root.stickLabel + " - Clean-up and Housekeeping"
                 font.bold: true
                 font.pointSize: Theme.fontLarge
             }
@@ -111,6 +112,13 @@ Page {
             cardIcon: "🗑"
             enabled: (root.hasRekordbox || root.hasEngine) && root.hasPendingDeletions
             onClicked: root.pendingDeletionsRequested(root.stickLabel, root.rekordboxPath, root.enginePath)
+        }
+        ActionCard {
+            cardTitle: "Clean Up Stray Cues"
+            cardSubtitle: "Remove memory cues sitting at 0:00 -- almost always accidental"
+            cardIcon: "🧽"
+            enabled: root.hasRekordbox || root.hasEngine
+            onClicked: root.junkCueCleanupRequested(root.stickLabel, root.rekordboxPath, root.enginePath)
         }
         Item { Layout.fillHeight: true }
     }
