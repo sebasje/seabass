@@ -178,19 +178,22 @@ QtObject {
     }
 
     // ---- Font scale -- every size a multiple of the system's own font
-    // point size, never an absolute number. Read through
-    // SystemFontWatcher.pointSize (system_font_watcher.hpp) rather than
-    // Qt.application.font.pointSize directly: QQmlApplication's `font`
-    // property does declare a fontChanged() signal, but whether anything
-    // reliably emits it when Plasma's own font setting changes at
-    // runtime (as opposed to the app calling QGuiApplication::setFont()
-    // itself) is a long-standing gray area in Qt -- SystemFontWatcher
-    // listens for QEvent::ApplicationFontChange directly and guarantees
-    // this actually updates live instead of only reflecting the font at
-    // startup. A few desktops/build configs report pointSize as -1
-    // (pixel-size-only fonts), so fall back to a conventional 10pt
-    // default rather than propagate a nonsensical negative multiplier.
-    readonly property real baseFontPointSize: SystemFontWatcher.pointSize > 0 ? SystemFontWatcher.pointSize : 10
+    // point size, never an absolute number. Qt.application.font already
+    // reflects Plasma's "General font" setting on this platform; a few
+    // desktops/build configs report pointSize as -1 (pixel-size-only
+    // fonts), so fall back to a conventional 10pt default rather than
+    // propagate a nonsensical negative multiplier.
+    //
+    // Tried routing this through a native SystemFontWatcher
+    // (QEvent::ApplicationFontChange event filter) instead, to guarantee
+    // live reactivity to a runtime Plasma font-size change -- reverted:
+    // it produced visibly undersized icons/text at startup (QML caches
+    // a property binding after first evaluation, and this file's own
+    // binding can evaluate before KDE's platform theme has finished
+    // applying the real system font; a deferred re-emit didn't reliably
+    // fix it either). Not worth the regression for a speculative gap
+    // that was never confirmed to actually exist.
+    readonly property real baseFontPointSize: Qt.application.font.pointSize > 0 ? Qt.application.font.pointSize : 10
     readonly property real fontTiny: baseFontPointSize * 0.85
     readonly property real fontSmall: baseFontPointSize * 0.92
     readonly property real fontNormal: baseFontPointSize
