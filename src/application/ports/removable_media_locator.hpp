@@ -16,6 +16,12 @@ struct DetectedStick
     std::string mountPoint;  // empty if not currently mounted
     std::string label;
     bool mounted = false;
+    // Best-effort, for the UI to show a different icon (BRAINSTORM.md:
+    // "show different icon for an SD card for improved clarity") -- not a
+    // hard guarantee. See each RemovableMediaLocator implementation's own
+    // comment for how (or whether, on that platform) it's actually
+    // determined; a locator that can't tell just leaves this false.
+    bool isSdCard = false;
     std::optional<std::string> rekordboxPath;  // the "PIONEER" folder, if export.pdb was found under it
     std::optional<std::string> enginePath;     // the "Engine Library" folder, if Database2/m.db was found under it
 };

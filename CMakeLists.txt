@@ -245,7 +245,7 @@ endif()
 # at all, regardless of anything already stored in QSettings.
 option(SEABASS_EXPERIMENTAL "Compile in the experimental-features opt-in (Settings toggle)" ON)
 
-find_package(Qt6 QUIET COMPONENTS Core Gui Qml Quick QuickControls2 QuickLayouts QuickEffects QuickDialogs2 Multimedia Concurrent Svg)
+find_package(Qt6 QUIET COMPONENTS Core Gui Qml Quick QuickControls2 QuickLayouts QuickEffects QuickDialogs2 QuickShapes Multimedia Concurrent Svg)
 if(Qt6_FOUND)
     qt_standard_project_setup(REQUIRES 6.5)
     if(WIN32)

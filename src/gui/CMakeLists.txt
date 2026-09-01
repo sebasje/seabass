@@ -121,6 +121,7 @@ target_link_libraries(seabass PRIVATE
     Qt6::QuickLayouts
     Qt6::QuickEffects
     Qt6::QuickDialogs2
+    Qt6::QuickShapes
     Qt6::Multimedia
     Qt6::Concurrent
     Qt6::Svg
