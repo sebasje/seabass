@@ -9,6 +9,7 @@
 #include "application/use_cases/sync_libraries.hpp"
 #include "domain/library_consistency.hpp"
 #include "domain/library_statistics.hpp"
+#include "infrastructure/backup/filesystem_backup_store.hpp"
 #include "infrastructure/cleanup/pending_deletion_applier.hpp"
 #include "infrastructure/cleanup/pending_deletion_manifest.hpp"
 #include "infrastructure/cleanup/pending_deletion_resolver.hpp"
@@ -256,6 +257,137 @@ int main()
                      "manifest cleared) OK\n";
 
         fs::remove_all(scratchRoot2);
+    }
+
+    // Case 8: interrupted-batch rollback for rekordbox, at realistic
+    // scale. duplicate_cleanup_interruption_test.cpp already proves this
+    // property for Engine against a tiny 4-track synthetic database;
+    // rekordbox goes through a genuinely different writer
+    // (RekordboxCleanupWriter/PdbRowWriter) and backup shape (a single
+    // shared export.pdb among ~1,370 real rows and real playlists,
+    // rather than Engine's SQLite file), so it's worth its own proof --
+    // and this is the first place this exact property gets exercised
+    // against real playlist membership at scale rather than one
+    // hand-built playlist. See BRAINSTORM.md's own "Clean Up... allow
+    // cancelling (incl rollback)" note and cleanup_controller.cpp's
+    // runApplyTask() for the real backup-then-write sequence this
+    // mirrors.
+    {
+        fs::path scratchRoot3 = fs::temp_directory_path() / "seabass_anonymized_fixture_cleanup_interruption_test";
+        fs::remove_all(scratchRoot3);
+        fs::create_directories(scratchRoot3);
+        fs::path scratchRekordbox = scratchRoot3 / "rekordbox";
+        fs::copy(rekordboxRoot, scratchRekordbox, fs::copy_options::recursive);
+
+        infrastructure::rekordbox::KaitaiRekordboxReader scratchReader(scratchRekordbox.string());
+        auto scratchTracks = application::ScanLibrary(scratchReader).execute();
+        assert(scratchTracks.size() == 1370);
+
+        // Group A's doomed track is a real track with real playlist
+        // membership, so restoring genuinely has playlist repoint
+        // behavior to undo, not just a bare track row. Group B is a
+        // different, unrelated pair -- simulates the batch being
+        // interrupted after group A completes but before group B starts.
+        const domain::Track *doomedA = nullptr;
+        for (const auto &t : scratchTracks) {
+            if (!t.playlists.empty()) {
+                doomedA = &t;
+                break;
+            }
+        }
+        assert(doomedA != nullptr);
+        std::string doomedAId = doomedA->sourceId;
+        std::string doomedATitle = doomedA->title;
+        auto doomedAPlaylistsBefore = doomedA->playlists;
+
+        const domain::Track *survivorA = nullptr;
+        for (const auto &t : scratchTracks) {
+            if (t.sourceId != doomedAId) {
+                survivorA = &t;
+                break;
+            }
+        }
+        assert(survivorA != nullptr);
+        std::string survivorAId = survivorA->sourceId;
+
+        const domain::Track &doomedB = scratchTracks[scratchTracks.size() - 1];
+        const domain::Track &survivorB = scratchTracks[scratchTracks.size() - 2];
+        assert(doomedB.sourceId != doomedAId && doomedB.sourceId != survivorAId);
+        assert(survivorB.sourceId != doomedAId && survivorB.sourceId != survivorAId);
+
+        // Mirrors runApplyTask()'s backupIfNeeded(): export.pdb is the
+        // one shared file every group's write touches, backed up exactly
+        // once before any group is processed.
+        fs::path backupDir = scratchRoot3 / ".seabass-backups";
+        infrastructure::backup::FilesystemBackupStore backupStore(backupDir.string());
+        std::string pdbPath = (scratchRekordbox / "rekordbox" / "export.pdb").string();
+        assert(fs::exists(pdbPath));
+        auto backupRecord = backupStore.backup({pdbPath}, "duplicate-file-cleanup");
+
+        // Process group A only -- group B is never touched, simulating
+        // the app being killed/closed right after group A completes.
+        {
+            infrastructure::rekordbox::RekordboxCleanupWriter cleanupWriter(scratchRekordbox.string());
+            cleanupWriter.removeTrackReplacingWith(doomedAId, survivorAId);
+        }
+
+        // Confirm the "interrupted" state: group A processed, group B
+        // completely untouched.
+        {
+            infrastructure::rekordbox::KaitaiRekordboxReader midReader(scratchRekordbox.string());
+            auto midTracks = application::ScanLibrary(midReader).execute();
+            assert(midTracks.size() == 1369);
+            bool doomedAStillPresent = false;
+            bool doomedBPresent = false;
+            bool survivorBPresent = false;
+            for (const auto &t : midTracks) {
+                if (t.sourceId == doomedAId) {
+                    doomedAStillPresent = true;
+                }
+                if (t.sourceId == doomedB.sourceId) {
+                    doomedBPresent = true;
+                }
+                if (t.sourceId == survivorB.sourceId) {
+                    survivorBPresent = true;
+                }
+            }
+            assert(!doomedAStillPresent);
+            assert(doomedBPresent);
+            assert(survivorBPresent);
+            std::cout << "case 8a (interrupted after group A: group A's doomed track genuinely removed at "
+                         "realistic scale, group B completely untouched) OK\n";
+        }
+
+        // The actual rollback: restore the one upfront export.pdb
+        // backup.
+        bool restored = backupStore.restore(backupRecord.id);
+        assert(restored);
+
+        // Everything is back exactly as it was before the batch started
+        // -- group A's removal is undone too, including its exact real
+        // playlist membership, not just a bare row.
+        {
+            infrastructure::rekordbox::KaitaiRekordboxReader postReader(scratchRekordbox.string());
+            auto postTracks = application::ScanLibrary(postReader).execute();
+            assert(postTracks.size() == 1370);
+            const domain::Track *restoredDoomedA = nullptr;
+            for (const auto &t : postTracks) {
+                if (t.sourceId == doomedAId) {
+                    restoredDoomedA = &t;
+                }
+            }
+            assert(restoredDoomedA != nullptr);
+            assert(restoredDoomedA->title == doomedATitle);
+            assert(restoredDoomedA->playlists.size() == doomedAPlaylistsBefore.size());
+            for (size_t i = 0; i < doomedAPlaylistsBefore.size(); ++i) {
+                assert(restoredDoomedA->playlists[i].name == doomedAPlaylistsBefore[i].name);
+                assert(restoredDoomedA->playlists[i].position == doomedAPlaylistsBefore[i].position);
+            }
+            std::cout << "case 8b (restoring the one upfront export.pdb backup fully reverts group A's "
+                         "removal and its real playlist membership, at realistic scale) OK\n";
+        }
+
+        fs::remove_all(scratchRoot3);
     }
 
     std::cout << "all cases passed\n";
