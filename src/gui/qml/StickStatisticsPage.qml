@@ -323,6 +323,14 @@ Page {
                             id: distSection
                             property string title
                             property var entries  // [{label, count}] -- any order, doesn't need to be sorted by count
+                            // "Tracks per key" renders each row's label as
+                            // a KeyBadge (Camelot notation, colored pill)
+                            // instead of plain text -- the same component
+                            // Browse Library uses, per BRAINSTORM.md's own
+                            // "re-use the design from the library view"
+                            // ask. Every other DistributionSection (file
+                            // formats, BPM) keeps plain text.
+                            property bool isKeySection: false
                             // Computed from entries rather than assumed
                             // to be entries[0] -- BPM deliberately sorts
                             // by rangeStart (ascending), not by count, so
@@ -350,7 +358,16 @@ Page {
                                     required property int index
                                     Layout.fillWidth: true
                                     spacing: 8
-                                    Label { text: barRow.modelData.label; Layout.preferredWidth: 90; elide: Text.ElideRight }
+                                    Label {
+                                        visible: !distSection.isKeySection
+                                        text: barRow.modelData.label
+                                        Layout.preferredWidth: 90
+                                        elide: Text.ElideRight
+                                    }
+                                    KeyBadge {
+                                        visible: distSection.isKeySection
+                                        keyName: barRow.modelData.label
+                                    }
                                     Rectangle {
                                         Layout.fillWidth: true
                                         implicitHeight: 14
@@ -374,6 +391,7 @@ Page {
                         DistributionSection {
                             Layout.fillWidth: true
                             title: "Tracks per key"
+                            isKeySection: true
                             entries: {
                                 var stats = root.statsForSource(root.currentSource);
                                 var keys = stats.tracksPerKey || {};
