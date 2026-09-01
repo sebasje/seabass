@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import SeabassGui
 
 // Draws a waveform (as normalized 0..1 amplitude bars) with cue markers
@@ -12,6 +13,12 @@ Canvas {
     property real trackDurationMs: 0
     // -1 disables the played/unplayed color split (a static preview).
     property real progress: -1
+    // "rekordbox"/"engine"/"onelibrary" -- which catalog this track came
+    // from, only used to decide whether the empty-waveform tooltip below
+    // applies. Optional: callers that don't care about that tooltip (e.g.
+    // PlayerBar, where a track is always actually loaded) can leave it
+    // unset.
+    property string format: ""
 
     signal seekRequested(real ratio)
     // Fires on every click alongside seekRequested -- callers that only
@@ -124,6 +131,13 @@ Canvas {
     MouseArea {
         anchors.fill: parent
         enabled: root.trackDurationMs > 0
+        hoverEnabled: root.format === "engine" && (!root.waveformData || root.waveformData.length === 0)
+        // Engine only generates a track's waveform preview the first time
+        // Engine OS itself loads that track -- a track never opened on
+        // real hardware yet has no preview to show here (not a bug), so
+        // say so instead of leaving the flat placeholder line unexplained.
+        ToolTip.visible: hoverEnabled && containsMouse
+        ToolTip.text: "No waveform yet -- Engine OS generates this the first time the track is loaded on the hardware."
         onClicked: (mouse) => {
             root.seekRequested(mouse.x / width);
             root.positionClicked((mouse.x / width) * root.trackDurationMs);

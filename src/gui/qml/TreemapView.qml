@@ -77,7 +77,12 @@ Item {
             width: Math.max(0, modelData.width - 2)
             height: Math.max(0, modelData.height - 2)
             color: root._palette[box.index % root._palette.length]
-            opacity: mouseArea.containsMouse ? 1.0 : 0.85
+            // Only a box with children can actually be drilled into (see
+            // mouseArea.cursorShape below) -- highlighting a leaf box
+            // (e.g. "Free space") on hover the same way suggested it was
+            // clickable when it wasn't.
+            readonly property bool clickable: box.modelData.node.children && box.modelData.node.children.length > 0
+            opacity: (box.clickable && mouseArea.containsMouse) ? 1.0 : 0.85
             border.color: Theme.background
             border.width: 1
             radius: 2

@@ -141,6 +141,7 @@ Frame {
             waveformData: root.playbackController
                 ? root.playbackController.waveformFor(root.track.side, root.playbackPath, root.track.sourceId)
                 : []
+            format: root.track.side
             cueData: root.track.cues
             trackDurationMs: root.track.durationMs
         }

@@ -107,7 +107,7 @@ Page {
                 onClicked: root.StackView.view.pop()
             }
             PageTitle {
-                text: root.stickLabel + " · Stick Statistics"
+                text: root.stickLabel + " · Library Statistics"
             }
             Item { Layout.fillWidth: true }
             BusyIndicator { running: controller.busy; visible: controller.busy; implicitWidth: 20; implicitHeight: 20 }
@@ -118,6 +118,7 @@ Page {
         anchors.fill: parent
         anchors.margins: 16
         contentWidth: availableWidth
+        ScrollBar.vertical: BigScrollBar {}
 
         ColumnLayout {
             width: parent.width

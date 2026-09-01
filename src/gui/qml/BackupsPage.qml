@@ -199,7 +199,12 @@ Page {
             delegate: ItemDelegate {
                 id: backupDelegate
                 width: ListView.view.width
-                height: 60
+                // Sized to its own content, not a fixed pixel height: the
+                // contentItem below is two rows (the main row, then the
+                // "Files:" summary), and a fixed height didn't reliably
+                // fit both -- the second line's text overflowed its own
+                // boundary, worse at larger system font sizes.
+                height: backupContent.implicitHeight + 16
                 hoverEnabled: true
 
                 required property string id
@@ -214,6 +219,7 @@ Page {
                         ? root.friendlyFileNames(backupDelegate.fileNames) : "(unknown -- predates file tracking)")
 
                 contentItem: ColumnLayout {
+                    id: backupContent
                     spacing: 2
                     RowLayout {
                         Layout.fillWidth: true
