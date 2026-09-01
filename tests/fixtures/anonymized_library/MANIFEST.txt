@@ -32,9 +32,9 @@ What's included vs. stripped, on every track:
 
 Output size: 20.3 MB raw, roughly 9.8 MB estimated once zipped.
 
-Nothing has been sent anywhere; this only wrote files to this
-directory. Review them, then attach this folder (zipped) to an
-email to sebas@kde.org if you'd like to help test against your
+Nothing has been sent anywhere; this only wrote a single zip
+file. Review its contents, then attach that zip to an email to
+sebas@kde.org if you'd like to help test against your
 hardware/library. This dataset may be published as part of the
 project's test suite. If there's anything in the hardware or
 notes text above you'd rather not have published, leave it out
