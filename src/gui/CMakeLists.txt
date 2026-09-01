@@ -108,6 +108,8 @@ qt_add_qml_module(seabass
         write_guard.hpp
         write_guard.cpp
         qt_progress_reporter.hpp
+        system_font_metrics.hpp
+        system_font_metrics.cpp
 )
 
 target_include_directories(seabass PRIVATE ${CMAKE_SOURCE_DIR}/src)

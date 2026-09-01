@@ -11,11 +11,11 @@ import QtQuick.Layouts
 Item {
     id: root
     property string keyName: ""
-    Layout.preferredWidth: 50
-    Layout.preferredHeight: 22
+    Layout.preferredWidth: 50 * Theme.iconScale
+    Layout.preferredHeight: 22 * Theme.iconScale
     Layout.alignment: Qt.AlignVCenter
-    implicitWidth: 50
-    implicitHeight: 22
+    implicitWidth: 50 * Theme.iconScale
+    implicitHeight: 22 * Theme.iconScale
 
     readonly property string camelot: Theme.camelotLabel(root.keyName)
 

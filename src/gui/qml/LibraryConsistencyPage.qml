@@ -595,8 +595,8 @@ Page {
                                         // Same 40x40 thumbnail convention Browse Library
                                         // uses for its own track rows (see ScanPage.qml).
                                         Rectangle {
-                                            Layout.preferredWidth: 40
-                                            Layout.preferredHeight: 40
+                                            Layout.preferredWidth: Theme.iconSizeNormal
+                                            Layout.preferredHeight: Theme.iconSizeNormal
                                             color: Theme.surface
                                             Image {
                                                 anchors.fill: parent

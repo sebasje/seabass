@@ -180,8 +180,8 @@ Page {
                             spacing: 12
 
                             UsbStickIcon {
-                                Layout.preferredWidth: 40
-                                Layout.preferredHeight: 40
+                                Layout.preferredWidth: Theme.iconSizeNormal
+                                Layout.preferredHeight: Theme.iconSizeNormal
                                 Layout.alignment: Qt.AlignVCenter
                                 isSdCard: delegateRoot.isSdCard
                             }
@@ -228,8 +228,8 @@ Page {
                     BusyIndicator {
                         visible: parent.thisRowBusy
                         running: visible
-                        Layout.preferredWidth: 48
-                        Layout.preferredHeight: 48
+                        Layout.preferredWidth: Theme.iconSizeLarge
+                        Layout.preferredHeight: Theme.iconSizeLarge
                         Layout.alignment: Qt.AlignVCenter
                     }
 
@@ -245,8 +245,8 @@ Page {
                         // Kept upright always; the tooltip (and now
                         // click-anywhere-on-the-row) carry the "mount"
                         // meaning instead.
-                        Layout.preferredWidth: 48
-                        Layout.preferredHeight: 48
+                        Layout.preferredWidth: Theme.iconSizeLarge
+                        Layout.preferredHeight: Theme.iconSizeLarge
                         Layout.alignment: Qt.AlignVCenter
                         ToolTip.visible: hovered
                         ToolTip.text: delegateRoot.mounted ? "Eject " + delegateRoot.label : "Mount " + delegateRoot.label
