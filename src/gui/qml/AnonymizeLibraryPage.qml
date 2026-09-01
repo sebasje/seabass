@@ -46,10 +46,16 @@ Page {
         return parts.join(", ");
     }
 
-    readonly property var commonHardware: [
-        "CDJ-3000", "CDJ-2000NXS2", "XDJ-RX3", "XDJ-XZ",
-        "DJM-900NXS2", "DJM-750MK2", "DJM-A9",
-        "Prime 4", "Prime 4+", "Prime GO", "SC5000", "SC6000", "SC-Live 4",
+    // Grouped by vendor for display only -- a checkbox's selection key
+    // (see selectedHardware/hardwareText below) is still just the bare
+    // model name, so grouping never changes what ends up in MANIFEST.txt.
+    readonly property var hardwareGroups: [
+        { vendor: "Pioneer DJ / AlphaTheta", items: [
+            "CDJ-3000", "CDJ-2000NXS2", "XDJ-RX3", "XDJ-XZ", "DJM-900NXS2", "DJM-750MK2", "DJM-A9",
+        ] },
+        { vendor: "Denon DJ / inMusic", items: [
+            "Prime 4", "Prime 4+", "Prime GO", "SC5000", "SC6000", "SC-Live 4",
+        ] },
     ]
 
     function refreshCandidates() {
@@ -107,6 +113,7 @@ Page {
         anchors.fill: parent
         anchors.margins: 16
         contentWidth: availableWidth
+        ScrollBar.vertical: BigScrollBar {}
 
         ColumnLayout {
             width: parent.width
@@ -244,20 +251,35 @@ Page {
                     spacing: 8
 
                     Label { text: "Hardware you use:" }
-                    Flow {
+                    ColumnLayout {
                         Layout.fillWidth: true
-                        spacing: 8
+                        spacing: 10
                         Repeater {
-                            model: root.commonHardware
-                            delegate: CheckBox {
-                                required property string modelData
-                                text: modelData
-                                checked: !!root.selectedHardware[modelData]
-                                enabled: !controller.busy
-                                onToggled: {
-                                    var updated = Object.assign({}, root.selectedHardware);
-                                    updated[modelData] = checked;
-                                    root.selectedHardware = updated;
+                            model: root.hardwareGroups
+                            delegate: ColumnLayout {
+                                id: groupDelegate
+                                required property var modelData
+                                Layout.fillWidth: true
+                                spacing: 4
+
+                                TableHeaderLabel { label: groupDelegate.modelData.vendor }
+                                Flow {
+                                    Layout.fillWidth: true
+                                    spacing: 12
+                                    Repeater {
+                                        model: groupDelegate.modelData.items
+                                        delegate: CheckBox {
+                                            required property string modelData
+                                            text: modelData
+                                            checked: !!root.selectedHardware[modelData]
+                                            enabled: !controller.busy
+                                            onToggled: {
+                                                var updated = Object.assign({}, root.selectedHardware);
+                                                updated[modelData] = checked;
+                                                root.selectedHardware = updated;
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -350,6 +372,7 @@ Page {
                     ScrollView {
                         anchors.fill: parent
                         implicitHeight: 300
+                        ScrollBar.vertical: BigScrollBar {}
                         TextArea {
                             readOnly: true
                             wrapMode: Text.WordWrap

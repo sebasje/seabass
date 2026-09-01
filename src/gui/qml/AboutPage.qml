@@ -58,8 +58,9 @@ Page {
                 spacing: 2
                 Label {
                     text: "Seabass"
-                    font.bold: true
-                    font.pointSize: Theme.baseFontPointSize * 2.6
+                    font.family: Theme.titleFamily
+                    font.weight: Theme.titleWeight
+                    font.pointSize: Theme.titleLarge
                     Layout.alignment: Qt.AlignHCenter
                 }
                 Label {
@@ -84,9 +85,9 @@ Page {
                 Layout.fillWidth: true
                 Subtitle { text: "What Seabass does" }
                 Label {
-                    text: "• Browses tracks, playlists and cue points on Rekordbox and Engine sticks\n"
+                    text: "• Browses tracks, playlists and cue points across every catalog on a stick\n"
                         + "• Finds duplicate tracks and consolidates their cue points onto every copy\n"
-                        + "• Syncs hot cues between the Rekordbox and Engine copies of the same stick\n"
+                        + "• Syncs cues between every pair of catalogs present on the same stick\n"
                         + "• Lists and cleans up the automatic backups made before every write\n"
                         + "• Backs up cues to this computer and restores them if a stick's cues are lost\n"
                         + "• Shows a stick's saved Rekordbox player settings"

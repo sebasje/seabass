@@ -296,7 +296,7 @@ Page {
                             onClicked: root.libraryHealthRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
                         }
                         ActionCard {
-                            cardTitle: "Stick Statistics"
+                            cardTitle: "Library Statistics"
                             cardSubtitle: "Filesystem, library stats, disk usage, and read-speed benchmark"
                             cardIcon: "📊"
                             // Graduated from experimental (see

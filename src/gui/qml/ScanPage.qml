@@ -357,6 +357,7 @@ Page {
                         anchors.margins: 2
                         opacity: 0.35
                         waveformData: playbackController.waveform
+                        format: playbackController.currentFormat
                         cueData: playbackController.cues
                         trackDurationMs: playbackController.duration
                         progress: playbackController.duration > 0
@@ -515,6 +516,7 @@ Page {
                     trackInfoPopup.pendingPositionMs = -1;
                     waveformView.waveformData = playbackController.waveformFor(
                         root.format, root.currentPath(), delegate.sourceId);
+                    waveformView.format = root.format;
                     trackInfoPopup.open();
                 }
 

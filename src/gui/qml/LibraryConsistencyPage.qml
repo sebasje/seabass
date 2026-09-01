@@ -637,6 +637,7 @@ Page {
                                         // bug, see the class's own read-only contract).
                                         waveformData: root.playbackController.waveformFor(issueDelegate.format,
                                             root.pathForFormat(issueDelegate.format), trackFrame.modelData.sourceId)
+                                        format: issueDelegate.format
                                         cueData: modelData.cues
                                         trackDurationMs: modelData.durationMs
                                     }
