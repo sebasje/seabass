@@ -126,6 +126,7 @@ Page {
                 required property bool hasEngine
                 required property string rekordboxPath
                 required property string enginePath
+                required property bool isSdCard
                 readonly property bool hasKnownLibrary: hasRekordbox || hasEngine
 
                 ColumnLayout {
@@ -182,6 +183,7 @@ Page {
                                 Layout.preferredWidth: 40
                                 Layout.preferredHeight: 40
                                 Layout.alignment: Qt.AlignVCenter
+                                isSdCard: delegateRoot.isSdCard
                             }
 
                             ColumnLayout {

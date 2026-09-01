@@ -65,6 +65,8 @@ QVariant DetectedStickListModel::data(const QModelIndex &index, int role) const
         return stick.rekordboxPath ? QString::fromStdString(*stick.rekordboxPath) : QString();
     case EnginePathRole:
         return stick.enginePath ? QString::fromStdString(*stick.enginePath) : QString();
+    case IsSdCardRole:
+        return stick.isSdCard;
     default:
         return {};
     }
@@ -81,6 +83,7 @@ QHash<int, QByteArray> DetectedStickListModel::roleNames() const
         {HasEngineRole, "hasEngine"},
         {RekordboxPathRole, "rekordboxPath"},
         {EnginePathRole, "enginePath"},
+        {IsSdCardRole, "isSdCard"},
     };
 }
 

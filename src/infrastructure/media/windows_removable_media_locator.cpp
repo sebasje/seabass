@@ -53,6 +53,22 @@ std::vector<DetectedStick> WindowsRemovableMediaLocator::detect()
         stick.mountPoint = rootPath;
         stick.mounted = true;
 
+        // TODO(windows): stick.isSdCard is always false here -- unlike
+        // Linux's udev ID_DRIVE_FLASH_SD property (see
+        // LinuxRemovableMediaLocator::detect()'s own comment), there's no
+        // single GetDriveTypeA()-level signal for "this is an SD card
+        // reader, not a USB flash drive." Real detection would need
+        // SetupAPI (walk the volume's PnP device instance up to its bus,
+        // check for a card-reader/MMC-SD device class) or
+        // IOCTL_STORAGE_QUERY_PROPERTY's STORAGE_ADAPTER_DESCRIPTOR::
+        // BusType == BusTypeSd/BusTypeMmc -- not attempted here since it
+        // can't be tested without a real Windows machine. Note the
+        // *other* half of this same backlog item (hiding an empty
+        // multislot card-reader slot) needs no Windows-side fix at all:
+        // GetLogicalDrives() only ever reports a bit for a drive letter
+        // Windows has actually assigned, and it never assigns one to an
+        // empty slot in the first place, so there's nothing to filter.
+
         char volumeName[MAX_PATH + 1] = {};
         if (::GetVolumeInformationA(rootPath.c_str(), volumeName, sizeof(volumeName), nullptr, nullptr, nullptr,
                                      nullptr, 0) &&

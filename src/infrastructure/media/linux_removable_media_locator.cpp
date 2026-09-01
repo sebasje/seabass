@@ -130,12 +130,39 @@ std::vector<DetectedStick> LinuxRemovableMediaLocator::detect()
             continue;
         }
 
+        // A multislot card reader with nothing inserted in a given slot
+        // still shows up as a real block device node here (unlike
+        // Windows, where GetLogicalDrives() simply never assigns a drive
+        // letter to an empty slot at all -- see
+        // WindowsRemovableMediaLocator::detect()'s own comment). sysfs's
+        // "size" attribute (512-byte sectors) is 0 for exactly that case
+        // -- the same signal udisks2/gnome-disks use to hide empty
+        // slots. A real stick or card always reports its actual nonzero
+        // capacity here, whether or not it's currently mounted.
+        const char *sizeAttr = udev_device_get_sysattr_value(dev.get(), "size");
+        if (!sizeAttr || std::string(sizeAttr) == "0") {
+            continue;
+        }
+
         DetectedStick stick;
         stick.devicePath = devnode;
 
         auto fsLabel = udevProperty(dev.get(), "ID_FS_LABEL");
         auto model = udevProperty(dev.get(), "ID_MODEL");
         stick.label = fsLabel ? *fsLabel : (model ? *model : fs::path(devnode).filename().string());
+
+        // ID_DRIVE_FLASH_SD is set by udev's own built-in rules (the same
+        // property udisks2/gnome-disks key their own SD-card icon off of,
+        // rather than guessing from ID_MODEL/label text) -- usually on
+        // the whole-disk device, not every partition of it, so check the
+        // parent disk too when this device itself doesn't have it.
+        auto isFlashSd = [](udev_device *d) { return udevProperty(d, "ID_DRIVE_FLASH_SD").has_value(); };
+        stick.isSdCard = isFlashSd(dev.get());
+        if (!stick.isSdCard) {
+            if (udev_device *parent = udev_device_get_parent_with_subsystem_devtype(dev.get(), "block", "disk")) {
+                stick.isSdCard = isFlashSd(parent);
+            }
+        }
 
         auto mountIt = mountedByDevice.find(devnode);
         if (mountIt != mountedByDevice.end()) {

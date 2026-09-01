@@ -33,6 +33,7 @@ public:
         HasEngineRole,
         RekordboxPathRole,
         EnginePathRole,
+        IsSdCardRole,
     };
 
     explicit DetectedStickListModel(QObject *parent = nullptr);
