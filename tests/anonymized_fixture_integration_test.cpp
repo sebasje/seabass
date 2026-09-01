@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <vector>
 
 #include "application/use_cases/scan_library.hpp"
@@ -101,6 +102,48 @@ int main()
     assert(matched >= static_cast<int>(rekordboxTracks.size() * 0.95));
     std::cout << "case 4 (SyncLibraries: " << matched << "/" << rekordboxTracks.size()
                << " matched across independently-anonymized catalogs) OK\n";
+
+    // Regression guard for a real bug found and fixed against this exact
+    // fixture: PdbRowWriter::overwriteTrackText() preserves the original
+    // field's on-disk byte length and silently truncates whatever's
+    // written to fit, so a short real title/artist used to lose its
+    // entire differentiating hash suffix (anonymizationPlaceholder() put
+    // the human-readable "Track"/"Artist" label *before* the hash) --
+    // collapsing ~7.6% of this real 1,370-track library onto a handful
+    // of identical short placeholders like "Trac"/"Track ". Fixed by
+    // putting the hash first (see anonymization_placeholder.hpp's own
+    // comment); this asserts the real, regenerated fixture now has zero
+    // such collisions, not just that the fix compiles.
+    {
+        auto countCollisions = [](const auto &tracks) {
+            std::map<std::pair<std::string, std::string>, int> byTitleArtist;
+            std::map<std::string, int> byFilename;
+            for (const auto &t : tracks) {
+                ++byTitleArtist[{t.title, t.artist}];
+                ++byFilename[t.filename];
+            }
+            int taCollisions = 0, fnCollisions = 0;
+            for (const auto &[k, v] : byTitleArtist) {
+                if (v > 1) {
+                    taCollisions += v;
+                }
+            }
+            for (const auto &[k, v] : byFilename) {
+                if (v > 1) {
+                    fnCollisions += v;
+                }
+            }
+            return std::make_pair(taCollisions, fnCollisions);
+        };
+        auto [rbTa, rbFn] = countCollisions(rekordboxTracks);
+        auto [enTa, enFn] = countCollisions(engineTracks);
+        assert(rbTa == 0);
+        assert(rbFn == 0);
+        assert(enTa == 0);
+        assert(enFn == 0);
+        std::cout << "case 4b (no two different real tracks share an anonymized title+artist or "
+                     "filename, in either catalog) OK\n";
+    }
 
     // Every fixture track's file path is a fake placeholder (see the
     // field-policy table in rekordbox_library_anonymizer.hpp) -- treat

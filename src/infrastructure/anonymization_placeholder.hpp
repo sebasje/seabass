@@ -26,6 +26,21 @@ namespace seabass::infrastructure
 // realKey empty -> a fixed placeholder rather than hashing an empty
 // string, since an empty key carries no real information to begin
 // with.
+//
+// Hash comes before `kind` in the output (not "Track a3f9e2" but
+// "a3f9e2 Track") deliberately: the rekordbox side's own
+// PdbRowWriter::overwriteTrackText() preserves the original field's
+// on-disk byte length and silently truncates whatever's written to
+// fit, so a track whose real title/comment was only a handful of
+// bytes long gets this placeholder cut short. With `kind` first, that
+// truncation used to eat the entire differentiating hash digits and
+// leave every short-titled track with the exact same "Trac"/"Track "
+// prefix -- a real, observed collision across ~7.6% of a real 1,370-
+// track library. Hash-first means truncation instead eats the
+// human-readable label, which carries no uniqueness anyway. Not a
+// hard guarantee for a pathologically short original field (under
+// ~7 bytes, same caveat as anonymizationFilenamePlaceholder() below)
+// -- real DJ library titles essentially never are.
 inline std::string anonymizationPlaceholder(const std::string &kind, const std::string &realKey)
 {
     if (realKey.empty()) {
@@ -33,7 +48,7 @@ inline std::string anonymizationPlaceholder(const std::string &kind, const std::
     }
     size_t h = std::hash<std::string>{}(realKey);
     std::ostringstream oss;
-    oss << kind << " " << std::hex << (h & 0xFFFFFF);
+    oss << std::hex << (h & 0xFFFFFF) << " " << kind;
     return oss.str();
 }
 
