@@ -53,7 +53,7 @@ RowLayout {
 
     FormatButton {
         glyph: "◎"
-        label: "Rekordbox"
+        label: "DeviceLibrary"
         checked: root.appSettingsController.preferredFormat === "rekordbox"
         enabled: root.hasRekordbox
         ButtonGroup.group: group

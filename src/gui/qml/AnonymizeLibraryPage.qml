@@ -151,7 +151,7 @@ Page {
                         Layout.fillWidth: true
                         wrapMode: Text.WordWrap
                         color: Theme.textMuted
-                        text: "No rekordbox or Engine library detected on a connected, mounted stick. "
+                        text: "No DeviceLibrary or Engine library detected on a connected, mounted stick. "
                             + "Insert one and reopen this page."
                     }
 
@@ -174,7 +174,7 @@ Page {
                         wrapMode: Text.WordWrap
                         text: root.selectedStick
                             ? (root.selectedStick.label
-                                + (root.selectedStick.hasRekordbox ? " · rekordbox" : "")
+                                + (root.selectedStick.hasRekordbox ? " · DeviceLibrary" : "")
                                 + (root.selectedStick.hasEngine ? " · Engine" : ""))
                             : ""
                     }

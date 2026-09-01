@@ -14,13 +14,7 @@ Page {
         id: syncController
     }
 
-    // Original/generic labels, not either company's real branding -- same
-    // convention as every other catalog badge/glyph in this app.
-    function formatLabel(format) {
-        if (format === "engine") return "Engine";
-        if (format === "onelibrary") return "OneLibrary";
-        return "DeviceLibrary";
-    }
+    function formatLabel(format) { return FormatLabels.label(format); }
     function pathForFormat(format) {
         return format === "engine" ? root.enginePath : root.rekordboxPath;
     }

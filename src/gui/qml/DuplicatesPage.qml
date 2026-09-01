@@ -36,11 +36,7 @@ Page {
         // lives alongside export.pdb there.
         return root.format === "engine" ? root.enginePath : root.rekordboxPath;
     }
-    function formatLabel(format) {
-        if (format === "engine") return "Engine";
-        if (format === "onelibrary") return "OneLibrary";
-        return "Rekordbox";
-    }
+    function formatLabel(format) { return FormatLabels.label(format); }
 
     DuplicatesController {
         id: duplicatesController
