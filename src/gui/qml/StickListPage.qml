@@ -206,7 +206,7 @@ Page {
                                 }
                                 RowLayout {
                                     visible: delegateRoot.mounted
-                                    Label { text: "Rekordbox: " + (delegateRoot.hasRekordbox ? "yes" : "no"); color: Theme.text }
+                                    Label { text: "DeviceLibrary: " + (delegateRoot.hasRekordbox ? "yes" : "no"); color: Theme.text }
                                     Label { text: "  Engine: " + (delegateRoot.hasEngine ? "yes" : "no"); color: Theme.text }
                                 }
                             }
@@ -273,7 +273,7 @@ Page {
                     wrapMode: Text.WordWrap
                     color: Theme.textMuted
                     text: delegateRoot.mounted
-                        ? "No rekordbox or Engine library detected on this stick."
+                        ? "No DeviceLibrary or Engine library detected on this stick."
                         : "Click to mount, then Seabass will show what's available here."
                 }
 
@@ -325,7 +325,7 @@ Page {
                         }
                         ActionCard {
                             cardTitle: "Create Engine Library"
-                            cardSubtitle: "Build a new Engine Library from this stick's rekordbox export"
+                            cardSubtitle: "Build a new Engine Library from this stick's DeviceLibrary export"
                             cardIcon: "⚙"
                             cardIconFont: "Noto Sans Symbols"
                             // Experimental (see docs/experimental-features.md):
@@ -340,7 +340,7 @@ Page {
                         }
                         ActionCard {
                             cardTitle: "Sync Cue Points"
-                            cardSubtitle: "Copy cues between Rekordbox and Engine"
+                            cardSubtitle: "Copy cues between DeviceLibrary and Engine"
                             cardIcon: "⇄"
                             cardIconFont: "Noto Sans Math"
                             enabled: delegateRoot.hasRekordbox && delegateRoot.hasEngine

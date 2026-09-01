@@ -66,7 +66,7 @@ Page {
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
                 text: "This creates a brand new \"Engine Library\" folder on this stick from the current "
-                    + "rekordbox export. It does not touch rekordbox's own data at all."
+                    + "DeviceLibrary export. It does not touch DeviceLibrary's own data at all."
             }
             Label {
                 Layout.fillWidth: true

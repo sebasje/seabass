@@ -172,7 +172,7 @@ Page {
                         Label { text: "Back Up to This Computer"; font.bold: true }
                         Label {
                             text: (root.hasRekordbox && root.hasEngine
-                                    ? "Copies this stick's cues -- both Rekordbox and Engine -- to a local backup."
+                                    ? "Copies this stick's cues — both DeviceLibrary and Engine — to a local backup."
                                     : "Copies this stick's cues to a local backup.")
                                 + " Never touches the stick, no confirmation needed."
                             color: Theme.textMuted
@@ -232,10 +232,10 @@ Page {
                         contentItem: RowLayout {
                             spacing: 8
                             Label {
-                                text: snapshotDelegate.modelData.sourceFormat === "engine" ? "Engine" : "Rekordbox"
+                                text: snapshotDelegate.modelData.sourceFormat === "engine" ? "Engine" : "DeviceLibrary"
                                 color: Theme.accent
                                 font.bold: true
-                                Layout.preferredWidth: 72
+                                Layout.preferredWidth: 104
                             }
                             Label {
                                 text: root.friendlyTimestamp(snapshotDelegate.modelData.createdAt)
@@ -265,8 +265,8 @@ Page {
                                 text: "Restore From Here"
                                 enabled: !localCueController.busy
                                 ToolTip.visible: hovered
-                                ToolTip.text: "Match this exact backup against the " + (root.format === "engine" ? "Engine" : "Rekordbox")
-                                    + " side of the stick (switch the format toggle below to restore the other side) -- results appear below"
+                                ToolTip.text: "Match this exact backup against the " + (root.format === "engine" ? "Engine" : "DeviceLibrary")
+                                    + " side of the stick (switch the format toggle below to restore the other side); results appear below"
                                 onClicked: {
                                     confirmDialog.sourceDescription = snapshotDescriptionField.text.length > 0
                                         ? snapshotDescriptionField.text

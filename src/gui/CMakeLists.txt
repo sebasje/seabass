@@ -24,12 +24,14 @@ endif()
 # (confirmed: moving it after here silently produced the same broken
 # non-singleton qmldir entry even after a full clean rebuild).
 set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+set_source_files_properties(qml/FormatLabels.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
 qt_add_qml_module(seabass
     URI SeabassGui
     VERSION 1.0
     QML_FILES
         qml/Theme.qml
+        qml/FormatLabels.qml
         qml/Main.qml
         qml/StickListPage.qml
         qml/ActionCard.qml

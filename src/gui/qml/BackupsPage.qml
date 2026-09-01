@@ -50,7 +50,7 @@ Page {
     // before this list existed at all.
     readonly property var fileDisplayNames: ({
         "exportLibrary.db": "OneLibrary",
-        "export.pdb": "export.pdb (Rekordbox device library)",
+        "export.pdb": "export.pdb (DeviceLibrary)",
         "m.db": "m.db (Engine library)",
     })
     function friendlyFileNames(names) {
@@ -120,7 +120,7 @@ Page {
         Label {
             text: "This permanently deletes the " + Math.max(0, backupsListView.count - keepSpinBox.value)
                 + " oldest backup(s) under " + backupsController.backupDir
-                + ".\nIt never touches the stick's live Rekordbox/Engine data."
+                + ".\nIt never touches the stick's live DeviceLibrary/Engine data."
             wrapMode: Text.WordWrap
         }
     }
