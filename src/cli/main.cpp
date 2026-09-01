@@ -890,7 +890,7 @@ int runAnonymizeCommand(bool wantRekordbox, bool wantEngine, const std::optional
     }
 
     Console::info("");
-    Console::heading("Anonymized library written to " + *outDir);
+    Console::heading("Anonymized library written to " + summary.outputZipPath);
     if (summary.rekordboxAttempted) {
         std::string line = "  rekordbox: kept " + std::to_string(summary.rekordboxTracksKept) + " track(s)";
         if (summary.rekordboxTracksDropped > 0) {
@@ -908,14 +908,15 @@ int runAnonymizeCommand(bool wantRekordbox, bool wantEngine, const std::optional
         line += "; renamed " + std::to_string(summary.enginePlaylistsRenamed) + " playlist(s)/folder(s)";
         Console::info(line);
     }
-    Console::info("  " + humanSize(static_cast<std::uint64_t>(summary.outputSizeBytes)) + " raw, roughly " +
-                   humanSize(static_cast<std::uint64_t>(summary.estimatedZippedBytes)) + " estimated once zipped");
+    Console::info("  " + humanSize(static_cast<std::uint64_t>(summary.outputSizeBytes)) + " raw, " +
+                   humanSize(static_cast<std::uint64_t>(summary.finalZipBytes)) + " zipped");
     Console::info("");
-    Console::info("See " + summary.manifestPath + " for exactly what's included and excluded.");
+    Console::info("MANIFEST.txt (inside the zip) documents exactly what's included and excluded:");
     Console::info("");
+    Console::info(summary.manifestText);
     Console::heading("Nothing has been sent anywhere");
-    Console::info("This only wrote files to " + *outDir +
-                   ". Review them, then attach that folder (zipped) to an");
+    Console::info("This only wrote " + summary.outputZipPath +
+                   ". Review its contents, then attach it to an");
     Console::info("email to sebas@kde.org if you'd like to help test against your hardware/library.");
     Console::info("This dataset may be published as part of the project's test suite. If there's");
     Console::info("anything in --hardware/--notes you'd rather not have published, leave it out and");

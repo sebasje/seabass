@@ -7,6 +7,7 @@
 
 #include "infrastructure/engine/libdjinterop_engine_anonymizer.hpp"
 #include "infrastructure/rekordbox/rekordbox_library_anonymizer.hpp"
+#include "infrastructure/zip_archive_writer.hpp"
 
 namespace seabass::application
 {
@@ -133,9 +134,9 @@ void writeManifest(const fs::path &manifestPath, const AnonymizationSummary &sum
     m << "Output size: " << humanSize(summary.outputSizeBytes) << " raw, roughly "
       << humanSize(summary.estimatedZippedBytes) << " estimated once zipped.\n\n";
 
-    m << "Nothing has been sent anywhere; this only wrote files to this\n"
-         "directory. Review them, then attach this folder (zipped) to an\n"
-         "email to sebas@kde.org if you'd like to help test against your\n"
+    m << "Nothing has been sent anywhere; this only wrote a single zip\n"
+         "file. Review its contents, then attach that zip to an email to\n"
+         "sebas@kde.org if you'd like to help test against your\n"
          "hardware/library. This dataset may be published as part of the\n"
          "project's test suite. If there's anything in the hardware or\n"
          "notes text above you'd rather not have published, leave it out\n"
@@ -193,6 +194,36 @@ AnonymizationSummary AnonymizeLibrary::execute(const std::optional<std::string> 
 
     summary.manifestPath = (fs::path(outputDir) / "MANIFEST.txt").string();
     writeManifest(summary.manifestPath, summary, options);
+
+    // Captured before the staging directory is removed below -- once
+    // execute() returns, MANIFEST.txt only exists inside outputZipPath,
+    // not as a standalone file a caller could read back off disk.
+    {
+        std::ifstream manifestIn(summary.manifestPath, std::ios::binary);
+        std::ostringstream manifestContent;
+        manifestContent << manifestIn.rdbuf();
+        summary.manifestText = manifestContent.str();
+    }
+
+    // outputDir was only ever a staging area -- the actual deliverable
+    // is one zip file, not a directory tree the user has to remember to
+    // zip themselves before emailing it. fs::path's own manipulation
+    // (rather than raw string/separator surgery, which would need a
+    // separate code path for Windows' wide path::value_type) keeps this
+    // portable: a trailing separator makes filename() report empty, so
+    // that case falls back to parent_path() first, then += appends
+    // ".zip" without inserting a fresh separator.
+    fs::path zipPath(outputDir);
+    if (zipPath.filename().empty()) {
+        zipPath = zipPath.parent_path();
+    }
+    zipPath += ".zip";
+    infrastructure::writeZipArchive(outputDir, zipPath);
+    summary.outputZipPath = zipPath.string();
+    std::error_code sizeEc;
+    summary.finalZipBytes = fs::file_size(zipPath, sizeEc);
+
+    fs::remove_all(outputDir);
 
     return summary;
 }

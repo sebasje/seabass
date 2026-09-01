@@ -148,6 +148,7 @@ add_library(seabass_core STATIC
     src/infrastructure/local/local_cue_store.cpp
     src/infrastructure/system/rekordbox_process_detector.cpp
     src/infrastructure/system/stick_hardware_info.cpp
+    src/infrastructure/zip_archive_writer.cpp
 )
 target_include_directories(seabass_core PUBLIC src)
 target_link_libraries(seabass_core PUBLIC rekordbox_format DjInterop ZLIB::ZLIB)
@@ -586,10 +587,11 @@ add_executable(anonymize_library_test
     src/infrastructure/rekordbox/anlz_file.cpp
     src/infrastructure/rekordbox/rekordbox_library_anonymizer.cpp
     src/infrastructure/engine/libdjinterop_engine_anonymizer.cpp
+    src/infrastructure/zip_archive_writer.cpp
     tests/anonymize_library_test.cpp
 )
 target_include_directories(anonymize_library_test PRIVATE src)
-target_link_libraries(anonymize_library_test PRIVATE rekordbox_format DjInterop)
+target_link_libraries(anonymize_library_test PRIVATE rekordbox_format DjInterop ZLIB::ZLIB)
 add_test(NAME anonymize_library_test COMMAND anonymize_library_test)
 
 add_executable(libdjinterop_engine_cue_writer_propagate_test
@@ -615,6 +617,14 @@ add_executable(pending_deletion_applier_test
 )
 target_include_directories(pending_deletion_applier_test PRIVATE src)
 add_test(NAME pending_deletion_applier_test COMMAND pending_deletion_applier_test)
+
+add_executable(zip_archive_writer_test
+    src/infrastructure/zip_archive_writer.cpp
+    tests/zip_archive_writer_test.cpp
+)
+target_include_directories(zip_archive_writer_test PRIVATE src)
+target_link_libraries(zip_archive_writer_test PRIVATE ZLIB::ZLIB)
+add_test(NAME zip_archive_writer_test COMMAND zip_archive_writer_test)
 
 add_executable(pending_deletion_resolver_test
     src/infrastructure/cleanup/pending_deletion_resolver.cpp

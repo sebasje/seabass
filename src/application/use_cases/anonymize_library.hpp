@@ -43,9 +43,32 @@ struct AnonymizationSummary
     int enginePlaylistsRenamed = 0;
     std::string engineError;  // empty on success
 
+    // Only valid while execute() is still running -- the staging
+    // directory this pointed to is removed once the zip below is
+    // written. Callers should use outputZipPath/manifestText instead;
+    // kept only for code inside this use case that needs it mid-run.
     std::string manifestPath;
-    std::uintmax_t outputSizeBytes = 0;
+    std::uintmax_t outputSizeBytes = 0;  // raw, uncompressed, before zipping
+    // A ratio-based estimate (real compression measurements against
+    // actual rekordbox/Engine files, see estimateZippedBytes() in the
+    // .cpp) baked into MANIFEST.txt's own text -- written *before* the
+    // real zip exists (the manifest is itself one of the zipped files,
+    // so it can't know its own archive's final exact size). Prefer
+    // finalZipBytes below for anything reported after execute() returns.
     std::uintmax_t estimatedZippedBytes = 0;
+
+    // The single .zip file this run actually produced -- everything
+    // execute() wrote ends up in here; no loose directory is left
+    // behind. Empty if execute() never got far enough to zip anything.
+    std::string outputZipPath;
+    std::uintmax_t finalZipBytes = 0;  // real fs::file_size(outputZipPath), not an estimate
+
+    // Full contents of MANIFEST.txt, captured before the staging
+    // directory (and the standalone copy of this file in it) is
+    // removed -- callers needing to show or print this shouldn't read
+    // it back off disk themselves; it's already inside outputZipPath by
+    // the time execute() returns.
+    std::string manifestText;
 
     // True if at least one catalog was attempted and none of the
     // attempted ones failed.
@@ -53,14 +76,17 @@ struct AnonymizationSummary
 };
 
 // Produces a de-identified, structurally-real copy of one or both real
-// libraries at outputDir/rekordbox and outputDir/engine (whichever of
-// rekordboxRoot/engineRoot is set), plus outputDir/MANIFEST.txt
-// documenting exactly what's included -- see
+// libraries, zipped into a single outputZipPath (see
+// AnonymizationSummary above) -- see
 // infrastructure::rekordbox::anonymizeRekordboxLibrary and
 // infrastructure::engine::anonymizeEngineLibrary for what each edit
 // actually does to its catalog. Shared by both the maintainer fixture-
 // regeneration workflow and the user-facing "export anonymized library"
 // CLI command -- see seabass-cli's own `anonymize` subcommand.
+//
+// outputDir is used as a staging directory during the run (removed
+// once the zip is written) -- the actual deliverable is
+// outputDir + ".zip" alongside it, not outputDir itself.
 class AnonymizeLibrary
 {
 public:
