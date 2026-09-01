@@ -1,6 +1,7 @@
 #include <cassert>
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <vector>
 
@@ -8,8 +9,12 @@
 #include "application/use_cases/sync_libraries.hpp"
 #include "domain/library_consistency.hpp"
 #include "domain/library_statistics.hpp"
+#include "infrastructure/cleanup/pending_deletion_applier.hpp"
+#include "infrastructure/cleanup/pending_deletion_manifest.hpp"
+#include "infrastructure/cleanup/pending_deletion_resolver.hpp"
 #include "infrastructure/engine/libdjinterop_engine_reader.hpp"
 #include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
+#include "infrastructure/rekordbox/rekordbox_cleanup_writer.hpp"
 #include "infrastructure/rekordbox/rekordbox_cue_writer.hpp"
 
 // Runs the app's real use cases against tests/fixtures/anonymized_library
@@ -153,6 +158,106 @@ int main()
     std::cout << "case 6 (real hot-cue write round-trips correctly at realistic file scale) OK\n";
 
     fs::remove_all(scratchRoot);
+
+    // Case 7: orphaned-file deletion, the full chain, at realistic scale
+    // -- a real duplicate-cleanup writer pass (RekordboxCleanupWriter)
+    // against ~1,370 other real-shaped tracks, producing a real
+    // pending-deletion manifest entry the same way cleanup_controller.cpp's
+    // runApplyTask() does, followed by the stale-manifest safety check
+    // (resolvePendingDeletions() correctly protecting a path a fresh scan
+    // says is still referenced) and the real, permanent-deletion path
+    // (applyPendingDeletions()) -- the one place in the app that destroys
+    // real audio content, per BRAINSTORM.md's own flag on this as the
+    // highest-risk operation. Complements the small, synthetic-fixture
+    // unit coverage in pending_deletion_resolver_test.cpp and
+    // pending_deletion_applier_test.cpp, which don't exercise the real
+    // cleanup writer or this scale/variety.
+    {
+        fs::path scratchRoot2 = fs::temp_directory_path() / "seabass_anonymized_fixture_pending_deletion_test";
+        fs::remove_all(scratchRoot2);
+        fs::create_directories(scratchRoot2);
+        fs::path scratchRekordbox = scratchRoot2 / "rekordbox";
+        fs::copy(rekordboxRoot, scratchRekordbox, fs::copy_options::recursive);
+
+        infrastructure::rekordbox::KaitaiRekordboxReader scratchReader(scratchRekordbox.string());
+        auto scratchTracks = application::ScanLibrary(scratchReader).execute();
+        assert(scratchTracks.size() == 1370);
+
+        // Two arbitrary distinct real tracks -- doomed gets removed and
+        // "replaced" by survivor, exactly like a real duplicate-cleanup
+        // pass would (see cleanup_controller.cpp's runApplyTask()).
+        domain::Track doomed = scratchTracks[10];
+        domain::Track survivor = scratchTracks[20];
+        assert(doomed.sourceId != survivor.sourceId);
+
+        // The fixture's tracks have no real audio file behind them (see
+        // case 5's own comment) -- create one now so there's something
+        // real for the deletion path to actually delete, same as
+        // pending_deletion_applier_test.cpp's own touch() helper.
+        fs::create_directories(fs::path(doomed.filePath).parent_path());
+        std::ofstream(doomed.filePath) << "fake audio data";
+        assert(fs::exists(doomed.filePath));
+
+        fs::path manifestPath = scratchRoot2 / ".seabass-pending-deletions.jsonl";
+        infrastructure::cleanup::PendingDeletionManifest manifest(manifestPath.string());
+
+        infrastructure::rekordbox::RekordboxCleanupWriter cleanupWriter(scratchRekordbox.string());
+        cleanupWriter.removeTrackReplacingWith(doomed.sourceId, survivor.sourceId);
+
+        infrastructure::cleanup::PendingDeletion pending;
+        pending.format = "rekordbox";
+        pending.filePath = doomed.filePath;
+        pending.title = doomed.title;
+        pending.artist = doomed.artist;
+        pending.backupId = "test-backup";
+        manifest.append(pending);
+
+        // Fresh re-scan after the real write: the doomed track is
+        // genuinely gone from the 1,370-track library.
+        infrastructure::rekordbox::KaitaiRekordboxReader postRemovalReader(scratchRekordbox.string());
+        auto postRemovalTracks = application::ScanLibrary(postRemovalReader).execute();
+        assert(postRemovalTracks.size() == 1369);
+        for (const auto &t : postRemovalTracks) {
+            assert(t.sourceId != doomed.sourceId);
+        }
+        std::cout << "case 7a (real RekordboxCleanupWriter pass at realistic scale: doomed track genuinely "
+                     "removed, pending-deletion entry recorded) OK\n";
+
+        // Stale-manifest safety check: simulate a fresh scan where some
+        // other real track now legitimately occupies the doomed track's
+        // old file path (e.g. a later re-tag/rename pointed a track at
+        // that exact path) -- resolvePendingDeletions() must reclassify
+        // the manifest entry as stillReferenced and refuse it, even
+        // though the manifest itself still lists it as orphaned.
+        auto staleScanTracks = postRemovalTracks;
+        staleScanTracks[0].filePath = doomed.filePath;
+
+        auto staleResolution = infrastructure::cleanup::resolvePendingDeletions(manifest.list(), staleScanTracks);
+        assert(staleResolution.safeToDelete.empty());
+        assert(staleResolution.stillReferenced.size() == 1);
+        assert(staleResolution.stillReferenced[0].filePath == doomed.filePath);
+        assert(fs::exists(doomed.filePath));  // correctly left untouched
+        std::cout << "case 7b (stale manifest: resolvePendingDeletions correctly protects a path a fresh "
+                     "scan says is still referenced) OK\n";
+
+        // The real, non-stale case: resolve against the genuinely fresh
+        // scan and actually delete -- the file must be genuinely gone
+        // from disk afterward, and cleared from the manifest.
+        auto realResolution = infrastructure::cleanup::resolvePendingDeletions(manifest.list(), postRemovalTracks);
+        assert(realResolution.safeToDelete.size() == 1);
+        assert(realResolution.stillReferenced.empty());
+
+        auto outcomes = infrastructure::cleanup::applyPendingDeletions(realResolution.safeToDelete, manifest);
+        assert(outcomes.size() == 1);
+        assert(outcomes[0].status == infrastructure::cleanup::PendingDeletionOutcome::Status::Deleted);
+        assert(!fs::exists(doomed.filePath));
+        assert(manifest.list().empty());
+        std::cout << "case 7c (genuinely orphaned file: actually deleted from disk at realistic scale, "
+                     "manifest cleared) OK\n";
+
+        fs::remove_all(scratchRoot2);
+    }
+
     std::cout << "all cases passed\n";
     return 0;
 }
