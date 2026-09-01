@@ -1,5 +1,6 @@
 pragma Singleton
 import QtQuick
+import SeabassGui
 
 // Single source of truth for every color and font size this app's own
 // custom-drawn UI uses -- no other .qml file should have a literal
@@ -178,29 +179,62 @@ QtObject {
     }
 
     // ---- Font scale -- every size a multiple of the system's own font
-    // point size, never an absolute number. Qt.application.font already
-    // reflects Plasma's "General font" setting on this platform; a few
-    // desktops/build configs report pointSize as -1 (pixel-size-only
-    // fonts), so fall back to a conventional 10pt default rather than
-    // propagate a nonsensical negative multiplier.
+    // point size, never an absolute number. Sourced from
+    // SystemFontMetrics (system_font_metrics.hpp), which reads
+    // QFontDatabase::systemFont() -- a direct, live query of the
+    // platform theme's current font hint, not QGuiApplication::font()
+    // (the app's own currently-set default font, which only reflects
+    // the platform theme once something has copied it in there, at
+    // timing that isn't guaranteed). A few desktops/build configs report
+    // pointSize as -1 (pixel-size-only fonts), so fall back to a
+    // conventional default rather than propagate a nonsensical negative
+    // multiplier.
     //
-    // Tried routing this through a native SystemFontWatcher
-    // (QEvent::ApplicationFontChange event filter) instead, to guarantee
-    // live reactivity to a runtime Plasma font-size change -- reverted:
-    // it produced visibly undersized icons/text at startup (QML caches
-    // a property binding after first evaluation, and this file's own
-    // binding can evaluate before KDE's platform theme has finished
-    // applying the real system font; a deferred re-emit didn't reliably
-    // fix it either). Not worth the regression for a speculative gap
-    // that was never confirmed to actually exist.
-    readonly property real baseFontPointSize: Qt.application.font.pointSize > 0 ? Qt.application.font.pointSize : 10
-    readonly property real fontTiny: baseFontPointSize * 0.85
-    readonly property real fontSmall: baseFontPointSize * 0.92
+    // A previous attempt at this (SystemFontWatcher, reverted -- see git
+    // history around commit d32a548) read QGuiApplication::font()
+    // through a QEvent::ApplicationFontChange event filter and produced
+    // visibly undersized icons/text at startup: that event apparently
+    // never fired for a platform-theme-driven change here, so the
+    // binding latched onto whatever wrong value QGuiApplication::font()
+    // held at first evaluation and nothing ever corrected it.
+    // QFontDatabase::systemFont() has no such "has it been copied in
+    // yet" gap to begin with -- confirmed via a temporary startup debug
+    // print that it already reads correctly at Component.onCompleted --
+    // and SystemFontMetrics.changed() (QEvent::ThemeChange, the event
+    // for "the platform theme itself changed") keeps it live afterward.
+    //
+    // smallestReadablePointSize is the platform's own definition of the
+    // smallest comfortably-readable UI text size (Plasma's own
+    // "smallest font" setting on this platform, backed by whatever
+    // QPlatformTheme is active elsewhere -- Windows/macOS included, no
+    // platform-specific code needed here) -- a hard floor applied to
+    // every font role below that can shrink smaller than the base size.
+    // Roles that only ever scale up from the base can't go under the
+    // floor once the base can't, so they don't need it applied again.
+    readonly property real smallestReadablePointSize: SystemFontMetrics.smallestReadablePointSize > 0
+        ? SystemFontMetrics.smallestReadablePointSize : 7
+    readonly property real baseFontPointSize: Math.max(smallestReadablePointSize,
+        SystemFontMetrics.generalPointSize > 0 ? SystemFontMetrics.generalPointSize : 10)
+    readonly property real fontTiny: Math.max(smallestReadablePointSize, baseFontPointSize * 0.85)
+    readonly property real fontSmall: Math.max(smallestReadablePointSize, baseFontPointSize * 0.92)
     readonly property real fontNormal: baseFontPointSize
     readonly property real fontMedium: baseFontPointSize * 1.15
     readonly property real fontLarge: baseFontPointSize * 1.4
     readonly property real fontXLarge: baseFontPointSize * 1.6
     readonly property real fontHuge: baseFontPointSize * 2.2
+
+    // ---- Icon sizes -- linked to the same base font size rather than
+    // hardcoded pixels, so an icon scales the same way the text next to
+    // it does. iconScale is the one deliberate pt-to-px conversion this
+    // needs (Item/Layout sizes are pixels, font sizes are points): tuned
+    // so today's actual on-screen icon sizes come out unchanged at
+    // today's real default base size (confirmed 10pt on this machine),
+    // making this a pure refactor with no visual change until someone's
+    // system font size actually differs from that default.
+    readonly property real iconScale: baseFontPointSize / 10.0
+    readonly property real iconSizeSmall: 32 * iconScale
+    readonly property real iconSizeNormal: 40 * iconScale
+    readonly property real iconSizeLarge: 48 * iconScale
 
     // ---- Titles -- a dedicated (non-bold) display face + scale, set once
     // here and consumed only via PageTitle.qml, so every page title stays

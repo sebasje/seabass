@@ -278,7 +278,7 @@ Page {
                                 text: "🗑"
                                 font.family: "Noto Sans Symbols2"
                                 opacity: 0.55
-                                Layout.preferredWidth: 32
+                                Layout.preferredWidth: Theme.iconSizeSmall
                                 ToolTip.visible: hovered
                                 ToolTip.text: "Delete this backup permanently"
                                 onClicked: {

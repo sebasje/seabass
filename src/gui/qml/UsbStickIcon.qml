@@ -14,8 +14,8 @@ Item {
     // clarity" -- best-effort, see DetectedStick::isSdCard's own comment
     // for what "best-effort" means per platform.
     property bool isSdCard: false
-    implicitWidth: 32
-    implicitHeight: 32
+    implicitWidth: Theme.iconSizeSmall
+    implicitHeight: Theme.iconSizeSmall
 
     // USB-stick pictogram: a rounded body plus a small connector prong.
     Item {

@@ -264,22 +264,23 @@ Page {
                 Layout.topMargin: 4
                 Layout.bottomMargin: 4
                 spacing: 8
-                Label { text: ""; Layout.preferredWidth: 40 }
+                Label { text: ""; Layout.preferredWidth: Theme.iconSizeNormal }
                 TableHeaderLabel { label: "Title"; Layout.fillWidth: true }
                 TableHeaderLabel { label: "Key"; Layout.preferredWidth: 50 }
                 TableHeaderLabel { label: "BPM"; Layout.preferredWidth: 50 }
                 TableHeaderLabel { label: "Time"; Layout.preferredWidth: 60 }
                 TableHeaderLabel { label: "Cues"; Layout.preferredWidth: 50 }
                 TableHeaderLabel { label: "Plays"; Layout.preferredWidth: 50 }
-                // 32 (info button) + 8 (row spacing) + 32 (merge button),
-                // both trailing ToolButtons in the delegate below, not
-                // just one. Getting this narrower than the delegate's
-                // real trailing content silently pushes every column
-                // before it out of alignment (the fill spacer above ends
-                // up absorbing a different amount of leftover space in
-                // the header than in each row), exactly what happened
-                // here before this comment existed.
-                Label { text: ""; Layout.preferredWidth: 72 }
+                // Theme.iconSizeSmall (info button) + 8 (row spacing) +
+                // Theme.iconSizeSmall (merge button), both trailing
+                // ToolButtons in the delegate below, not just one.
+                // Getting this narrower than the delegate's real
+                // trailing content silently pushes every column before
+                // it out of alignment (the fill spacer above ends up
+                // absorbing a different amount of leftover space in the
+                // header than in each row), exactly what happened here
+                // before this comment existed.
+                Label { text: ""; Layout.preferredWidth: Theme.iconSizeSmall * 2 + 8 }
             }
 
             ListView {
@@ -391,8 +392,8 @@ Page {
                         spacing: 8
 
                         Rectangle {
-                            Layout.preferredWidth: 40
-                            Layout.preferredHeight: 40
+                            Layout.preferredWidth: Theme.iconSizeNormal
+                            Layout.preferredHeight: Theme.iconSizeNormal
                             color: Theme.surface
                             Image {
                                 anchors.fill: parent
@@ -451,7 +452,7 @@ Page {
                         Label { text: playCount >= 0 ? playCount : "--"; Layout.preferredWidth: 50 }
                         ToolButton {
                             text: "ⓘ"
-                            Layout.preferredWidth: 32
+                            Layout.preferredWidth: Theme.iconSizeSmall
                             ToolTip.visible: hovered
                             ToolTip.text: trackDelegate.playlistNames.length > 0
                                 ? "Playlists:\n" + trackDelegate.playlistNames.join("\n")
@@ -460,7 +461,7 @@ Page {
                         }
                         ToolButton {
                             text: "🔗"
-                            Layout.preferredWidth: 32
+                            Layout.preferredWidth: Theme.iconSizeSmall
                             enabled: root.format !== "onelibrary" && trackDelegate.streamingSource.length === 0
                             ToolTip.visible: hovered
                             ToolTip.text: trackDelegate.streamingSource.length > 0
