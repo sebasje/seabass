@@ -5,13 +5,13 @@ import QtQuick.Layouts
 import SeabassGui
 
 // Writes a de-identified, structurally-real copy of one or both real
-// libraries to a chosen folder: for regenerating this project's own
+// libraries as a single zip file: for regenerating this project's own
 // committed test fixture, or for submitting a library to help test
 // hardware/library shapes the maintainer doesn't have. Never sends
-// anything anywhere itself -- only ever writes to the folder chosen
-// below. Reachable from Settings (App Settings -> Experimental
-// features), not an ActionCard: this is a maintainer/power-user tool,
-// not a per-stick everyday action.
+// anything anywhere itself -- only ever writes that one zip file, next
+// to the location chosen below. Reachable from Settings (App Settings
+// -> Experimental features), not an ActionCard: this is a maintainer/
+// power-user tool, not a per-stick everyday action.
 Page {
     id: root
     required property var mediaController
@@ -125,17 +125,17 @@ Page {
                 Label {
                     Layout.fillWidth: true
                     wrapMode: Text.WordWrap
-                    text: "Nothing is sent anywhere automatically; this only writes files to the folder "
-                        + "you choose below. Review them yourself before sending anything."
+                    text: "Nothing is sent anywhere automatically; this only writes a single zip file "
+                        + "next to the location you choose below. Review it yourself before sending anything."
                 }
                 InfoButton {
                     explanationTitle: "What gets sent, and to whom?"
-                    explanationText: "Nothing, automatically. This tool only writes files to the output folder "
-                        + "you pick. If you'd like to help test Seabass, you review those files yourself, then "
-                        + "attach the folder (zipped) to an email you send to sebas@kde.org. This data may be "
-                        + "published as part of the project's test suite. If there's anything in the hardware "
-                        + "or notes fields below you would not want published, leave it out here and mention "
-                        + "it directly in your email instead."
+                    explanationText: "Nothing, automatically. This tool only writes one zip file to the "
+                        + "location you pick. If you'd like to help test Seabass, you review its contents "
+                        + "yourself, then attach that zip file to an email you send to sebas@kde.org. This "
+                        + "data may be published as part of the project's test suite. If there's anything "
+                        + "in the hardware or notes fields below you would not want published, leave it out "
+                        + "here and mention it directly in your email instead."
                 }
             }
 
@@ -182,13 +182,15 @@ Page {
             }
 
             GroupBox {
-                label: Subtitle { text: "Output folder" }
+                label: Subtitle { text: "Output location" }
                 Layout.fillWidth: true
                 ColumnLayout {
                     anchors.fill: parent
                     spacing: 8
                     Label {
-                        text: "Created fresh; must not already exist and be non-empty."
+                        text: "Must not already exist and be non-empty. A zip file with this name is "
+                            + "created next to it."
+                        wrapMode: Text.WordWrap
                         color: Theme.textMuted
                         font.pointSize: Theme.fontSmall
                     }
@@ -196,7 +198,7 @@ Page {
                         spacing: 8
                         Label {
                             Layout.fillWidth: true
-                            text: root.outputDir.length > 0 ? root.outputDir : "No folder chosen yet"
+                            text: root.outputDir.length > 0 ? (root.outputDir + ".zip") : "No location chosen yet"
                             color: root.outputDir.length > 0 ? Theme.text : Theme.textMuted
                             elide: Text.ElideMiddle
                         }
@@ -328,7 +330,7 @@ Page {
                 Layout.fillWidth: true
                 spacing: 8
                 Label {
-                    text: "Written to " + controller.outputDir
+                    text: "Written to " + controller.outputZipPath
                     color: Theme.good
                     font.bold: true
                     wrapMode: Text.WordWrap
@@ -343,8 +345,15 @@ Page {
                 RowLayout {
                     spacing: 12
                     Button {
-                        text: "Open Folder"
-                        onClicked: Qt.openUrlExternally("file://" + controller.outputDir)
+                        text: "Show in Folder"
+                        ToolTip.visible: hovered
+                        ToolTip.text: "Open the folder containing the zip file"
+                        onClicked: {
+                            var lastSlash = controller.outputZipPath.lastIndexOf("/");
+                            var containingFolder = lastSlash >= 0
+                                ? controller.outputZipPath.substring(0, lastSlash) : controller.outputZipPath;
+                            Qt.openUrlExternally("file://" + containingFolder);
+                        }
                     }
                 }
 
@@ -360,8 +369,8 @@ Page {
                         anchors.margins: 8
                         wrapMode: Text.WordWrap
                         color: Theme.warnText
-                        text: "To help test Seabass, review the files above, then attach that folder "
-                            + "(zipped) to an email to sebas@kde.org. Nothing has been sent yet; this is a "
+                        text: "To help test Seabass, review the zip file's contents, then attach it "
+                            + "to an email to sebas@kde.org. Nothing has been sent yet; this is a "
                             + "manual step you do yourself."
                     }
                 }
