@@ -167,6 +167,18 @@ Page {
             spacing: 4
             ScrollBar.vertical: BigScrollBar {}
 
+            // BigScrollBar overlays the list rather than reserving its
+            // own layout space (a real, deliberate overlay scrollbar,
+            // same as the platform default it replaces) -- delegate/
+            // header content sized to the ListView's full width used to
+            // extend all the way under it, right up to (and visually
+            // clipped by) the scrollbar thumb. Every "width: ..." below
+            // that used to read plansListView.width/ListView.view.width
+            // directly now reads this instead, leaving a small gutter
+            // for the scrollbar to sit in without overlapping real
+            // content.
+            readonly property real delegateWidth: width - 14
+
             // One list, one scrollbar: unresolved conflicts need
             // resolving before their track can sync at all, so they
             // belong above the actionable plans, not in a second,
@@ -176,11 +188,34 @@ Page {
             // while the conflicts themselves (always few) render plainly
             // via Repeater.
             header: Column {
-                width: plansListView.width
+                id: conflictsHeader
+                width: plansListView.delegateWidth
                 spacing: 8
                 bottomPadding: visible ? 12 : 0
                 visible: syncController.unresolvedConflicts.length > 0
                 height: visible ? implicitHeight : 0
+
+                // Each conflict card's waveforms load asynchronously
+                // (see the inner Repeater's own comment below), so this
+                // header's real height only reaches its final value
+                // gradually, over several frames, not in one shot.
+                // ListView's own default behavior when content *above*
+                // the current viewport changes size is to adjust
+                // contentY to keep whatever's currently visible looking
+                // stationary -- exactly wrong here: it means every
+                // incremental growth pushes the header (and the
+                // conflicts it's meant to surface) further up and out of
+                // view, since nothing has scrolled away from the top on
+                // purpose. positionViewAtBeginning() (not a direct
+                // contentY assignment -- that raced against ListView's
+                // own internal repositioning for this exact change and
+                // lost) re-pins to the real top; deferred via
+                // Qt.callLater() so it runs after ListView's own
+                // response to this same height change has already
+                // happened, not before it. Stops mattering once the
+                // height stops changing (i.e. once the user might
+                // actually be scrolling themselves).
+                onHeightChanged: Qt.callLater(plansListView.positionViewAtBeginning)
 
                 Label {
                     text: "Unresolved conflicts (" + syncController.unresolvedConflicts.length + ")"
@@ -194,7 +229,7 @@ Page {
                         id: conflictCard
                         required property var modelData
                         required property int index
-                        width: plansListView.width
+                        width: plansListView.delegateWidth
                         color: Theme.warnBg
                         border.color: Theme.warnBorder
                         radius: 4
@@ -226,6 +261,28 @@ Page {
                                 // ordinary plan list below already gives each
                                 // side of a match -- a conflict deserves the
                                 // same look, not just a one-line summary.
+                                //
+                                // Conflicts render via a plain Repeater
+                                // (see the header comment above on why:
+                                // "one list, one scrollbar"), not a
+                                // virtualized ListView -- so unlike the
+                                // real plan list below, every conflict
+                                // card here gets created immediately,
+                                // all at once, whether on-screen yet or
+                                // not. Each TrackWaveformCard's waveform
+                                // fetch is a real, synchronous disk read
+                                // (PlaybackController::waveformFor(),
+                                // uncached on first access) -- with
+                                // several conflicts on a real library,
+                                // that's a real, measurable UI-thread
+                                // stall right when this page opens.
+                                // asynchronous: true spreads each card's
+                                // creation (and so its waveform read)
+                                // across idle frames instead of doing
+                                // them all in one block, without needing
+                                // to make the read itself async or turn
+                                // this into a second, separately-
+                                // scrolled virtualized list.
                                 Repeater {
                                     model: [
                                         { track: conflictCard.modelData.sourceATrack, format: conflictCard.modelData.sourceAFormat,
@@ -233,18 +290,24 @@ Page {
                                         { track: conflictCard.modelData.sourceBTrack, format: conflictCard.modelData.sourceBFormat,
                                           summary: conflictCard.modelData.sourceBSummary, hasJunkCue: conflictCard.modelData.sourceBHasJunkCue, useSourceA: false }
                                     ]
-                                    delegate: TrackWaveformCard {
+                                    delegate: Loader {
+                                        id: cardLoader
                                         required property var modelData
-                                        track: modelData.track
-                                        formatLabelText: root.formatLabel(modelData.format) + " (" + modelData.summary + ")"
-                                        actionButtonText: "Use this"
-                                        actionButtonTooltip: "Apply (and overwrite) these cue points to the other track"
-                                        onActionTriggered: syncController.resolveConflict(conflictCard.index, modelData.useSourceA)
-                                        hintText: modelData.hasJunkCue
-                                            ? "This side has a 0:00 memory cue that's usually accidental - consider cleaning it up in Clean Up before deciding."
-                                            : ""
-                                        playbackController: root.playbackController
-                                        playbackPath: root.pathForFormat(modelData.track.side)
+                                        Layout.fillWidth: true
+                                        asynchronous: true
+                                        sourceComponent: TrackWaveformCard {
+                                            track: cardLoader.modelData.track
+                                            formatLabelText: root.formatLabel(cardLoader.modelData.format)
+                                                + " (" + cardLoader.modelData.summary + ")"
+                                            actionButtonText: "Use this"
+                                            actionButtonTooltip: "Apply (and overwrite) these cue points to the other track"
+                                            onActionTriggered: syncController.resolveConflict(conflictCard.index, cardLoader.modelData.useSourceA)
+                                            hintText: cardLoader.modelData.hasJunkCue
+                                                ? "This side has a 0:00 memory cue that's usually accidental - consider cleaning it up in Clean Up before deciding."
+                                                : ""
+                                            playbackController: root.playbackController
+                                            playbackPath: root.pathForFormat(cardLoader.modelData.track.side)
+                                        }
                                     }
                                 }
                             }
@@ -255,7 +318,7 @@ Page {
 
             delegate: Column {
                 id: delegateRoot
-                width: ListView.view.width
+                width: plansListView.delegateWidth
                 spacing: 4
 
                 required property int index
