@@ -2,6 +2,8 @@
 
 #include <QtConcurrent/QtConcurrentRun>
 
+#include <algorithm>
+
 #include "infrastructure/media/media_factory.hpp"
 
 namespace seabass::gui
@@ -97,6 +99,20 @@ QVariantMap DetectedStickListModel::get(int row) const
 
 void DetectedStickListModel::setSticks(std::vector<application::DetectedStick> sticks)
 {
+    // Sticks with a DJ library Seabass can actually do something with are
+    // what the user opened this page for -- put those first (per
+    // BRAINSTORM.md's "List sticks / SD cards with DJ libraries first,
+    // those without second") rather than making them scroll past plain
+    // storage devices. stable_sort so unmounted sticks (whose library
+    // status is unknown until mounted) keep udev's own enumeration order
+    // relative to each other, not a second, arbitrary reshuffle.
+    auto hasKnownLibrary = [](const application::DetectedStick &s) {
+        return s.mounted && (s.rekordboxPath.has_value() || s.enginePath.has_value());
+    };
+    std::stable_sort(sticks.begin(), sticks.end(), [&](const auto &a, const auto &b) {
+        return hasKnownLibrary(a) && !hasKnownLibrary(b);
+    });
+
     beginResetModel();
     m_sticks = std::move(sticks);
     endResetModel();

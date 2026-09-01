@@ -126,6 +126,7 @@ Page {
                 required property bool hasEngine
                 required property string rekordboxPath
                 required property string enginePath
+                readonly property bool hasKnownLibrary: hasRekordbox || hasEngine
 
                 ColumnLayout {
                     id: contentColumn
@@ -260,8 +261,25 @@ Page {
                     }
                 }
 
+                // No point showing a wall of disabled action buttons for a
+                // stick that isn't mounted yet (nothing here is clickable
+                // until it is -- click the row itself to mount) or that's
+                // mounted but has no rekordbox/Engine library on it at all
+                // (there's nothing for any of these actions to do).
+                Label {
+                    Layout.fillWidth: true
+                    Layout.topMargin: 8
+                    visible: !delegateRoot.hasKnownLibrary
+                    wrapMode: Text.WordWrap
+                    color: Theme.textMuted
+                    text: delegateRoot.mounted
+                        ? "No rekordbox or Engine library detected on this stick."
+                        : "Click to mount, then Seabass will show what's available here."
+                }
+
                 ColumnLayout {
                     Layout.fillWidth: true
+                    visible: delegateRoot.hasKnownLibrary
 
                     GridLayout {
                         Layout.fillWidth: true
