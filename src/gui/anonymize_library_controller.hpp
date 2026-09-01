@@ -19,8 +19,8 @@ struct AnonymizeLibraryTaskResult
     bool succeeded = false;
     QString errorMessage;    // empty when succeeded
     QString summaryText;     // short human summary, same shape as seabass-cli anonymize's own printed summary
-    QString manifestText;    // full contents of the written MANIFEST.txt
-    QString outputDir;
+    QString manifestText;    // full contents of MANIFEST.txt (which lives inside outputZipPath, not as a loose file)
+    QString outputZipPath;   // the single zip file the run produced
 };
 
 // Wraps application::AnonymizeLibrary for QML -- see that use case's own
@@ -33,8 +33,8 @@ struct AnonymizeLibraryTaskResult
 // a per-stick everyday action.
 //
 // Never sends anything anywhere itself -- see docs/testing.md and the
-// page's own confirmation text -- this only ever writes files to the
-// output directory the user chooses.
+// page's own confirmation text -- this only ever writes a single zip
+// file alongside the location the user chooses.
 class AnonymizeLibraryController : public QObject
 {
     Q_OBJECT
@@ -46,7 +46,7 @@ class AnonymizeLibraryController : public QObject
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
     Q_PROPERTY(QString summaryText READ summaryText NOTIFY resultChanged)
     Q_PROPERTY(QString manifestText READ manifestText NOTIFY resultChanged)
-    Q_PROPERTY(QString outputDir READ outputDir NOTIFY resultChanged)
+    Q_PROPERTY(QString outputZipPath READ outputZipPath NOTIFY resultChanged)
 
 public:
     explicit AnonymizeLibraryController(QObject *parent = nullptr);
@@ -58,7 +58,7 @@ public:
     QString errorMessage() const { return m_errorMessage; }
     QString summaryText() const { return m_summaryText; }
     QString manifestText() const { return m_manifestText; }
-    QString outputDir() const { return m_outputDir; }
+    QString outputZipPath() const { return m_outputZipPath; }
 
     // rekordboxPath/enginePath: empty means "skip this catalog" (same as
     // omitting --rekordbox/--engine on seabass-cli anonymize). maxTracks
@@ -97,7 +97,7 @@ private:
     QString m_errorMessage;
     QString m_summaryText;
     QString m_manifestText;
-    QString m_outputDir;
+    QString m_outputZipPath;
 };
 
 }  // namespace seabass::gui

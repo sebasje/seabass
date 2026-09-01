@@ -2,9 +2,7 @@
 
 #include <QtConcurrent/QtConcurrentRun>
 
-#include <fstream>
 #include <optional>
-#include <sstream>
 
 #include "application/use_cases/anonymize_library.hpp"
 
@@ -13,17 +11,6 @@ namespace seabass::gui
 
 namespace
 {
-
-std::string readWholeFile(const std::string &path)
-{
-    std::ifstream in(path, std::ios::binary);
-    if (!in) {
-        return {};
-    }
-    std::ostringstream oss;
-    oss << in.rdbuf();
-    return oss.str();
-}
 
 // Runs entirely on a background thread (see
 // AnonymizeLibraryController::run()) -- no access to the controller.
@@ -57,8 +44,8 @@ AnonymizeLibraryTaskResult runAnonymizeTask(QString rekordboxPath, QString engin
         auto summary = useCase.execute(rekordboxRoot, engineRoot, outDir.toStdString(), options, *reporter);
 
         result.succeeded = summary.succeeded();
-        result.outputDir = outDir;
-        result.manifestText = QString::fromStdString(readWholeFile(summary.manifestPath));
+        result.outputZipPath = QString::fromStdString(summary.outputZipPath);
+        result.manifestText = QString::fromStdString(summary.manifestText);
 
         if (!result.succeeded) {
             QStringList errors;
@@ -91,10 +78,8 @@ AnonymizeLibraryTaskResult runAnonymizeTask(QString rekordboxPath, QString engin
             lines << line;
         }
         double outputMb = static_cast<double>(summary.outputSizeBytes) / (1024.0 * 1024.0);
-        double zippedMb = static_cast<double>(summary.estimatedZippedBytes) / (1024.0 * 1024.0);
-        lines << QString("%1 MB raw, roughly %2 MB estimated once zipped")
-                     .arg(outputMb, 0, 'f', 1)
-                     .arg(zippedMb, 0, 'f', 1);
+        double zippedMb = static_cast<double>(summary.finalZipBytes) / (1024.0 * 1024.0);
+        lines << QString("%1 MB raw, %2 MB zipped").arg(outputMb, 0, 'f', 1).arg(zippedMb, 0, 'f', 1);
         result.summaryText = lines.join("\n");
     } catch (const std::exception &e) {
         result.errorMessage = QString::fromStdString(e.what());
@@ -139,7 +124,7 @@ void AnonymizeLibraryController::run(const QString &rekordboxPath, const QString
     setErrorMessage({});
     m_summaryText.clear();
     m_manifestText.clear();
-    m_outputDir.clear();
+    m_outputZipPath.clear();
     emit resultChanged();
     m_phaseBaseline = 0;
     m_currentPhaseTotal = 0;
@@ -159,7 +144,7 @@ void AnonymizeLibraryController::onRunFinished()
     }
     m_summaryText = result.summaryText;
     m_manifestText = result.manifestText;
-    m_outputDir = result.outputDir;
+    m_outputZipPath = result.outputZipPath;
     emit resultChanged();
 }
 
