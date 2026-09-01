@@ -1,3 +1,5 @@
+#include <zlib.h>
+
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
@@ -146,6 +148,66 @@ std::string readRekordboxFilename(const fs::path &pdbPath, uint32_t trackId)
     return result;
 }
 
+std::uint16_t readU16(const std::string &buf, size_t offset)
+{
+    return static_cast<std::uint16_t>(static_cast<unsigned char>(buf[offset]) |
+                                       (static_cast<unsigned char>(buf[offset + 1]) << 8));
+}
+
+std::uint32_t readU32(const std::string &buf, size_t offset)
+{
+    return static_cast<std::uint32_t>(static_cast<unsigned char>(buf[offset])) |
+           (static_cast<std::uint32_t>(static_cast<unsigned char>(buf[offset + 1])) << 8) |
+           (static_cast<std::uint32_t>(static_cast<unsigned char>(buf[offset + 2])) << 16) |
+           (static_cast<std::uint32_t>(static_cast<unsigned char>(buf[offset + 3])) << 24);
+}
+
+// Minimal reader for the format zip_archive_writer.cpp produces --
+// used only to get this test's own real-file-format assertions
+// (Kaitai/djinterop both need actual files on disk, not in-memory zip
+// entries) back onto disk under destDir, mirroring
+// zip_archive_writer_test.cpp's own from-scratch parse of the same
+// format so this test doesn't just trust the writer's internals.
+void extractZip(const fs::path &zipPath, const fs::path &destDir)
+{
+    std::string bytes = readFile(zipPath);
+    assert(bytes.size() >= 22);
+    size_t eocdOffset = bytes.size() - 22;
+    assert(readU32(bytes, eocdOffset) == 0x06054b50u);
+    std::uint16_t entryCount = readU16(bytes, eocdOffset + 10);
+    std::uint32_t centralDirOffset = readU32(bytes, eocdOffset + 16);
+
+    size_t cdCursor = centralDirOffset;
+    for (int i = 0; i < entryCount; i++) {
+        assert(readU32(bytes, cdCursor) == 0x02014b50u);
+        std::uint32_t compressedSize = readU32(bytes, cdCursor + 20);
+        std::uint32_t uncompressedSize = readU32(bytes, cdCursor + 24);
+        std::uint16_t nameLen = readU16(bytes, cdCursor + 28);
+        std::uint32_t localOffset = readU32(bytes, cdCursor + 42);
+        std::string name = bytes.substr(cdCursor + 46, nameLen);
+        cdCursor += 46 + nameLen;
+
+        assert(readU32(bytes, localOffset) == 0x04034b50u);
+        std::uint16_t localNameLen = readU16(bytes, localOffset + 26);
+        std::uint16_t localExtraLen = readU16(bytes, localOffset + 28);
+        size_t dataOffset = localOffset + 30 + localNameLen + localExtraLen;
+        std::string compressed = bytes.substr(dataOffset, compressedSize);
+
+        std::string content(uncompressedSize, '\0');
+        if (uncompressedSize > 0) {
+            z_stream stream{};
+            assert(inflateInit2(&stream, -MAX_WBITS) == Z_OK);
+            stream.next_in = reinterpret_cast<Bytef *>(compressed.data());
+            stream.avail_in = static_cast<uInt>(compressed.size());
+            stream.next_out = reinterpret_cast<Bytef *>(content.data());
+            stream.avail_out = static_cast<uInt>(content.size());
+            assert(inflate(&stream, Z_FINISH) == Z_STREAM_END);
+            inflateEnd(&stream);
+        }
+        writeFile(destDir / name, content);
+    }
+}
+
 }  // namespace
 
 int main()
@@ -184,16 +246,27 @@ int main()
         assert(summary.outputSizeBytes > 0);
         assert(summary.estimatedZippedBytes > 0);
         assert(summary.estimatedZippedBytes < summary.outputSizeBytes);  // an estimate, but should shrink, not grow
-        assert(fs::exists(outDir / "rekordbox" / "rekordbox" / "export.pdb"));
-        assert(fs::exists(outDir / "engine" / "Database2"));
-        assert(fs::exists(summary.manifestPath));
 
-        std::string manifest = readFile(summary.manifestPath);
-        assert(manifest.find("CDJ-3000") != std::string::npos);
-        assert(manifest.find("loop points sometimes drift") != std::string::npos);
-        assert(manifest.find("sebas@kde.org") != std::string::npos);
-        assert(manifest.find("may be published") != std::string::npos);
-        std::cout << "case 1 (both catalogs: succeeds, manifest has hardware/notes/privacy text) OK\n";
+        // The staging directory is gone -- everything lives in one zip
+        // file now, not a loose tree the caller has to zip themselves.
+        assert(!fs::exists(outDir));
+        assert(summary.outputZipPath == outDir.string() + ".zip");
+        assert(fs::exists(summary.outputZipPath));
+        assert(summary.finalZipBytes > 0);
+        assert(summary.finalZipBytes == fs::file_size(summary.outputZipPath));
+
+        assert(summary.manifestText.find("CDJ-3000") != std::string::npos);
+        assert(summary.manifestText.find("loop points sometimes drift") != std::string::npos);
+        assert(summary.manifestText.find("sebas@kde.org") != std::string::npos);
+        assert(summary.manifestText.find("may be published") != std::string::npos);
+        std::cout << "case 1 (both catalogs: succeeds, output is one zip, manifest has hardware/notes/privacy text) OK\n";
+
+        fs::path extracted = root / "out_both_extracted";
+        extractZip(summary.outputZipPath, extracted);
+        assert(fs::exists(extracted / "rekordbox" / "rekordbox" / "export.pdb"));
+        assert(fs::exists(extracted / "engine" / "Database2"));
+        assert(readFile(extracted / "MANIFEST.txt") == summary.manifestText);
+        std::cout << "case 1a (zip contents extract back to the expected tree, manifest matches summary.manifestText) OK\n";
 
         // The one property this whole fixture design exists to prove:
         // the fixture's rekordbox and Engine tracks share the same real
@@ -207,8 +280,9 @@ int main()
         // sequential-counter placeholder scheme would make this
         // assertion fail even though nothing about real sync matching
         // itself is broken.
-        std::string rekordboxFilename = readRekordboxFilename(outDir / "rekordbox" / "rekordbox" / "export.pdb", 100);
-        auto engineDb = djinterop::engine::load_database((outDir / "engine").string());
+        std::string rekordboxFilename =
+            readRekordboxFilename(extracted / "rekordbox" / "rekordbox" / "export.pdb", 100);
+        auto engineDb = djinterop::engine::load_database((extracted / "engine").string());
         auto engineTracks = engineDb.tracks();
         assert(engineTracks.size() == 1);
         std::string engineFilename = engineTracks[0].filename();
@@ -239,7 +313,10 @@ int main()
         assert(summary.succeeded());
         assert(summary.rekordboxAttempted);
         assert(!summary.engineAttempted);
-        assert(!fs::exists(outDir / "engine"));
+
+        fs::path extracted = root / "out_rekordbox_only_extracted";
+        extractZip(summary.outputZipPath, extracted);
+        assert(!fs::exists(extracted / "engine"));
         std::cout << "case 2 (rekordbox only: engine catalog never attempted or written) OK\n";
     }
 
