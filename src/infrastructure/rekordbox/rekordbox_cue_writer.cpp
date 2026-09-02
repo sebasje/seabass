@@ -16,6 +16,22 @@ namespace
 
 constexpr uint32_t Pco2Fourcc = 0x50434f32;  // "PCO2"
 
+// Known, deliberate gap: this writer never touches the legacy "PCOB"
+// (cue_tag) section that sits alongside PCO2 in real files -- real
+// devices/rekordbox keep both in sync on every write (confirmed via a
+// real XDJ-RX2 capture: deleting a hot cue shrank PCOB in lockstep with
+// PCO2), but per Deep Symmetry's reverse-engineering docs (the reference
+// for this whole format), PCO2 is a strict superset and well-behaved
+// readers (Beat Link, and by design intent, rekordbox/modern hardware)
+// prefer PCO2 and only fall back to PCOB when PCO2 is absent. So a track
+// edited by Seabass keeps working correctly everywhere except pre-Nexus2
+// hardware, which doesn't understand PCO2 at all and would see a stale
+// PCOB. Not implemented rather than guessed: the legacy cue_entry
+// format's own kaitai spec already flags several of its fields as
+// unresolved ("order_first"/"order_last", "status", "memory_count") and
+// no real PCOB write has ever been captured to check against -- writing
+// it blind would break this project's own real-data-only methodology.
+
 bool isCueListSection(const AnlzRawSection &section, uint32_t listType)
 {
     return section.fourcc == Pco2Fourcc && section.rawBytes.size() >= 16 &&

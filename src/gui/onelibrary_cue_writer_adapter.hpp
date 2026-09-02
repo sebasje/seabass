@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -29,8 +30,16 @@ namespace seabass::gui
 class OneLibraryCueWriterAdapter : public application::CueWriter
 {
 public:
-    OneLibraryCueWriterAdapter(std::string pioneerRoot, std::unordered_map<std::string, std::string> sourceIdToPath)
-        : m_pioneerRoot(std::move(pioneerRoot)), m_sourceIdToPath(std::move(sourceIdToPath))
+    // realStickRoot: only needed when pioneerRoot points at a relocated
+    // copy of exportLibrary.db (a local scratch build, see
+    // OneLibraryCueWriter's own constructor comment) rather than the
+    // real stick -- forwarded through unchanged so file-path-to-
+    // content.path resolution still uses the real stick's layout.
+    OneLibraryCueWriterAdapter(std::string pioneerRoot, std::unordered_map<std::string, std::string> sourceIdToPath,
+                                std::optional<std::string> realStickRoot = std::nullopt)
+        : m_pioneerRoot(std::move(pioneerRoot)),
+          m_sourceIdToPath(std::move(sourceIdToPath)),
+          m_realStickRoot(std::move(realStickRoot))
     {
     }
 
@@ -40,13 +49,14 @@ public:
         if (it == m_sourceIdToPath.end()) {
             throw std::runtime_error("onelibrary: no known file path for source id=" + trackSourceId);
         }
-        infrastructure::onelibrary::OneLibraryCueWriter writer(m_pioneerRoot);
+        infrastructure::onelibrary::OneLibraryCueWriter writer(m_pioneerRoot, m_realStickRoot);
         writer.writeCuesForPath(it->second, cues);
     }
 
 private:
     std::string m_pioneerRoot;
     std::unordered_map<std::string, std::string> m_sourceIdToPath;
+    std::optional<std::string> m_realStickRoot;
 };
 
 // Same sourceId->filePath adaptation as OneLibraryCueWriterAdapter above,
@@ -59,8 +69,13 @@ private:
 class OneLibraryCleanupWriterAdapter : public application::LibraryCleanupWriter
 {
 public:
-    OneLibraryCleanupWriterAdapter(std::string pioneerRoot, std::unordered_map<std::string, std::string> sourceIdToPath)
-        : m_pioneerRoot(std::move(pioneerRoot)), m_sourceIdToPath(std::move(sourceIdToPath))
+    // realStickRoot: see OneLibraryCueWriterAdapter's own comment above.
+    OneLibraryCleanupWriterAdapter(std::string pioneerRoot,
+                                    std::unordered_map<std::string, std::string> sourceIdToPath,
+                                    std::optional<std::string> realStickRoot = std::nullopt)
+        : m_pioneerRoot(std::move(pioneerRoot)),
+          m_sourceIdToPath(std::move(sourceIdToPath)),
+          m_realStickRoot(std::move(realStickRoot))
     {
     }
 
@@ -74,13 +89,14 @@ public:
         if (survivorIt == m_sourceIdToPath.end()) {
             throw std::runtime_error("onelibrary: no known file path for source id=" + survivorTrackId);
         }
-        infrastructure::onelibrary::OneLibraryCueWriter writer(m_pioneerRoot);
+        infrastructure::onelibrary::OneLibraryCueWriter writer(m_pioneerRoot, m_realStickRoot);
         writer.removeTrackByPathReplacingWith(doomedIt->second, survivorIt->second);
     }
 
 private:
     std::string m_pioneerRoot;
     std::unordered_map<std::string, std::string> m_sourceIdToPath;
+    std::optional<std::string> m_realStickRoot;
 };
 
 }  // namespace seabass::gui
