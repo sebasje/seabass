@@ -53,9 +53,9 @@ void exportMaterialPalette()
     qputenv("QT_QUICK_CONTROLS_MATERIAL_PRIMARY", "#123a52");
     qputenv("QT_QUICK_CONTROLS_MATERIAL_THEME", useSystemTheme ? "System" : "Dark");
 
-    // Deliberately NOT setting QT_QUICK_CONTROLS_STYLE: tried forcing it
-    // to "Material" (plus a matching qtquickcontrols2.conf) to fix a
-    // separate, narrower issue -- ProgressBar loading KDE's own
+    // Deliberately NOT setting QT_QUICK_CONTROLS_STYLE on Linux: tried
+    // forcing it to "Material" (plus a matching qtquickcontrols2.conf) to
+    // fix a separate, narrower issue -- ProgressBar loading KDE's own
     // "org.kde.breeze" style and throwing harmless-but-noisy TypeErrors
     // (breeze's ProgressBar.qml assumes an anchoring context Material's
     // equivalent doesn't set up) -- but forcing the style did NOT fix
@@ -65,6 +65,23 @@ void exportMaterialPalette()
     // outlined buttons instead of this app's flat rectangular cards.
     // Net negative, reverted. The ProgressBar warning is left as a
     // known, cosmetic-only, unresolved issue -- see project memory.
+    //
+    // Windows has no equivalent of KDE's platform-theme integration to
+    // auto-select a native-looking style, so with QT_QUICK_CONTROLS_STYLE
+    // unset it silently falls back to Qt's plain "Basic" style for every
+    // standard control this app uses directly (Button, ComboBox, Dialog,
+    // Menu, ProgressBar, ...) -- flat, colorless, looks nothing like the
+    // Linux build. Explicitly opt into "FluentWinUI3" (Qt 6.8+, native
+    // Windows 11 look, ships in MSYS2's qt6-declarative and already gets
+    // bundled by deploy-windows.ps1/windeployqt) there only; Linux keeps
+    // its existing KDE-driven auto-selection untouched. Respect an
+    // explicit override (e.g. a developer testing a different style) by
+    // only setting this if nothing already has.
+#ifdef Q_OS_WIN
+    if (qEnvironmentVariableIsEmpty("QT_QUICK_CONTROLS_STYLE")) {
+        qputenv("QT_QUICK_CONTROLS_STYLE", "FluentWinUI3");
+    }
+#endif
 }
 
 }  // namespace
