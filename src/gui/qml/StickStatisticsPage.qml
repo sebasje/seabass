@@ -114,13 +114,24 @@ Page {
         }
     }
 
-    ScrollView {
+    // A plain Flickable, not ScrollView: KDE's org.kde.desktop style
+    // positions a ScrollView's attached scrollbar itself, and doesn't
+    // know how to place a foreign BigScrollBar -- it was rendering
+    // unanchored at the content's top-left instead of docked to the
+    // right edge. Every other scrollable page in this app pairs
+    // BigScrollBar with a real Flickable/ListView instead (see e.g.
+    // SyncPage.qml's own comment on the same pairing) precisely because
+    // that positions the attached scrollbar itself, independent of style.
+    Flickable {
         anchors.fill: parent
         anchors.margins: 16
-        contentWidth: availableWidth
+        contentWidth: width
+        contentHeight: statsColumn.height
+        clip: true
         ScrollBar.vertical: BigScrollBar {}
 
         ColumnLayout {
+            id: statsColumn
             width: parent.width
             spacing: 16
 
