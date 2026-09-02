@@ -4,9 +4,11 @@
 #include <QtConcurrent/QtConcurrentRun>
 
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <set>
 #include <unordered_map>
 
@@ -21,9 +23,11 @@
 #include "gui/write_guard.hpp"
 #include "infrastructure/backup/filesystem_backup_store.hpp"
 #include "infrastructure/backup/stick_write_lock.hpp"
+#include "infrastructure/bulk_write_strategy.hpp"
 #include "infrastructure/cleanup/pending_deletion_applier.hpp"
 #include "infrastructure/cleanup/pending_deletion_manifest.hpp"
 #include "infrastructure/cleanup/pending_deletion_resolver.hpp"
+#include "infrastructure/durable_file_write.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cleanup_writer.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cue_writer.hpp"
 #include "infrastructure/engine/libdjinterop_engine_reader.hpp"
@@ -35,11 +39,13 @@
 #include "infrastructure/rekordbox/pdb_row_writer.hpp"
 #include "infrastructure/rekordbox/rekordbox_cleanup_writer.hpp"
 #include "infrastructure/rekordbox/rekordbox_cue_writer.hpp"
+#include "infrastructure/scratch_dir_guard.hpp"
 
 namespace seabass::gui
 {
 
 namespace fs = std::filesystem;
+using infrastructure::ScratchDirGuard;
 
 namespace
 {
@@ -381,8 +387,19 @@ struct FormatContext
 // -- built by the caller from the tracks actually about to be written
 // (OneLibraryCueWriterAdapter/OneLibraryCleanupWriterAdapter's own
 // comments explain why sourceId alone isn't enough for this format).
+//
+// writeRoot: where the format's *shared database* writers (cleanupWriter
+// always; cueWriter too for engine/onelibrary, whose cue writes hit that
+// same shared file) should actually read/write, when the caller has
+// staged it to fast local scratch first (see runApplyTask()'s own
+// comment on why) -- defaults to `path` itself, i.e. write straight to
+// the stick, same as before this parameter existed. rekordbox's
+// cueWriter is deliberately NOT redirected: it writes small per-track
+// .ANLZ files, not the shared export.pdb, so staging buys it nothing
+// (same reasoning as sync_controller.cpp's rekordbox branch).
 FormatContext makeContext(const QString &format, const QString &path,
-                           const std::unordered_map<std::string, std::string> &oneLibrarySourceIdToPath = {})
+                           const std::unordered_map<std::string, std::string> &oneLibrarySourceIdToPath = {},
+                           std::optional<std::string> writeRoot = std::nullopt)
 {
     fs::path stickRoot = fs::path(path.toStdString()).parent_path();
 
@@ -395,7 +412,8 @@ FormatContext makeContext(const QString &format, const QString &path,
     if (format == "rekordbox") {
         std::string pioneerRoot = path.toStdString();
         ctx.cueWriter = std::make_unique<infrastructure::rekordbox::RekordboxCueWriter>(pioneerRoot);
-        ctx.cleanupWriter = std::make_unique<infrastructure::rekordbox::RekordboxCleanupWriter>(pioneerRoot);
+        ctx.cleanupWriter =
+            std::make_unique<infrastructure::rekordbox::RekordboxCleanupWriter>(writeRoot.value_or(pioneerRoot));
         ctx.filesToBackUpFor = [pioneerRoot](const std::string &trackSourceId) -> std::vector<std::string> {
             auto analyzePath = infrastructure::rekordbox::findAnlzPathForTrackId(
                 pioneerRoot, static_cast<uint32_t>(std::stoul(trackSourceId)));
@@ -411,20 +429,28 @@ FormatContext makeContext(const QString &format, const QString &path,
         }
     } else if (format == "engine") {
         std::string engineLibraryPath = path.toStdString();
-        ctx.cueWriter = std::make_unique<infrastructure::engine::LibdjinteropEngineCueWriter>(engineLibraryPath);
-        ctx.cleanupWriter = std::make_unique<infrastructure::engine::LibdjinteropEngineCleanupWriter>(engineLibraryPath);
+        std::string effectivePath = writeRoot.value_or(engineLibraryPath);
+        ctx.cueWriter = std::make_unique<infrastructure::engine::LibdjinteropEngineCueWriter>(effectivePath);
+        ctx.cleanupWriter = std::make_unique<infrastructure::engine::LibdjinteropEngineCleanupWriter>(effectivePath);
         std::string engineDbFile = (fs::path(engineLibraryPath) / "Database2" / "m.db").string();
         ctx.filesToBackUpFor = [engineDbFile](const std::string &) -> std::vector<std::string> { return {engineDbFile}; };
     } else {
         // onelibrary. `path` here is the PIONEER root, same as the
         // rekordbox branch -- OneLibrary lives alongside export.pdb, see
         // DuplicatesController's own onelibrary branch for the same
-        // convention.
+        // convention. realStickRoot is passed explicitly (not left to
+        // the adapters' own pioneerRoot-parent default) because
+        // writeRoot may be a scratch copy, whose parent is just a temp
+        // directory, not the stick -- content.path lookups need the
+        // *real* stick root regardless of where exportLibrary.db itself
+        // is being read from right now.
         std::string pioneerRoot = path.toStdString();
+        std::string effectivePath = writeRoot.value_or(pioneerRoot);
+        std::string realStickRoot = fs::path(pioneerRoot).parent_path().string();
         ctx.cueWriter =
-            std::make_unique<OneLibraryCueWriterAdapter>(pioneerRoot, oneLibrarySourceIdToPath);
-        ctx.cleanupWriter =
-            std::make_unique<OneLibraryCleanupWriterAdapter>(pioneerRoot, oneLibrarySourceIdToPath);
+            std::make_unique<OneLibraryCueWriterAdapter>(effectivePath, oneLibrarySourceIdToPath, realStickRoot);
+        ctx.cleanupWriter = std::make_unique<OneLibraryCleanupWriterAdapter>(effectivePath, oneLibrarySourceIdToPath,
+                                                                              realStickRoot);
         ctx.extraFilesToBackUp = {infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(pioneerRoot)};
         ctx.filesToBackUpFor = [](const std::string &) -> std::vector<std::string> { return {}; };
     }
@@ -454,8 +480,90 @@ CleanupWriteResult runApplyTask(QString format, QString path, std::vector<domain
                 }
             }
         }
-        auto ctx = makeContext(format, path, oneLibrarySourceIdToPath);
+
+        // Every plan's row removal, plus (for engine/onelibrary only --
+        // rekordbox's cue merges go to small per-track .ANLZ files
+        // instead, see makeContext()'s own comment) its cue-merge and
+        // field-propagation writes, all hit the ONE shared database file
+        // this format uses. With many included plans that means many
+        // full reopen+commit round trips directly against a possibly
+        // slow, removable stick -- exactly the cost
+        // shouldUseWholeFileReplace() exists to avoid, same pattern
+        // already proven by sync_controller.cpp and
+        // library_consistency_controller.cpp's repair task.
+        int rowsToRemove = 0;
+        int cueMergeCount = 0;
+        int fieldPropagationCount = 0;
+        for (const auto &plan : includedPlans) {
+            rowsToRemove += static_cast<int>(plan.toRemove.size());
+            if (plan.mergedCuesForSurvivor.size() > plan.survivor.cues.size()) {
+                cueMergeCount++;
+            }
+            if (plan.bpmForSurvivor || plan.keyForSurvivor || plan.artworkPathForSurvivor) {
+                fieldPropagationCount++;
+            }
+        }
+
+        std::string dbFileReal;
+        int itemCount = 0;
+        std::string scratchSubdir;    // relative dir the db file lives in, e.g. "rekordbox" or "Database2"
+        std::string scratchFilename;  // e.g. "export.pdb", "m.db", "exportLibrary.db"
+        if (format == "rekordbox") {
+            dbFileReal = path.toStdString() + "/rekordbox/export.pdb";
+            itemCount = fieldPropagationCount + rowsToRemove;
+            scratchSubdir = "rekordbox";
+            scratchFilename = "export.pdb";
+        } else if (format == "engine") {
+            dbFileReal = (fs::path(path.toStdString()) / "Database2" / "m.db").string();
+            itemCount = cueMergeCount + fieldPropagationCount + rowsToRemove;
+            scratchSubdir = "Database2";
+            scratchFilename = "m.db";
+        } else {
+            dbFileReal = infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(path.toStdString());
+            itemCount = cueMergeCount + fieldPropagationCount + rowsToRemove;
+            scratchSubdir = "rekordbox";
+            scratchFilename = "exportLibrary.db";
+        }
+
+        std::error_code sizeEc;
+        auto existingBytes = fs::file_size(dbFileReal, sizeEc);
+        infrastructure::BulkWriteStrategyInputs strategyInputs;
+        strategyInputs.itemCount = itemCount;
+        strategyInputs.existingFileBytes = sizeEc ? 0 : existingBytes;
+        bool useWholeFile = !sizeEc && infrastructure::shouldUseWholeFileReplace(strategyInputs) &&
+                             infrastructure::hasRoomForWholeFileReplace(fs::path(dbFileReal).parent_path(), existingBytes);
+
+        std::optional<fs::path> scratchDir;
+        std::optional<ScratchDirGuard> scratchGuard;
+        std::optional<std::string> writeRoot;
+        if (useWholeFile) {
+            scratchDir = fs::temp_directory_path() /
+                         ("seabass-cleanup-scratch-" + format.toStdString() + "-" +
+                          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+            std::error_code cleanupEc;
+            fs::remove_all(*scratchDir, cleanupEc);
+            fs::create_directories(*scratchDir / scratchSubdir);
+            fs::copy_file(dbFileReal, *scratchDir / scratchSubdir / scratchFilename);
+            scratchGuard.emplace(*scratchDir);
+            writeRoot = scratchDir->string();
+        }
+
+        // Used below by the two ad-hoc field-propagation writers
+        // (rekordbox's PdbRowWriter, onelibrary's OneLibraryCueWriter)
+        // that aren't part of FormatContext -- same redirect-to-scratch
+        // rule as ctx.cleanupWriter/ctx.cueWriter get inside
+        // makeContext().
+        std::string effectiveRoot = writeRoot.value_or(path.toStdString());
+        std::string realStickRootForOneLib = fs::path(path.toStdString()).parent_path().string();
+
+        auto ctx = makeContext(format, path, oneLibrarySourceIdToPath, writeRoot);
         infrastructure::cleanup::PendingDeletionManifest manifest(ctx.pendingDeletionManifestPath);
+
+        if (scratchDir) {
+            ctx.log->record("cleanup: applying " + std::to_string(itemCount) +
+                             " update(s) to a local scratch copy first (" + scratchFilename + " is " +
+                             std::to_string(existingBytes) + " bytes)");
+        }
 
         std::set<std::string> backedUpFiles;
         std::string dbBackupId;
@@ -547,7 +655,7 @@ CleanupWriteResult runApplyTask(QString format, QString path, std::vector<domain
             // best-effort, same as the merged-cues mirror.
             if (plan.bpmForSurvivor || plan.keyForSurvivor || plan.artworkPathForSurvivor) {
                 if (format == "rekordbox") {
-                    std::string pdbPath = ctx.pioneerRoot + "/rekordbox/export.pdb";
+                    std::string pdbPath = effectiveRoot + "/rekordbox/export.pdb";
                     infrastructure::rekordbox::PdbRowWriter fieldWriter(pdbPath);
                     uint32_t survivorId = static_cast<uint32_t>(std::stoul(plan.survivor.sourceId));
                     if (plan.keyForSurvivor) {
@@ -581,7 +689,7 @@ CleanupWriteResult runApplyTask(QString format, QString path, std::vector<domain
                     ctx.log->record("cleanup: propagated missing bpm/key onto survivor track id=" +
                                      plan.survivor.sourceId);
                 } else if (format == "onelibrary") {
-                    infrastructure::onelibrary::OneLibraryCueWriter fieldWriter(path.toStdString());
+                    infrastructure::onelibrary::OneLibraryCueWriter fieldWriter(effectiveRoot, realStickRootForOneLib);
                     if (plan.keyForSurvivor) {
                         std::string donorPath = findTrackFilePath(plan.keyDonorSourceId);
                         if (!donorPath.empty() && !plan.survivor.filePath.empty()) {
@@ -694,6 +802,11 @@ CleanupWriteResult runApplyTask(QString format, QString path, std::vector<domain
             groupsProcessed++;
         }
         reporter->finish();
+
+        if (scratchDir && !infrastructure::copyFileDurablyAtomic((*scratchDir / scratchSubdir / scratchFilename).string(),
+                                                                   dbFileReal)) {
+            throw std::runtime_error("cleanup: failed to commit the scratch-built library back onto the stick");
+        }
 
         result.statusMessage = QString("Cleaned up %1 duplicate group(s): removed %2 duplicate track(s) from the "
                                         "library, preserved %3 cue(s) onto the surviving copy. The %2 removed "

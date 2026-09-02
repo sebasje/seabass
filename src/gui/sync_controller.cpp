@@ -39,26 +39,8 @@ using domain::SyncPlan;
 namespace
 {
 
+using infrastructure::hasRoomForWholeFileReplace;
 using infrastructure::ScratchDirGuard;
-
-// Soft preflight only: false just means "use the direct per-item writes
-// instead", never an error. Running out of space mid-swap (old file +
-// new temp file briefly coexisting on the target's filesystem, plus the
-// scratch copy on temp storage) would be a strictly worse failure mode
-// than the simpler path this falls back to.
-bool hasRoomForWholeFileReplace(const fs::path &targetDir, std::uintmax_t existingFileBytes)
-{
-    std::error_code ec;
-    auto targetSpace = fs::space(targetDir, ec);
-    if (ec) {
-        return false;
-    }
-    auto tempSpace = fs::space(fs::temp_directory_path(), ec);
-    if (ec) {
-        return false;
-    }
-    return targetSpace.available >= 2 * existingFileBytes && tempSpace.available >= existingFileBytes;
-}
 
 // Mirrors cli/main.cpp's describeCues() exactly.
 QString describeCues(const std::vector<domain::CuePoint> &cues)

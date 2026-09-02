@@ -2,9 +2,11 @@
 
 #include <QtConcurrent/QtConcurrentRun>
 
+#include <chrono>
 #include <filesystem>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 
 #include "application/use_cases/scan_library.hpp"
@@ -13,6 +15,8 @@
 #include "gui/write_guard.hpp"
 #include "infrastructure/backup/filesystem_backup_store.hpp"
 #include "infrastructure/backup/stick_write_lock.hpp"
+#include "infrastructure/bulk_write_strategy.hpp"
+#include "infrastructure/durable_file_write.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cleanup_writer.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cue_writer.hpp"
 #include "infrastructure/engine/libdjinterop_engine_reader.hpp"
@@ -23,12 +27,14 @@
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 #include "infrastructure/rekordbox/rekordbox_cleanup_writer.hpp"
 #include "infrastructure/rekordbox/rekordbox_cue_writer.hpp"
+#include "infrastructure/scratch_dir_guard.hpp"
 
 namespace seabass::gui
 {
 
 namespace fs = std::filesystem;
 using domain::LibraryConsistencyIssue;
+using infrastructure::ScratchDirGuard;
 
 namespace
 {
@@ -318,12 +324,53 @@ LibraryConsistencyWriteResult runRepairTask(QString format, QString path,
         if (format == "rekordbox") {
             std::string pioneerRoot = path.toStdString();
             infrastructure::rekordbox::RekordboxCueWriter cueWriter(pioneerRoot);
-            infrastructure::rekordbox::RekordboxCleanupWriter cleanupWriter(pioneerRoot);
             bool hasOneLib = infrastructure::onelibrary::OneLibraryCueWriter::existsFor(pioneerRoot);
 
-            auto record = backupStore.backup({pioneerRoot + "/rekordbox/export.pdb"}, "consistency-repair");
+            std::string pdbPath = pioneerRoot + "/rekordbox/export.pdb";
+            auto record = backupStore.backup({pdbPath}, "consistency-repair");
             log.record("consistency: backed up export.pdb -> " + record.path);
             std::set<std::string> backedUpAnlz;
+
+            // Only row removal below touches export.pdb (a single shared
+            // file) -- cue merges go through RekordboxCueWriter into
+            // small per-track .ANLZ files instead, already cheap enough
+            // not to need staging (see rekordbox_cue_writer.cpp's own
+            // comment on the same tradeoff for the PCOB gap). So the
+            // item count driving the staging decision is rows-to-remove
+            // only, same shape as sync_controller.cpp's engine/
+            // onelibrary branches.
+            int rowsToRemove = 0;
+            for (const auto &issue : issues) {
+                if (issue.survivor) {
+                    rowsToRemove += static_cast<int>(issue.brokenGroup.size());
+                }
+            }
+            std::error_code sizeEc;
+            auto existingBytes = fs::file_size(pdbPath, sizeEc);
+            infrastructure::BulkWriteStrategyInputs strategyInputs;
+            strategyInputs.itemCount = rowsToRemove;
+            strategyInputs.existingFileBytes = sizeEc ? 0 : existingBytes;
+            bool useWholeFile = !sizeEc && infrastructure::shouldUseWholeFileReplace(strategyInputs) &&
+                                 infrastructure::hasRoomForWholeFileReplace(fs::path(pdbPath).parent_path(), existingBytes);
+
+            std::optional<fs::path> scratchDir;
+            std::optional<ScratchDirGuard> scratchGuard;
+            std::string cleanupRoot = pioneerRoot;
+            if (useWholeFile) {
+                scratchDir = fs::temp_directory_path() /
+                             ("seabass-repair-scratch-rekordbox-" +
+                              std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+                std::error_code cleanupEc;
+                fs::remove_all(*scratchDir, cleanupEc);
+                fs::create_directories(*scratchDir / "rekordbox");
+                fs::copy_file(pdbPath, *scratchDir / "rekordbox" / "export.pdb");
+                scratchGuard.emplace(*scratchDir);
+                cleanupRoot = scratchDir->string();
+                log.record("consistency: removing " + std::to_string(rowsToRemove) +
+                           " row(s) against a local scratch copy first (export.pdb is " +
+                           std::to_string(existingBytes) + " bytes)");
+            }
+            infrastructure::rekordbox::RekordboxCleanupWriter cleanupWriter(cleanupRoot);
 
             for (const auto &issue : issues) {
                 if (!issue.survivor) {
@@ -376,13 +423,61 @@ LibraryConsistencyWriteResult runRepairTask(QString format, QString path,
                     }
                 }
             }
+
+            if (scratchDir && !infrastructure::copyFileDurablyAtomic(
+                                   (*scratchDir / "rekordbox" / "export.pdb").string(), pdbPath)) {
+                throw std::runtime_error(
+                    "consistency: failed to commit the scratch-repaired export.pdb back onto the stick");
+            }
         } else if (format == "engine") {
             std::string engineLibraryPath = path.toStdString();
-            infrastructure::engine::LibdjinteropEngineCueWriter cueWriter(engineLibraryPath);
-            infrastructure::engine::LibdjinteropEngineCleanupWriter cleanupWriter(engineLibraryPath);
             std::string engineDbFile = (fs::path(engineLibraryPath) / "Database2" / "m.db").string();
             auto record = backupStore.backup({engineDbFile}, "consistency-repair");
             log.record("consistency: backed up m.db -> " + record.path);
+
+            // Both cue merges and row removal hit the same shared m.db
+            // here (unlike rekordbox above, where cue merges go to
+            // small per-track files instead) -- so every write in this
+            // branch counts toward the staging decision.
+            int engineWriteCount = 0;
+            for (const auto &issue : issues) {
+                if (!issue.survivor) {
+                    continue;
+                }
+                if (!issue.survivorCues.empty()) {
+                    engineWriteCount++;
+                }
+                engineWriteCount += static_cast<int>(issue.brokenGroup.size());
+            }
+            std::error_code sizeEc;
+            auto existingBytes = fs::file_size(engineDbFile, sizeEc);
+            infrastructure::BulkWriteStrategyInputs strategyInputs;
+            strategyInputs.itemCount = engineWriteCount;
+            strategyInputs.existingFileBytes = sizeEc ? 0 : existingBytes;
+            bool useWholeFile =
+                !sizeEc && infrastructure::shouldUseWholeFileReplace(strategyInputs) &&
+                infrastructure::hasRoomForWholeFileReplace(fs::path(engineDbFile).parent_path(), existingBytes);
+
+            std::optional<fs::path> scratchDir;
+            std::optional<ScratchDirGuard> scratchGuard;
+            std::string writeTargetPath = engineLibraryPath;
+            if (useWholeFile) {
+                scratchDir = fs::temp_directory_path() /
+                             ("seabass-repair-scratch-engine-" +
+                              std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+                std::error_code cleanupEc;
+                fs::remove_all(*scratchDir, cleanupEc);
+                fs::create_directories(*scratchDir / "Database2");
+                fs::copy_file(engineDbFile, *scratchDir / "Database2" / "m.db");
+                scratchGuard.emplace(*scratchDir);
+                writeTargetPath = scratchDir->string();
+                log.record("consistency: applying " + std::to_string(engineWriteCount) +
+                           " engine update(s) to a local scratch copy first (m.db is " +
+                           std::to_string(existingBytes) + " bytes)");
+            }
+
+            infrastructure::engine::LibdjinteropEngineCueWriter cueWriter(writeTargetPath);
+            infrastructure::engine::LibdjinteropEngineCleanupWriter cleanupWriter(writeTargetPath);
 
             for (const auto &issue : issues) {
                 if (!issue.survivor) {
@@ -401,13 +496,56 @@ LibraryConsistencyWriteResult runRepairTask(QString format, QString path,
                     rowsRemoved++;
                 }
             }
+
+            if (scratchDir && !infrastructure::copyFileDurablyAtomic(
+                                   (*scratchDir / "Database2" / "m.db").string(), engineDbFile)) {
+                throw std::runtime_error(
+                    "consistency: failed to commit the scratch-repaired engine library back onto the stick");
+            }
         } else if (format == "onelibrary") {
             std::string pioneerRoot = path.toStdString();
             std::string dbFile = infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(pioneerRoot);
             auto record = backupStore.backup({dbFile}, "consistency-repair");
             log.record("consistency: backed up exportLibrary.db -> " + record.path);
 
-            infrastructure::onelibrary::OneLibraryCueWriter writer(pioneerRoot);
+            int oneLibWriteCount = 0;
+            for (const auto &issue : issues) {
+                if (!issue.survivor) {
+                    continue;
+                }
+                if (!issue.survivorCues.empty()) {
+                    oneLibWriteCount++;
+                }
+                oneLibWriteCount += static_cast<int>(issue.brokenGroup.size());
+            }
+            std::error_code sizeEc;
+            auto existingBytes = fs::file_size(dbFile, sizeEc);
+            infrastructure::BulkWriteStrategyInputs strategyInputs;
+            strategyInputs.itemCount = oneLibWriteCount;
+            strategyInputs.existingFileBytes = sizeEc ? 0 : existingBytes;
+            bool useWholeFile = !sizeEc && infrastructure::shouldUseWholeFileReplace(strategyInputs) &&
+                                 infrastructure::hasRoomForWholeFileReplace(fs::path(dbFile).parent_path(), existingBytes);
+
+            std::optional<fs::path> scratchDir;
+            std::optional<ScratchDirGuard> scratchGuard;
+            std::string writeTargetRoot = pioneerRoot;
+            if (useWholeFile) {
+                scratchDir = fs::temp_directory_path() /
+                             ("seabass-repair-scratch-onelibrary-" +
+                              std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+                std::error_code cleanupEc;
+                fs::remove_all(*scratchDir, cleanupEc);
+                fs::create_directories(*scratchDir / "rekordbox");
+                fs::copy_file(dbFile, *scratchDir / "rekordbox" / "exportLibrary.db");
+                scratchGuard.emplace(*scratchDir);
+                writeTargetRoot = scratchDir->string();
+                log.record("consistency: applying " + std::to_string(oneLibWriteCount) +
+                           " OneLibrary update(s) to a local scratch copy first (exportLibrary.db is " +
+                           std::to_string(existingBytes) + " bytes)");
+            }
+
+            infrastructure::onelibrary::OneLibraryCueWriter writer(writeTargetRoot,
+                                                                    fs::path(pioneerRoot).parent_path().string());
             for (const auto &issue : issues) {
                 if (!issue.survivor) {
                     continue;
@@ -423,6 +561,12 @@ LibraryConsistencyWriteResult runRepairTask(QString format, QString path,
                     log.record("consistency: removed broken row \"" + broken.title + "\"");
                     rowsRemoved++;
                 }
+            }
+
+            if (scratchDir && !infrastructure::copyFileDurablyAtomic(
+                                   (*scratchDir / "rekordbox" / "exportLibrary.db").string(), dbFile)) {
+                throw std::runtime_error(
+                    "consistency: failed to commit the scratch-repaired OneLibrary database back onto the stick");
             }
         } else {
             result.errorMessage = "Unknown library format: " + format;

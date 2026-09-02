@@ -56,4 +56,18 @@ bool shouldUseWholeFileReplace(const BulkWriteStrategyInputs &inputs)
     return wholeFileSeconds * SafetyMargin < directSeconds;
 }
 
+bool hasRoomForWholeFileReplace(const std::filesystem::path &targetDir, std::uintmax_t existingFileBytes)
+{
+    std::error_code ec;
+    auto targetSpace = std::filesystem::space(targetDir, ec);
+    if (ec) {
+        return false;
+    }
+    auto tempSpace = std::filesystem::space(std::filesystem::temp_directory_path(), ec);
+    if (ec) {
+        return false;
+    }
+    return targetSpace.available >= 2 * existingFileBytes && tempSpace.available >= existingFileBytes;
+}
+
 }  // namespace seabass::infrastructure
