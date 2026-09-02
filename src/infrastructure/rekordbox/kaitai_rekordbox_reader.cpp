@@ -81,6 +81,10 @@ std::vector<domain::CuePoint> readCues(const std::string &anlzPath)
                                                       : domain::CuePoint::Kind::Memory;
             cp.hotCueNumber = static_cast<int>(cue->hot_cue());
             cp.positionMs = static_cast<double>(cue->time());
+            cp.isLoop = cue->type() == Anlz::CUE_ENTRY_TYPE_LOOP;
+            if (cp.isLoop) {
+                cp.loopEndMs = static_cast<double>(cue->loop_time());
+            }
             cp.color = cueColor(*cue);
             if (!cue->_is_null_comment()) {
                 cp.comment = cue->comment();

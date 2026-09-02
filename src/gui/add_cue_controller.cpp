@@ -31,13 +31,29 @@ namespace
 
 // Runs entirely on a background thread (see AddCueController::addCue()).
 AddCueResult runAddCueTask(QString format, QString path, QString sourceId, double positionMs, QString kind,
-                            int hotCueNumber, QString color, QString comment,
+                            int hotCueNumber, QString color, QString comment, bool isLoop, double loopEndMs,
                             std::shared_ptr<QtProgressReporter> reporter)
 {
     AddCueResult result;
     QString refusal = refuseIfRekordboxRunning();
     if (!refusal.isEmpty()) {
         result.errorMessage = refusal;
+        return result;
+    }
+    if (isLoop && format != "engine") {
+        // See add_cue_controller.hpp's own comment: rekordbox's ANLZ loop
+        // encoding is unverified against real hardware, and OneLibrary's
+        // cue table has never been confirmed to round-trip loops either
+        // -- refusing here means a DJ never gets a cue silently written
+        // as a point when they asked to save a loop-out.
+        result.errorMessage = "Hot loops can only be added to Engine tracks right now.";
+        return result;
+    }
+    if (isLoop && kind != "hot") {
+        // Engine's loops() array is indexed exactly like hot_cues() --
+        // there's no Engine concept of an un-slotted "memory loop" to
+        // write this into.
+        result.errorMessage = "Loops need a hot cue slot.";
         return result;
     }
     try {
@@ -84,6 +100,8 @@ AddCueResult runAddCueTask(QString format, QString path, QString sourceId, doubl
         newCue.kind = kind == "hot" ? domain::CuePoint::Kind::Hot : domain::CuePoint::Kind::Memory;
         newCue.hotCueNumber = newCue.kind == domain::CuePoint::Kind::Hot ? hotCueNumber : 0;
         newCue.positionMs = positionMs;
+        newCue.isLoop = isLoop;
+        newCue.loopEndMs = isLoop ? loopEndMs : 0.0;
         newCue.color = color.toStdString();
         newCue.comment = comment.toStdString();
 
@@ -148,7 +166,7 @@ AddCueResult runAddCueTask(QString format, QString path, QString sourceId, doubl
             }
 
             writer->writeHotCues(id, cues);
-            log.record("add-cue: added " + kind.toStdString() + " cue at " +
+            log.record("add-cue: added " + kind.toStdString() + (isLoop ? " loop" : " cue") + " at " +
                        std::to_string(static_cast<int>(positionMs)) + "ms to track id=" + id + " (\"" +
                        track->title + "\")" + (dbBackupId.empty() ? "" : ", backup " + dbBackupId));
 
@@ -178,8 +196,9 @@ AddCueResult runAddCueTask(QString format, QString path, QString sourceId, doubl
             }
         }
 
-        result.statusMessage = QString("Added %1 cue at %2ms to \"%3\".%4")
+        result.statusMessage = QString("Added %1 %2 at %3ms to \"%4\".%5")
                                     .arg(kind == "hot" ? "hot" : "memory")
+                                    .arg(isLoop ? "loop" : "cue")
                                     .arg(static_cast<int>(positionMs))
                                     .arg(QString::fromStdString(track->title))
                                     .arg(warning);
@@ -207,7 +226,8 @@ std::shared_ptr<QtProgressReporter> AddCueController::makeReporter()
 }
 
 void AddCueController::addCue(const QString &format, const QString &path, const QString &sourceId, double positionMs,
-                               const QString &kind, int hotCueNumber, const QString &color, const QString &comment)
+                               const QString &kind, int hotCueNumber, const QString &color, const QString &comment,
+                               bool isLoop, double loopEndMs)
 {
     if (m_busy) {
         return;
@@ -219,7 +239,7 @@ void AddCueController::addCue(const QString &format, const QString &path, const 
     setWriting(true);
 
     m_watcher.setFuture(QtConcurrent::run(runAddCueTask, format, path, sourceId, positionMs, kind, hotCueNumber,
-                                           color, comment, makeReporter()));
+                                           color, comment, isLoop, loopEndMs, makeReporter()));
 }
 
 void AddCueController::onTaskFinished()

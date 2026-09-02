@@ -65,7 +65,10 @@ QVariant TrackListModel::data(const QModelIndex &index, int role) const
             m["kind"] = c.kind == domain::CuePoint::Kind::Hot ? QStringLiteral("hot") : QStringLiteral("memory");
             m["hotCueNumber"] = c.hotCueNumber;
             m["positionMs"] = c.positionMs;
+            m["isLoop"] = c.isLoop;
+            m["loopEndMs"] = c.loopEndMs;
             m["color"] = QString::fromStdString(c.color);
+            m["comment"] = QString::fromStdString(c.comment);
             cues << m;
         }
         return cues;

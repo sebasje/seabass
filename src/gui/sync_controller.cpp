@@ -111,7 +111,10 @@ QVariantMap trackToMap(const domain::Track &track)
         cueMap["kind"] = c.kind == domain::CuePoint::Kind::Hot ? QStringLiteral("hot") : QStringLiteral("memory");
         cueMap["hotCueNumber"] = c.hotCueNumber;
         cueMap["positionMs"] = c.positionMs;
+        cueMap["isLoop"] = c.isLoop;
+        cueMap["loopEndMs"] = c.loopEndMs;
         cueMap["color"] = QString::fromStdString(c.color);
+        cueMap["comment"] = QString::fromStdString(c.comment);
         cues << cueMap;
     }
     m["cues"] = cues;
@@ -341,13 +344,21 @@ namespace
 QString summarizeCueCounts(const std::vector<domain::CuePoint> &cues)
 {
     int hot = 0;
+    int hotLoop = 0;
     int memory = 0;
     for (const auto &cue : cues) {
-        (cue.kind == domain::CuePoint::Kind::Hot ? hot : memory)++;
+        if (cue.kind == domain::CuePoint::Kind::Hot) {
+            (cue.isLoop ? hotLoop : hot)++;
+        } else {
+            memory++;
+        }
     }
     QStringList parts;
     if (hot > 0) {
         parts << QString("%1 hot cue(s)").arg(hot);
+    }
+    if (hotLoop > 0) {
+        parts << QString("%1 hot loop(s)").arg(hotLoop);
     }
     if (memory > 0) {
         parts << QString("%1 memory cue(s)").arg(memory);

@@ -58,6 +58,15 @@ void LibdjinteropEngineCueWriter::writeHotCues(const std::string &trackSourceId,
     }
 
     std::vector<std::optional<djinterop::hot_cue>> slots(HotCueSlotCount);
+    // Engine's hot loops are a separate 8-slot array (loop_at()/loops()),
+    // indexed the same 1-8 way as hot_cues() but never the same array --
+    // see libdjinterop_engine_reader.cpp's read-side comment on why a
+    // slot can't hold both at once by Seabass's own design, enforced
+    // here by construction: each cue below writes into exactly one of
+    // these two arrays, and both are written in full (via set_hot_cues/
+    // set_loops below), so a slot that used to be a hot cue and is now a
+    // loop (or vice versa) is correctly cleared on its old side too.
+    std::vector<std::optional<djinterop::loop>> loopSlots(HotCueSlotCount);
     // Engine has exactly one memory-style cue point ("Cue"), a plain
     // sample offset with no color/comment/multiplicity -- unlike
     // rekordbox's unlimited, independently colored/commented memory
@@ -65,6 +74,10 @@ void LibdjinteropEngineCueWriter::writeHotCues(const std::string &trackSourceId,
     // earliest (by position) can be represented at all; the rest are
     // unavoidably lost in this direction, a real format limitation, not
     // a bug -- see libdjinterop_engine_reader.cpp's read-side comment.
+    // Engine has no memory-loop concept at all (unlike rekordbox's ANLZ),
+    // so a Kind::Memory cue with isLoop set can't be represented here
+    // either -- treated the same as any other memory cue, its loop-out
+    // is simply dropped, matching this format's genuine limitations.
     std::optional<double> earliestMemoryCueMs;
     for (const auto &cue : cues) {
         if (cue.kind == domain::CuePoint::Kind::Memory) {
@@ -77,11 +90,17 @@ void LibdjinteropEngineCueWriter::writeHotCues(const std::string &trackSourceId,
         if (slot < 0 || slot >= HotCueSlotCount) {
             continue;
         }
-        double sampleOffset = cue.positionMs / 1000.0 * sampleRate;
-        slots[slot] = djinterop::hot_cue{cue.comment, sampleOffset, parseColor(cue.color)};
+        double startOffset = cue.positionMs / 1000.0 * sampleRate;
+        if (cue.isLoop) {
+            double endOffset = cue.loopEndMs / 1000.0 * sampleRate;
+            loopSlots[slot] = djinterop::loop{cue.comment, startOffset, endOffset, parseColor(cue.color)};
+        } else {
+            slots[slot] = djinterop::hot_cue{cue.comment, startOffset, parseColor(cue.color)};
+        }
     }
 
     track->set_hot_cues(slots);
+    track->set_loops(loopSlots);
     if (earliestMemoryCueMs) {
         track->set_main_cue(*earliestMemoryCueMs / 1000.0 * sampleRate);
     }

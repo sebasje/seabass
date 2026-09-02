@@ -20,6 +20,22 @@ struct CuePoint
     double positionMs = 0.0;
     std::string color;  // adapter-specific color representation (e.g. "#RRGGBB" or a named id)
     std::string comment;
+    // True if this is a loop -- the player repeats between positionMs
+    // ("loop-in") and loopEndMs ("loop-out") rather than sitting at a
+    // single point. Orthogonal to kind: both rekordbox's memory-cue list
+    // and its hot-cue list can hold a loop (confirmed via
+    // specs/rekordbox_anlz.ksy's cue_extended_entry.type), matching
+    // Engine's own separate hot-loop slots (djinterop::track::loops()).
+    // On the hardware, a hot cue slot is either a cue or a loop, never
+    // both -- callers that write hot cues/loops are expected to enforce
+    // that themselves (see AddCueController). Appended after the
+    // original fields (rather than inserted earlier) so existing
+    // 5-positional-argument aggregate-inits across the test suite keep
+    // mapping kind/hotCueNumber/positionMs/color/comment correctly and
+    // just default isLoop/loopEndMs, instead of every one of them
+    // needing an update for an unrelated field.
+    bool isLoop = false;
+    double loopEndMs = 0.0;  // meaningful only when isLoop
 };
 
 // One playlist a track belongs to, with its position within that specific

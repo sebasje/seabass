@@ -308,6 +308,31 @@ std::vector<domain::Track> LibdjinteropEngineReader::readAll()
             track.cues.push_back(std::move(cp));
         }
 
+        // Engine's hot loops live in their own 8-slot array (loops()),
+        // separate from hot_cues() above -- indexed the same way, but a
+        // genuinely different column family, not a variant of hot_cue. On
+        // the hardware a given pad shows either the hot cue or the hot
+        // loop for its number depending on pad mode, never both; Seabass
+        // itself enforces that one-or-the-other rule when writing (see
+        // AddCueController), matching the design this reads back into.
+        auto loops = safeGet<std::vector<std::optional<djinterop::loop>>>(*m_progress, id, "loops",
+                                                                            [&] { return tr.loops(); });
+        for (size_t i = 0; i < loops.size(); ++i) {
+            if (!loops[i]) {
+                continue;
+            }
+            const auto &loop = *loops[i];
+            domain::CuePoint cp;
+            cp.kind = domain::CuePoint::Kind::Hot;
+            cp.hotCueNumber = static_cast<int>(i) + 1;
+            cp.isLoop = true;
+            cp.positionMs = loop.start_sample_offset / *sampleRate * 1000.0;
+            cp.loopEndMs = loop.end_sample_offset / *sampleRate * 1000.0;
+            cp.color = colorHex(loop.color);
+            cp.comment = loop.label;
+            track.cues.push_back(std::move(cp));
+        }
+
         // Engine's format has exactly one memory-style cue point (called
         // "Cue" in the app), stored as a plain sample offset with no
         // color/comment, unlike rekordbox's unlimited, independently

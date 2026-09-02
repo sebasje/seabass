@@ -247,6 +247,9 @@ void printTrackDetail(const Track &track)
         bool isHot = cue.kind == seabass::domain::CuePoint::Kind::Hot;
         std::string line = std::string("  ") + (isHot ? "hot" : "mem") + " " + std::to_string(cue.hotCueNumber) +
                             " @ " + std::to_string(static_cast<long>(cue.positionMs)) + "ms";
+        if (cue.isLoop) {
+            line += "-" + std::to_string(static_cast<long>(cue.loopEndMs)) + "ms (loop)";
+        }
         Console::info(Console::colorize(line, isHot ? Color::Cyan : Color::Gray) + " " + cue.color +
                        (cue.comment.empty() ? "" : (" \"" + cue.comment + "\"")));
     }

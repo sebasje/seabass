@@ -135,7 +135,7 @@ int main()
 
         auto summaries = store.listSnapshots();
         assert(summaries[0].id == id);
-        assert(summaries[0].schemaVersion == 1);
+        assert(summaries[0].schemaVersion == 2);
         std::cout << "case 7 (snapshot records its own format version) OK\n";
 
         // Simulate a snapshot written by some future seabass version this
