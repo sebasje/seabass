@@ -505,6 +505,10 @@ Page {
                 // -1 means no pending Add-Cue form; set by clicking the
                 // waveform below.
                 property real pendingPositionMs: -1
+                // -1 means the pending add is a plain cue; a real value
+                // (from dragging out a range) means it's a loop, and
+                // pendingPositionMs is the loop-in.
+                property real pendingLoopEndMs: -1
 
                 function showFor(delegate) {
                     trackInfoPopup.trackSourceId = delegate.sourceId;
@@ -515,6 +519,7 @@ Page {
                     trackInfoPopup.trackPlaylistNames = delegate.playlistNames;
                     trackInfoPopup.trackStreamingSource = delegate.streamingSource;
                     trackInfoPopup.pendingPositionMs = -1;
+                    trackInfoPopup.pendingLoopEndMs = -1;
                     waveformView.waveformData = playbackController.waveformFor(
                         root.format, root.currentPath(), delegate.sourceId);
                     waveformView.format = root.format;
@@ -533,18 +538,24 @@ Page {
                         if (addCueController.statusMessage.length === 0) {
                             return;
                         }
+                        var isLoopAdded = trackInfoPopup.pendingLoopEndMs >= 0;
+                        var isHot = isLoopAdded || cueKindCombo.currentIndex === 0;
                         var cues = trackInfoPopup.trackCues.slice();
-                        if (cueKindCombo.currentIndex === 0) {
+                        if (isHot) {
                             cues = cues.filter((c) => !(c.kind === "hot" && c.hotCueNumber === hotCueNumberSpin.value));
                         }
                         cues.push({
-                            kind: cueKindCombo.currentIndex === 0 ? "hot" : "memory",
-                            hotCueNumber: cueKindCombo.currentIndex === 0 ? hotCueNumberSpin.value : 0,
+                            kind: isHot ? "hot" : "memory",
+                            hotCueNumber: isHot ? hotCueNumberSpin.value : 0,
                             positionMs: trackInfoPopup.pendingPositionMs,
-                            color: cueKindCombo.currentIndex === 0 ? "#ffcc00" : "#00a5e3",
+                            isLoop: isLoopAdded,
+                            loopEndMs: isLoopAdded ? trackInfoPopup.pendingLoopEndMs : 0,
+                            color: isLoopAdded ? "#3daee9" : (isHot ? "#ffcc00" : "#00a5e3"),
+                            comment: cueCommentField.text,
                         });
                         trackInfoPopup.trackCues = cues;
                         trackInfoPopup.pendingPositionMs = -1;
+                        trackInfoPopup.pendingLoopEndMs = -1;
                         cueCommentField.text = "";
                         root.rescan();
                     }
@@ -587,17 +598,29 @@ Page {
                         cueData: trackInfoPopup.trackCues
                         trackDurationMs: trackInfoPopup.trackDurationMs
                         progress: -1
+                        cueEditable: true
                         onPositionClicked: (ms) => {
                             if (trackInfoPopup.trackStreamingSource.length > 0) {
                                 return;
                             }
                             trackInfoPopup.pendingPositionMs = ms;
+                            trackInfoPopup.pendingLoopEndMs = -1;
+                        }
+                        onLoopRangeSelected: (startMs, endMs) => {
+                            if (trackInfoPopup.trackStreamingSource.length > 0) {
+                                return;
+                            }
+                            trackInfoPopup.pendingPositionMs = startMs;
+                            trackInfoPopup.pendingLoopEndMs = endMs;
+                            // Loops always need a hot slot -- see the
+                            // combo's own visibility below.
+                            cueKindCombo.currentIndex = 0;
                         }
                     }
 
                     Label {
                         visible: trackInfoPopup.pendingPositionMs < 0 && trackInfoPopup.trackStreamingSource.length === 0
-                        text: "Click the waveform above to add a cue there."
+                        text: "Click the waveform above to add a cue there, or drag to add a loop."
                         color: Theme.textMuted
                         font.pointSize: Theme.fontSmall
                     }
@@ -615,19 +638,29 @@ Page {
                             spacing: 8
                             Label {
                                 font.bold: true
-                                text: "Add cue at " + root.formatDuration(trackInfoPopup.pendingPositionMs / 1000)
+                                text: trackInfoPopup.pendingLoopEndMs >= 0
+                                    ? "Add loop " + root.formatDuration(trackInfoPopup.pendingPositionMs / 1000)
+                                        + " – " + root.formatDuration(trackInfoPopup.pendingLoopEndMs / 1000)
+                                    : "Add cue at " + root.formatDuration(trackInfoPopup.pendingPositionMs / 1000)
                             }
                             Item { Layout.fillWidth: true }
-                            Label { text: "Kind:" }
+                            // Loops always occupy a hot slot -- same
+                            // constraint the hardware itself has, no
+                            // memory-loop equivalent exists to offer here.
+                            Label { text: "Kind:"; visible: trackInfoPopup.pendingLoopEndMs < 0 }
                             ComboBox {
                                 id: cueKindCombo
                                 model: ["Hot", "Memory"]
                                 Layout.preferredWidth: 110
+                                visible: trackInfoPopup.pendingLoopEndMs < 0
                             }
-                            Label { text: "Slot:"; visible: cueKindCombo.currentIndex === 0 }
+                            Label {
+                                text: "Slot:"
+                                visible: trackInfoPopup.pendingLoopEndMs >= 0 || cueKindCombo.currentIndex === 0
+                            }
                             SpinBox {
                                 id: hotCueNumberSpin
-                                visible: cueKindCombo.currentIndex === 0
+                                visible: trackInfoPopup.pendingLoopEndMs >= 0 || cueKindCombo.currentIndex === 0
                                 from: 1
                                 to: 8
                                 value: 1
@@ -637,6 +670,19 @@ Page {
                             id: cueCommentField
                             Layout.fillWidth: true
                             placeholderText: "Comment (optional)"
+                        }
+                        Label {
+                            // AddCueController refuses this too (belt and
+                            // suspenders), but saying so up front skips a
+                            // pointless rescan-then-fail round trip -- see
+                            // AddCueController's own class comment for why
+                            // rekordbox/OneLibrary loop writes are refused
+                            // rather than silently downgraded to a point.
+                            visible: trackInfoPopup.pendingLoopEndMs >= 0 && root.format !== "engine"
+                            text: "Hot loops can only be added to Engine tracks right now."
+                            color: Theme.danger
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
                         }
                         Label {
                             visible: addCueController.errorMessage.length > 0
@@ -670,15 +716,24 @@ Page {
                             Button {
                                 text: "Cancel"
                                 enabled: !addCueController.busy
-                                onClicked: trackInfoPopup.pendingPositionMs = -1
+                                onClicked: {
+                                    trackInfoPopup.pendingPositionMs = -1;
+                                    trackInfoPopup.pendingLoopEndMs = -1;
+                                }
                             }
                             Button {
-                                text: "Add Cue"
+                                text: trackInfoPopup.pendingLoopEndMs >= 0 ? "Add Loop" : "Add Cue"
                                 enabled: !addCueController.busy
-                                onClicked: addCueController.addCue(root.format, root.currentPath(),
-                                    trackInfoPopup.trackSourceId, trackInfoPopup.pendingPositionMs,
-                                    cueKindCombo.currentIndex === 0 ? "hot" : "memory", hotCueNumberSpin.value,
-                                    cueKindCombo.currentIndex === 0 ? "#ffcc00" : "#00a5e3", cueCommentField.text)
+                                    && !(trackInfoPopup.pendingLoopEndMs >= 0 && root.format !== "engine")
+                                onClicked: {
+                                    var isLoop = trackInfoPopup.pendingLoopEndMs >= 0;
+                                    var isHot = isLoop || cueKindCombo.currentIndex === 0;
+                                    addCueController.addCue(root.format, root.currentPath(),
+                                        trackInfoPopup.trackSourceId, trackInfoPopup.pendingPositionMs,
+                                        isHot ? "hot" : "memory", hotCueNumberSpin.value,
+                                        isLoop ? "#3daee9" : (isHot ? "#ffcc00" : "#00a5e3"), cueCommentField.text,
+                                        isLoop, isLoop ? trackInfoPopup.pendingLoopEndMs : 0);
+                                }
                             }
                         }
                     }

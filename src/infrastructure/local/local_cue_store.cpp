@@ -160,7 +160,7 @@ void addColumnIfMissing(sqlite3 *db, const char *alterSql)
 // version-N branch gets added alongside it, and every snapshot written
 // under the old version keeps reading back correctly no matter how old.
 // Never repurpose an existing version number for a changed format.
-constexpr int CurrentSnapshotFormatVersion = 1;
+constexpr int CurrentSnapshotFormatVersion = 2;
 
 std::string escapeField(const std::string &value)
 {
@@ -276,6 +276,61 @@ std::vector<Track> deserializeTracksV1(const std::string &data)
     return tracks;
 }
 
+// Format version 2: adds isLoop/loopEndMs after V1's fields (never
+// inserted in between -- see splitFields' size >= N checks below, which
+// let a V2 line be read by nothing but the V2 parser while staying an
+// obviously additive change). V1 snapshots have no loop data to lose:
+// nothing wrote loop cues into this store before CuePoint gained the
+// concept, so there's no migration to perform, only a new parser to add.
+std::string serializeTracksV2(const std::vector<Track> &tracks)
+{
+    std::ostringstream out;
+    for (const auto &track : tracks) {
+        out << "T\t" << escapeField(track.sourceId) << '\t' << escapeField(track.filename) << '\t'
+            << escapeField(track.title) << '\t' << escapeField(track.artist) << '\t' << track.durationSeconds
+            << '\n';
+        for (const auto &cue : track.cues) {
+            out << "C\t" << (cue.kind == CuePoint::Kind::Hot ? "hot" : "memory") << '\t' << cue.hotCueNumber << '\t'
+                << cue.positionMs << '\t' << escapeField(cue.color) << '\t' << escapeField(cue.comment) << '\t'
+                << (cue.isLoop ? 1 : 0) << '\t' << cue.loopEndMs << '\n';
+        }
+    }
+    return out.str();
+}
+
+std::vector<Track> deserializeTracksV2(const std::string &data)
+{
+    std::vector<Track> tracks;
+    std::istringstream in(data);
+    std::string line;
+    while (std::getline(in, line)) {
+        auto fields = splitFields(line);
+        if (fields.empty()) {
+            continue;
+        }
+        if (fields[0] == "T" && fields.size() >= 6) {
+            Track track;
+            track.sourceId = unescapeField(fields[1]);
+            track.filename = unescapeField(fields[2]);
+            track.title = unescapeField(fields[3]);
+            track.artist = unescapeField(fields[4]);
+            track.durationSeconds = std::stod(fields[5]);
+            tracks.push_back(std::move(track));
+        } else if (fields[0] == "C" && fields.size() >= 8 && !tracks.empty()) {
+            CuePoint cue;
+            cue.kind = fields[1] == "hot" ? CuePoint::Kind::Hot : CuePoint::Kind::Memory;
+            cue.hotCueNumber = std::stoi(fields[2]);
+            cue.positionMs = std::stod(fields[3]);
+            cue.color = unescapeField(fields[4]);
+            cue.comment = unescapeField(fields[5]);
+            cue.isLoop = fields[6] == "1";
+            cue.loopEndMs = std::stod(fields[7]);
+            tracks.back().cues.push_back(std::move(cue));
+        }
+    }
+    return tracks;
+}
+
 // Dispatches to the parser for whichever version the snapshot was actually
 // written with -- see CurrentSnapshotFormatVersion's comment: every past
 // version's parser stays available here forever, so a snapshot backed up
@@ -285,6 +340,8 @@ std::vector<Track> deserializeTracks(const std::string &data, int formatVersion)
     switch (formatVersion) {
     case 1:
         return deserializeTracksV1(data);
+    case 2:
+        return deserializeTracksV2(data);
     default:
         throw std::runtime_error("local cue store: snapshot was written with format version " +
                                   std::to_string(formatVersion) +
@@ -364,6 +421,8 @@ LocalCueStore::LocalCueStore(std::string path)
         );
     )sql");
     addColumnIfMissing(m_db, "ALTER TABLE backup_sessions ADD COLUMN schema_version INTEGER NOT NULL DEFAULT 1");
+    addColumnIfMissing(m_db, "ALTER TABLE cues ADD COLUMN is_loop INTEGER NOT NULL DEFAULT 0");
+    addColumnIfMissing(m_db, "ALTER TABLE cues ADD COLUMN loop_end_ms REAL NOT NULL DEFAULT 0");
 }
 
 LocalCueStore::~LocalCueStore()
@@ -387,7 +446,8 @@ std::vector<Track> LocalCueStore::readAll()
         track.durationSeconds = trackStmt.columnDouble(4);
 
         Statement cueStmt(m_db,
-                           "SELECT kind, hot_cue_number, position_ms, color, comment FROM cues WHERE track_id = ?");
+                           "SELECT kind, hot_cue_number, position_ms, color, comment, is_loop, loop_end_ms "
+                           "FROM cues WHERE track_id = ?");
         cueStmt.bindInt64(1, id);
         while (cueStmt.step()) {
             CuePoint cue;
@@ -396,6 +456,8 @@ std::vector<Track> LocalCueStore::readAll()
             cue.positionMs = cueStmt.columnDouble(2);
             cue.color = cueStmt.columnText(3);
             cue.comment = cueStmt.columnText(4);
+            cue.isLoop = cueStmt.columnInt(5) != 0;
+            cue.loopEndMs = cueStmt.columnDouble(6);
             track.cues.push_back(std::move(cue));
         }
 
@@ -487,8 +549,8 @@ void LocalCueStore::upsert(const std::vector<Track> &tracks, const std::string &
 
         for (const auto &cue : track.cues) {
             Statement insertCue(m_db, R"sql(
-                INSERT INTO cues (track_id, kind, hot_cue_number, position_ms, color, comment)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO cues (track_id, kind, hot_cue_number, position_ms, color, comment, is_loop, loop_end_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             )sql");
             insertCue.bindInt64(1, trackId);
             insertCue.bind(2, cue.kind == CuePoint::Kind::Hot ? "hot" : "memory");
@@ -496,6 +558,8 @@ void LocalCueStore::upsert(const std::vector<Track> &tracks, const std::string &
             insertCue.bind(4, cue.positionMs);
             insertCue.bind(5, cue.color);
             insertCue.bind(6, cue.comment);
+            insertCue.bind(7, cue.isLoop ? 1 : 0);
+            insertCue.bind(8, cue.loopEndMs);
             insertCue.run();
         }
     }
@@ -514,7 +578,7 @@ std::int64_t LocalCueStore::createSnapshot(const std::vector<Track> &tracks, con
         cueCount += static_cast<int>(track.cues.size());
     }
 
-    std::string serialized = serializeTracksV1(withCues);
+    std::string serialized = serializeTracksV2(withCues);
     std::string compressed = compression::compress(serialized);
 
     Statement insert(m_db, R"sql(

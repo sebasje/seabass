@@ -41,6 +41,14 @@ struct AddCueResult
 // since that writer deliberately isn't a CueWriter (it keys by file path,
 // not sourceId -- content_id is a separate id space from export.pdb's
 // track id). See the .cpp for the branch.
+//
+// Hot loops (isLoop) are Engine-only: LibdjinteropEngineCueWriter writes
+// them through libdjinterop's own tested loop API, but RekordboxCueWriter
+// can't -- AnlzCueCodec's own doc comment marks loop encoding out of
+// scope pending real hardware verification of the still-uncertain raw
+// byte fields (see anlz_cue_codec.hpp). Refused outright there rather
+// than silently written as a plain point cue, which would quietly
+// discard the loop-out a DJ asked to save.
 class AddCueController : public QObject
 {
     Q_OBJECT
@@ -63,9 +71,13 @@ public:
     QString statusMessage() const { return m_statusMessage; }
 
     // kind is "hot" or "memory"; hotCueNumber is ignored for "memory".
-    // color is "#RRGGBB" or empty (writer picks its own default).
+    // color is "#RRGGBB" or empty (writer picks its own default). isLoop
+    // is only honored for format == "engine" and kind == "hot" -- see
+    // the .cpp for why rekordbox and OneLibrary loop writes are refused
+    // rather than silently downgraded to a point cue.
     Q_INVOKABLE void addCue(const QString &format, const QString &path, const QString &sourceId, double positionMs,
-                             const QString &kind, int hotCueNumber, const QString &color, const QString &comment);
+                             const QString &kind, int hotCueNumber, const QString &color, const QString &comment,
+                             bool isLoop, double loopEndMs);
 
 signals:
     void busyChanged();

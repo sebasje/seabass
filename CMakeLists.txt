@@ -397,6 +397,13 @@ add_executable(anlz_file_test
 target_include_directories(anlz_file_test PRIVATE src)
 add_test(NAME anlz_file_test COMMAND anlz_file_test)
 
+add_executable(rekordbox_loop_cue_test
+    tests/rekordbox_loop_cue_test.cpp
+)
+target_include_directories(rekordbox_loop_cue_test PRIVATE src)
+target_link_libraries(rekordbox_loop_cue_test PRIVATE rekordbox_format)
+add_test(NAME rekordbox_loop_cue_test COMMAND rekordbox_loop_cue_test)
+
 add_executable(local_restore_test
     src/domain/local_restore.cpp
     tests/local_restore_test.cpp
@@ -550,6 +557,18 @@ add_executable(libdjinterop_engine_sync_scratch_replace_test
 target_include_directories(libdjinterop_engine_sync_scratch_replace_test PRIVATE src)
 target_link_libraries(libdjinterop_engine_sync_scratch_replace_test PRIVATE DjInterop)
 add_test(NAME libdjinterop_engine_sync_scratch_replace_test COMMAND libdjinterop_engine_sync_scratch_replace_test)
+
+add_executable(libdjinterop_engine_loop_cue_test
+    src/application/ports/progress_reporter.cpp
+    src/infrastructure/engine/libdjinterop_engine_library_creator.cpp
+    src/infrastructure/engine/libdjinterop_engine_cue_writer.cpp
+    src/infrastructure/engine/libdjinterop_engine_reader.cpp
+    src/infrastructure/engine/rekordbox_key_parser.cpp
+    tests/libdjinterop_engine_loop_cue_test.cpp
+)
+target_include_directories(libdjinterop_engine_loop_cue_test PRIVATE src)
+target_link_libraries(libdjinterop_engine_loop_cue_test PRIVATE DjInterop)
+add_test(NAME libdjinterop_engine_loop_cue_test COMMAND libdjinterop_engine_loop_cue_test)
 
 add_executable(libdjinterop_engine_cleanup_writer_test
     src/infrastructure/engine/libdjinterop_engine_cleanup_writer.cpp
