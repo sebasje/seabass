@@ -147,8 +147,28 @@ Page {
                 TextField {
                     id: searchField
                     Layout.preferredWidth: 260
-                    placeholderText: "Search title or artist..."
+                    // Also filters the playlist list below (see its own
+                    // model binding) -- one search field instead of two,
+                    // since "search" and "filter playlists" were doing
+                    // the same job on two different, easy-to-miss fields.
+                    placeholderText: "Search title, artist, or playlist..."
+                    rightPadding: searchClearButton.visible ? searchClearButton.width + 4 : 0
                     onTextChanged: scanController.search(text)
+
+                    ToolButton {
+                        id: searchClearButton
+                        visible: searchField.text.length > 0
+                        anchors.right: parent.right
+                        anchors.rightMargin: 2
+                        anchors.verticalCenter: parent.verticalCenter
+                        implicitWidth: Theme.iconSizeSmall + 8
+                        implicitHeight: Theme.iconSizeSmall + 8
+                        flat: true
+                        text: "✕"
+                        ToolTip.visible: hovered
+                        ToolTip.text: "Clear search"
+                        onClicked: searchField.text = ""
+                    }
                 }
                 Item { Layout.fillWidth: true }
                 Label { text: "Sort by" }
@@ -206,35 +226,62 @@ Page {
                 anchors.fill: parent
                 spacing: 0
 
-                TextField {
-                    id: playlistFilterField
-                    Layout.fillWidth: true
-                    Layout.margins: 6
-                    placeholderText: "Filter playlists..."
-                }
-
                 ListView {
                     id: playlistListView
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     clip: true
+                    ScrollBar.vertical: BigScrollBar {}
                     property var allNames: ["All tracks"].concat(scanController.playlistNames)
-                    model: playlistFilterField.text.length === 0
+                    // Filtered by the one search field above (see its own
+                    // comment) instead of a separate field of its own.
+                    model: searchField.text.length === 0
                         ? allNames
-                        : allNames.filter((n, i) => i === 0 || n.toLowerCase().includes(playlistFilterField.text.toLowerCase()))
+                        : allNames.filter((n, i) => i === 0 || n.toLowerCase().includes(searchField.text.toLowerCase()))
                     currentIndex: root.selectedPlaylistIndex
 
-                    delegate: ItemDelegate {
+                    // A plain Rectangle + MouseArea, not an ItemDelegate --
+                    // same reasoning and the same row idiom (alternating
+                    // shading, hover/press tint, accent border on the
+                    // selected row) as trackListView's own delegate below,
+                    // so the two lists read as one consistent visual
+                    // language instead of the playlist list looking like a
+                    // generic, unstyled menu next to it.
+                    delegate: Rectangle {
+                        id: playlistDelegate
                         required property int index
                         required property string modelData
                         width: ListView.view.width
-                        text: modelData + " (" + (index === 0
-                            ? scanController.totalTrackCount
-                            : (scanController.playlistTrackCounts[modelData] ?? 0)) + ")"
-                        highlighted: ListView.isCurrentItem
-                        onClicked: {
-                            root.selectedPlaylistIndex = index;
-                            scanController.filterByPlaylist(index === 0 ? "" : modelData);
+                        height: 32
+                        readonly property bool isCurrent: ListView.isCurrentItem
+
+                        color: playlistMouseArea.pressed ? Theme.rowPressed
+                            : playlistMouseArea.containsMouse ? Theme.rowHover
+                            : (playlistDelegate.index % 2 === 0 ? Theme.rowEven : Theme.rowOdd)
+                        border.color: playlistDelegate.isCurrent ? Theme.accent : "transparent"
+                        border.width: playlistDelegate.isCurrent ? 2 : 0
+                        radius: playlistDelegate.isCurrent ? 4 : 0
+
+                        MouseArea {
+                            id: playlistMouseArea
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            onClicked: {
+                                root.selectedPlaylistIndex = playlistDelegate.index;
+                                scanController.filterByPlaylist(
+                                    playlistDelegate.index === 0 ? "" : playlistDelegate.modelData);
+                            }
+                        }
+
+                        Label {
+                            anchors.fill: parent
+                            anchors.leftMargin: 8
+                            anchors.rightMargin: 8
+                            verticalAlignment: Text.AlignVCenter
+                            elide: Text.ElideRight
+                            text: playlistDelegate.modelData + " (" + (playlistDelegate.index === 0
+                                ? scanController.totalTrackCount
+                                : (scanController.playlistTrackCounts[playlistDelegate.modelData] ?? 0)) + ")"
                         }
                     }
                 }
