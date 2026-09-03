@@ -28,6 +28,10 @@ Frame {
     // membership).
     required property var track
     property string formatLabelText: ""
+    // Optional detail shown on hover instead of crammed into
+    // formatLabelText itself (e.g. SyncPage's per-track cue summary) --
+    // empty just means the badge has no tooltip.
+    property string formatLabelTooltip: ""
     property bool showPlaylists: false
 
     // Empty actionButtonText hides the button entirely (SyncPage's plan
@@ -68,6 +72,12 @@ Frame {
             Layout.fillWidth: true
             spacing: 8
 
+            Label {
+                text: root.track.title + " - " + root.track.artist
+                font.bold: true
+                elide: Text.ElideRight
+                Layout.fillWidth: true
+            }
             Rectangle {
                 visible: root.formatLabelText.length > 0
                 radius: 3
@@ -82,6 +92,11 @@ Frame {
                     font.pointSize: Theme.fontSmall
                     color: Theme.textMuted
                 }
+
+                HoverHandler { id: formatBadgeHover }
+                ToolTip.visible: formatBadgeHover.hovered && root.formatLabelTooltip.length > 0
+                ToolTip.text: root.formatLabelTooltip
+                ToolTip.delay: 300
             }
             Rectangle {
                 visible: root.statusBadgeText.length > 0
@@ -99,12 +114,6 @@ Frame {
                     font.bold: true
                     color: root.statusBadgeTextColor
                 }
-            }
-            Label {
-                text: root.track.title + " - " + root.track.artist
-                font.bold: true
-                elide: Text.ElideRight
-                Layout.fillWidth: true
             }
             Button {
                 text: root.actionButtonText

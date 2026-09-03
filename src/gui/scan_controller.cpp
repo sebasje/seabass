@@ -253,8 +253,16 @@ void ScanController::onScanFinished()
     m_allTracks = std::move(result.tracks);
     emit playlistNamesChanged();
 
+    // Playlist selection is catalog-specific (a name picked in one
+    // format's playlist list may not exist, or mean the same thing, in
+    // another), so that's cleared on every fresh scan. The search query
+    // is not: it's just free text, and the search field's own displayed
+    // text doesn't get cleared alongside it (there's no reverse binding
+    // from m_currentSearchQuery back to the QML field), so clearing it
+    // here used to leave the field showing a query no longer actually
+    // applied. Keeping it applied here instead means the field's text
+    // and the actually-filtered results never drift apart.
     m_currentPlaylistFilter.clear();
-    m_currentSearchQuery.clear();
     applyFilters();
 
     setBusy(false);

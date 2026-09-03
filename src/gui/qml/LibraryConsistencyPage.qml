@@ -435,11 +435,29 @@ Page {
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 8
-                        Label {
-                            text: issueDelegate.kindLabel
-                            font.bold: true
-                            color: issueDelegate.kindColor
-                            Layout.preferredWidth: 100
+                        StatusBadge {
+                            label: issueDelegate.kindLabel
+                            badgeColor: issueDelegate.kindColor
+                            tooltipText: {
+                                if (issueDelegate.kind === "repairable") {
+                                    var t = "Matches existing copy \"" + issueDelegate.survivor.title + " - "
+                                        + issueDelegate.survivor.artist + "\".";
+                                    if (issueDelegate.cueMergeNeeded) {
+                                        t += " Its cues will be merged onto that copy first.";
+                                    }
+                                    return t;
+                                }
+                                if (issueDelegate.kind === "conflict") {
+                                    return "Matches existing copy \"" + issueDelegate.survivor.title + " - "
+                                        + issueDelegate.survivor.artist + "\", but they have genuinely different cues. "
+                                        + "Not auto-repaired: use Resolve above to review and merge them manually.";
+                                }
+                                return issueDelegate.format === "onelibrary"
+                                    ? "No copy found anywhere in OneLibrary. Re-add via Rekordbox or Engine's own "
+                                      + "software, or delete this orphaned entry."
+                                    : "No copy found anywhere in this catalog. Re-add the track via "
+                                      + (issueDelegate.format === "engine" ? "Engine" : "Rekordbox") + "'s own software.";
+                            }
                         }
                         // Plain text, no logo -- same "original mark, not
                         // a reproduction" convention this app already
@@ -517,38 +535,6 @@ Page {
                             text: issueDelegate.expanded ? "▾" : "▸"
                             color: Theme.textMuted
                         }
-                    }
-                    Label {
-                        visible: issueDelegate.kind === "repairable"
-                        Layout.fillWidth: true
-                        wrapMode: Text.WordWrap
-                        text: "Matches existing copy \"" + issueDelegate.survivor.title + " - "
-                            + issueDelegate.survivor.artist + "\"."
-                            + (issueDelegate.cueMergeNeeded ? " Its cues will be merged onto that copy first." : "")
-                        color: Theme.textMuted
-                        font.pointSize: Theme.fontSmall
-                    }
-                    Label {
-                        visible: issueDelegate.kind === "conflict"
-                        Layout.fillWidth: true
-                        wrapMode: Text.WordWrap
-                        text: "Matches existing copy \"" + issueDelegate.survivor.title + " - "
-                            + issueDelegate.survivor.artist + "\", but they have genuinely different cues. "
-                            + "Not auto-repaired -- use Resolve above to review and merge them manually."
-                        color: Theme.conflictText
-                        font.pointSize: Theme.fontSmall
-                    }
-                    Label {
-                        visible: issueDelegate.kind === "missing"
-                        Layout.fillWidth: true
-                        wrapMode: Text.WordWrap
-                        text: issueDelegate.format === "onelibrary"
-                            ? "No copy found anywhere in OneLibrary. Re-add via Rekordbox or Engine's own "
-                              + "software, or delete this orphaned entry."
-                            : "No copy found anywhere in this catalog. Re-add the track via "
-                              + (issueDelegate.format === "engine" ? "Engine" : "Rekordbox") + "'s own software."
-                        color: Theme.textMuted
-                        font.pointSize: Theme.fontSmall
                     }
                 }
                 }

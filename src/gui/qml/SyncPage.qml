@@ -241,15 +241,23 @@ Page {
                             anchors.margins: 8
                             spacing: 6
 
-                            Label {
+                            RowLayout {
                                 Layout.fillWidth: true
-                                wrapMode: Text.WordWrap
-                                color: Theme.warnText
-                                font.bold: true
-                                text: root.conflictHeading(conflictCard.modelData)
-                                    + "  (" + root.formatLabel(conflictCard.modelData.targetFormat) + " needs cues, but "
-                                    + root.formatLabel(conflictCard.modelData.sourceAFormat) + " and "
-                                    + root.formatLabel(conflictCard.modelData.sourceBFormat) + " disagree)"
+                                spacing: 8
+                                Label {
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    color: Theme.warnText
+                                    font.bold: true
+                                    text: root.conflictHeading(conflictCard.modelData)
+                                }
+                                StatusBadge {
+                                    label: "⚠ Conflict"
+                                    badgeColor: Theme.warnText
+                                    tooltipText: root.formatLabel(conflictCard.modelData.targetFormat) + " needs cues, but "
+                                        + root.formatLabel(conflictCard.modelData.sourceAFormat) + " and "
+                                        + root.formatLabel(conflictCard.modelData.sourceBFormat) + " disagree."
+                                }
                             }
 
                             RowLayout {
@@ -298,7 +306,7 @@ Page {
                                         sourceComponent: TrackWaveformCard {
                                             track: cardLoader.modelData.track
                                             formatLabelText: root.formatLabel(cardLoader.modelData.format)
-                                                + " (" + cardLoader.modelData.summary + ")"
+                                            formatLabelTooltip: cardLoader.modelData.summary
                                             actionButtonText: "Use this"
                                             actionButtonTooltip: "Apply (and overwrite) these cue points to the other track"
                                             onActionTriggered: syncController.resolveConflict(conflictCard.index, cardLoader.modelData.useSourceA)
@@ -357,10 +365,6 @@ Page {
                                 font.bold: true
                                 elide: Text.ElideRight
                                 Layout.fillWidth: true
-                            }
-                            Label {
-                                text: delegateRoot.conflict ? "  (conflict resolved by newer file)" : ""
-                                color: Theme.conflictText
                             }
                             Button {
                                 text: "Copy"

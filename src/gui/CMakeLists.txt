@@ -70,6 +70,7 @@ qt_add_qml_module(seabass
         qml/TrackWaveformCard.qml
         qml/BigScrollBar.qml
         qml/BusyOverlay.qml
+        qml/StatusBadge.qml
     RESOURCES
         qml/icons/seabass_soundbass.svg
     SOURCES

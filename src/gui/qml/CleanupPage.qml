@@ -96,7 +96,7 @@ Page {
                 }
                 Label {
                     visible: plansListView.count > 0
-                    text: "-- " + cleanupController.totalWastedBytesHuman + " total if every copy kept only one file"
+                    text: "(" + cleanupController.totalWastedBytesHuman + " total if every copy kept only one file)"
                     color: Theme.textMuted
                 }
                 Item { Layout.fillWidth: true }
@@ -105,6 +105,16 @@ Page {
                     text: cleanupController.includedCount + " group(s) selected"
                     color: Theme.textMuted
                 }
+            }
+
+            // A Flow, not a RowLayout: on a narrower window these four
+            // buttons plus the toggle above no longer all fit on one
+            // line, and a RowLayout just lets the trailing ones overflow
+            // past the header's edge instead of wrapping onto a second
+            // line the way this does.
+            Flow {
+                Layout.fillWidth: true
+                spacing: 8
                 Button {
                     text: "Select All"
                     enabled: !cleanupController.busy && plansListView.count > 0
@@ -125,7 +135,7 @@ Page {
                     visible: cleanupController.canUndo
                     enabled: !cleanupController.busy
                     ToolTip.visible: hovered
-                    ToolTip.text: "Revert the last cleanup - restores every file it touched to what it was before"
+                    ToolTip.text: "Revert the last cleanup: restores every file it touched to what it was before"
                     onClicked: cleanupController.undoLastOperation()
                 }
             }
@@ -261,15 +271,40 @@ Page {
                                     + (delegateRoot.toRemove.length === 1 ? "y" : "ies") + ")"
                                 color: Theme.textMuted
                             }
-                            Label {
-                                visible: delegateRoot.differs
-                                text: "  ⚠ copies differ"
-                                color: Theme.conflictText
+                            StatusBadge {
+                                label: "ⓘ what's conserved"
+                                badgeColor: Theme.textMuted
+                                tooltipText: "Conserved: cues (merged, never lost) and playlist membership on both formats. "
+                                    + "Every playlist a removed copy was in now points at the kept copy instead. "
+                                    + "If the kept copy is missing bpm, musical key"
+                                    + (root.format === "engine" ? "" : ", or artwork")
+                                    + " and another copy has it, that's filled in too"
+                                    + (root.format === "engine"
+                                        ? " (artwork isn't included: Engine's library format has no way to write it back)."
+                                        : ".")
+                                    + (root.hasOneLibrary
+                                        ? " Also mirrored into OneLibrary (exportLibrary.db), including removing the "
+                                          + "duplicate's own OneLibrary row."
+                                        : "")
+                                    + " Not conserved: rating, comment, play count, and last-played date on the "
+                                    + "removed copies aren't copied over."
                             }
-                            Label {
+                            StatusBadge {
+                                visible: delegateRoot.differs
+                                label: "⚠ copies differ"
+                                badgeColor: Theme.conflictText
+                                tooltipText: "These copies differ in quality and length. The higher-bitrate copy isn't the "
+                                    + "longest one. This may be intentional (e.g. a shorter edit kept for specific "
+                                    + "hardware), so this group is excluded by default. Check it above to include it anyway."
+                            }
+                            StatusBadge {
                                 visible: delegateRoot.hasUnpreservableDataAtRisk
-                                text: "  ⚠ data would be lost"
-                                color: Theme.conflictText
+                                label: "⚠ data would be lost"
+                                badgeColor: Theme.conflictText
+                                tooltipText: "These copies have different rating, comment, play count, or last-played data, "
+                                    + "none of which carries over to the kept copy. Removing the others would permanently "
+                                    + "lose whichever values didn't happen to land on the kept copy, so this group is "
+                                    + "excluded by default. Check it above to include it anyway."
                             }
                             Item { Layout.fillWidth: true }
                             Label {
@@ -281,47 +316,8 @@ Page {
                         }
                         Label {
                             text: delegateRoot.wastedBytesHuman + " freed"
-                                + (delegateRoot.newCueCount > 0 ? " - " + delegateRoot.newCueCount + " cue(s) merged onto the survivor" : "")
+                                + (delegateRoot.newCueCount > 0 ? "; " + delegateRoot.newCueCount + " cue(s) merged onto the survivor" : "")
                             color: Theme.textMuted
-                        }
-                        Label {
-                            Layout.fillWidth: true
-                            wrapMode: Text.WordWrap
-                            text: "Conserved: cues (merged, never lost) and playlist membership on both formats. "
-                                + "Every playlist a removed copy was in now points at the kept copy instead. "
-                                + "If the kept copy is missing bpm, musical key"
-                                + (root.format === "engine" ? "" : ", or artwork")
-                                + " and another copy has it, that's filled in too"
-                                + (root.format === "engine"
-                                    ? " (artwork isn't included: Engine's library format has no way to write it back)."
-                                    : ".")
-                                + (root.hasOneLibrary
-                                    ? " Also mirrored into OneLibrary (exportLibrary.db), including removing the "
-                                      + "duplicate's own OneLibrary row."
-                                    : "")
-                                + " Not conserved: rating, comment, play count, and last-played date on the "
-                                + "removed copies aren't copied over."
-                            color: Theme.textMuted
-                            font.pointSize: Theme.fontSmall
-                        }
-                        Label {
-                            visible: delegateRoot.differs
-                            wrapMode: Text.WordWrap
-                            Layout.fillWidth: true
-                            text: "These copies differ in quality and length. The higher-bitrate copy isn't the "
-                                + "longest one. This may be intentional (e.g. a shorter edit kept for specific "
-                                + "hardware), so this group is excluded by default. Check it above to include it anyway."
-                            color: Theme.conflictText
-                        }
-                        Label {
-                            visible: delegateRoot.hasUnpreservableDataAtRisk
-                            wrapMode: Text.WordWrap
-                            Layout.fillWidth: true
-                            text: "These copies have different rating, comment, play count, or last-played data, "
-                                + "none of which carries over to the kept copy. Removing the others would permanently "
-                                + "lose whichever values didn't happen to land on the kept copy, so this group is "
-                                + "excluded by default. Check it above to include it anyway."
-                            color: Theme.conflictText
                         }
                     }
                 }

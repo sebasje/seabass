@@ -161,24 +161,35 @@ Page {
             Layout.fillWidth: true
         }
 
-        RowLayout {
+        Rectangle {
             visible: junkCueListView.count > 0
             Layout.fillWidth: true
-            spacing: 12
-            Label {
-                text: junkCueListView.count + " memory cue(s) sitting at 0:00, likely accidental"
-                font.bold: true
-            }
-            Item { Layout.fillWidth: true }
-            Button {
-                text: "Remove All"
-                enabled: !consistencyController.busy
-                onClicked: confirmRemoveAllJunkCuesDialog.open()
-            }
-            Button {
-                text: "Ignore All"
-                enabled: !consistencyController.busy
-                onClicked: confirmIgnoreAllJunkCuesDialog.open()
+            Layout.bottomMargin: 12
+            radius: 6
+            color: Theme.groupBackground
+            border.color: Theme.borderSubtle
+            implicitHeight: summaryRow.implicitHeight + 20
+
+            RowLayout {
+                id: summaryRow
+                anchors.fill: parent
+                anchors.margins: 10
+                spacing: 12
+                Label {
+                    text: junkCueListView.count + " memory cue(s) sitting at 0:00, likely accidental"
+                    font.bold: true
+                }
+                Item { Layout.fillWidth: true }
+                Button {
+                    text: "Remove All"
+                    enabled: !consistencyController.busy
+                    onClicked: confirmRemoveAllJunkCuesDialog.open()
+                }
+                Button {
+                    text: "Ignore All"
+                    enabled: !consistencyController.busy
+                    onClicked: confirmIgnoreAllJunkCuesDialog.open()
+                }
             }
         }
 
@@ -203,6 +214,11 @@ Page {
 
                 contentItem: RowLayout {
                     spacing: 8
+                    Label {
+                        text: junkDelegate.title + " - " + junkDelegate.artist
+                        elide: Text.ElideRight
+                        Layout.fillWidth: true
+                    }
                     Rectangle {
                         radius: 3
                         color: Theme.groupBackground
@@ -217,11 +233,6 @@ Page {
                             font.bold: true
                             color: Theme.textMuted
                         }
-                    }
-                    Label {
-                        text: junkDelegate.title + " - " + junkDelegate.artist
-                        elide: Text.ElideRight
-                        Layout.fillWidth: true
                     }
                     Button {
                         text: "Remove"

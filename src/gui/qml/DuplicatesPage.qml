@@ -200,9 +200,12 @@ Page {
                                 elide: Text.ElideRight
                                 Layout.preferredWidth: 320
                             }
-                            Label {
-                                text: delegateRoot.kind === "unambiguous" ? "  (fixable)" : "  (conflict)"
-                                color: delegateRoot.kind === "unambiguous" ? Theme.good : Theme.conflictText
+                            StatusBadge {
+                                label: delegateRoot.kind === "unambiguous" ? "Fixable" : "Conflict"
+                                badgeColor: delegateRoot.kind === "unambiguous" ? Theme.good : Theme.conflictText
+                                tooltipText: delegateRoot.actionable
+                                    ? "Conserved: only cues are copied onto the copies missing them. Files, playlists and other metadata are untouched."
+                                    : "Nothing is copied automatically here. The copies disagree, so you decide per-track with the Copy buttons below."
                             }
                             Item { Layout.fillWidth: true }
                             Button {
@@ -222,15 +225,6 @@ Page {
                         }
                         Label { text: delegateRoot.description; color: Theme.textMuted }
                         Label { text: delegateRoot.wastedBytesDescription; color: Theme.textMuted }
-                        Label {
-                            Layout.fillWidth: true
-                            wrapMode: Text.WordWrap
-                            text: delegateRoot.actionable
-                                ? "Conserved: only cues are copied onto the copies missing them -- files, playlists and other metadata are untouched."
-                                : "Nothing is copied automatically here -- the copies disagree, so you decide per-track with the Copy buttons below."
-                            color: Theme.textMuted
-                            font.pointSize: Theme.fontSmall
-                        }
                     }
                 }
 
