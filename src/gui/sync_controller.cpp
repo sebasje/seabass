@@ -218,7 +218,28 @@ void collectPlaylistSummary(const std::vector<domain::Track> &rekordboxTracks,
 // exact same real diff+direction logic (domain::SyncLibraries) once per
 // pair actually available on this stick, combining every pair's
 // actionable plans into one list.
-SyncTaskResult runAnalyzeTask(QString rekordboxPath, QString enginePath, QString playlistName,
+// Case-insensitive title/artist substring match, same rule
+// ScanController's own search box uses -- QString-based, not
+// domain::TrackScope::search(), which is deliberately ASCII-only (see its
+// own doc comment); real music metadata needs Unicode-aware case folding.
+std::vector<domain::Track> filterBySearchQuery(const std::vector<domain::Track> &tracks, const QString &query)
+{
+    if (query.isEmpty()) {
+        return tracks;
+    }
+    QString lowered = query.toLower();
+    std::vector<domain::Track> filtered;
+    for (const auto &track : tracks) {
+        QString title = QString::fromStdString(track.title).toLower();
+        QString artist = QString::fromStdString(track.artist).toLower();
+        if (title.contains(lowered) || artist.contains(lowered)) {
+            filtered.push_back(track);
+        }
+    }
+    return filtered;
+}
+
+SyncTaskResult runAnalyzeTask(QString rekordboxPath, QString enginePath, QString playlistName, QString searchQuery,
                                std::shared_ptr<QtProgressReporter> reporter)
 {
     SyncTaskResult result;
@@ -260,6 +281,11 @@ SyncTaskResult runAnalyzeTask(QString rekordboxPath, QString enginePath, QString
             rekordboxTracks = domain::filterByScope(rekordboxTracks, scope);
             engineTracks = domain::filterByScope(engineTracks, scope);
             oneLibraryTracks = domain::filterByScope(oneLibraryTracks, scope);
+        }
+        if (!searchQuery.isEmpty()) {
+            rekordboxTracks = filterBySearchQuery(rekordboxTracks, searchQuery);
+            engineTracks = filterBySearchQuery(engineTracks, searchQuery);
+            oneLibraryTracks = filterBySearchQuery(oneLibraryTracks, searchQuery);
         }
 
         result.rekordboxTrackCount = static_cast<int>(rekordboxTracks.size());
@@ -321,17 +347,19 @@ SyncController::SyncController(QObject *parent) : QObject(parent)
     connect(&m_writeWatcher, &QFutureWatcher<SyncWriteResult>::finished, this, &SyncController::onWriteFinished);
 }
 
-void SyncController::analyze(const QString &rekordboxPath, const QString &enginePath, const QString &playlistName)
+void SyncController::analyze(const QString &rekordboxPath, const QString &enginePath, const QString &playlistName,
+                              const QString &searchQuery)
 {
     // Recorded even on the early return below: the QML picker is already
     // disabled while busy (SyncPage.qml), so this path shouldn't be
-    // reachable from user interaction, but the field must never go stale
+    // reachable from user interaction, but the fields must never go stale
     // relative to the most recently *requested* scope regardless -- the
     // next analyze() this controller issues itself (onWriteFinished()'s
-    // own post-write re-analyze) reads m_currentPlaylistName, and silently
-    // keeping a superseded value there would resurrect this exact bug for
-    // any future caller that isn't gated by that one QML property.
+    // own post-write re-analyze) reads them, and silently keeping a
+    // superseded value there would resurrect this exact bug for any
+    // future caller that isn't gated by that one QML property.
     m_currentPlaylistName = playlistName;
+    m_currentSearchQuery = searchQuery;
 
     if (m_busy) {
         return;  // never overlap two analyses
@@ -343,7 +371,8 @@ void SyncController::analyze(const QString &rekordboxPath, const QString &engine
     setScanProgress(0, 0);
     setBusy(true);
 
-    m_watcher.setFuture(QtConcurrent::run(runAnalyzeTask, rekordboxPath, enginePath, playlistName, makeReporter()));
+    m_watcher.setFuture(
+        QtConcurrent::run(runAnalyzeTask, rekordboxPath, enginePath, playlistName, searchQuery, makeReporter()));
 }
 
 // See ScanController::scan() for why the reporter is owned by the task
@@ -842,7 +871,7 @@ void SyncController::onWriteFinished()
     // Re-analyze so the model reflects the now-consistent state, staying
     // scoped to whatever playlist was selected rather than reverting to
     // "All tracks".
-    analyze(m_rekordboxPath, m_enginePath, m_currentPlaylistName);
+    analyze(m_rekordboxPath, m_enginePath, m_currentPlaylistName, m_currentSearchQuery);
 }
 
 void SyncController::undoLastOperation()
