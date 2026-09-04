@@ -305,13 +305,29 @@ if(Qt6_FOUND)
         # evaluates to undefined rather than erroring -- confusing to
         # track down the first time.
         set_source_files_properties(src/gui/qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+        # Same ordering requirement as Theme.qml above -- must run before
+        # qt_add_qml_module() or CamelotWheelPosition silently registers as
+        # a plain (non-singleton) type and every `CamelotWheelPosition.x`
+        # style access in CamelotWheelPopup.qml goes undefined.
+        set_source_files_properties(src/gui/qml/CamelotWheelPosition.qml
+            PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+
         qt_add_qml_module(seabass_qml_tests
             URI SeabassGui
             VERSION 1.0
             QML_FILES
                 src/gui/qml/Theme.qml
                 src/gui/qml/common/BigScrollBar.qml
+                src/gui/qml/common/BackBreadcrumb.qml
+                src/gui/qml/common/PageTitle.qml
+                src/gui/qml/common/Subtitle.qml
                 src/gui/qml/PlaylistPickerCombo.qml
+                src/gui/qml/CamelotWheelPosition.qml
+                src/gui/qml/CamelotWheelPopup.qml
+                src/gui/qml/KeyBadge.qml
+                src/gui/qml/WaveformView.qml
+                src/gui/qml/CueFallbackNotice.qml
+                src/gui/qml/TrackDetailPage.qml
             SOURCES
                 # Theme.qml's font-size properties (fontSmall, iconScale,
                 # ...) bind to this QML_SINGLETON C++ type.
