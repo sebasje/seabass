@@ -372,13 +372,14 @@ Page {
             Layout.fillWidth: true
             spacing: 12
             Label {
-                text: issueListView.count + " row(s) with a missing file, across every catalog on this stick"
-                font.bold: true
+                text: "I found " + issueListView.count + " row(s) with a missing file, across every catalog on this stick"
             }
             Item { Layout.fillWidth: true }
             Button {
                 text: "Repair All Safe Rows"
                 enabled: !consistencyController.busy && consistencyController.repairableCount > 0
+                ToolTip.visible: hovered
+                ToolTip.text: "Automatically repair every row whose broken copy exactly matches an existing survivor -- conflicts and missing-everywhere rows are left for manual review"
                 onClicked: confirmRepairAllDialog.open()
             }
         }
@@ -399,7 +400,11 @@ Page {
             Layout.fillHeight: true
             clip: true
             model: consistencyController.issues
-            spacing: 4
+            // A little more breathing room between findings than the
+            // tight 4px this used to be -- each row can expand into a
+            // whole track-detail view (waveform, cues), so they read as
+            // more distinct "cards" than a plain dense list's rows do.
+            spacing: 10
 
             ScrollBar.vertical: BigScrollBar {}
 
@@ -446,10 +451,23 @@ Page {
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 8
-                        StatusBadge {
-                            label: issueDelegate.kindLabel
-                            badgeColor: issueDelegate.kindColor
-                            tooltipText: {
+                        // Fixed-width slot around the badge itself (which
+                        // stays its own natural, compact pill size) rather
+                        // than resizing StatusBadge -- "REPAIRABLE" is
+                        // noticeably wider than "MISSING", so without this
+                        // every row's format-badge/title after it started
+                        // at a different X depending on which kind the row
+                        // was, reading as misaligned down the list.
+                        Item {
+                            Layout.preferredWidth: 96
+                            Layout.preferredHeight: kindBadge.implicitHeight
+                            StatusBadge {
+                                id: kindBadge
+                                anchors.left: parent.left
+                                anchors.verticalCenter: parent.verticalCenter
+                                label: issueDelegate.kindLabel
+                                badgeColor: issueDelegate.kindColor
+                                tooltipText: {
                                 if (issueDelegate.kind === "repairable") {
                                     var t = "Matches existing copy \"" + issueDelegate.survivor.title + " - "
                                         + issueDelegate.survivor.artist + "\".";
@@ -472,6 +490,7 @@ Page {
                                       + "software, or delete this orphaned entry."
                                     : "No copy found anywhere in this catalog. Re-add the track via "
                                       + (issueDelegate.format === "engine" ? "Engine" : "Rekordbox") + "'s own software.";
+                                }
                             }
                         }
                         // Plain text, no logo -- same "original mark, not
@@ -609,7 +628,6 @@ Page {
                                         Label {
                                             text: (trackFrame.isSurvivor ? "Kept copy: " : "Broken copy: ")
                                                 + trackFrame.modelData.title + " - " + trackFrame.modelData.artist
-                                            font.bold: true
                                             elide: Text.ElideRight
                                             Layout.fillWidth: true
                                         }
@@ -665,7 +683,9 @@ Page {
             footer: ColumnLayout {
                 id: junkCueFooter
                 width: ListView.view.width
-                spacing: 4
+                // Matches issueListView's own spacing bump above, same
+                // reasoning.
+                spacing: 10
 
                 RowLayout {
                     visible: junkCueRepeater.count > 0
@@ -673,18 +693,21 @@ Page {
                     Layout.topMargin: 12
                     spacing: 12
                     Label {
-                        text: junkCueRepeater.count + " memory cue(s) sitting at 0:00, likely accidental"
-                        font.bold: true
+                        text: "I found " + junkCueRepeater.count + " memory cue(s) sitting at 0:00, likely accidental"
                     }
                     Item { Layout.fillWidth: true }
                     Button {
                         text: "Remove All"
                         enabled: !consistencyController.busy
+                        ToolTip.visible: hovered
+                        ToolTip.text: "Permanently remove every memory cue at 0:00 listed below, across every track. Backed up first."
                         onClicked: confirmRemoveAllJunkCuesDialog.open()
                     }
                     Button {
                         text: "Ignore All"
                         enabled: !consistencyController.busy
+                        ToolTip.visible: hovered
+                        ToolTip.text: "Dismiss every memory cue at 0:00 listed below, just for this view -- nothing on the stick changes"
                         onClicked: confirmIgnoreAllJunkCuesDialog.open()
                     }
                 }
@@ -727,6 +750,8 @@ Page {
                             Button {
                                 text: "Remove"
                                 enabled: !consistencyController.busy
+                                ToolTip.visible: hovered
+                                ToolTip.text: "Permanently remove this memory cue at 0:00 from the track. Backed up first."
                                 onClicked: {
                                     confirmRemoveJunkCueDialog.pendingIndex = junkDelegate.index;
                                     confirmRemoveJunkCueDialog.open();
@@ -735,6 +760,8 @@ Page {
                             Button {
                                 text: "Ignore"
                                 enabled: !consistencyController.busy
+                                ToolTip.visible: hovered
+                                ToolTip.text: "Dismiss this one, just for this view -- nothing on the stick changes"
                                 onClicked: consistencyController.ignoreJunkCue(junkDelegate.index)
                             }
                         }
