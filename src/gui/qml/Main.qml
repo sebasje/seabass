@@ -28,6 +28,21 @@ ApplicationWindow {
         id: playbackCtrl
     }
 
+    // Space toggles play/pause for whatever's loaded in the player bar --
+    // disabled while a text-entry control has focus (any search field,
+    // etc.), since typing a literal space character there has to win.
+    // Checked via cursorPosition rather than a type name: TextField/
+    // TextArea (and a ComboBox's own editable TextInput) all expose it,
+    // and nothing else focusable in this app does, so this is a reliable
+    // "is this a text-entry control" test without needing to enumerate
+    // every control type that might gain focus.
+    Shortcut {
+        sequence: "Space"
+        enabled: playbackCtrl.hasTrack
+            && !(window.activeFocusItem && window.activeFocusItem.hasOwnProperty("cursorPosition"))
+        onActivated: playbackCtrl.togglePlay()
+    }
+
     AppSettingsController {
         id: appSettingsCtrl
     }
