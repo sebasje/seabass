@@ -43,19 +43,12 @@ Page {
         RowLayout {
             anchors.fill: parent
             anchors.margins: 8
-            ToolButton {
-                text: "‹"
-
-                font.pointSize: Theme.fontHuge
-                enabled: !syncController.writing
-
-                ToolTip.visible: hovered
-
-                ToolTip.text: syncController.writing ? "Wait for the write to finish before leaving this page" : "Back"
-                onClicked: root.StackView.view.pop()
-            }
-            PageTitle {
-                text: root.stickLabel + " · Sync Cue Points"
+            BackBreadcrumb {
+                middleLabel: root.stickLabel
+                title: "Sync Cue Points"
+                backEnabled: !syncController.writing
+                onHomeRequested: root.StackView.view.pop(null)
+                onBackRequested: root.StackView.view.pop()
             }
             Item { Layout.fillWidth: true }
             Button {
@@ -254,9 +247,17 @@ Page {
                                 StatusBadge {
                                     label: "⚠ Conflict"
                                     badgeColor: Theme.warnText
+                                    // Spells out the actual conflicting
+                                    // options, not just which two formats
+                                    // disagree -- so the choice below
+                                    // ("Use this" per side) is legible
+                                    // from the badge alone, before even
+                                    // opening the per-track cards.
                                     tooltipText: root.formatLabel(conflictCard.modelData.targetFormat) + " needs cues, but "
-                                        + root.formatLabel(conflictCard.modelData.sourceAFormat) + " and "
-                                        + root.formatLabel(conflictCard.modelData.sourceBFormat) + " disagree."
+                                        + root.formatLabel(conflictCard.modelData.sourceAFormat) + " ("
+                                        + conflictCard.modelData.sourceASummary + ") and "
+                                        + root.formatLabel(conflictCard.modelData.sourceBFormat) + " ("
+                                        + conflictCard.modelData.sourceBSummary + ") disagree."
                                 }
                             }
 

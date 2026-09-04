@@ -93,16 +93,13 @@ Page {
             anchors.fill: parent
             anchors.margins: 10
             spacing: 12
-            ToolButton {
-                text: "‹"
-                font.pointSize: Theme.fontHuge
-                enabled: !controller.busy
-                ToolTip.visible: hovered
-                ToolTip.text: controller.busy ? "Wait for it to finish before leaving this page" : "Back"
-                onClicked: root.StackView.view.pop()
-            }
-            PageTitle {
-                text: "Export Anonymized Library"
+            BackBreadcrumb {
+                middleLabel: "Preferences"
+                title: "Export Anonymized Library"
+                backEnabled: !controller.busy
+                backDisabledTooltip: "Wait for it to finish before leaving this page"
+                onHomeRequested: root.StackView.view.pop(null)
+                onBackRequested: root.StackView.view.pop()
             }
             Item { Layout.fillWidth: true }
             BusyIndicator { running: controller.busy; visible: controller.busy; implicitWidth: 20; implicitHeight: 20 }

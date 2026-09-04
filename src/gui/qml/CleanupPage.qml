@@ -59,17 +59,12 @@ Page {
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 12
-                ToolButton {
-                    text: "‹"
-                    font.pointSize: Theme.fontHuge
-                    enabled: !cleanupController.writing
-                    ToolTip.visible: hovered
-                    ToolTip.text: cleanupController.writing
-                        ? "Wait for the write to finish before leaving this page" : "Back"
-                    onClicked: root.StackView.view.pop()
-                }
-                PageTitle {
-                    text: root.stickLabel + " · Clean Up Duplicates"
+                BackBreadcrumb {
+                    middleLabel: "Clean-up and Housekeeping"
+                    title: "Clean Up Duplicates"
+                    backEnabled: !cleanupController.writing
+                    onHomeRequested: root.StackView.view.pop(null)
+                    onBackRequested: root.StackView.view.pop()
                 }
                 Item { Layout.fillWidth: true }
                 LibrarySourceToggle {

@@ -118,18 +118,11 @@ Page {
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 12
-                ToolButton {
-                    text: "‹"
-
-                    font.pointSize: Theme.fontHuge
-
-                    ToolTip.visible: hovered
-
-                    ToolTip.text: "Back"
-                    onClicked: root.StackView.view.pop()
-                }
-                PageTitle {
-                    text: root.stickLabel + " · Library"
+                BackBreadcrumb {
+                    middleLabel: root.stickLabel
+                    title: "Library"
+                    onHomeRequested: root.StackView.view.pop(null)
+                    onBackRequested: root.StackView.view.pop()
                 }
                 Item { Layout.fillWidth: true }
                 LibrarySourceToggle {
@@ -687,7 +680,7 @@ Page {
                                 font.bold: true
                                 text: trackInfoPopup.pendingLoopEndMs >= 0
                                     ? "Add loop " + root.formatDuration(trackInfoPopup.pendingPositionMs / 1000)
-                                        + " – " + root.formatDuration(trackInfoPopup.pendingLoopEndMs / 1000)
+                                        + " to " + root.formatDuration(trackInfoPopup.pendingLoopEndMs / 1000)
                                     : "Add cue at " + root.formatDuration(trackInfoPopup.pendingPositionMs / 1000)
                             }
                             Item { Layout.fillWidth: true }

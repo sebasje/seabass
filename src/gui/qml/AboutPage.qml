@@ -15,18 +15,9 @@ Page {
         RowLayout {
             anchors.fill: parent
             anchors.margins: 10
-            ToolButton {
-                text: "‹"
-
-                font.pointSize: Theme.fontHuge
-
-                ToolTip.visible: hovered
-
-                ToolTip.text: "Back"
-                onClicked: root.StackView.view.pop()
-            }
-            PageTitle {
-                text: "About"
+            BackBreadcrumb {
+                title: "About"
+                onHomeRequested: root.StackView.view.pop(null)
             }
             Item { Layout.fillWidth: true }
         }

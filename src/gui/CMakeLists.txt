@@ -72,6 +72,7 @@ qt_add_qml_module(seabass
         qml/BusyOverlay.qml
         qml/StatusBadge.qml
         qml/MessagePopup.qml
+        qml/BackBreadcrumb.qml
     RESOURCES
         qml/icons/seabass_soundbass.svg
     SOURCES

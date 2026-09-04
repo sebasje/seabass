@@ -31,16 +31,13 @@ Page {
             anchors.fill: parent
             anchors.margins: 10
             spacing: 12
-            ToolButton {
-                text: "‹"
-                font.pointSize: Theme.fontHuge
-                enabled: !controller.busy
-                ToolTip.visible: hovered
-                ToolTip.text: controller.busy ? "Wait for creation to finish before leaving this page" : "Back"
-                onClicked: root.StackView.view.pop()
-            }
-            PageTitle {
-                text: root.stickLabel + " · Create Engine Library"
+            BackBreadcrumb {
+                middleLabel: root.stickLabel
+                title: "Create Engine Library"
+                backEnabled: !controller.busy
+                backDisabledTooltip: "Wait for creation to finish before leaving this page"
+                onHomeRequested: root.StackView.view.pop(null)
+                onBackRequested: root.StackView.view.pop()
             }
             Item { Layout.fillWidth: true }
             BusyIndicator { running: controller.busy; visible: controller.busy; implicitWidth: 20; implicitHeight: 20 }
@@ -102,7 +99,7 @@ Page {
                         wrapMode: Text.WordWrap
                         text: "Title, artist, BPM, key, duration, bitrate, rating, comment, hot cues, memory "
                             + "cue, and a simple approximate beatgrid computed from BPM and duration (assumes "
-                            + "the track starts exactly on a beat -- not always true, but a reasonable "
+                            + "the track starts exactly on a beat, not always true, but a reasonable "
                             + "stand-in absent a real per-beat grid)."
                     }
                     Label {
@@ -146,7 +143,7 @@ Page {
                         wrapMode: Text.WordWrap
                         color: Theme.textMuted
                         font.pointSize: Theme.fontSmall
-                        text: "Not sure which your unit needs? 2.x is a reasonable first try -- if the "
+                        text: "Not sure which your unit needs? 2.x is a reasonable first try; if the "
                             + "Denon unit doesn't recognize the result, delete the \"Engine Library\" folder "
                             + "and try a different generation."
                     }

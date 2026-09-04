@@ -37,6 +37,22 @@ Page {
         return format === "engine" ? root.enginePath : root.rekordboxPath;
     }
 
+    // "3 hot cue(s), 1 memory cue(s)" -- same shape as
+    // DuplicatesPage.qml's own cueSummary(), duplicated rather than
+    // shared since it's ten lines and the two pages' track models come
+    // from different controllers.
+    function cueSummary(track) {
+        var hot = 0, memory = 0;
+        var cues = track.cues || [];
+        for (var i = 0; i < cues.length; i++) {
+            (cues[i].kind === "hot" ? hot++ : memory++);
+        }
+        var parts = [];
+        if (hot > 0) parts.push(hot + " hot cue(s)");
+        if (memory > 0) parts.push(memory + " memory cue(s)");
+        return parts.length > 0 ? parts.join(", ") : "no cues";
+    }
+
     function rescan() {
         consistencyController.scan(root.rekordboxPath, root.enginePath);
     }
@@ -53,17 +69,12 @@ Page {
             anchors.fill: parent
             anchors.margins: 10
             spacing: 12
-            ToolButton {
-                text: "‹"
-                font.pointSize: Theme.fontHuge
-                enabled: !consistencyController.writing
-                ToolTip.visible: hovered
-                ToolTip.text: consistencyController.writing
-                    ? "Wait for the write to finish before leaving this page" : "Back"
-                onClicked: root.StackView.view.pop()
-            }
-            PageTitle {
-                text: root.stickLabel + " · Library Health"
+            BackBreadcrumb {
+                middleLabel: root.stickLabel
+                title: "Library Health"
+                backEnabled: !consistencyController.writing
+                onHomeRequested: root.StackView.view.pop(null)
+                onBackRequested: root.StackView.view.pop()
             }
             Item { Layout.fillWidth: true }
             RowLayout {
@@ -448,9 +459,13 @@ Page {
                                     return t;
                                 }
                                 if (issueDelegate.kind === "conflict") {
+                                    var brokenSummary = issueDelegate.brokenTracks.length > 0
+                                        ? root.cueSummary(issueDelegate.brokenTracks[0]) : "no cues";
                                     return "Matches existing copy \"" + issueDelegate.survivor.title + " - "
-                                        + issueDelegate.survivor.artist + "\", but they have genuinely different cues. "
-                                        + "Not auto-repaired: use Resolve above to review and merge them manually.";
+                                        + issueDelegate.survivor.artist + "\", but they have genuinely different cues: "
+                                        + "kept copy has " + root.cueSummary(issueDelegate.survivor) + "; broken row had "
+                                        + brokenSummary + ". Not auto-repaired: use Resolve above to review and merge "
+                                        + "them manually.";
                                 }
                                 return issueDelegate.format === "onelibrary"
                                     ? "No copy found anywhere in OneLibrary. Re-add via Rekordbox or Engine's own "
@@ -604,7 +619,7 @@ Page {
                                             ToolTip.visible: hovered
                                             ToolTip.text: trackFrame.isSurvivor
                                                 ? "Play this copy of the track"
-                                                : "No local file -- this copy's file is missing"
+                                                : "No local file: this copy's file is missing"
                                             onClicked: root.playbackController.load(issueDelegate.format,
                                                 root.pathForFormat(issueDelegate.format), trackFrame.modelData.sourceId,
                                                 trackFrame.modelData.filePath, trackFrame.modelData.title,

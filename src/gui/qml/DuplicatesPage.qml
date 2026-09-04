@@ -38,6 +38,35 @@ Page {
     }
     function formatLabel(format) { return FormatLabels.label(format); }
 
+    // "3 hot cue(s), 1 memory cue(s)" -- mirrors sync_controller.cpp's
+    // own summarizeCueCounts() (no loop/non-loop split available here:
+    // duplicates_controller.cpp's TracksRole cue map doesn't carry an
+    // isLoop flag the way SyncController's does).
+    function cueSummary(track) {
+        var hot = 0, memory = 0;
+        var cues = track.cues || [];
+        for (var i = 0; i < cues.length; i++) {
+            (cues[i].kind === "hot" ? hot++ : memory++);
+        }
+        var parts = [];
+        if (hot > 0) parts.push(hot + " hot cue(s)");
+        if (memory > 0) parts.push(memory + " memory cue(s)");
+        return parts.length > 0 ? parts.join(", ") : "no cues";
+    }
+
+    // The actual conflicting options, one line per copy -- what the
+    // Conflict badge's tooltip shows instead of just "these disagree,"
+    // so the choice is legible from the badge alone.
+    function conflictDetail(tracks) {
+        var lines = [];
+        for (var i = 0; i < tracks.length; i++) {
+            var t = tracks[i];
+            var label = t.filePath && t.filePath.length > 0 ? t.filePath.split("/").pop() : ("Copy " + (i + 1));
+            lines.push(label + ": " + root.cueSummary(t));
+        }
+        return lines.join("\n");
+    }
+
     DuplicatesController {
         id: duplicatesController
     }
@@ -66,20 +95,12 @@ Page {
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 12
-                ToolButton {
-                    text: "‹"
-
-                    font.pointSize: Theme.fontHuge
-                    enabled: !duplicatesController.writing
-
-                    ToolTip.visible: hovered
-
-                    ToolTip.text: duplicatesController.writing
-                        ? "Wait for the write to finish before leaving this page" : "Back"
-                    onClicked: root.StackView.view.pop()
-                }
-                PageTitle {
-                    text: root.stickLabel + " · Clean-up and Housekeeping"
+                BackBreadcrumb {
+                    middleLabel: "Clean-up and Housekeeping"
+                    title: "Duplicate Stats & Sync"
+                    backEnabled: !duplicatesController.writing
+                    onHomeRequested: root.StackView.view.pop(null)
+                    onBackRequested: root.StackView.view.pop()
                 }
                 Item { Layout.fillWidth: true }
                 LibrarySourceToggle {
@@ -107,7 +128,7 @@ Page {
                 }
                 Label {
                     visible: plansListView.count > 0
-                    text: "-- " + duplicatesController.totalWastedBytesHuman + " could be freed if each were on the stick once"
+                    text: "(" + duplicatesController.totalWastedBytesHuman + " could be freed if each were on the stick once)"
                     color: Theme.textMuted
                 }
                 Item { Layout.fillWidth: true }
@@ -115,7 +136,7 @@ Page {
                     text: "Apply All Fixable"
                     enabled: !duplicatesController.busy
                     ToolTip.visible: hovered
-                    ToolTip.text: "Copy cues onto every unambiguous duplicate in one go -- conflicts are left for you to resolve individually"
+                    ToolTip.text: "Copy cues onto every unambiguous duplicate in one go; conflicts are left for you to resolve individually"
                     onClicked: duplicatesController.applyAllUnambiguous()
                 }
                 Button {
@@ -123,7 +144,7 @@ Page {
                     visible: duplicatesController.canUndo
                     enabled: !duplicatesController.busy
                     ToolTip.visible: hovered
-                    ToolTip.text: "Revert the last consolidation -- restores every file it touched to what it was before"
+                    ToolTip.text: "Revert the last consolidation: restores every file it touched to what it was before"
                     onClicked: duplicatesController.undoLastOperation()
                 }
             }
@@ -137,7 +158,7 @@ Page {
 
         StickWriteWarning {
             visible: duplicatesController.writing
-            text: "Writing cues to the stick -- do not remove it until this finishes."
+            text: "Writing cues to the stick. Do not remove it until this finishes."
         }
 
         Label {
@@ -194,7 +215,7 @@ Page {
                             Layout.fillWidth: true
                             Label {
                                 text: delegateRoot.tracks.length > 0
-                                    ? (delegateRoot.tracks[0].title + " -- " + delegateRoot.tracks[0].artist)
+                                    ? (delegateRoot.tracks[0].title + " - " + delegateRoot.tracks[0].artist)
                                     : delegateRoot.filename
                                 font.bold: true
                                 elide: Text.ElideRight
@@ -205,7 +226,8 @@ Page {
                                 badgeColor: delegateRoot.kind === "unambiguous" ? Theme.good : Theme.conflictText
                                 tooltipText: delegateRoot.actionable
                                     ? "Conserved: only cues are copied onto the copies missing them. Files, playlists and other metadata are untouched."
-                                    : "Nothing is copied automatically here. The copies disagree, so you decide per-track with the Copy buttons below."
+                                    : "These copies disagree, so nothing is copied automatically; decide per-track with the "
+                                      + "Copy buttons below.\n\n" + root.conflictDetail(delegateRoot.tracks)
                             }
                             Item { Layout.fillWidth: true }
                             Button {
@@ -254,7 +276,7 @@ Page {
                     Label {
                         Layout.fillWidth: true
                         text: (delegateRoot.tracks.length > 0
-                            ? delegateRoot.tracks[0].title + " -- " + delegateRoot.tracks[0].artist
+                            ? delegateRoot.tracks[0].title + " - " + delegateRoot.tracks[0].artist
                             : delegateRoot.filename)
                             + "  (" + delegateRoot.tracks.length + " copies)"
                         font.bold: true

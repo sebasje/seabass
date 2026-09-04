@@ -23,26 +23,19 @@ Page {
         RowLayout {
             anchors.fill: parent
             anchors.margins: 8
-            ToolButton {
-                text: "‹"
-
-                font.pointSize: Theme.fontHuge
-                enabled: !settingsController.busy
-
-                ToolTip.visible: hovered
-
-                ToolTip.text: settingsController.busy ? "Wait for the write to finish before leaving this page" : "Back"
-                onClicked: root.StackView.view.pop()
-            }
-            PageTitle {
-                text: root.stickLabel + " · Device Settings"
+            BackBreadcrumb {
+                middleLabel: root.stickLabel
+                title: "Device Profile"
+                backEnabled: !settingsController.busy
+                onHomeRequested: root.StackView.view.pop(null)
+                onBackRequested: root.StackView.view.pop()
             }
             ToolButton {
                 text: "ⓘ"
                 font.pointSize: Theme.baseFontPointSize * 1.2
                 ToolTip.visible: hovered
                 ToolTip.text: "These are the player/mixer preference files Rekordbox (Pioneer hardware) "
-                    + "writes to the stick -- tempo range, quantize, auto cue level and similar. Denon "
+                    + "writes to the stick: tempo range, quantize, auto cue level and similar. Denon "
                     + "Prime hardware reads Rekordbox USB drives natively for library/track/cue data, "
                     + "and some Prime units are reported to honor these same preference files too, "
                     + "though that isn't something Seabass can verify from the stick alone."

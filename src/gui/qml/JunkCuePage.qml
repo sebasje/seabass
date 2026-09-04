@@ -46,17 +46,12 @@ Page {
             anchors.fill: parent
             anchors.margins: 10
             spacing: 12
-            ToolButton {
-                text: "‹"
-                font.pointSize: Theme.fontHuge
-                enabled: !consistencyController.writing
-                ToolTip.visible: hovered
-                ToolTip.text: consistencyController.writing
-                    ? "Wait for the write to finish before leaving this page" : "Back"
-                onClicked: root.StackView.view.pop()
-            }
-            PageTitle {
-                text: root.stickLabel + " · Clean Up Stray Cues"
+            BackBreadcrumb {
+                middleLabel: "Clean-up and Housekeeping"
+                title: "Clean Up Stray Cues"
+                backEnabled: !consistencyController.writing
+                onHomeRequested: root.StackView.view.pop(null)
+                onBackRequested: root.StackView.view.pop()
             }
             Item { Layout.fillWidth: true }
             RowLayout {
