@@ -45,16 +45,35 @@ TestCase {
             trackCount: function() {
                 return tracks.length;
             },
-            // Mirrors ScanController::keyRelation()'s own machine-tag
-            // contract closely enough to exercise relationDisplay()'s
-            // full switch: identical keys -> "same", both Camelot number
-            // "8" -> "adjacent", otherwise -> "unrelated".
+            // A real (if minimal) mirror of domain::classifyKeyRelation()
+            // for plain Camelot-notation input ("8A", "3B", ...) -- close
+            // enough to exercise relationDisplay()'s full switch,
+            // including the directional adjacentup/adjacentdown split,
+            // which a same-number-prefix shortcut can't tell apart from
+            // "relative".
             keyRelation: function(keyA, keyB) {
-                if (keyA === keyB) {
+                var matchA = /^(\d+)([AB])$/.exec(keyA);
+                var matchB = /^(\d+)([AB])$/.exec(keyB);
+                if (!matchA || !matchB) {
+                    return {label: "", relation: "unknown"};
+                }
+                var numA = parseInt(matchA[1], 10), letterA = matchA[2];
+                var numB = parseInt(matchB[1], 10), letterB = matchB[2];
+                if (numA === numB && letterA === letterB) {
                     return {label: "Same key", relation: "same"};
                 }
-                if (keyA.slice(0, -1) === keyB.slice(0, -1)) {
-                    return {label: "Adjacent (harmonic)", relation: "adjacent"};
+                if (numA === numB) {
+                    return {label: "Relative major/minor", relation: "relative"};
+                }
+                var diff = Math.abs(numA - numB);
+                var wheelDistance = Math.min(diff, 12 - diff);
+                if (wheelDistance === 1) {
+                    if (letterA !== letterB) {
+                        return {label: "Energy mix", relation: "energymix"};
+                    }
+                    var up = numB === (numA % 12) + 1;
+                    return up ? {label: "Energy Boost", relation: "adjacentup"}
+                              : {label: "Energy Drop", relation: "adjacentdown"};
                 }
                 return {label: "Unrelated key", relation: "unrelated"};
             },
@@ -149,7 +168,10 @@ TestCase {
         });
         verify(page !== null);
         compare(page.relationDisplay("8A", "8A").label, "Same key");
-        compare(page.relationDisplay("8A", "8B").label, "Harmonic (adjacent)");
+        compare(page.relationDisplay("8A", "8B").label, "Relative major/minor");
+        compare(page.relationDisplay("8A", "9A").label, "Energy Boost ↑");
+        compare(page.relationDisplay("8A", "7A").label, "Energy Drop ↓");
+        compare(page.relationDisplay("8A", "9B").label, "Energy mix");
         compare(page.relationDisplay("8A", "3B").label, "Dissonant transition");
         compare(page.relationDisplay("", "8A").label, "");
     }

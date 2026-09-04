@@ -55,15 +55,21 @@ int main()
         std::cout << "case 3 (parse rejects unrecognized keys) OK\n";
     }
 
-    // classifyKeyRelation(): the four related tiers plus unrelated/unknown.
+    // classifyKeyRelation(): the five related tiers plus unrelated/unknown.
     {
         assert(classifyKeyRelation("Am", "Am") == KeyRelation::Same);
         assert(classifyKeyRelation("Am", "C") == KeyRelation::Relative);   // both Camelot 8
-        assert(classifyKeyRelation("Am", "Em") == KeyRelation::Adjacent);  // 8A -> 9A
+        assert(classifyKeyRelation("Am", "Em") == KeyRelation::AdjacentUp);    // 8A -> 9A
+        assert(classifyKeyRelation("Am", "Dm") == KeyRelation::AdjacentDown);  // 8A -> 7A
         assert(classifyKeyRelation("Am", "F") == KeyRelation::EnergyMix);  // 8A -> 7B
         assert(classifyKeyRelation("Am", "Bm") == KeyRelation::Unrelated);  // 8A -> 10A, 2 steps
         assert(classifyKeyRelation("Am", "nonsense") == KeyRelation::Unknown);
         assert(classifyKeyRelation("Am", "C") == classifyKeyRelation("C", "Am"));  // symmetric
+
+        // Unlike every other tier, Adjacent is directional: reversing the
+        // arguments reverses boost <-> drop (moving 8A -> 9A is a lift,
+        // so moving 9A -> 8A back is the drop, not another lift).
+        assert(classifyKeyRelation("Em", "Am") == KeyRelation::AdjacentDown);
         std::cout << "case 4 (classifyKeyRelation tiers) OK\n";
     }
 
@@ -71,7 +77,9 @@ int main()
     {
         assert(keyRelationLabel(KeyRelation::Same) == "Same key");
         assert(!keyRelationLabel(KeyRelation::Relative).empty());
-        assert(!keyRelationLabel(KeyRelation::Adjacent).empty());
+        assert(!keyRelationLabel(KeyRelation::AdjacentUp).empty());
+        assert(!keyRelationLabel(KeyRelation::AdjacentDown).empty());
+        assert(keyRelationLabel(KeyRelation::AdjacentUp) != keyRelationLabel(KeyRelation::AdjacentDown));
         assert(!keyRelationLabel(KeyRelation::EnergyMix).empty());
         assert(!keyRelationLabel(KeyRelation::Unrelated).empty());
         assert(keyRelationLabel(KeyRelation::Unknown).empty());
@@ -89,7 +97,11 @@ int main()
         assert(!keyRelationMatchesAnyMode(KeyRelation::Same, {"relative"}));
         assert(keyRelationMatchesAnyMode(KeyRelation::Relative, {"relative"}));
 
-        assert(keyRelationMatchesAnyMode(KeyRelation::Adjacent, {"harmonic"}));
+        // "harmonic" matches either direction of the adjacent tier -- the
+        // tier filter is about harmonic closeness, not which way the
+        // energy moves.
+        assert(keyRelationMatchesAnyMode(KeyRelation::AdjacentUp, {"harmonic"}));
+        assert(keyRelationMatchesAnyMode(KeyRelation::AdjacentDown, {"harmonic"}));
         assert(!keyRelationMatchesAnyMode(KeyRelation::Same, {"harmonic"}));
 
         assert(keyRelationMatchesAnyMode(KeyRelation::EnergyMix, {"energymix"}));
@@ -98,7 +110,7 @@ int main()
         // Any combination of tiers is a union of exactly those relations.
         assert(keyRelationMatchesAnyMode(KeyRelation::Same, {"relative", "match"}));
         assert(keyRelationMatchesAnyMode(KeyRelation::EnergyMix, {"relative", "energymix"}));
-        assert(!keyRelationMatchesAnyMode(KeyRelation::Adjacent, {"relative", "energymix"}));
+        assert(!keyRelationMatchesAnyMode(KeyRelation::AdjacentUp, {"relative", "energymix"}));
 
         // Empty keyModes means no key filtering at all -- matches
         // anything, Unknown/Unrelated included.

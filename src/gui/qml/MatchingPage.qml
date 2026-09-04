@@ -3,8 +3,8 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import SeabassGui
 
-// The "Add or Move Track" panel (Experimental, see
-// docs/experimental-features.md): finds tracks compatible in key/BPM/
+// The Matching panel (Experimental, see docs/experimental-features.md):
+// finds tracks compatible in key/BPM/
 // rating with whichever Browse row was last marked as the anchor (via
 // that row's own edit button), scoped to This Playlist -- a filter here
 // just like key/rating/BPM, not a separate write-target concept, so

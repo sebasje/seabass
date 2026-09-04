@@ -342,7 +342,7 @@ QtObject {
     // rather than each call site picking its own number. Deliberately
     // short: this is for "smooth the edge off an instant change," not a
     // deliberate, noticeable animation -- see CamelotWheelPopup.qml's
-    // wedge fade and AddOrMoveTrackPanel.qml's row fade for the first
+    // wedge fade and MatchingPage.qml's row fade for the first
     // uses.
     readonly property int shortTransitionDuration: 120
 }

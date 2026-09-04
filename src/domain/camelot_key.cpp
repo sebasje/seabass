@@ -115,7 +115,13 @@ KeyRelation classifyKeyRelation(const std::string &keyA, const std::string &keyB
     int diff = a->number > b->number ? a->number - b->number : b->number - a->number;
     int wheelDistance = diff < 12 - diff ? diff : 12 - diff;
     if (wheelDistance == 1) {
-        return a->isMinor == b->isMinor ? KeyRelation::Adjacent : KeyRelation::EnergyMix;
+        if (a->isMinor != b->isMinor) {
+            return KeyRelation::EnergyMix;
+        }
+        // Clockwise from A to B (numbers wrap 12 -> 1) is the "up"/boost
+        // direction; the other way around that same single step is "down".
+        bool up = b->number == (a->number % 12) + 1;
+        return up ? KeyRelation::AdjacentUp : KeyRelation::AdjacentDown;
     }
     return KeyRelation::Unrelated;
 }
@@ -127,8 +133,10 @@ std::string keyRelationLabel(KeyRelation relation)
         return "Same key";
     case KeyRelation::Relative:
         return "Relative major/minor";
-    case KeyRelation::Adjacent:
-        return "Adjacent (harmonic)";
+    case KeyRelation::AdjacentUp:
+        return "Energy Boost";
+    case KeyRelation::AdjacentDown:
+        return "Energy Drop";
     case KeyRelation::EnergyMix:
         return "Energy mix";
     case KeyRelation::Unrelated:
@@ -154,7 +162,7 @@ bool keyRelationMatchesAnyMode(KeyRelation relation, const std::vector<std::stri
         if (mode == "relative" && relation == KeyRelation::Relative) {
             return true;
         }
-        if (mode == "harmonic" && relation == KeyRelation::Adjacent) {
+        if (mode == "harmonic" && (relation == KeyRelation::AdjacentUp || relation == KeyRelation::AdjacentDown)) {
             return true;
         }
         if (mode == "energymix" && relation == KeyRelation::EnergyMix) {

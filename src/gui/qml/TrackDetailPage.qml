@@ -64,10 +64,15 @@ Page {
     // page's own wording/color -- "unrelated" reads as "Dissonant
     // transition" here specifically (a DJ-facing warning about *this*
     // pairing), not domain::keyRelationLabel()'s own neutral "Unrelated
-    // key" wording that findCompatibleTracks()/AddOrMoveTrackPanel use
+    // key" wording that findCompatibleTracks()/MatchingPage use
     // for a plain descriptive list instead. Empty for "unknown" (either
     // key didn't parse) -- nothing honest to say, same "don't fabricate
     // it" stance the key-parsing code itself already takes.
+    //
+    // keyA/keyB must be passed in transition order (the key you'd be
+    // mixing FROM, then the key you'd be mixing INTO) -- "adjacentup"/
+    // "adjacentdown" depend on that order, same as
+    // domain::classifyKeyRelation() itself; every other tag is symmetric.
     function relationDisplay(keyA, keyB) {
         if (!keyA || !keyB || keyA.length === 0 || keyB.length === 0) {
             return {label: "", color: Theme.textMuted};
@@ -78,8 +83,10 @@ Page {
             return {label: "Same key", color: Theme.good};
         case "relative":
             return {label: "Relative major/minor", color: Theme.good};
-        case "adjacent":
-            return {label: "Harmonic (adjacent)", color: Theme.good};
+        case "adjacentup":
+            return {label: "Energy Boost ↑", color: Theme.good};
+        case "adjacentdown":
+            return {label: "Energy Drop ↓", color: Theme.good};
         case "energymix":
             return {label: "Energy mix", color: Theme.accent};
         case "unrelated":
@@ -195,7 +202,9 @@ Page {
                 property var neighborTrack: null
                 // "before" (neighbor plays, then this track) or "after"
                 // (this track plays, then neighbor) -- decides which way
-                // round the BPM-diff arrow reads.
+                // round the BPM-diff arrow reads, and (since Energy
+                // Boost/Drop is directional) which way the key relation
+                // reads too.
                 property string direction: "after"
 
                 // Referenced by id (panel.xxx) throughout below, not
@@ -205,7 +214,10 @@ Page {
                 // worse, silently resolves to the wrong ancestor) the
                 // moment nesting depth changes.
                 readonly property var relation: panel.neighborTrack && root.track
-                    ? root.relationDisplay(root.track.key, panel.neighborTrack.key) : null
+                    ? (panel.direction === "before"
+                        ? root.relationDisplay(panel.neighborTrack.key, root.track.key)
+                        : root.relationDisplay(root.track.key, panel.neighborTrack.key))
+                    : null
                 readonly property string bpmDiff: panel.neighborTrack && root.track
                     ? (panel.direction === "before"
                         ? root.bpmDiffText(panel.neighborTrack.bpm, root.track.bpm)

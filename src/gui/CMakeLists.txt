@@ -87,7 +87,7 @@ qt_add_qml_module(seabass
         qml/PlaylistPickerCombo.qml
         qml/PlaylistRowDelegate.qml
         qml/PlaylistListView.qml
-        qml/AddOrMoveTrackPanel.qml
+        qml/MatchingPage.qml
         qml/StarRating.qml
     RESOURCES
         qml/icons/seabass_soundbass.svg

@@ -35,18 +35,23 @@ struct CamelotKey
 // static_cast<int>(relation).
 enum class KeyRelation
 {
-    Unknown,   // either key didn't parse
-    Same,      // identical wheel position and mode
-    Relative,  // same number, other mode (relative major/minor)
-    Adjacent,  // one step around the wheel, same mode -- classic harmonic mixing
-    EnergyMix,  // one step around the wheel, other mode -- the "energy mix" move
-    Unrelated,  // anything else
+    Unknown,        // either key didn't parse
+    Same,           // identical wheel position and mode
+    Relative,       // same number, other mode (relative major/minor)
+    AdjacentUp,     // one step clockwise around the wheel, same mode -- "Energy Boost"
+    AdjacentDown,   // one step counter-clockwise around the wheel, same mode -- "Energy Drop"
+    EnergyMix,      // one step around the wheel, other mode -- the "energy mix" move
+    Unrelated,      // anything else
 };
 
-// Classifies the relation between two keys. Symmetric -- classifying
-// (a, b) or (b, a) gives the same relation, order only matters for how a
-// caller phrases the result (e.g. "up a fifth" vs. "down a fifth" is not
-// something this distinguishes; it's not part of the Camelot vocabulary).
+// Classifies the relation FROM keyA TO keyB. Symmetric for every value
+// except AdjacentUp/AdjacentDown -- Same/Relative/EnergyMix/Unrelated/
+// Unknown classify (a, b) and (b, a) identically, but the one-step-same-
+// mode case is inherently directional (moving from A to B is a lift in
+// energy one way around the wheel, a drop the other), so swapping the
+// arguments swaps AdjacentUp and AdjacentDown. Pass keyA as whichever key
+// comes first in the transition being described (e.g. "the track
+// currently playing" -> "the candidate to mix into").
 KeyRelation classifyKeyRelation(const std::string &keyA, const std::string &keyB);
 
 // Short, human-readable label for a relation -- e.g. for a tooltip or an
@@ -65,9 +70,11 @@ std::string keyRelationLabel(KeyRelation relation);
 // (matches everything, including Unknown/unparseable keys) -- the
 // filter row's "All" state. The single source of truth for what each
 // tier name means: every caller that filters by key tier --
-// ScanController::findCompatibleTracks(), the Add or Move Track panel's
+// ScanController::findCompatibleTracks(), the Matching panel's
 // own key-tier row -- calls this rather than re-deriving the mapping
-// itself.
+// itself. "harmonic" matches either direction of the adjacent tier
+// (AdjacentUp or AdjacentDown) -- the tier filter is about harmonic
+// closeness, not which way the energy moves.
 bool keyRelationMatchesAnyMode(KeyRelation relation, const std::vector<std::string> &keyModes);
 
 }  // namespace seabass::domain

@@ -146,7 +146,7 @@ public:
     // 50 matches; a query that vague isn't narrowing anything anyway.
     Q_INVOKABLE QVariantList findMergeCandidates(const QString &query, const QString &excludeSourceId) const;
 
-    // For the "Add or Move Track" panel (Experimental): searches the full
+    // For the Matching panel (Experimental): searches the full
     // last-scanned track list (same m_allTracks findMergeCandidates()
     // already searches, not the page's filtered/sorted `tracks` model) for
     // tracks compatible with anchorSourceId's key/BPM, excluding streaming
@@ -154,10 +154,11 @@ public:
     // never worth suggesting here either. keyTiers is an additive
     // (union) selection of domain::keyRelationMatchesAnyMode()'s own
     // four tier names -- "match" (same key), "relative" (relative major/
-    // minor), "harmonic" (one step around the wheel, the classic
-    // harmonic-mixing move), "energymix" (the one-step energy-mix
-    // diagonal) -- a track matches if its relation to the anchor is any
-    // tier in the set. An empty keyTiers means no key filtering at all
+    // minor), "harmonic" (one step around the wheel, same mode -- the
+    // classic harmonic-mixing move, either energy direction), "energymix"
+    // (the one-step energy-mix diagonal) -- a track matches if its
+    // relation to the anchor is any tier in the set. An empty keyTiers
+    // means no key filtering at all
     // (sorted by BPM closeness instead), same vocabulary the key-tier row
     // uses.
     // bpmTolerancePct is a hard filter -- anything outside it is excluded,
@@ -172,12 +173,13 @@ public:
     // Each result carries {sourceId, title, artist, key, keyRelation,
     // camelotLabel, bpm, rating, artworkPath, durationSeconds,
     // playlistNames}. camelotLabel is e.g. "8A" (empty if the key didn't
-    // parse). keyRelation is domain::keyRelationLabel() of how this
-    // track's key relates to the anchor's own key ("Same key", "Relative
-    // major/minor", ...; empty if either key didn't parse) -- shown
-    // regardless of keyTiers, including when keyTiers is empty, where
-    // it's arguably most useful since that's the one state that doesn't
-    // already filter by it.
+    // parse). keyRelation is domain::keyRelationLabel() of how the
+    // anchor's key relates to this track's own key -- "anchor -> track"
+    // order, so "Energy Boost"/"Energy Drop" read as "mixing from the
+    // anchor into this track" ("Same key", "Relative major/minor", ...;
+    // empty if either key didn't parse) -- shown regardless of keyTiers,
+    // including when keyTiers is empty, where it's arguably most useful
+    // since that's the one state that doesn't already filter by it.
     Q_INVOKABLE QVariantList findCompatibleTracks(const QString &anchorSourceId, const QStringList &keyTiers,
                                                    int minRating, double bpmTolerancePct, const QString &textQuery,
                                                    const QString &targetPlaylistName) const;
@@ -185,13 +187,15 @@ public:
     // Thin QML-facing wrapper around domain::classifyKeyRelation() --
     // the track detail page's own prev/next transition panel uses this
     // rather than re-deriving key relationships itself. `relation` is a
-    // lowercase machine-readable tag ("same"/"relative"/"adjacent"/
-    // "energymix"/"unrelated"/"unknown") so a caller can pick its own
-    // wording/color per tier (e.g. a friendlier "Dissonant transition"
-    // for "unrelated" than domain::keyRelationLabel()'s own neutral
-    // "Unrelated key", which several other, less opinionated callers
-    // also use); `label` is that same neutral default for a caller that
-    // doesn't want to override it.
+    // lowercase machine-readable tag ("same"/"relative"/"adjacentup"/
+    // "adjacentdown"/"energymix"/"unrelated"/"unknown") so a caller can
+    // pick its own wording/color per tier (e.g. a friendlier "Dissonant
+    // transition" for "unrelated" than domain::keyRelationLabel()'s own
+    // neutral "Unrelated key", which several other, less opinionated
+    // callers also use); `label` is that same neutral default for a
+    // caller that doesn't want to override it. Like
+    // classifyKeyRelation() itself, "adjacentup"/"adjacentdown" depend on
+    // argument order (keyA -> keyB); every other tag is symmetric.
     Q_INVOKABLE QVariantMap keyRelation(const QString &keyA, const QString &keyB) const;
 
     // Backs Settings' "Hide tracks from streaming services" toggle.
