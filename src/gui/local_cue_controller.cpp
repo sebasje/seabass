@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <memory>
 #include <set>
+#include <unordered_map>
 
 #include "application/ports/backup_store.hpp"
 #include "application/ports/cue_writer.hpp"
@@ -20,9 +21,11 @@
 #include "infrastructure/backup/stick_write_lock.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cue_writer.hpp"
 #include "infrastructure/engine/libdjinterop_engine_reader.hpp"
+#include "gui/onelibrary_cue_writer_adapter.hpp"
 #include "infrastructure/local/local_cue_store.hpp"
 #include "infrastructure/logging/file_operation_log.hpp"
 #include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
+#include "infrastructure/onelibrary/onelibrary_reader.hpp"
 #include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 #include "infrastructure/rekordbox/rekordbox_cue_writer.hpp"
@@ -55,6 +58,13 @@ std::vector<domain::Track> scanStick(const QString &format, const QString &path,
 {
     if (format == "rekordbox") {
         infrastructure::rekordbox::KaitaiRekordboxReader reader(path.toStdString());
+        reader.setProgressReporter(*reporter);
+        return application::ScanLibrary(reader).execute();
+    }
+    if (format == "onelibrary") {
+        // path is the PIONEER root here, same as "rekordbox" -- exportLibrary.db
+        // lives alongside export.pdb (see LocalCuePage.qml's currentPath()).
+        infrastructure::onelibrary::OneLibraryReader reader(path.toStdString());
         reader.setProgressReporter(*reporter);
         return application::ScanLibrary(reader).execute();
     }
@@ -143,11 +153,17 @@ int backupOneFormat(const QString &format, const QString &path, const QString &s
 }
 
 // Runs entirely on a background thread -- no access to the controller.
-// Backs up whichever of rekordboxPath/enginePath is non-empty, so a stick
-// with both formats gets both backed up from a single "Backup Now" click
-// rather than requiring the user to switch formats and click twice.
+// Backs up whichever of rekordboxPath/enginePath/oneLibraryPath is
+// non-empty, so a stick with more than one format gets all of them
+// backed up from a single "Backup Now" click rather than requiring the
+// user to switch formats and click once per format. oneLibraryPath is
+// only ever rekordboxPath's own PIONEER root re-passed (exportLibrary.db
+// lives alongside export.pdb there) -- passed as a separate, possibly-
+// empty argument rather than derived here so the caller's own
+// OneLibraryCueWriter::existsFor() check (needs a real file check, not
+// just "is rekordboxPath set") decides whether it's actually present.
 LocalCueTaskResult runBackupTask(QString stickLabel, QString description, QString rekordboxPath, QString enginePath,
-                                  std::shared_ptr<QtProgressReporter> reporter)
+                                  QString oneLibraryPath, std::shared_ptr<QtProgressReporter> reporter)
 {
     LocalCueTaskResult result;
     try {
@@ -156,6 +172,10 @@ LocalCueTaskResult runBackupTask(QString stickLabel, QString description, QStrin
         }
         if (!enginePath.isEmpty()) {
             result.tracksAffectedEngine = backupOneFormat("engine", enginePath, stickLabel, description, reporter);
+        }
+        if (!oneLibraryPath.isEmpty()) {
+            result.tracksAffectedOneLibrary =
+                backupOneFormat("onelibrary", oneLibraryPath, stickLabel, description, reporter);
         }
     } catch (const std::exception &e) {
         result.errorMessage = QString::fromStdString(e.what());
@@ -245,10 +265,27 @@ LocalCueWriteResult runApplyRestoreTask(QString format, QString path, std::vecto
                                                QString::fromStdString(record.id)});
                 }
             }
-        } else {
+        } else if (format == "engine") {
             writer = std::make_unique<infrastructure::engine::LibdjinteropEngineCueWriter>(path.toStdString());
             std::string engineDbFile = (fs::path(path.toStdString()) / "Database2" / "m.db").string();
             auto record = backupStore.backup({engineDbFile}, "local-restore");
+            log.record("local-restore: backed up before restoring cues from local backup -> " + record.path);
+            result.backups.push_back({QString::fromStdString(fs::path(record.path).parent_path().string()),
+                                       QString::fromStdString(record.id)});
+        } else {
+            // onelibrary: OneLibraryCueWriter identifies a track by file
+            // path, not sourceId (see its own class comment -- content_id
+            // is a separate id space), so the adapter below builds the
+            // sourceId->filePath map every other candidate loop here
+            // already has on hand, letting the loop below stay identical
+            // for all three formats.
+            std::unordered_map<std::string, std::string> sourceIdToPath;
+            for (const auto &candidate : candidates) {
+                sourceIdToPath[candidate.stickTrack.sourceId] = candidate.stickTrack.filePath;
+            }
+            writer = std::make_unique<OneLibraryCueWriterAdapter>(path.toStdString(), std::move(sourceIdToPath));
+            std::string oneLibDbPath = infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(path.toStdString());
+            auto record = backupStore.backup({oneLibDbPath}, "local-restore");
             log.record("local-restore: backed up before restoring cues from local backup -> " + record.path);
             result.backups.push_back({QString::fromStdString(fs::path(record.path).parent_path().string()),
                                        QString::fromStdString(record.id)});
@@ -379,9 +416,11 @@ LocalCueController::LocalCueController(QObject *parent) : QObject(parent)
 }
 
 void LocalCueController::backupToComputer(const QString &stickLabel, const QString &description,
-                                           const QString &rekordboxPath, const QString &enginePath)
+                                           const QString &rekordboxPath, const QString &enginePath,
+                                           const QString &oneLibraryPath)
 {
     if (m_busy) {
+        emit actionFeedback("Still busy with another operation on this stick -- try again once it finishes.", true);
         return;
     }
     setErrorMessage({});
@@ -389,8 +428,12 @@ void LocalCueController::backupToComputer(const QString &stickLabel, const QStri
     setScanProgress(0, 0);
     setBusy(true);
 
-    m_backupWatcher.setFuture(
-        QtConcurrent::run(runBackupTask, stickLabel, description, rekordboxPath, enginePath, makeReporter()));
+    // oneLibraryPath is rekordboxPath itself, re-passed only when the
+    // caller has confirmed exportLibrary.db actually exists there (see
+    // OneLibraryCueWriter::existsFor()) -- runBackupTask() only backs it
+    // up when this is non-empty.
+    m_backupWatcher.setFuture(QtConcurrent::run(runBackupTask, stickLabel, description, rekordboxPath, enginePath,
+                                                 oneLibraryPath, makeReporter()));
 }
 
 void LocalCueController::onBackupFinished()
@@ -399,6 +442,7 @@ void LocalCueController::onBackupFinished()
 
     if (!result.errorMessage.isEmpty()) {
         setErrorMessage(result.errorMessage);
+        emit actionFeedback(result.errorMessage, true);
     } else {
         QStringList parts;
         if (result.tracksAffectedRekordbox >= 0) {
@@ -407,16 +451,26 @@ void LocalCueController::onBackupFinished()
         if (result.tracksAffectedEngine >= 0) {
             parts << QString("%1 track(s) (Engine)").arg(result.tracksAffectedEngine);
         }
-        setStatusMessage(QString("Backed up cues to this computer: %1").arg(parts.join(", ")));
+        if (result.tracksAffectedOneLibrary >= 0) {
+            parts << QString("%1 track(s) (OneLibrary)").arg(result.tracksAffectedOneLibrary);
+        }
+        QString message = QString("Backed up cues to this computer: %1").arg(parts.join(", "));
+        setStatusMessage(message);
+        emit actionFeedback(message, false);
     }
     setBusy(false);
 }
 
-void LocalCueController::analyzeRestore(const QString &format, const QString &path)
+void LocalCueController::analyzeRestore(const QString &format, const QString &path, bool reportFeedback)
 {
     if (m_busy) {
+        if (reportFeedback) {
+            emit actionFeedback("Still busy with another operation on this stick -- try again once it finishes.",
+                                 true);
+        }
         return;
     }
+    m_analyzeReportsFeedback = reportFeedback;
     m_format = format;
     m_path = path;
     setErrorMessage({});
@@ -430,8 +484,10 @@ void LocalCueController::analyzeRestore(const QString &format, const QString &pa
 void LocalCueController::analyzeSnapshotRestore(qint64 snapshotId, const QString &format, const QString &path)
 {
     if (m_busy) {
+        emit actionFeedback("Still busy with another operation on this stick -- try again once it finishes.", true);
         return;
     }
+    m_analyzeReportsFeedback = true;
     m_format = format;
     m_path = path;
     setErrorMessage({});
@@ -476,6 +532,7 @@ QVariantList LocalCueController::listSnapshots()
         }
     } catch (const std::exception &e) {
         setErrorMessage(QString::fromStdString(e.what()));
+        emit actionFeedback(QString::fromStdString(e.what()), true);
     }
     return result;
 }
@@ -487,6 +544,7 @@ void LocalCueController::setSnapshotDescription(qint64 id, const QString &descri
         store.setSnapshotDescription(id, description.toStdString());
     } catch (const std::exception &e) {
         setErrorMessage(QString::fromStdString(e.what()));
+        emit actionFeedback(QString::fromStdString(e.what()), true);
     }
 }
 
@@ -497,24 +555,60 @@ bool LocalCueController::deleteSnapshot(qint64 id)
         return store.deleteSnapshot(id);
     } catch (const std::exception &e) {
         setErrorMessage(QString::fromStdString(e.what()));
+        emit actionFeedback(QString::fromStdString(e.what()), true);
         return false;
     }
+}
+
+bool LocalCueController::hasOneLibrary(const QString &pioneerRoot) const
+{
+    return infrastructure::onelibrary::OneLibraryCueWriter::existsFor(pioneerRoot.toStdString());
 }
 
 void LocalCueController::onAnalyzeFinished()
 {
     LocalCueTaskResult result = m_analyzeWatcher.result();
+    bool reportFeedback = m_analyzeReportsFeedback;
+    m_analyzeReportsFeedback = false;
 
     if (!result.errorMessage.isEmpty()) {
         setErrorMessage(result.errorMessage);
+        if (reportFeedback) {
+            emit actionFeedback(result.errorMessage, true);
+        }
         setBusy(false);
         return;
     }
 
     m_stickTrackCount = result.stickTrackCount;
     m_localTrackCount = result.localTrackCount;
+    int candidateCount = static_cast<int>(result.candidates.size());
     m_model.setCandidates(std::move(result.candidates));
     emit analysisChanged();
+    // Otherwise the only feedback after a real, sometimes multi-second
+    // scan (see BusyOverlay's "Analyzing backups...") was the restore
+    // candidate list quietly changing -- easy to read as "nothing
+    // happened" rather than "here's what I found", especially right
+    // after clicking a specific snapshot's "Restore From Here" (whose
+    // result lands in the third section down, off the part of the page
+    // that button click was in). Only for a user-initiated analyze
+    // (reportFeedback) -- the automatic re-scan onWriteFinished() runs
+    // right after a write already gets its own actionFeedback for the
+    // write itself, and a page-load/format-switch scan was never asked
+    // for in the first place.
+    if (reportFeedback) {
+        if (candidateCount > 0) {
+            emit actionFeedback(
+                QString("Found %1 track(s) with cues this backup can add -- review the list below, then "
+                        "\"Merge Onto %1 Track(s)\" to apply.")
+                    .arg(candidateCount),
+                false);
+        } else {
+            emit actionFeedback("Nothing to merge: either the stick already has every cue this backup offers, "
+                                 "or none of its tracks match one backed up on this computer.",
+                                 false);
+        }
+    }
     setBusy(false);
 }
 
@@ -524,6 +618,7 @@ void LocalCueController::onAnalyzeFinished()
 void LocalCueController::applyRestore()
 {
     if (m_busy) {
+        emit actionFeedback("Still busy with another operation on this stick -- try again once it finishes.", true);
         return;
     }
     setErrorMessage({});
@@ -548,18 +643,29 @@ void LocalCueController::onWriteFinished()
 
     if (!result.errorMessage.isEmpty()) {
         setErrorMessage(result.errorMessage);
+        emit actionFeedback(result.errorMessage, true);
     } else {
         setStatusMessage(result.statusMessage);
+        emit actionFeedback(result.statusMessage, false);
     }
     setBusy(false);
     setWriting(false);
 
+    // Silent (reportFeedback defaults to false): this is an automatic
+    // background refresh following the write above, not something the
+    // user clicked -- the actionFeedback just emitted already covers
+    // what actually happened.
     analyzeRestore(m_format, m_path);
 }
 
 void LocalCueController::undoLastOperation()
 {
-    if (m_busy || m_lastBackups.empty()) {
+    if (m_busy) {
+        emit actionFeedback("Still busy with another operation on this stick -- try again once it finishes.", true);
+        return;
+    }
+    if (m_lastBackups.empty()) {
+        emit actionFeedback("Nothing to undo.", true);
         return;
     }
     setErrorMessage({});

@@ -12,13 +12,23 @@ Page {
 
     readonly property bool hasRekordbox: rekordboxPath.length > 0
     readonly property bool hasEngine: enginePath.length > 0
+    readonly property bool hasOneLibrary: root.hasRekordbox && localCueController.hasOneLibrary(root.rekordboxPath)
+    // OneLibrary selection is page-local, not persisted into
+    // appSettingsController.preferredFormat -- same reasoning as
+    // DuplicatesPage.qml's own localFormatOverride (that setting is
+    // shared with ScanPage, which doesn't know what to do with
+    // "onelibrary" as a value).
+    property string localFormatOverride: ""
     readonly property string format: {
+        if (root.localFormatOverride.length > 0) return root.localFormatOverride;
         var pref = appSettingsController.preferredFormat;
         if (pref === "engine" && hasEngine) return "engine";
         if (pref === "rekordbox" && hasRekordbox) return "rekordbox";
         return hasEngine ? "engine" : "rekordbox";
     }
     function currentPath() {
+        // OneLibrary shares rekordbox's own PIONEER root -- exportLibrary.db
+        // lives alongside export.pdb there.
         return root.format === "engine" ? root.enginePath : root.rekordboxPath;
     }
 
@@ -35,6 +45,10 @@ Page {
         id: localCueController
     }
 
+    // Silent (reportFeedback defaults to false) -- only for automatic
+    // calls (page load, format switch) that the user didn't directly ask
+    // for. The "Re-Analyze Latest" button calls analyzeRestore() directly
+    // with reportFeedback: true instead of this, precisely so it gets one.
     function refresh() { localCueController.analyzeRestore(root.format, root.currentPath()); }
 
     Component.onCompleted: {
@@ -52,6 +66,28 @@ Page {
             if (!localCueController.busy) {
                 root.refreshSnapshots();
             }
+        }
+    }
+
+    // The only place a status/error message shows up on this page (see
+    // the removed inline Label further down) -- stays up until you
+    // dismiss it, since a "Restore From Here" click (up in Backup
+    // History) or "Backup Now" result was easy to miss as quiet inline
+    // text in a different section than whichever button was just
+    // clicked. Wired to the dedicated actionFeedback signal, not a
+    // Q_PROPERTY's change notification -- a property-change Connections
+    // handler only fires when the new value differs from the old one, so
+    // two outcomes in a row with identical text (e.g. "Restore From
+    // Here" on two different snapshots that both turn out to offer
+    // nothing new) would silently skip the second popup. actionFeedback
+    // fires on every emission, no exceptions, which is the actual
+    // guarantee behind "either succeed or don't do anything, but either
+    // way give feedback."
+    MessagePopup { id: messagePopup }
+    Connections {
+        target: localCueController
+        function onActionFeedback(message, isError) {
+            messagePopup.show(message, isError ? Theme.danger : Theme.good);
         }
     }
 
@@ -143,20 +179,10 @@ Page {
             text: "Writing cues to the stick -- do not remove it until this finishes."
         }
 
-        Label {
-            visible: localCueController.errorMessage.length > 0
-            text: localCueController.errorMessage
-            color: Theme.danger
-            wrapMode: Text.WordWrap
-            Layout.fillWidth: true
-        }
-        Label {
-            visible: localCueController.statusMessage.length > 0
-            text: localCueController.statusMessage
-            color: Theme.good
-            wrapMode: Text.WordWrap
-            Layout.fillWidth: true
-        }
+        // No inline error/status Label here -- the MessagePopup declared above
+        // (fired from the same statusMessage/errorMessage changes) is the
+        // only place either shows up now; having both said the same
+        // thing twice on screen at once was the actual complaint.
 
         Frame {
             Layout.fillWidth: true
@@ -171,10 +197,17 @@ Page {
                         Layout.fillWidth: true
                         Label { text: "Back Up to This Computer"; font.bold: true }
                         Label {
-                            text: (root.hasRekordbox && root.hasEngine
-                                    ? "Copies this stick's cues — both DeviceLibrary and Engine — to a local backup."
-                                    : "Copies this stick's cues to a local backup.")
-                                + " Never touches the stick, no confirmation needed."
+                            text: {
+                                var present = [];
+                                if (root.hasRekordbox) present.push("DeviceLibrary");
+                                if (root.hasEngine) present.push("Engine");
+                                if (root.hasOneLibrary) present.push("OneLibrary");
+                                var scope = present.length > 1
+                                    ? "this stick's cues (" + present.join(", ") + ")"
+                                    : "this stick's cues";
+                                return "Copies " + scope + " to a local backup. Never touches the stick, "
+                                    + "no confirmation needed.";
+                            }
                             color: Theme.textMuted
                             wrapMode: Text.WordWrap
                             Layout.fillWidth: true
@@ -190,7 +223,8 @@ Page {
                         enabled: !localCueController.busy
                         onClicked: {
                             localCueController.backupToComputer(root.stickLabel, backupDescriptionField.text,
-                                root.rekordboxPath, root.enginePath);
+                                root.rekordboxPath, root.enginePath,
+                                root.hasOneLibrary ? root.rekordboxPath : "");
                             backupDescriptionField.text = "";
                         }
                     }
@@ -226,23 +260,30 @@ Page {
                         id: snapshotDelegate
                         width: ListView.view.width
                         height: 40
+                        hoverEnabled: true
 
                         required property var modelData
 
                         contentItem: RowLayout {
                             spacing: 8
                             Label {
-                                text: snapshotDelegate.modelData.sourceFormat === "engine" ? "Engine" : "DeviceLibrary"
+                                text: FormatLabels.label(snapshotDelegate.modelData.sourceFormat)
                                 color: Theme.accent
                                 font.bold: true
                                 Layout.preferredWidth: 104
                             }
                             Label {
+                                // Just a label, kept for reference -- it plays
+                                // no part in deciding what this snapshot can
+                                // be restored onto (see the class comment on
+                                // LocalCueStore: restoring across sticks is
+                                // deliberate, not a bug).
                                 text: root.friendlyTimestamp(snapshotDelegate.modelData.createdAt)
-                                    + "  --  " + snapshotDelegate.modelData.trackCount + " track(s), "
+                                    + "  ·  " + snapshotDelegate.modelData.stickLabel
+                                    + "  ·  " + snapshotDelegate.modelData.trackCount + " track(s), "
                                     + snapshotDelegate.modelData.cueCount + " cue(s)"
                                 color: Theme.textMuted
-                                Layout.preferredWidth: 320
+                                Layout.preferredWidth: 420
                                 elide: Text.ElideRight
                             }
                             TextField {
@@ -265,8 +306,8 @@ Page {
                                 text: "Restore From Here"
                                 enabled: !localCueController.busy
                                 ToolTip.visible: hovered
-                                ToolTip.text: "Match this exact backup against the " + (root.format === "engine" ? "Engine" : "DeviceLibrary")
-                                    + " side of the stick (switch the format toggle below to restore the other side); results appear below"
+                                ToolTip.text: "Match this exact backup against the " + FormatLabels.label(root.format)
+                                    + " side of the stick (switch the format toggle below to restore a different side); results appear below"
                                 onClicked: {
                                     confirmDialog.sourceDescription = snapshotDescriptionField.text.length > 0
                                         ? snapshotDescriptionField.text
@@ -328,10 +369,19 @@ Page {
                     // it didn't actually have. Merging is genuinely
                     // format-specific (one side of the stick at a time),
                     // so it lives right where it applies instead.
-                    FormatToggle {
-                        appSettingsController: root.appSettingsController
+                    LibrarySourceToggle {
+                        current: root.format
                         hasRekordbox: root.hasRekordbox
                         hasEngine: root.hasEngine
+                        hasOneLibrary: root.hasOneLibrary
+                        onSourceRequested: (value) => {
+                            if (value === "onelibrary") {
+                                root.localFormatOverride = "onelibrary";
+                            } else {
+                                root.localFormatOverride = "";
+                                root.appSettingsController.preferredFormat = value;
+                            }
+                        }
                     }
                     Button {
                         text: "Re-Analyze Latest"
@@ -340,7 +390,11 @@ Page {
                         ToolTip.text: "Match the stick against the current merged backup state (not one specific snapshot)"
                         onClicked: {
                             confirmDialog.sourceDescription = "";
-                            refresh();
+                            // Not refresh(): this is a direct user click, so
+                            // unlike refresh()'s own silent uses (page load,
+                            // format switch), the outcome must be reported --
+                            // see analyzeRestore()'s own doc comment.
+                            localCueController.analyzeRestore(root.format, root.currentPath(), true);
                         }
                     }
                     Button {
@@ -360,6 +414,7 @@ Page {
 
                     delegate: ItemDelegate {
                         width: ListView.view.width
+                        hoverEnabled: true
 
                         required property string filename
                         required property string title

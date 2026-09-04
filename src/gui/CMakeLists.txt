@@ -71,6 +71,7 @@ qt_add_qml_module(seabass
         qml/BigScrollBar.qml
         qml/BusyOverlay.qml
         qml/StatusBadge.qml
+        qml/MessagePopup.qml
     RESOURCES
         qml/icons/seabass_soundbass.svg
     SOURCES
