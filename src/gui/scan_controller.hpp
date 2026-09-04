@@ -47,6 +47,21 @@ public:
 
     void setTracks(std::vector<domain::Track> tracks);
 
+    // Random-access read of one row, by index into *this currently
+    // displayed* (filtered/sorted) list -- not the full unfiltered
+    // library. Every role, keyed by its own role name (same shape a
+    // ListView delegate sees), as one QVariantMap: for a caller outside
+    // a ListView/Repeater context (the track detail page's own prev/next
+    // transition lookup) that needs a specific row's full data without
+    // instantiating a delegate for it. Empty map for an out-of-range
+    // index. Just reuses data()/roleNames(), no separate conversion
+    // logic to keep in sync.
+    Q_INVOKABLE QVariantMap trackAt(int index) const;
+    // rowCount() itself isn't Q_INVOKABLE (it's an override with a
+    // QModelIndex parameter QML can't supply) -- this is the plain,
+    // no-argument form callers outside a ListView binding actually need.
+    Q_INVOKABLE int trackCount() const { return rowCount(); }
+
 private:
     std::vector<domain::Track> m_tracks;
 };
@@ -166,6 +181,18 @@ public:
     Q_INVOKABLE QVariantList findCompatibleTracks(const QString &anchorSourceId, const QStringList &keyTiers,
                                                    int minRating, double bpmTolerancePct, const QString &textQuery,
                                                    const QString &targetPlaylistName) const;
+
+    // Thin QML-facing wrapper around domain::classifyKeyRelation() --
+    // the track detail page's own prev/next transition panel uses this
+    // rather than re-deriving key relationships itself. `relation` is a
+    // lowercase machine-readable tag ("same"/"relative"/"adjacent"/
+    // "energymix"/"unrelated"/"unknown") so a caller can pick its own
+    // wording/color per tier (e.g. a friendlier "Dissonant transition"
+    // for "unrelated" than domain::keyRelationLabel()'s own neutral
+    // "Unrelated key", which several other, less opinionated callers
+    // also use); `label` is that same neutral default for a caller that
+    // doesn't want to override it.
+    Q_INVOKABLE QVariantMap keyRelation(const QString &keyA, const QString &keyB) const;
 
     // Backs Settings' "Hide tracks from streaming services" toggle.
     // Streaming tracks (Engine/TIDAL) still show up in m_allTracks (they

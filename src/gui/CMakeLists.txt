@@ -57,6 +57,7 @@ qt_add_qml_module(seabass
         qml/DuplicatesHubPage.qml
         qml/BackupsHubPage.qml
         qml/ScanPage.qml
+        qml/TrackDetailPage.qml
         qml/DuplicatesPage.qml
         qml/CleanupPage.qml
         qml/PendingDeletionsPage.qml

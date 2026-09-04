@@ -11,6 +11,15 @@ Page {
     required property var playbackController
     required property var appSettingsController
 
+    // Fired when a row is clicked anywhere except its own artwork (which
+    // plays directly instead, see trackDelegate's own MouseAreas).
+    // Carries the live scanController instance itself, not just an id --
+    // Main.qml's handler pushes the detail page with it directly, so
+    // that page's own prev/next lookups (trackAt()/trackCount()) read
+    // the exact same already-scanned, currently filtered/sorted list
+    // this page is showing, instead of re-scanning from scratch.
+    signal trackDetailRequested(var scanController, int trackIndex, string format, string libraryPath)
+
     readonly property bool hasRekordbox: rekordboxPath.length > 0
     readonly property bool hasEngine: enginePath.length > 0
     // OneLibrary lives alongside export.pdb under the same PIONEER root
@@ -462,24 +471,20 @@ Page {
                             ? playbackController.position / playbackController.duration : 0
                     }
 
+                    // Opens the track detail page -- playing now happens
+                    // only via the artwork's own hover-play overlay above
+                    // (which, being declared later/topmost for just that
+                    // region, claims its own clicks first). Streaming
+                    // tracks are fine here: the detail page still shows
+                    // their cues/metadata/transitions, only Play itself
+                    // (on the artwork) is unavailable for those.
                     MouseArea {
                         id: rowMouseArea
                         anchors.fill: parent
                         hoverEnabled: true
-                        // Streaming tracks (Engine/TIDAL) have no local
-                        // file, never call load(), which would just
-                        // fail with a confusing "audio file not found."
-                        ToolTip.visible: trackDelegate.streamingSource.length > 0 && containsMouse
-                        ToolTip.text: "Streaming track (" + trackDelegate.streamingSource
-                            + ") - no local file, can't be played."
-                        onClicked: {
-                            if (trackDelegate.streamingSource.length > 0) {
-                                return;
-                            }
-                            playbackController.load(root.format, root.currentPath(), trackDelegate.sourceId,
-                                trackDelegate.filePath, trackDelegate.title, trackDelegate.artist,
-                                trackDelegate.artworkPath, trackDelegate.cues);
-                        }
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.trackDetailRequested(scanController, trackDelegate.index,
+                            root.format, root.currentPath())
                     }
 
                     RowLayout {
@@ -489,6 +494,7 @@ Page {
                         spacing: 8
 
                         Rectangle {
+                            id: artworkRect
                             Layout.preferredWidth: Theme.iconSizeNormal
                             Layout.preferredHeight: Theme.iconSizeNormal
                             color: Theme.surface
@@ -498,15 +504,58 @@ Page {
                                 source: artworkPath
                                 fillMode: Image.PreserveAspectCrop
                             }
+                            // Play, direct from the row -- the rest of the
+                            // row (below) now opens the track detail page
+                            // instead, so this is the one place left that
+                            // plays without an extra click. Only shown on
+                            // hover so the artwork itself isn't permanently
+                            // obscured, and only for a track that can
+                            // actually play (streaming tracks have no
+                            // local file -- see the tooltip below).
+                            Rectangle {
+                                anchors.fill: parent
+                                visible: artworkHoverHandler.hovered && trackDelegate.streamingSource.length === 0
+                                color: "#80000000"
+                                Label {
+                                    anchors.centerIn: parent
+                                    text: "▶"
+                                    color: "white"
+                                    font.pointSize: Theme.fontLarge
+                                }
+                            }
                             // At the narrowest tier (see root.browseTier's own
                             // comment) every other column is squeezed out --
                             // this hover tooltip is the only way left to see
                             // title/artist/key/BPM/duration for this row.
                             HoverHandler { id: artworkHoverHandler }
-                            ToolTip.visible: root.browseTier === 0 && artworkHoverHandler.hovered
-                            ToolTip.text: title + " - " + artist + "\n" + (key.length > 0 ? key : "--") + " · "
-                                + root.formatBpm(bpm) + " BPM · " + root.formatDuration(durationSeconds)
+                            ToolTip.visible: artworkHoverHandler.hovered
+                                && (trackDelegate.streamingSource.length > 0 || root.browseTier === 0)
+                            ToolTip.text: trackDelegate.streamingSource.length > 0
+                                ? "Streaming track (" + trackDelegate.streamingSource + ") - no local file, can't be played."
+                                : title + " - " + artist + "\n" + (key.length > 0 ? key : "--") + " · "
+                                    + root.formatBpm(bpm) + " BPM · " + root.formatDuration(durationSeconds)
                             ToolTip.delay: 300
+
+                            // Topmost over rowMouseArea below (declared
+                            // later in the same Item, and scoped to just
+                            // this Rectangle rather than the whole row) --
+                            // claims clicks here for Play before they'd
+                            // otherwise reach the row's own "open detail
+                            // page" handler.
+                            MouseArea {
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: trackDelegate.streamingSource.length === 0
+                                    ? Qt.PointingHandCursor : Qt.ArrowCursor
+                                onClicked: {
+                                    if (trackDelegate.streamingSource.length > 0) {
+                                        return;
+                                    }
+                                    playbackController.load(root.format, root.currentPath(), trackDelegate.sourceId,
+                                        trackDelegate.filePath, trackDelegate.title, trackDelegate.artist,
+                                        trackDelegate.artworkPath, trackDelegate.cues);
+                                }
+                            }
                         }
 
                         ColumnLayout {
