@@ -66,21 +66,21 @@ Page {
 
     property int selectedPlaylistIndex: 0
 
-    // ---- Add or Move Track (Experimental, see docs/experimental-
+    // ---- Matching (Experimental, see docs/experimental-
     // features.md) -- the playlist selection above is shared between the
     // always-on left Pane (when this is off) and the off-canvas Drawer +
     // the panel's own "This Playlist" chip (when it's on); the anchor
     // properties below track whichever Browse row's edit button was last
-    // clicked, read by AddOrMoveTrackPanel to find compatible tracks. ----
-    readonly property bool addOrMoveEnabled: root.appSettingsController.experimentalFeaturesEnabled
+    // clicked, read by MatchingPage to find compatible tracks. ----
+    readonly property bool matchingEnabled: root.appSettingsController.experimentalFeaturesEnabled
     // Closed by default even when the feature is on -- only the edit
     // button (or the panel's own close button) toggles it, so turning on
     // Experimental features doesn't itself change what Browse looks like
     // until a track is actually being edited.
-    property bool addOrMovePanelOpen: false
+    property bool matchingPanelOpen: false
     // Starts open (matching the classic left Pane it replaces, which is
     // always visible) -- the header pill collapses/expands it, unlike
-    // addOrMovePanelOpen above which starts collapsed.
+    // matchingPanelOpen above which starts collapsed.
     property bool playlistSidebarOpen: true
     readonly property string currentPlaylistLabel: root.selectedPlaylistIndex === 0
         ? "All tracks" : (scanController.playlistNames[root.selectedPlaylistIndex - 1] ?? "All tracks")
@@ -106,10 +106,10 @@ Page {
     // anchor closes it again; clicking it on any other row (or opening
     // fresh) sets that row as the anchor and (re)opens the panel, which
     // then updates live since every anchor* property below is a plain
-    // binding on AddOrMoveTrackPanel's own required properties.
+    // binding on MatchingPage's own required properties.
     function toggleAnchor(delegate) {
-        if (root.addOrMovePanelOpen && delegate.sourceId === root.anchorSourceId) {
-            root.addOrMovePanelOpen = false;
+        if (root.matchingPanelOpen && delegate.sourceId === root.anchorSourceId) {
+            root.matchingPanelOpen = false;
             return;
         }
         root.anchorSourceId = delegate.sourceId;
@@ -119,7 +119,7 @@ Page {
         root.anchorBpm = delegate.bpm;
         root.anchorArtworkPath = delegate.artworkPath;
         root.anchorPlaylistNames = delegate.playlistNames;
-        root.addOrMovePanelOpen = true;
+        root.matchingPanelOpen = true;
     }
 
     function rescan() {
@@ -203,7 +203,7 @@ Page {
                 Layout.fillWidth: true
                 spacing: 12
                 ToolButton {
-                    visible: root.addOrMoveEnabled
+                    visible: root.matchingEnabled
                     text: (root.playlistSidebarOpen ? "◀ " : "▶ ") + root.currentPlaylistLabel
                     ToolTip.visible: hovered
                     ToolTip.text: root.playlistSidebarOpen ? "Collapse the playlist sidebar" : "Show the playlist sidebar"
@@ -281,12 +281,12 @@ Page {
         anchors.topMargin: scanController.errorMessage.length > 0 ? 40 : 0
         spacing: 0
 
-        // Left pane: playlists -- only when Add or Move Track (Experimental)
+        // Left pane: playlists -- only when Matching (Experimental)
         // is off. When it's on, this same list lives in a collapsible
         // SplitView pane instead (see the SplitView below), freeing this
         // column for the new panel.
         Pane {
-            visible: !root.addOrMoveEnabled
+            visible: !root.matchingEnabled
             Layout.preferredWidth: 220
             Layout.fillHeight: true
             padding: 0
@@ -304,13 +304,13 @@ Page {
         }
 
         Rectangle {
-            visible: !root.addOrMoveEnabled
+            visible: !root.matchingEnabled
             Layout.preferredWidth: 1
             Layout.fillHeight: true
             color: Theme.borderSubtle
         }
 
-        // Right pane (tracks) and the Add or Move Track panel share a
+        // Right pane (tracks) and the Matching panel share a
         // SplitView so their relative widths are user-resizable via a
         // drag handle -- previously a fixed root.width-derived split,
         // which is exactly what let the panel's own content end up wider
@@ -331,7 +331,7 @@ Page {
         // overlay you have to close before doing anything else. Same
         // PlaylistListView the classic left Pane above uses.
         Pane {
-            visible: root.addOrMoveEnabled && root.playlistSidebarOpen
+            visible: root.matchingEnabled && root.playlistSidebarOpen
             SplitView.preferredWidth: 240
             SplitView.minimumWidth: 160
             padding: 0
@@ -373,7 +373,7 @@ Page {
                 // Theme.iconSizeSmall (info button) + 8 (row spacing) +
                 // Theme.iconSizeSmall (merge button), both trailing
                 // ToolButtons in the delegate below, not just one -- five
-                // when Add or Move Track (Experimental) is on, since the
+                // when Matching (Experimental) is on, since the
                 // edit button and the (always-present, just faded/
                 // disabled off the anchor row) reorder arrows join them.
                 // Getting this narrower than the delegate's real
@@ -384,7 +384,7 @@ Page {
                 // before this comment existed.
                 Label {
                     text: ""
-                    Layout.preferredWidth: root.addOrMoveEnabled
+                    Layout.preferredWidth: root.matchingEnabled
                         ? Theme.iconSizeSmall * 5 + 8 * 4 : Theme.iconSizeSmall * 2 + 8
                 }
             }
@@ -641,7 +641,7 @@ Page {
                         }
                         ToolButton {
                             id: editButton
-                            visible: root.addOrMoveEnabled
+                            visible: root.matchingEnabled
                             text: "✎"
                             Layout.preferredWidth: Theme.iconSizeSmall
                             ToolTip.visible: hovered
@@ -649,7 +649,7 @@ Page {
                             onClicked: root.toggleAnchor(trackDelegate)
                         }
                         // Nudge this row's position in root.currentPlaylistLabel --
-                        // preview only (see AddOrMoveTrackPanel's own doc
+                        // preview only (see MatchingPage's own doc
                         // comment, no format has a playlist writer yet).
                         // Kept in the layout at fixed width on every row
                         // (visible, just faded/disabled off the anchor
@@ -659,26 +659,26 @@ Page {
                         ToolButton {
                             id: moveUpButton
                             readonly property bool isAnchorRow: trackDelegate.sourceId === root.anchorSourceId
-                            visible: root.addOrMoveEnabled
+                            visible: root.matchingEnabled
                             enabled: isAnchorRow
                             opacity: enabled ? 1.0 : 0.25
                             text: "▲"
                             Layout.preferredWidth: Theme.iconSizeSmall
                             ToolTip.visible: hovered && enabled
                             ToolTip.text: "Move up in " + root.currentPlaylistLabel + " (preview, not saved yet)"
-                            onClicked: addOrMoveTrackPanel.previewNotSaved("moved up", trackDelegate.title)
+                            onClicked: matchingPage.previewNotSaved("moved up", trackDelegate.title)
                         }
                         ToolButton {
                             id: moveDownButton
                             readonly property bool isAnchorRow: trackDelegate.sourceId === root.anchorSourceId
-                            visible: root.addOrMoveEnabled
+                            visible: root.matchingEnabled
                             enabled: isAnchorRow
                             opacity: enabled ? 1.0 : 0.25
                             text: "▼"
                             Layout.preferredWidth: Theme.iconSizeSmall
                             ToolTip.visible: hovered && enabled
                             ToolTip.text: "Move down in " + root.currentPlaylistLabel + " (preview, not saved yet)"
-                            onClicked: addOrMoveTrackPanel.previewNotSaved("moved down", trackDelegate.title)
+                            onClicked: matchingPage.previewNotSaved("moved down", trackDelegate.title)
                         }
                     }
                 }
@@ -1218,9 +1218,9 @@ Page {
             }
         }
 
-        AddOrMoveTrackPanel {
-            id: addOrMoveTrackPanel
-            visible: root.addOrMoveEnabled && root.addOrMovePanelOpen
+        MatchingPage {
+            id: matchingPage
+            visible: root.matchingEnabled && root.matchingPanelOpen
             SplitView.preferredWidth: Math.max(420, root.width * 0.38)
             SplitView.minimumWidth: 420
             scanController: scanController
@@ -1233,7 +1233,7 @@ Page {
             anchorBpm: root.anchorBpm
             anchorArtworkPath: root.anchorArtworkPath
             anchorPlaylistNames: root.anchorPlaylistNames
-            onCloseRequested: root.addOrMovePanelOpen = false
+            onCloseRequested: root.matchingPanelOpen = false
         }
         } // SplitView
     }

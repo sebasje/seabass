@@ -50,8 +50,22 @@ Popup {
     // against and the one wedge marked with its own origin ring.
     property int originNumber: 0  // 0 = unrecognized/empty key
     property bool originIsMinor: false
+    // "camelot" (default, e.g. "8B") or "traditional" (e.g. "C major") --
+    // AppSettingsController.keyNotation, threaded down from whichever
+    // KeyBadge opened this popup (same convention KeyBadge.qml's own
+    // `notation` property already follows).
+    property string notation: "camelot"
 
-    // For a host (e.g. AddOrMoveTrackPanel.qml) that wants to react to
+    // Wedge label in whichever notation the app is currently set to --
+    // Theme.traditionalLabel() accepts plain Camelot notation ("8B") as
+    // valid input (see parseCamelotKey()'s own camelot-notation branch),
+    // so this is just a formatting choice, not a different lookup.
+    function wedgeLabel(number, isMinor) {
+        var camelot = number + (isMinor ? "A" : "B");
+        return root.notation === "traditional" ? Theme.traditionalLabel(camelot) : camelot;
+    }
+
+    // For a host (e.g. MatchingPage.qml) that wants to react to
     // hovering here -- highlighting matching rows in a track list while
     // the pointer's over a wedge or a legend swatch. hovering false means
     // the pointer just left that wedge/legend row (the other argument
@@ -78,7 +92,9 @@ Popup {
         root.open();
     }
 
-    // Mirrors domain::classifyKeyRelation (src/domain/camelot_key.cpp).
+    // Mirrors domain::classifyKeyRelation (src/domain/camelot_key.cpp),
+    // origin -> wedge order (so "Energy Boost"/"Energy Drop" read as
+    // "moving from the key this popup was opened with to this wedge").
     // This widget works purely in wheel-position space -- no track.key
     // strings to parse, every wedge is already a plain number/isMinor
     // pair -- so it's simpler to keep this one small pure function local
@@ -97,7 +113,14 @@ Popup {
         var diff = Math.abs(number - root.originNumber);
         var wheelDistance = Math.min(diff, 12 - diff);
         if (wheelDistance === 1) {
-            return isMinor === root.originIsMinor ? "Adjacent (harmonic)" : "Energy mix";
+            if (isMinor !== root.originIsMinor) {
+                return "Energy mix";
+            }
+            // Clockwise from the origin to this wedge (wrapping 12 -> 1)
+            // is the "up"/boost direction, matching
+            // domain::classifyKeyRelation()'s own convention.
+            var up = number === (root.originNumber % 12) + 1;
+            return up ? "Energy Boost" : "Energy Drop";
         }
         return "Unrelated key";
     }
@@ -111,7 +134,8 @@ Popup {
         switch (root.relationLabel(number, isMinor)) {
         case "Same key": return Theme.accent;
         case "Relative major/minor": return Theme.good;
-        case "Adjacent (harmonic)": return Theme.warnIcon;
+        case "Energy Boost": return Theme.warnIcon;
+        case "Energy Drop": return Theme.warnIcon;
         case "Energy mix": return Theme.danger;
         default: return null;
         }
@@ -189,7 +213,7 @@ Popup {
             font.pointSize: Theme.fontSmall
             text: root.originNumber === 0
                 ? "A visual reference: color and position show which keys mix well together."
-                : "Showing how every key relates to " + root.originNumber + (root.originIsMinor ? "A" : "B") + "."
+                : "Showing how every key relates to " + root.wedgeLabel(root.originNumber, root.originIsMinor) + "."
         }
 
         Item {
@@ -239,7 +263,7 @@ Popup {
                         border.color: majorWedge.highlight ?? "transparent"
                         Label {
                             anchors.centerIn: parent
-                            text: majorWedge.number + "B"
+                            text: root.wedgeLabel(majorWedge.number, false)
                             font.bold: true
                             font.pointSize: Theme.fontSmall
                             color: Theme.contrastingTextColor(parent.color)
@@ -249,7 +273,7 @@ Popup {
                         anchors.fill: parent
                         hoverEnabled: true
                         ToolTip.visible: containsMouse
-                        ToolTip.text: majorWedge.number + "B"
+                        ToolTip.text: root.wedgeLabel(majorWedge.number, false)
                             + (root.relationLabel(majorWedge.number, false).length > 0
                                 ? ": " + root.relationLabel(majorWedge.number, false) : "")
                             + (majorWedge.isOrigin ? " (this track's key)" : "")
@@ -292,7 +316,7 @@ Popup {
                         border.color: minorWedge.highlight ?? "transparent"
                         Label {
                             anchors.centerIn: parent
-                            text: minorWedge.number + "A"
+                            text: root.wedgeLabel(minorWedge.number, true)
                             font.bold: true
                             font.pointSize: Theme.fontSmall
                             color: Theme.contrastingTextColor(parent.color)
@@ -302,7 +326,7 @@ Popup {
                         anchors.fill: parent
                         hoverEnabled: true
                         ToolTip.visible: containsMouse
-                        ToolTip.text: minorWedge.number + "A"
+                        ToolTip.text: root.wedgeLabel(minorWedge.number, true)
                             + (root.relationLabel(minorWedge.number, true).length > 0
                                 ? ": " + root.relationLabel(minorWedge.number, true) : "")
                             + (minorWedge.isOrigin ? " (this track's key)" : "")
@@ -316,7 +340,10 @@ Popup {
         RowLayout {
             Layout.fillWidth: true
             Layout.alignment: Qt.AlignHCenter
-            spacing: 14
+            // Reduced from 14 -- one more legend entry (Adjacent split
+            // into Boost/Drop) needs the room in this popup's fixed
+            // 380px width.
+            spacing: 9
             Repeater {
                 model: [
                     { label: "Same", relationLabel: "Same key", color: Theme.accent,
@@ -324,9 +351,12 @@ Popup {
                     { label: "Relative", relationLabel: "Relative major/minor", color: Theme.good,
                         tip: "Same wheel number, opposite mode (e.g. 8A/8B). A seamless swap between the major "
                             + "and minor version of the same key." },
-                    { label: "Adjacent", relationLabel: "Adjacent (harmonic)", color: Theme.warnIcon,
-                        tip: "One step around the wheel, same mode. The classic harmonic-mixing move: a subtle "
-                            + "key shift." },
+                    { label: "Boost", relationLabel: "Energy Boost", color: Theme.warnIcon,
+                        tip: "One step clockwise around the wheel, same mode. The classic harmonic-mixing move, "
+                            + "with a subtle lift in energy." },
+                    { label: "Drop", relationLabel: "Energy Drop", color: Theme.warnIcon,
+                        tip: "One step counter-clockwise around the wheel, same mode. The classic harmonic-mixing "
+                            + "move, with a subtle ease in energy." },
                     { label: "Energy mix", relationLabel: "Energy mix", color: Theme.danger,
                         tip: "One step around the wheel, opposite mode. A bigger mood/energy shift than Adjacent, "
                             + "while staying tonally related." },

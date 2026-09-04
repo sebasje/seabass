@@ -13,15 +13,15 @@ exercised live against real hardware, not just a read-only scan.
 
 ## Currently experimental
 
-- **Add or Move Track** (added 2026-09-04) — a panel on the Library page
-  that finds tracks compatible in key (Camelot-wheel Harmonic/Nearby
-  matching, or Ignore Key) and BPM with whichever Browse row you've
+- **Matching** (added 2026-09-04) — a panel on the Library page
+  (`MatchingPage.qml`) that finds tracks compatible in key (Camelot-wheel
+  Harmonic/Nearby matching, or Ignore Key) and BPM with whichever Browse row you've
   marked as the one you're editing, to help build out a playlist around
   it. Unlike every other entry on this list, gating isn't just
   `ActionCard`'s `experimental` property: the whole panel (plus the
   playlist drawer it moves the old always-on playlist pane into) is
   visible only when `experimentalFeaturesEnabled` is on
-  (`ScanPage.qml`'s `addOrMoveEnabled`), and it carries its own extra
+  (`ScanPage.qml`'s `matchingEnabled`), and it carries its own extra
   `PREVIEW` badge on top of that, because the search/filter side is real
   but the write side isn't: no format (rekordbox, Engine, OneLibrary) has
   a playlist-mutation writer yet, so Before/After and the row reorder

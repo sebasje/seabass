@@ -504,7 +504,12 @@ QVariantList ScanController::findCompatibleTracks(const QString &anchorSourceId,
         if (!track.streamingSource.empty()) {
             continue;
         }
-        domain::KeyRelation relation = domain::classifyKeyRelation(track.key, anchor->key);
+        // anchor first, candidate second -- classifyKeyRelation()'s
+        // Adjacent split is directional (see its own doc comment), and
+        // "anchor -> candidate" is the natural reading here: the anchor
+        // is what's already selected/playing, the candidate is what you'd
+        // mix into next.
+        domain::KeyRelation relation = domain::classifyKeyRelation(anchor->key, track.key);
         if (!domain::keyRelationMatchesAnyMode(relation, tiers)) {
             continue;
         }
@@ -528,7 +533,7 @@ QVariantList ScanController::findCompatibleTracks(const QString &anchorSourceId,
         // pull in from elsewhere. Only with "All tracks" selected
         // (targetPlaylist empty) does the search range over the whole
         // library, but Before/After also has nowhere real to write in
-        // that case (see AddOrMoveTrackPanel.qml's hasTarget).
+        // that case (see MatchingPage.qml's hasTarget).
         if (!targetPlaylist.empty() && !playlistPosition(track, targetPlaylist).has_value()) {
             continue;
         }
@@ -583,8 +588,11 @@ QVariantMap ScanController::keyRelation(const QString &keyA, const QString &keyB
     case domain::KeyRelation::Relative:
         m["relation"] = QStringLiteral("relative");
         break;
-    case domain::KeyRelation::Adjacent:
-        m["relation"] = QStringLiteral("adjacent");
+    case domain::KeyRelation::AdjacentUp:
+        m["relation"] = QStringLiteral("adjacentup");
+        break;
+    case domain::KeyRelation::AdjacentDown:
+        m["relation"] = QStringLiteral("adjacentdown");
         break;
     case domain::KeyRelation::EnergyMix:
         m["relation"] = QStringLiteral("energymix");

@@ -8,7 +8,7 @@ import SeabassGui
 // press/accent-border-when-current idiom trackListView's own delegate
 // uses. Shared by PlaylistListView.qml (the left Pane / off-canvas
 // Drawer) and the "This Playlist" ComboBox's own popup delegate in
-// AddOrMoveTrackPanel.qml, so both render identically instead of
+// MatchingPage.qml, so both render identically instead of
 // drifting apart.
 Rectangle {
     id: root

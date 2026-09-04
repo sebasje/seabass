@@ -7,7 +7,7 @@ import SeabassGui
 // second one), delegated to PlaylistRowDelegate.qml (also used by the
 // "This Playlist" ComboBox's own popup, so both pickers render
 // identically). Used in two places in ScanPage.qml: always in the left
-// Pane when the Add or Move Track panel (Experimental) is off, or inside
+// Pane when the Matching panel (Experimental) is off, or inside
 // a Drawer when it's on -- both instances share this one definition and
 // both write to the same root.selectedPlaylistIndex, so switching
 // playlists from either place stays in sync.

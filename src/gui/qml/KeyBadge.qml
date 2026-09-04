@@ -19,13 +19,13 @@ Item {
     // previewable without a running AppSettingsController.
     property string notation: "camelot"
     // Extra context appended to the hover tooltip after the key itself --
-    // e.g. AddOrMoveTrackPanel.qml passing how this key relates to the
-    // track it's being matched against ("Adjacent (harmonic)"). Empty by
+    // e.g. MatchingPage.qml passing how this key relates to the
+    // track it's being matched against ("Energy Boost"). Empty by
     // default; most call sites have nothing extra to say.
     property string additionalText: ""
     // Forwarded straight from the wheel popup's own signals (see
     // CamelotWheelPopup.qml's own doc comment) -- lets a host like
-    // AddOrMoveTrackPanel.qml react to hovering there without needing its
+    // MatchingPage.qml react to hovering there without needing its
     // own reference to whichever badge's popup happens to be open.
     signal keyHovered(int number, bool isMinor, bool hovering)
     signal relationHovered(string relationLabel, bool hovering)
@@ -91,6 +91,7 @@ Item {
 
     CamelotWheelPopup {
         id: wheelPopup
+        notation: root.notation
         onKeyHovered: (number, isMinor, hovering) => root.keyHovered(number, isMinor, hovering)
         onRelationHovered: (relationLabel, hovering) => root.relationHovered(relationLabel, hovering)
     }
