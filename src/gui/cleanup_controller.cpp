@@ -16,8 +16,8 @@
 #include "application/ports/cue_writer.hpp"
 #include "application/ports/library_cleanup_writer.hpp"
 #include "application/ports/operation_log.hpp"
-#include "application/use_cases/scan_library.hpp"
 #include "domain/duplicate_cue_consolidation.hpp"
+#include "gui/library_catalog_cache.hpp"
 #include "gui/onelibrary_cue_writer_adapter.hpp"
 #include "gui/qt_progress_reporter.hpp"
 #include "gui/write_guard.hpp"
@@ -30,11 +30,8 @@
 #include "infrastructure/durable_file_write.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cleanup_writer.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cue_writer.hpp"
-#include "infrastructure/engine/libdjinterop_engine_reader.hpp"
 #include "infrastructure/logging/file_operation_log.hpp"
 #include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
-#include "infrastructure/onelibrary/onelibrary_reader.hpp"
-#include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 #include "infrastructure/rekordbox/pdb_row_writer.hpp"
 #include "infrastructure/rekordbox/rekordbox_cleanup_writer.hpp"
@@ -239,6 +236,43 @@ void CleanupPlanListModel::setFilter(const QString &query)
         }
     }
     endResetModel();
+}
+
+void CleanupPlanListModel::removePlansAt(std::vector<int> indices)
+{
+    // Descending order: removing from m_plans/m_included at a higher
+    // index first never disturbs the position of a not-yet-processed
+    // lower index.
+    std::sort(indices.rbegin(), indices.rend());
+    for (int idx : indices) {
+        if (idx < 0 || static_cast<size_t>(idx) >= m_plans.size()) {
+            continue;
+        }
+        size_t rawIndex = static_cast<size_t>(idx);
+        auto it = std::find(m_visibleIndices.begin(), m_visibleIndices.end(), rawIndex);
+        bool wasVisible = it != m_visibleIndices.end();
+        int visibleRow = wasVisible ? static_cast<int>(std::distance(m_visibleIndices.begin(), it)) : -1;
+
+        if (wasVisible) {
+            beginRemoveRows(QModelIndex(), visibleRow, visibleRow);
+        }
+        m_plans.erase(m_plans.begin() + idx);
+        m_included.erase(m_included.begin() + idx);
+        if (wasVisible) {
+            m_visibleIndices.erase(m_visibleIndices.begin() + visibleRow);
+        }
+        // Every other visible-index entry pointing past the just-
+        // removed raw index needs to shift down by one to stay valid,
+        // whether or not the removed one was itself currently visible.
+        for (auto &visIdx : m_visibleIndices) {
+            if (visIdx > rawIndex) {
+                visIdx--;
+            }
+        }
+        if (wasVisible) {
+            endRemoveRows();
+        }
+    }
 }
 
 PendingDeletionListModel::PendingDeletionListModel(QObject *parent) : QAbstractListModel(parent) {}
@@ -897,16 +931,8 @@ PendingDeletionApplyResult runDeletePendingTask(QString format, QString path,
             (stickRoot / ".seabass-pending-deletions.jsonl").string());
         infrastructure::logging::FileOperationLog log((stickRoot / ".seabass.log").string());
 
-        std::vector<domain::Track> tracks;
-        if (format == "rekordbox") {
-            infrastructure::rekordbox::KaitaiRekordboxReader reader(path.toStdString());
-            reader.setProgressReporter(*reporter);
-            tracks = application::ScanLibrary(reader).execute();
-        } else {
-            infrastructure::engine::LibdjinteropEngineReader reader(path.toStdString());
-            reader.setProgressReporter(*reporter);
-            tracks = application::ScanLibrary(reader).execute();
-        }
+        std::vector<domain::Track> tracks =
+            LibraryCatalogCache::instance().tracksFor(format.toStdString(), path.toStdString(), *reporter);
 
         auto resolution = infrastructure::cleanup::resolvePendingDeletions(selected, tracks);
 
@@ -959,20 +985,8 @@ CleanupTaskResult runRescanTask(QString format, QString path, std::shared_ptr<Qt
 {
     CleanupTaskResult result;
     try {
-        std::vector<domain::Track> tracks;
-        if (format == "rekordbox") {
-            infrastructure::rekordbox::KaitaiRekordboxReader reader(path.toStdString());
-            reader.setProgressReporter(*reporter);
-            tracks = application::ScanLibrary(reader).execute();
-        } else if (format == "onelibrary") {
-            infrastructure::onelibrary::OneLibraryReader reader(path.toStdString());
-            reader.setProgressReporter(*reporter);
-            tracks = application::ScanLibrary(reader).execute();
-        } else {
-            infrastructure::engine::LibdjinteropEngineReader reader(path.toStdString());
-            reader.setProgressReporter(*reporter);
-            tracks = application::ScanLibrary(reader).execute();
-        }
+        std::vector<domain::Track> tracks =
+            LibraryCatalogCache::instance().tracksFor(format.toStdString(), path.toStdString(), *reporter);
 
         // Streaming tracks (Engine/TIDAL) have no real local file.
         // Never let duplicate detection consider one, whether as
@@ -1008,16 +1022,8 @@ CleanupTaskResult runManualMergeTask(QString format, QString path, QString sourc
 {
     CleanupTaskResult result;
     try {
-        std::vector<domain::Track> tracks;
-        if (format == "rekordbox") {
-            infrastructure::rekordbox::KaitaiRekordboxReader reader(path.toStdString());
-            reader.setProgressReporter(*reporter);
-            tracks = application::ScanLibrary(reader).execute();
-        } else {
-            infrastructure::engine::LibdjinteropEngineReader reader(path.toStdString());
-            reader.setProgressReporter(*reporter);
-            tracks = application::ScanLibrary(reader).execute();
-        }
+        std::vector<domain::Track> tracks =
+            LibraryCatalogCache::instance().tracksFor(format.toStdString(), path.toStdString(), *reporter);
 
         std::string idA = sourceIdA.toStdString();
         std::string idB = sourceIdB.toStdString();
@@ -1168,16 +1174,19 @@ void CleanupController::apply()
         return;
     }
     std::vector<domain::DuplicateCleanupPlan> includedPlans;
+    m_pendingAppliedIndices.clear();
     const auto &plans = m_model.plans();
     for (size_t i = 0; i < plans.size(); ++i) {
         if (m_model.included(i)) {
             includedPlans.push_back(plans[i]);
+            m_pendingAppliedIndices.push_back(static_cast<int>(i));
         }
     }
     if (includedPlans.empty()) {
         return;
     }
 
+    m_pendingWriteKind = PendingWriteKind::Apply;
     setErrorMessage({});
     setStatusMessage({});
     setScanProgress(0, 0);
@@ -1203,7 +1212,37 @@ void CleanupController::onWriteFinished()
     setBusy(false);
     setWriting(false);
 
-    rescan();
+    // Even the local-update branch below (which skips the immediate
+    // rescan) still needs this, so a *later* rescan (reopening the
+    // page, switching formats and back) can't read stale cached tracks
+    // from before the write within an mtime-granularity window. A
+    // rekordbox apply also mirrors best-effort into OneLibrary (see
+    // runApplyTask's own comment), so that cache entry needs
+    // invalidating too even though it's never part of *this* model.
+    auto &catalogCache = LibraryCatalogCache::instance();
+    catalogCache.invalidate(m_format.toStdString(), m_path.toStdString());
+    if (m_format == "rekordbox") {
+        catalogCache.invalidate("onelibrary", m_path.toStdString());
+    }
+
+    if (m_pendingWriteKind == PendingWriteKind::Apply) {
+        // apply() only ever writes groups already in m_model, and
+        // DuplicateTrackFinder groups by filename/title+artist/duration
+        // only -- never cues or row existence -- so removing the
+        // just-applied groups can't change any other group's own
+        // classification. Nothing a full rescan could reveal here.
+        m_model.removePlansAt(std::move(m_pendingAppliedIndices));
+        m_pendingAppliedIndices.clear();
+        emit plansChanged();
+        emit includedChanged();
+        // apply() appends the doomed tracks to PendingDeletionManifest
+        // as a real side effect (see the class's own doc comment) --
+        // cheap (a small JSONL file plus a stat() per entry), unlike
+        // the rescan() this branch is deliberately skipping.
+        refreshPendingDeletions();
+    } else {
+        rescan();
+    }
 }
 
 void CleanupController::undoLastOperation()
@@ -1211,6 +1250,7 @@ void CleanupController::undoLastOperation()
     if (m_busy || m_lastBackups.empty()) {
         return;
     }
+    m_pendingWriteKind = PendingWriteKind::Undo;
     setErrorMessage({});
     setStatusMessage({});
     setScanProgress(0, 0);

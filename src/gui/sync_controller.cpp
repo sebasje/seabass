@@ -161,6 +161,16 @@ void SyncPlanListModel::addPlan(domain::SyncPlan plan)
     endInsertRows();
 }
 
+void SyncPlanListModel::removePlanAt(int index)
+{
+    if (index < 0 || static_cast<size_t>(index) >= m_plans.size()) {
+        return;
+    }
+    beginRemoveRows(QModelIndex(), index, index);
+    m_plans.erase(m_plans.begin() + index);
+    endRemoveRows();
+}
+
 namespace
 {
 
@@ -811,6 +821,7 @@ void SyncController::apply()
             actionable.push_back(plan);
         }
     }
+    m_pendingWriteKind = PendingWriteKind::ApplyAll;
     startApply(std::move(actionable));
 }
 
@@ -827,6 +838,8 @@ void SyncController::applyOne(int index)
     if (plan.direction == SyncPlan::Direction::None) {
         return;
     }
+    m_pendingWriteKind = PendingWriteKind::ApplyOne;
+    m_pendingApplyOneIndex = index;
     startApply({plan});
 }
 
@@ -861,17 +874,44 @@ void SyncController::onWriteFinished()
 
     // A write may have touched any/all of the three catalogs -- rather
     // than plumbing through exactly which ones a given apply actually
-    // wrote to, just invalidate all three; an unnecessary re-scan on an
-    // untouched catalog is cheap next to the cost of showing stale data.
+    // wrote to, just invalidate all three; even the local-update
+    // branches below that skip the immediate re-analyze still need
+    // this, so a *later* analyze (switching playlists, reopening the
+    // page) can't read stale cached tracks from before the write within
+    // an mtime-granularity window.
     auto &catalogCache = LibraryCatalogCache::instance();
     catalogCache.invalidate("rekordbox", m_rekordboxPath.toStdString());
     catalogCache.invalidate("engine", m_enginePath.toStdString());
     catalogCache.invalidate("onelibrary", m_rekordboxPath.toStdString());
 
-    // Re-analyze so the model reflects the now-consistent state, staying
-    // scoped to whatever playlist was selected rather than reverting to
-    // "All tracks".
-    analyze(m_rekordboxPath, m_enginePath, m_currentPlaylistName, m_currentSearchQuery);
+    if (m_pendingWriteKind == PendingWriteKind::ApplyAll) {
+        // apply() writes every plan currently in the model (everything
+        // with direction != None, which is all SyncPlanListModel ever
+        // holds) -- once the write succeeds every remaining row is
+        // consistent by construction. domain::SyncPlanner classifies
+        // each matched pair independently of every other pair, and
+        // CrossSourceConflictDetector::detect() already split out
+        // conflicts once at analyze() time, so writing these plans
+        // can't change any other plan's classification -- there is
+        // nothing a full re-analyze of the whole catalog could reveal
+        // here. Traced with gdb on a similar case (Clean Up Stray
+        // Cues): the full post-write catalog re-scan was the entire
+        // cost of a "removing this is slow" report.
+        m_model.setPlans({});
+        recomputeDirectionCounts();
+    } else if (m_pendingWriteKind == PendingWriteKind::ApplyOne) {
+        m_model.removePlanAt(m_pendingApplyOneIndex);
+        m_pendingApplyOneIndex = -1;
+        recomputeDirectionCounts();
+    } else {
+        // Undo restores the prior file bytes directly; the plan list
+        // this session had for "what changed" was already discarded
+        // when the corresponding apply cleared/removed it locally
+        // above, so there's nothing to patch back in without a real
+        // re-analyze, staying scoped to whatever playlist/search was
+        // active rather than reverting to "All tracks".
+        analyze(m_rekordboxPath, m_enginePath, m_currentPlaylistName, m_currentSearchQuery);
+    }
 }
 
 void SyncController::undoLastOperation()
@@ -879,6 +919,7 @@ void SyncController::undoLastOperation()
     if (m_busy || m_lastBackups.empty()) {
         return;
     }
+    m_pendingWriteKind = PendingWriteKind::Undo;
     setErrorMessage({});
     setStatusMessage({});
     setScanProgress(0, 0);

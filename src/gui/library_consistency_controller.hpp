@@ -4,6 +4,8 @@
 #include <QFutureWatcher>
 #include <QObject>
 #include <QQmlEngine>
+#include <QStringList>
+#include <QVariantMap>
 
 #include <memory>
 #include <utility>
@@ -105,6 +107,16 @@ struct LibraryConsistencyScanResult
 {
     std::vector<domain::LibraryConsistencyIssue> issues;
     std::vector<domain::JunkCueIssue> junkCues;
+    // This format's own playlist membership tally, unfiltered by
+    // whatever TrackScope playlistName below scoped `issues`/`junkCues`
+    // to -- computed before that filtering, same "picking a playlist
+    // never shrinks the picker's own list of choices" convention
+    // SyncController's own playlistNames/playlistTrackCounts follow. One
+    // format's worth only; LibraryConsistencyController::onScanFinished()
+    // merges each format's contribution into the running cross-catalog
+    // union as the progressive per-format scan completes.
+    QStringList playlistNames;
+    QVariantMap playlistTrackCounts;
     QString errorMessage;
 };
 
@@ -161,6 +173,14 @@ class LibraryConsistencyController : public QObject
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
     Q_PROPERTY(QString statusMessage READ statusMessage NOTIFY statusMessageChanged)
     Q_PROPERTY(int repairableCount READ repairableCount NOTIFY issuesChanged)
+    // Backs the Playlist picker in JunkCuePage.qml -- same shape/
+    // convention as SyncController's own playlistNames/
+    // playlistTrackCounts (index 0 of ["All tracks"] + these is the "no
+    // filter" choice; see PlaylistPickerCombo.qml). Unfiltered by
+    // whatever playlist scan() was last given, so picking one never
+    // shrinks the picker's own list of choices.
+    Q_PROPERTY(QStringList playlistNames READ playlistNames NOTIFY issuesChanged)
+    Q_PROPERTY(QVariantMap playlistTrackCounts READ playlistTrackCounts NOTIFY issuesChanged)
 
 public:
     explicit LibraryConsistencyController(QObject *parent = nullptr);
@@ -177,6 +197,8 @@ public:
     QString scanningFormat() const { return m_scanningFormat; }
     QString errorMessage() const { return m_errorMessage; }
     QString statusMessage() const { return m_statusMessage; }
+    QStringList playlistNames() const { return m_playlistNames; }
+    QVariantMap playlistTrackCounts() const { return m_playlistTrackCounts; }
     // Computed directly from the model rather than counted via realized
     // ListView delegates in QML. ListView virtualizes, so itemAtIndex()
     // is null for anything outside the visible/cache range, which would
@@ -187,8 +209,14 @@ public:
     // non-empty, engine if enginePath is non-empty, onelibrary if
     // exportLibrary.db exists under rekordboxPath. Progressive: each
     // format's issues are added to the model as soon as that format's
-    // scan finishes, not all at once at the end.
-    Q_INVOKABLE void scan(const QString &rekordboxPath, const QString &enginePath);
+    // scan finishes, not all at once at the end. playlistName empty (the
+    // default) scans/checks the whole library, same as before this
+    // parameter existed; a real name scopes both the junk-cue list and
+    // the consistency check to just that playlist's tracks, via
+    // domain::TrackScope -- playlistNames/playlistTrackCounts themselves
+    // stay unfiltered so the picker never shrinks its own choices.
+    Q_INVOKABLE void scan(const QString &rekordboxPath, const QString &enginePath,
+                           const QString &playlistName = QString());
 
     // Repairs every currently-Repairable issue across every format:
     // writes merged cues onto each survivor where needed, then removes
@@ -238,6 +266,13 @@ private:
     void setStatusMessage(const QString &message);
     QString pathForFormat(const QString &format) const;
     std::shared_ptr<QtProgressReporter> makeReporter();
+    // Folds one format's own playlist tally (LibraryConsistencyScanResult
+    // ::playlistNames/playlistTrackCounts) into the running cross-catalog
+    // union, max count per name across whichever catalogs have it -- same
+    // semantics as SyncController's own collectPlaylistSummary(), just
+    // applied incrementally as each format's progressive scan completes
+    // instead of all at once.
+    void mergePlaylistSummary(const QStringList &names, const QVariantMap &counts);
 
     LibraryConsistencyIssueListModel m_model;
     JunkCueIssueListModel m_junkCueModel;
@@ -245,6 +280,13 @@ private:
     QFutureWatcher<LibraryConsistencyWriteResult> m_writeWatcher;
     QString m_rekordboxPath;
     QString m_enginePath;
+    // The playlistName scan() was last called with -- so the automatic
+    // re-scan onWriteFinished() runs after every repair/removal stays
+    // scoped to whatever playlist was selected, instead of silently
+    // reverting to "All tracks".
+    QString m_currentPlaylistName;
+    QStringList m_playlistNames;
+    QVariantMap m_playlistTrackCounts;
     std::vector<QString> m_pendingScanFormats;
     // Each pending repair-batch entry is one format's worth of
     // currently-Repairable issues, consumed one format at a time the
@@ -255,6 +297,32 @@ private:
     // Same idea, for removeAllJunkCues(): one format's worth of tracks
     // to strip the 0:00 memory cue from, consumed the same way.
     std::vector<std::pair<QString, std::vector<domain::Track>>> m_pendingJunkCueRemovals;
+    // What onWriteFinished() should do once every pending format's write
+    // is done, set by whichever public write method just kicked things
+    // off. A junk-cue removal can't change file existence or which
+    // track matches which (that's all LibraryConsistencyChecker looks
+    // at), so it never needs the full re-scan repairAll()/repairOne()/
+    // deleteOrphan() still trigger -- those really can change what
+    // other issues exist (removing a broken row, merging cues onto a
+    // survivor). See onWriteFinished()'s own comment for the local-
+    // update each junk-cue-removal kind performs instead of scanning.
+    enum class PendingWriteKind { Repair, RemoveOneJunkCue, RemoveAllJunkCues };
+    PendingWriteKind m_pendingWriteKind = PendingWriteKind::Repair;
+    // Valid only when m_pendingWriteKind is RemoveOneJunkCue: the row
+    // removeJunkCue() was called with, applied to m_junkCueModel once
+    // the write actually succeeds rather than optimistically before.
+    int m_pendingJunkCueRemovalIndex = -1;
+    // Valid only when m_pendingWriteKind is Repair: the m_model row
+    // indices repairAll()/repairOne()/deleteOrphan() captured at call
+    // time, removed locally via removeIssueAt() once every pending
+    // format's task in the batch succeeds -- unless
+    // m_pendingRepairTouchedRekordbox, in which case a real scan()
+    // runs instead (see onWriteFinished()'s own comment: a rekordbox
+    // repair's best-effort OneLibrary mirror write can silently stale
+    // an already-listed OneLibrary issue, something only a fresh
+    // LibraryConsistencyChecker::check() run could catch).
+    std::vector<int> m_pendingRepairedIndices;
+    bool m_pendingRepairTouchedRekordbox = false;
     bool m_busy = false;
     bool m_writing = false;
     int m_scanCurrent = 0;

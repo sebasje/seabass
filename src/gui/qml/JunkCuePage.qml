@@ -28,13 +28,28 @@ Page {
         id: consistencyController
     }
 
+    // "" scopes the scan to the whole library (every catalog present),
+    // same empty-means-all convention every other picker in this app
+    // uses (see SyncPage.qml's own selectedPlaylistName).
+    property string selectedPlaylistName: ""
+
+    // "All tracks" first (no meaningful single count across up to three
+    // independent catalogs, so left blank rather than showing a
+    // misleading sum), then the union of playlist names across whichever
+    // catalogs are present -- built from consistencyController's own
+    // unfiltered scan, so this list doesn't shrink once a playlist is
+    // selected.
+    readonly property var playlistPickerModel: [{name: "All tracks", count: ""}].concat(
+        consistencyController.playlistNames.map((n) =>
+            ({name: n, count: consistencyController.playlistTrackCounts[n] ?? 0})))
+
     function formatLabel(format) {
         if (format === "engine") return "Engine OS";
         if (format === "onelibrary") return "OneLibrary";
         return "DeviceLibrary";
     }
 
-    Component.onCompleted: consistencyController.scan(root.rekordboxPath, root.enginePath)
+    Component.onCompleted: consistencyController.scan(root.rekordboxPath, root.enginePath, root.selectedPlaylistName)
 
     header: ToolBar {
         // Opaque background override, see AppSettingsPage.qml's header
@@ -54,6 +69,31 @@ Page {
                 onBackRequested: root.StackView.view.pop()
             }
             Item { Layout.fillWidth: true }
+            Label {
+                text: "Playlist:"
+                color: Theme.textMuted
+            }
+            PlaylistPickerCombo {
+                Layout.minimumWidth: 140
+                model: root.playlistPickerModel
+                currentIndex: {
+                    if (root.selectedPlaylistName.length === 0) {
+                        return 0;
+                    }
+                    for (var i = 1; i < root.playlistPickerModel.length; i++) {
+                        if (root.playlistPickerModel[i].name === root.selectedPlaylistName) {
+                            return i;
+                        }
+                    }
+                    return 0;
+                }
+                ToolTip.visible: hovered
+                ToolTip.text: "Scope Clean Up Stray Cues to one playlist instead of the whole library"
+                onPlaylistPicked: (index, modelData) => {
+                    root.selectedPlaylistName = index === 0 ? "" : modelData.name;
+                    consistencyController.scan(root.rekordboxPath, root.enginePath, root.selectedPlaylistName);
+                }
+            }
             RowLayout {
                 visible: consistencyController.busy
                 spacing: 8

@@ -52,6 +52,14 @@ public:
     // takes forever" report possible in the first place).
     void setPlans(std::vector<domain::ConsolidationPlan> plans);
     const std::vector<domain::ConsolidationPlan> &plans() const { return m_plans; }
+    // Removes one plan without a full rescan -- for DuplicatesController::
+    // applyOne()/copyFromTrack() after a successful write: that group's
+    // cues are now consolidated (Kind would become AlreadyConsistent,
+    // which this model never shows at all -- see runRescanTask's own
+    // filtering), and DuplicateTrackFinder groups by filename/title+
+    // artist+duration only, never cues, so removing it can't change any
+    // other group's own classification.
+    void removePlanAt(int index);
 
 private:
     std::vector<domain::ConsolidationPlan> m_plans;
@@ -200,6 +208,18 @@ private:
     QString m_statusMessage;
     std::vector<UndoableBackup> m_lastBackups;
     bool m_writing = false;
+    // What onWriteFinished() should do once the write completes. apply*()/
+    // copyFromTrack() only ever write groups already in the model, and
+    // grouping (DuplicateTrackFinder) never depends on cues, so removing
+    // the just-consolidated group(s) locally is always correct --
+    // unlike undoLastOperation(), which restores prior file bytes this
+    // session already discarded the old plan list for, so it keeps
+    // doing a real rescan().
+    enum class PendingWriteKind { ApplyOne, ApplyAllUnambiguous, Undo };
+    PendingWriteKind m_pendingWriteKind = PendingWriteKind::Undo;
+    // Valid only when m_pendingWriteKind is ApplyOne: the row applyOne()/
+    // copyFromTrack() was called with.
+    int m_pendingApplyOneIndex = -1;
 };
 
 }  // namespace seabass::gui

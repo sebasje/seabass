@@ -221,6 +221,19 @@ private:
     // own doc comment on why this needs to travel with the specific
     // request, not just be inferred from context.
     bool m_analyzeReportsFeedback = false;
+    // What onWriteFinished() should do once the write completes. Set by
+    // whichever public write method just kicked it off. applyRestore()
+    // always writes every candidate currently in m_model, and
+    // LocalRestorePlanner::mergeCues() only ever *adds* cues the stick
+    // is missing -- so once that write succeeds, every listed candidate
+    // is already fully merged, nothing is left outstanding, and a real
+    // re-scan (analyzeRestore()) can't find anything new to propose.
+    // undoLastOperation() restores the stick's prior file bytes
+    // directly; the candidate list for "what's missing" was already
+    // discarded locally by the apply that preceded it, so it keeps
+    // doing a real re-scan.
+    enum class PendingWriteKind { Apply, Undo };
+    PendingWriteKind m_pendingWriteKind = PendingWriteKind::Undo;
 };
 
 }  // namespace seabass::gui

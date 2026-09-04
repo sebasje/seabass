@@ -50,6 +50,17 @@ public:
     const std::vector<domain::DuplicateCleanupPlan> &plans() const { return m_plans; }
     bool included(size_t index) const;
     int includedCount() const;
+    // Removes specific plans (by index into plans()/included(), not
+    // visible row) without a full rescan -- for CleanupController::
+    // apply() after a successful write: those groups are now merged
+    // and gone, and removing them can't change any other group's own
+    // classification (DuplicateTrackFinder groups by filename/title+
+    // artist+duration only, never cues or row existence). Keeps
+    // m_included and m_visibleIndices (the current search filter) in
+    // sync with the shrunk m_plans, unlike a naive setPlans() call,
+    // which would reset every remaining row's checkbox back to its
+    // default and lose whatever the user had actually checked.
+    void removePlansAt(std::vector<int> indices);
     // Sets every row's included flag at once (select all / deselect all) -
     // only the currently *visible* rows (see setFilter()), so selecting all
     // while a search is active doesn't silently touch groups scrolled out
@@ -311,6 +322,20 @@ private:
     QString m_errorMessage;
     QString m_statusMessage;
     std::vector<UndoableBackup> m_lastBackups;
+    // What onWriteFinished() should do once the write completes. apply()
+    // only ever writes groups already in the model, and grouping
+    // (DuplicateTrackFinder) never depends on cues or row existence, so
+    // removing the just-applied groups locally is always correct --
+    // unlike undoLastOperation(), which restores prior file bytes this
+    // session already discarded the old plan list for, so it keeps
+    // doing a real rescan().
+    enum class PendingWriteKind { Apply, Undo };
+    PendingWriteKind m_pendingWriteKind = PendingWriteKind::Undo;
+    // Valid only when m_pendingWriteKind is Apply: the m_model indices
+    // apply() captured at call time (the same ones used to build the
+    // write task's includedPlans), removed locally via
+    // CleanupPlanListModel::removePlansAt() once the write succeeds.
+    std::vector<int> m_pendingAppliedIndices;
 };
 
 }  // namespace seabass::gui

@@ -71,6 +71,11 @@ public:
     // resolved cross-source conflict (see SyncController::
     // resolveConflict()) becoming an ordinary, immediately-appliable plan.
     void addPlan(domain::SyncPlan plan);
+    // Removes one plan without a full rescan -- for SyncController::
+    // applyOne() after a successful write: that one plan is now
+    // consistent, nothing else in the model could have changed (see
+    // SyncController::onWriteFinished()'s own comment on why).
+    void removePlanAt(int index);
 
 private:
     std::vector<domain::SyncPlan> m_plans;
@@ -258,6 +263,21 @@ private:
     // Same reasoning as m_currentPlaylistName -- the search box's own text
     // must also survive the automatic post-write re-analyze.
     QString m_currentSearchQuery;
+    // What onWriteFinished() should do once the write completes, set by
+    // whichever public write method just kicked it off. apply()/
+    // applyOne() write only plans already in the model -- domain::
+    // SyncPlanner classifies each match independently and
+    // CrossSourceConflictDetector::detect() already ran once at analyze()
+    // time, so applying one plan can't change any other plan's
+    // classification (see onWriteFinished()'s own comment) -- a full
+    // re-analyze is never needed for those two. undoLastOperation()
+    // restores prior file bytes this session already discarded the old
+    // plan list for, so it keeps doing a real re-analyze.
+    enum class PendingWriteKind { ApplyAll, ApplyOne, Undo };
+    PendingWriteKind m_pendingWriteKind = PendingWriteKind::Undo;
+    // Valid only when m_pendingWriteKind is ApplyOne: the row applyOne()
+    // was called with, removed from m_model once the write succeeds.
+    int m_pendingApplyOneIndex = -1;
     bool m_busy = false;
     int m_scanCurrent = 0;
     int m_scanTotal = 0;
