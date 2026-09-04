@@ -27,6 +27,13 @@ Canvas {
     // always on regardless of this, since they're pure display.
     property bool cueEditable: false
     property string hoveredCueText: ""
+    // -1 (default) renders every cue identically, today's behavior. A
+    // real ms value instead dims every OTHER cue -- e.g.
+    // LibraryConsistencyPage highlighting the one memory cue at 0:00
+    // that's about to be removed, so it's unambiguous which one gets
+    // killed rather than just one more full-strength marker among
+    // several.
+    property real highlightCuePositionMs: -1
 
     signal seekRequested(real ratio)
     // Fires on every plain click alongside seekRequested -- callers that
@@ -45,6 +52,7 @@ Canvas {
     onTrackDurationMsChanged: requestPaint()
     onWidthChanged: requestPaint()
     onHeightChanged: requestPaint()
+    onHighlightCuePositionMsChanged: requestPaint()
 
     // Hit-tests cueData against a canvas-space x coordinate for the hover
     // tooltip -- a loop's whole span is a hit target (matching the wash's
@@ -117,6 +125,18 @@ Canvas {
                 var isLoop = cue.isLoop === true && cue.loopEndMs > cue.positionMs;
                 var xEnd = isLoop ? (cue.loopEndMs / trackDurationMs) * w : x;
 
+                // See highlightCuePositionMs's own doc comment. A small
+                // tolerance (not exact equality) since the caller passes
+                // whatever position it already resolved as "the" cue,
+                // and float ms comparisons shouldn't hinge on exact
+                // equality.
+                var dimmed = root.highlightCuePositionMs >= 0
+                    && Math.abs(cue.positionMs - root.highlightCuePositionMs) > 10;
+                ctx.save();
+                if (dimmed) {
+                    ctx.globalAlpha = 0.25;
+                }
+
                 if (isLoop) {
                     // Translucent wash across the loop span, plus a
                     // thicker solid bar underneath -- the wash alone
@@ -126,7 +146,11 @@ Canvas {
                     // wash already does.
                     ctx.save();
                     ctx.fillStyle = color;
-                    ctx.globalAlpha = 0.22;
+                    // Multiplied, not overwritten, by the outer dimming
+                    // alpha above -- ctx.globalAlpha here would otherwise
+                    // flatten a dimmed loop's wash back to the same 0.22
+                    // every loop already uses, undoing the dim.
+                    ctx.globalAlpha = dimmed ? 0.22 * 0.25 : 0.22;
                     ctx.fillRect(x, h * 0.55, xEnd - x, h * 0.45);
                     ctx.restore();
                     ctx.fillStyle = color;
@@ -150,6 +174,7 @@ Canvas {
                     ctx.font = "8px sans-serif";
                     ctx.fillText(String(cue.hotCueNumber), x + 2, 8);
                 }
+                ctx.restore();
             }
         }
 
