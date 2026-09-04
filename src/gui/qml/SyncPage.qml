@@ -69,6 +69,7 @@ Page {
             }
             PlaylistPickerCombo {
                 Layout.minimumWidth: 140
+                enabled: !syncController.busy
                 model: root.playlistPickerModel
                 currentIndex: {
                     if (root.selectedPlaylistName.length === 0) {

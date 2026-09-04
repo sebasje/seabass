@@ -183,7 +183,10 @@ void collectPlaylistSummary(const std::vector<domain::Track> &rekordboxTracks,
                              const std::vector<domain::Track> &engineTracks,
                              const std::vector<domain::Track> &oneLibraryTracks, SyncTaskResult &result)
 {
-    std::unordered_map<std::string, int> maxCountByName;
+    // std::map (ordered), not unordered_map -- iterating it directly below
+    // gives sorted names for free, no separate std::set pass just to get
+    // an ordering.
+    std::map<std::string, int> maxCountByName;
     auto tally = [&](const std::vector<domain::Track> &tracks) {
         std::unordered_map<std::string, int> countThisCatalog;
         for (const auto &track : tracks) {
@@ -200,14 +203,10 @@ void collectPlaylistSummary(const std::vector<domain::Track> &rekordboxTracks,
     tally(engineTracks);
     tally(oneLibraryTracks);
 
-    std::set<std::string> sortedNames;
     for (const auto &[name, count] : maxCountByName) {
-        sortedNames.insert(name);
-    }
-    for (const auto &name : sortedNames) {
         QString qName = QString::fromStdString(name);
         result.playlistNames << qName;
-        result.playlistTrackCounts[qName] = maxCountByName[name];
+        result.playlistTrackCounts[qName] = count;
     }
 }
 
@@ -324,12 +323,21 @@ SyncController::SyncController(QObject *parent) : QObject(parent)
 
 void SyncController::analyze(const QString &rekordboxPath, const QString &enginePath, const QString &playlistName)
 {
+    // Recorded even on the early return below: the QML picker is already
+    // disabled while busy (SyncPage.qml), so this path shouldn't be
+    // reachable from user interaction, but the field must never go stale
+    // relative to the most recently *requested* scope regardless -- the
+    // next analyze() this controller issues itself (onWriteFinished()'s
+    // own post-write re-analyze) reads m_currentPlaylistName, and silently
+    // keeping a superseded value there would resurrect this exact bug for
+    // any future caller that isn't gated by that one QML property.
+    m_currentPlaylistName = playlistName;
+
     if (m_busy) {
         return;  // never overlap two analyses
     }
     m_rekordboxPath = rekordboxPath;
     m_enginePath = enginePath;
-    m_currentPlaylistName = playlistName;
     setErrorMessage({});
     setStatusMessage({});
     setScanProgress(0, 0);
