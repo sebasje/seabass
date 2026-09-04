@@ -309,7 +309,7 @@ if(Qt6_FOUND)
             VERSION 1.0
             QML_FILES
                 src/gui/qml/Theme.qml
-                src/gui/qml/BigScrollBar.qml
+                src/gui/qml/common/BigScrollBar.qml
                 src/gui/qml/PlaylistPickerCombo.qml
             SOURCES
                 # Theme.qml's font-size properties (fontSmall, iconScale,
