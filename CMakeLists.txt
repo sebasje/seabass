@@ -246,7 +246,14 @@ endif()
 # at all, regardless of anything already stored in QSettings.
 option(SEABASS_EXPERIMENTAL "Compile in the experimental-features opt-in (Settings toggle)" ON)
 
-find_package(Qt6 QUIET COMPONENTS Core Gui Qml Quick QuickControls2 QuickLayouts QuickEffects QuickDialogs2 QuickShapes Multimedia Concurrent Svg Test QuickTest)
+# Test/QuickTest are OPTIONAL: they're packaged separately from the core
+# Qt6 modules on several distros (e.g. Debian/Ubuntu's libqt6quicktest6-dev
+# vs libqt6qml6-dev), and find_package(Qt6 COMPONENTS ...) requires every
+# listed component -- putting them in the required list would silently
+# fail Qt6_FOUND (and so skip the whole GUI build, not just the QML tests)
+# on any install that has the mandatory modules but not QuickTest.
+find_package(Qt6 QUIET COMPONENTS Core Gui Qml Quick QuickControls2 QuickLayouts QuickEffects QuickDialogs2 QuickShapes Multimedia Concurrent Svg
+    OPTIONAL_COMPONENTS Test QuickTest)
 if(Qt6_FOUND)
     qt_standard_project_setup(REQUIRES 6.5)
     if(WIN32)
@@ -268,54 +275,64 @@ if(Qt6_FOUND)
     # --- QtQuickTest: QML-level UI tests (component behavior, not the ---
     # --- domain/controller logic the C++ tests above already cover) ---
     #
-    # A separate, test-only "SeabassGui" module registration (URI, and the
-    # exact QML files under test, listed again here) rather than reusing
-    # seabass's own qt_add_qml_module() call: that one is scoped to the
-    # `seabass` executable target, not a separately linkable library, so
-    # there's nothing for a second binary to import. Both targets
-    # registering the same URI is fine -- they're two independent,
-    # self-contained binaries, no shared linkage, same as how every C++
-    # domain test below lists just the .cpp files it needs instead of
-    # linking one shared library.
-    #
-    # Test *.qml files themselves are NOT compiled in here -- QUICK_TEST_MAIN
-    # scans a real directory for tst_*.qml at run time (see the -input arg
-    # on the add_test() call below), so editing/adding a test doesn't need
-    # a rebuild, only the components-under-test do.
-    qt_add_executable(seabass_qml_tests tests/qml/qml_test_main.cpp)
-    # Must run before qt_add_qml_module() -- it reads this property at call
-    # time (see src/gui/CMakeLists.txt's own comment on the exact same
-    # ordering requirement for the real seabass target). Set after instead,
-    # Theme.qml compiles as a plain (non-singleton) type, and every bare
-    # `Theme.xxx` reference elsewhere silently evaluates to undefined
-    # rather than erroring -- confusing to track down the first time.
-    set_source_files_properties(src/gui/qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
-    qt_add_qml_module(seabass_qml_tests
-        URI SeabassGui
-        VERSION 1.0
-        QML_FILES
-            src/gui/qml/Theme.qml
-            src/gui/qml/BigScrollBar.qml
-            src/gui/qml/PlaylistPickerCombo.qml
-        SOURCES
-            # Theme.qml's font-size properties (fontSmall, iconScale, ...)
-            # bind to this QML_SINGLETON C++ type.
-            src/gui/system_font_metrics.hpp
-            src/gui/system_font_metrics.cpp
-    )
-    target_link_libraries(seabass_qml_tests PRIVATE Qt6::QuickTest Qt6::Quick Qt6::Gui)
-    # The generated qmltyperegistrations.cpp #includes each QML_ELEMENT
-    # header via <angle brackets> (see e.g. seabass_qmltyperegistrations.cpp
-    # in the build dir), resolved against the include path -- src/gui/
-    # itself needs to be on it for <system_font_metrics.hpp> to resolve.
-    target_include_directories(seabass_qml_tests PRIVATE ${CMAKE_SOURCE_DIR}/src/gui)
+    # Gated on Qt6Test_FOUND/Qt6QuickTest_FOUND (set by the OPTIONAL_COMPONENTS
+    # find_package call above regardless of whether they were found) -- an
+    # install with the mandatory Qt6 modules but not QuickTest still gets
+    # the full seabass GUI build, just without this one test target.
+    if(Qt6Test_FOUND AND Qt6QuickTest_FOUND)
+        # A separate, test-only "SeabassGui" module registration (URI, and
+        # the exact QML files under test, listed again here) rather than
+        # reusing seabass's own qt_add_qml_module() call: that one is
+        # scoped to the `seabass` executable target, not a separately
+        # linkable library, so there's nothing for a second binary to
+        # import. Both targets registering the same URI is fine -- they're
+        # two independent, self-contained binaries, no shared linkage,
+        # same as how every C++ domain test below lists just the .cpp
+        # files it needs instead of linking one shared library.
+        #
+        # Test *.qml files themselves are NOT compiled in here --
+        # QUICK_TEST_MAIN scans a real directory for tst_*.qml at run time
+        # (see the -input arg on the add_test() call below), so editing/
+        # adding a test doesn't need a rebuild, only the components-under-
+        # test do.
+        qt_add_executable(seabass_qml_tests tests/qml/qml_test_main.cpp)
+        # Must run before qt_add_qml_module() -- it reads this property at
+        # call time (see src/gui/CMakeLists.txt's own comment on the exact
+        # same ordering requirement for the real seabass target). Set
+        # after instead, Theme.qml compiles as a plain (non-singleton)
+        # type, and every bare `Theme.xxx` reference elsewhere silently
+        # evaluates to undefined rather than erroring -- confusing to
+        # track down the first time.
+        set_source_files_properties(src/gui/qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+        qt_add_qml_module(seabass_qml_tests
+            URI SeabassGui
+            VERSION 1.0
+            QML_FILES
+                src/gui/qml/Theme.qml
+                src/gui/qml/BigScrollBar.qml
+                src/gui/qml/PlaylistPickerCombo.qml
+            SOURCES
+                # Theme.qml's font-size properties (fontSmall, iconScale,
+                # ...) bind to this QML_SINGLETON C++ type.
+                src/gui/system_font_metrics.hpp
+                src/gui/system_font_metrics.cpp
+        )
+        target_link_libraries(seabass_qml_tests PRIVATE Qt6::QuickTest Qt6::Quick Qt6::Gui)
+        # The generated qmltyperegistrations.cpp #includes each QML_ELEMENT
+        # header via <angle brackets> (see e.g. seabass_qmltyperegistrations.cpp
+        # in the build dir), resolved against the include path -- src/gui/
+        # itself needs to be on it for <system_font_metrics.hpp> to resolve.
+        target_include_directories(seabass_qml_tests PRIVATE ${CMAKE_SOURCE_DIR}/src/gui)
 
-    add_test(NAME seabass_qml_tests
-        COMMAND seabass_qml_tests -input ${CMAKE_CURRENT_SOURCE_DIR}/tests/qml)
-    # No real display needed -- Qt's "offscreen" platform plugin renders
-    # without one, which is both faster and far more reliable in a
-    # headless/CI/agent environment than anything Xvfb-dependent.
-    set_tests_properties(seabass_qml_tests PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+        add_test(NAME seabass_qml_tests
+            COMMAND seabass_qml_tests -input ${CMAKE_CURRENT_SOURCE_DIR}/tests/qml)
+        # No real display needed -- Qt's "offscreen" platform plugin renders
+        # without one, which is both faster and far more reliable in a
+        # headless/CI/agent environment than anything Xvfb-dependent.
+        set_tests_properties(seabass_qml_tests PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    else()
+        message(STATUS "Qt6::QuickTest not found, skipping seabass_qml_tests (GUI build unaffected)")
+    endif()
 else()
     message(STATUS "Qt6 not found, skipping seabass (CLI and tests still build)")
 endif()
