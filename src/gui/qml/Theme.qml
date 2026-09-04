@@ -336,4 +336,13 @@ QtObject {
     readonly property string dataFamily: "IBM Plex Mono"
     readonly property real dataSize: baseFontPointSize * 1.8
     readonly property real tableHeaderSize: baseFontPointSize * 0.85
+
+    // ---- Motion -- one shared duration for small, frequent state
+    // changes (a row fading in/out of relevance, a hover highlight)
+    // rather than each call site picking its own number. Deliberately
+    // short: this is for "smooth the edge off an instant change," not a
+    // deliberate, noticeable animation -- see CamelotWheelPopup.qml's
+    // wedge fade and AddOrMoveTrackPanel.qml's row fade for the first
+    // uses.
+    readonly property int shortTransitionDuration: 120
 }

@@ -98,6 +98,7 @@ target_link_libraries(rekordbox_format PUBLIC kaitai_cpp_stl_runtime)
 # --- both the CLI (src/cli/) and the Qt GUI (src/gui/) composition roots ---
 
 add_library(seabass_core STATIC
+    src/domain/camelot_key.cpp
     src/domain/cross_source_sync_conflict.cpp
     src/domain/disk_usage.cpp
     src/domain/duplicate_cleanup.cpp
@@ -399,6 +400,13 @@ add_executable(track_matching_test
 )
 target_include_directories(track_matching_test PRIVATE src)
 add_test(NAME track_matching_test COMMAND track_matching_test)
+
+add_executable(camelot_key_test
+    src/domain/camelot_key.cpp
+    tests/camelot_key_test.cpp
+)
+target_include_directories(camelot_key_test PRIVATE src)
+add_test(NAME camelot_key_test COMMAND camelot_key_test)
 
 add_executable(rekordbox_key_parser_test
     src/infrastructure/engine/rekordbox_key_parser.cpp

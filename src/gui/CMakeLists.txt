@@ -25,6 +25,7 @@ endif()
 # non-singleton qmldir entry even after a full clean rebuild).
 set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/FormatLabels.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+set_source_files_properties(qml/CamelotWheelPosition.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
 qt_add_qml_module(seabass
     URI SeabassGui
@@ -50,6 +51,7 @@ qt_add_qml_module(seabass
         qml/common/TableHeaderLabel.qml
         qml/Theme.qml
         qml/FormatLabels.qml
+        qml/CamelotWheelPosition.qml
         qml/Main.qml
         qml/StickListPage.qml
         qml/DuplicatesHubPage.qml
@@ -69,6 +71,7 @@ qt_add_qml_module(seabass
         qml/FormatToggle.qml
         qml/LibrarySourceToggle.qml
         qml/KeyBadge.qml
+        qml/CamelotWheelPopup.qml
         qml/AboutPage.qml
         qml/PlayerBar.qml
         qml/WaveformView.qml
@@ -81,6 +84,10 @@ qt_add_qml_module(seabass
         qml/CueFallbackNotice.qml
         qml/TrackWaveformCard.qml
         qml/PlaylistPickerCombo.qml
+        qml/PlaylistRowDelegate.qml
+        qml/PlaylistListView.qml
+        qml/AddOrMoveTrackPanel.qml
+        qml/StarRating.qml
     RESOURCES
         qml/icons/seabass_soundbass.svg
     SOURCES

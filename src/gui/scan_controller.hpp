@@ -4,6 +4,7 @@
 #include <QFutureWatcher>
 #include <QObject>
 #include <QQmlEngine>
+#include <QStringList>
 #include <QVariantMap>
 
 #include <vector>
@@ -35,6 +36,7 @@ public:
         CuesRole,
         PlaylistNamesRole,
         StreamingSourceRole,
+        RatingRole,
     };
 
     explicit TrackListModel(QObject *parent = nullptr);
@@ -128,6 +130,42 @@ public:
     // rows and disambiguate near-identical titles by file path. Capped at
     // 50 matches; a query that vague isn't narrowing anything anyway.
     Q_INVOKABLE QVariantList findMergeCandidates(const QString &query, const QString &excludeSourceId) const;
+
+    // For the "Add or Move Track" panel (Experimental): searches the full
+    // last-scanned track list (same m_allTracks findMergeCandidates()
+    // already searches, not the page's filtered/sorted `tracks` model) for
+    // tracks compatible with anchorSourceId's key/BPM, excluding streaming
+    // tracks (Engine/TIDAL) the same way findMergeCandidates() does --
+    // never worth suggesting here either. keyTiers is an additive
+    // (union) selection of domain::keyRelationMatchesAnyMode()'s own
+    // four tier names -- "match" (same key), "relative" (relative major/
+    // minor), "harmonic" (one step around the wheel, the classic
+    // harmonic-mixing move), "energymix" (the one-step energy-mix
+    // diagonal) -- a track matches if its relation to the anchor is any
+    // tier in the set. An empty keyTiers means no key filtering at all
+    // (sorted by BPM closeness instead), same vocabulary the key-tier row
+    // uses.
+    // bpmTolerancePct is a hard filter -- anything outside it is excluded,
+    // not just deprioritized. minRating <= 0 disables the rating filter.
+    // textQuery is a case-insensitive title/artist substring match, same
+    // as findMergeCandidates(). targetPlaylistName is a filter too, not
+    // just where Before/After would write: empty ("All tracks" selected)
+    // searches the whole library same as before, but a real playlist
+    // name restricts candidates to that playlist's own members -- This
+    // Playlist behaves exactly like any other filter here (key tiers,
+    // rating, BPM), not a separate write-target concept layered on top.
+    // Each result carries {sourceId, title, artist, key, keyRelation,
+    // camelotLabel, bpm, rating, artworkPath, durationSeconds,
+    // playlistNames}. camelotLabel is e.g. "8A" (empty if the key didn't
+    // parse). keyRelation is domain::keyRelationLabel() of how this
+    // track's key relates to the anchor's own key ("Same key", "Relative
+    // major/minor", ...; empty if either key didn't parse) -- shown
+    // regardless of keyTiers, including when keyTiers is empty, where
+    // it's arguably most useful since that's the one state that doesn't
+    // already filter by it.
+    Q_INVOKABLE QVariantList findCompatibleTracks(const QString &anchorSourceId, const QStringList &keyTiers,
+                                                   int minRating, double bpmTolerancePct, const QString &textQuery,
+                                                   const QString &targetPlaylistName) const;
 
     // Backs Settings' "Hide tracks from streaming services" toggle.
     // Streaming tracks (Engine/TIDAL) still show up in m_allTracks (they

@@ -57,6 +57,62 @@ Page {
 
     property int selectedPlaylistIndex: 0
 
+    // ---- Add or Move Track (Experimental, see docs/experimental-
+    // features.md) -- the playlist selection above is shared between the
+    // always-on left Pane (when this is off) and the off-canvas Drawer +
+    // the panel's own "This Playlist" chip (when it's on); the anchor
+    // properties below track whichever Browse row's edit button was last
+    // clicked, read by AddOrMoveTrackPanel to find compatible tracks. ----
+    readonly property bool addOrMoveEnabled: root.appSettingsController.experimentalFeaturesEnabled
+    // Closed by default even when the feature is on -- only the edit
+    // button (or the panel's own close button) toggles it, so turning on
+    // Experimental features doesn't itself change what Browse looks like
+    // until a track is actually being edited.
+    property bool addOrMovePanelOpen: false
+    // Starts open (matching the classic left Pane it replaces, which is
+    // always visible) -- the header pill collapses/expands it, unlike
+    // addOrMovePanelOpen above which starts collapsed.
+    property bool playlistSidebarOpen: true
+    readonly property string currentPlaylistLabel: root.selectedPlaylistIndex === 0
+        ? "All tracks" : (scanController.playlistNames[root.selectedPlaylistIndex - 1] ?? "All tracks")
+
+    // How much of Browse's own row content fits once the panel above has
+    // taken its share of the window: 2 (comfortable) shows every column,
+    // 1 (tight) drops Key/BPM/Time/Cues/Plays down to just artwork+title/
+    // artist, 0 (very tight) drops the title/artist column too, leaving
+    // only artwork -- with the full details one hover away, see that
+    // Rectangle's own tooltip below -- rather than letting every column
+    // get squeezed illegibly thin at once.
+    readonly property int browseTier: trackListView.width >= 620 ? 2 : (trackListView.width >= 340 ? 1 : 0)
+
+    property string anchorSourceId: ""
+    property string anchorTitle: ""
+    property string anchorArtist: ""
+    property string anchorKey: ""
+    property double anchorBpm: 0
+    property string anchorArtworkPath: ""
+    property var anchorPlaylistNames: []
+
+    // Toggles: clicking edit on the row that's already the open panel's
+    // anchor closes it again; clicking it on any other row (or opening
+    // fresh) sets that row as the anchor and (re)opens the panel, which
+    // then updates live since every anchor* property below is a plain
+    // binding on AddOrMoveTrackPanel's own required properties.
+    function toggleAnchor(delegate) {
+        if (root.addOrMovePanelOpen && delegate.sourceId === root.anchorSourceId) {
+            root.addOrMovePanelOpen = false;
+            return;
+        }
+        root.anchorSourceId = delegate.sourceId;
+        root.anchorTitle = delegate.title;
+        root.anchorArtist = delegate.artist;
+        root.anchorKey = delegate.key;
+        root.anchorBpm = delegate.bpm;
+        root.anchorArtworkPath = delegate.artworkPath;
+        root.anchorPlaylistNames = delegate.playlistNames;
+        root.addOrMovePanelOpen = true;
+    }
+
     function rescan() {
         selectedPlaylistIndex = 0;
         scanController.scan(root.format, root.currentPath(), root.format === "engine" ? root.rekordboxPath : "");
@@ -137,6 +193,13 @@ Page {
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 12
+                ToolButton {
+                    visible: root.addOrMoveEnabled
+                    text: (root.playlistSidebarOpen ? "◀ " : "▶ ") + root.currentPlaylistLabel
+                    ToolTip.visible: hovered
+                    ToolTip.text: root.playlistSidebarOpen ? "Collapse the playlist sidebar" : "Show the playlist sidebar"
+                    onClicked: root.playlistSidebarOpen = !root.playlistSidebarOpen
+                }
                 TextField {
                     id: searchField
                     Layout.preferredWidth: 260
@@ -209,88 +272,75 @@ Page {
         anchors.topMargin: scanController.errorMessage.length > 0 ? 40 : 0
         spacing: 0
 
-        // Left pane: playlists.
+        // Left pane: playlists -- only when Add or Move Track (Experimental)
+        // is off. When it's on, this same list lives in a collapsible
+        // SplitView pane instead (see the SplitView below), freeing this
+        // column for the new panel.
         Pane {
+            visible: !root.addOrMoveEnabled
             Layout.preferredWidth: 220
             Layout.fillHeight: true
             padding: 0
 
-            ColumnLayout {
+            PlaylistListView {
                 anchors.fill: parent
-                spacing: 0
-
-                ListView {
-                    id: playlistListView
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    clip: true
-                    ScrollBar.vertical: BigScrollBar {}
-                    property var allNames: ["All tracks"].concat(scanController.playlistNames)
-                    // Filtered by the one search field above (see its own
-                    // comment) instead of a separate field of its own.
-                    model: searchField.text.length === 0
-                        ? allNames
-                        : allNames.filter((n, i) => i === 0 || n.toLowerCase().includes(searchField.text.toLowerCase()))
-                    currentIndex: root.selectedPlaylistIndex
-
-                    // A plain Rectangle + MouseArea, not an ItemDelegate --
-                    // same reasoning and the same row idiom (alternating
-                    // shading, hover/press tint, accent border on the
-                    // selected row) as trackListView's own delegate below,
-                    // so the two lists read as one consistent visual
-                    // language instead of the playlist list looking like a
-                    // generic, unstyled menu next to it.
-                    delegate: Rectangle {
-                        id: playlistDelegate
-                        required property int index
-                        required property string modelData
-                        width: ListView.view.width
-                        height: 32
-                        readonly property bool isCurrent: ListView.isCurrentItem
-
-                        color: playlistMouseArea.pressed ? Theme.rowPressed
-                            : playlistMouseArea.containsMouse ? Theme.rowHover
-                            : (playlistDelegate.index % 2 === 0 ? Theme.rowEven : Theme.rowOdd)
-                        border.color: playlistDelegate.isCurrent ? Theme.accent : "transparent"
-                        border.width: playlistDelegate.isCurrent ? 2 : 0
-                        radius: playlistDelegate.isCurrent ? 4 : 0
-
-                        MouseArea {
-                            id: playlistMouseArea
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            onClicked: {
-                                root.selectedPlaylistIndex = playlistDelegate.index;
-                                scanController.filterByPlaylist(
-                                    playlistDelegate.index === 0 ? "" : playlistDelegate.modelData);
-                            }
-                        }
-
-                        Label {
-                            anchors.fill: parent
-                            anchors.leftMargin: 8
-                            anchors.rightMargin: 8
-                            verticalAlignment: Text.AlignVCenter
-                            elide: Text.ElideRight
-                            text: playlistDelegate.modelData + " (" + (playlistDelegate.index === 0
-                                ? scanController.totalTrackCount
-                                : (scanController.playlistTrackCounts[playlistDelegate.modelData] ?? 0)) + ")"
-                        }
-                    }
+                scanController: scanController
+                searchQuery: searchField.text
+                selectedIndex: root.selectedPlaylistIndex
+                onPlaylistPicked: (index, name) => {
+                    root.selectedPlaylistIndex = index;
+                    scanController.filterByPlaylist(index === 0 ? "" : name);
                 }
             }
         }
 
         Rectangle {
+            visible: !root.addOrMoveEnabled
             Layout.preferredWidth: 1
             Layout.fillHeight: true
             color: Theme.borderSubtle
         }
 
-        // Right pane: tracks in the selected playlist (or all tracks).
-        ColumnLayout {
+        // Right pane (tracks) and the Add or Move Track panel share a
+        // SplitView so their relative widths are user-resizable via a
+        // drag handle -- previously a fixed root.width-derived split,
+        // which is exactly what let the panel's own content end up wider
+        // than what was actually available on a narrower window.
+        SplitView {
             Layout.fillWidth: true
             Layout.fillHeight: true
+            orientation: Qt.Horizontal
+
+            handle: Rectangle {
+                implicitWidth: 4
+                color: SplitHandle.pressed || SplitHandle.hovered ? Theme.accent : Theme.borderSubtle
+            }
+
+        // Playlists sidebar (Experimental only) -- a real, resizable
+        // SplitView pane instead of the off-canvas Drawer this replaced:
+        // collapsible via the header's own pill button rather than an
+        // overlay you have to close before doing anything else. Same
+        // PlaylistListView the classic left Pane above uses.
+        Pane {
+            visible: root.addOrMoveEnabled && root.playlistSidebarOpen
+            SplitView.preferredWidth: 240
+            SplitView.minimumWidth: 160
+            padding: 0
+
+            PlaylistListView {
+                anchors.fill: parent
+                scanController: scanController
+                searchQuery: searchField.text
+                selectedIndex: root.selectedPlaylistIndex
+                onPlaylistPicked: (index, name) => {
+                    root.selectedPlaylistIndex = index;
+                    scanController.filterByPlaylist(index === 0 ? "" : name);
+                }
+            }
+        }
+
+        ColumnLayout {
+            SplitView.fillWidth: true
             spacing: 0
 
             RowLayout {
@@ -305,22 +355,29 @@ Page {
                 Layout.bottomMargin: 4
                 spacing: 8
                 Label { text: ""; Layout.preferredWidth: Theme.iconSizeNormal }
-                TableHeaderLabel { label: "Title"; Layout.fillWidth: true }
-                TableHeaderLabel { label: "Key"; Layout.preferredWidth: 50 }
-                TableHeaderLabel { label: "BPM"; Layout.preferredWidth: 50 }
-                TableHeaderLabel { label: "Time"; Layout.preferredWidth: 60 }
-                TableHeaderLabel { label: "Cues"; Layout.preferredWidth: 50 }
-                TableHeaderLabel { label: "Plays"; Layout.preferredWidth: 50 }
+                TableHeaderLabel { label: "Title"; Layout.fillWidth: true; visible: root.browseTier >= 1 }
+                TableHeaderLabel { label: "Key"; Layout.preferredWidth: 50; visible: root.browseTier >= 2 }
+                TableHeaderLabel { label: "BPM"; Layout.preferredWidth: 50; visible: root.browseTier >= 2 }
+                TableHeaderLabel { label: "Time"; Layout.preferredWidth: 60; visible: root.browseTier >= 2 }
+                TableHeaderLabel { label: "Cues"; Layout.preferredWidth: 50; visible: root.browseTier >= 2 }
+                TableHeaderLabel { label: "Plays"; Layout.preferredWidth: 50; visible: root.browseTier >= 2 }
                 // Theme.iconSizeSmall (info button) + 8 (row spacing) +
                 // Theme.iconSizeSmall (merge button), both trailing
-                // ToolButtons in the delegate below, not just one.
+                // ToolButtons in the delegate below, not just one -- five
+                // when Add or Move Track (Experimental) is on, since the
+                // edit button and the (always-present, just faded/
+                // disabled off the anchor row) reorder arrows join them.
                 // Getting this narrower than the delegate's real
                 // trailing content silently pushes every column before
                 // it out of alignment (the fill spacer above ends up
                 // absorbing a different amount of leftover space in the
                 // header than in each row), exactly what happened here
                 // before this comment existed.
-                Label { text: ""; Layout.preferredWidth: Theme.iconSizeSmall * 2 + 8 }
+                Label {
+                    text: ""
+                    Layout.preferredWidth: root.addOrMoveEnabled
+                        ? Theme.iconSizeSmall * 5 + 8 * 4 : Theme.iconSizeSmall * 2 + 8
+                }
             }
 
             ListView {
@@ -441,9 +498,19 @@ Page {
                                 source: artworkPath
                                 fillMode: Image.PreserveAspectCrop
                             }
+                            // At the narrowest tier (see root.browseTier's own
+                            // comment) every other column is squeezed out --
+                            // this hover tooltip is the only way left to see
+                            // title/artist/key/BPM/duration for this row.
+                            HoverHandler { id: artworkHoverHandler }
+                            ToolTip.visible: root.browseTier === 0 && artworkHoverHandler.hovered
+                            ToolTip.text: title + " - " + artist + "\n" + (key.length > 0 ? key : "--") + " · "
+                                + root.formatBpm(bpm) + " BPM · " + root.formatDuration(durationSeconds)
+                            ToolTip.delay: 300
                         }
 
                         ColumnLayout {
+                            visible: root.browseTier >= 1
                             Layout.fillWidth: true
                             spacing: 1
                             RowLayout {
@@ -485,11 +552,23 @@ Page {
                             }
                         }
 
-                        KeyBadge { keyName: key; notation: root.appSettingsController.keyNotation }
-                        Label { text: root.formatBpm(bpm); Layout.preferredWidth: 50 }
-                        Label { text: root.formatDuration(durationSeconds); Layout.preferredWidth: 60 }
-                        Label { text: cueCount; Layout.preferredWidth: 50 }
-                        Label { text: playCount >= 0 ? playCount : "--"; Layout.preferredWidth: 50 }
+                        KeyBadge {
+                            visible: root.browseTier >= 2
+                            keyName: key
+                            notation: root.appSettingsController.keyNotation
+                        }
+                        Label { visible: root.browseTier >= 2; text: root.formatBpm(bpm); Layout.preferredWidth: 50 }
+                        Label {
+                            visible: root.browseTier >= 2
+                            text: root.formatDuration(durationSeconds)
+                            Layout.preferredWidth: 60
+                        }
+                        Label { visible: root.browseTier >= 2; text: cueCount; Layout.preferredWidth: 50 }
+                        Label {
+                            visible: root.browseTier >= 2
+                            text: playCount >= 0 ? playCount : "--"
+                            Layout.preferredWidth: 50
+                        }
                         ToolButton {
                             text: "ⓘ"
                             Layout.preferredWidth: Theme.iconSizeSmall
@@ -510,6 +589,47 @@ Page {
                                     ? "Merging isn't supported on OneLibrary yet - switch to DeviceLibrary or Engine OS"
                                     : "Merge with another track...")
                             onClicked: mergePickerPopup.showFor(trackDelegate)
+                        }
+                        ToolButton {
+                            id: editButton
+                            visible: root.addOrMoveEnabled
+                            text: "✎"
+                            Layout.preferredWidth: Theme.iconSizeSmall
+                            ToolTip.visible: hovered
+                            ToolTip.text: "Edit position or add tracks"
+                            onClicked: root.toggleAnchor(trackDelegate)
+                        }
+                        // Nudge this row's position in root.currentPlaylistLabel --
+                        // preview only (see AddOrMoveTrackPanel's own doc
+                        // comment, no format has a playlist writer yet).
+                        // Kept in the layout at fixed width on every row
+                        // (visible, just faded/disabled off the anchor
+                        // row) rather than visible:false, so every row's
+                        // trailing columns stay aligned with the header
+                        // above -- see that Label's own comment.
+                        ToolButton {
+                            id: moveUpButton
+                            readonly property bool isAnchorRow: trackDelegate.sourceId === root.anchorSourceId
+                            visible: root.addOrMoveEnabled
+                            enabled: isAnchorRow
+                            opacity: enabled ? 1.0 : 0.25
+                            text: "▲"
+                            Layout.preferredWidth: Theme.iconSizeSmall
+                            ToolTip.visible: hovered && enabled
+                            ToolTip.text: "Move up in " + root.currentPlaylistLabel + " (preview, not saved yet)"
+                            onClicked: addOrMoveTrackPanel.previewNotSaved("moved up", trackDelegate.title)
+                        }
+                        ToolButton {
+                            id: moveDownButton
+                            readonly property bool isAnchorRow: trackDelegate.sourceId === root.anchorSourceId
+                            visible: root.addOrMoveEnabled
+                            enabled: isAnchorRow
+                            opacity: enabled ? 1.0 : 0.25
+                            text: "▼"
+                            Layout.preferredWidth: Theme.iconSizeSmall
+                            ToolTip.visible: hovered && enabled
+                            ToolTip.text: "Move down in " + root.currentPlaylistLabel + " (preview, not saved yet)"
+                            onClicked: addOrMoveTrackPanel.previewNotSaved("moved down", trackDelegate.title)
                         }
                     }
                 }
@@ -1048,6 +1168,25 @@ Page {
                 color: Theme.textMuted
             }
         }
+
+        AddOrMoveTrackPanel {
+            id: addOrMoveTrackPanel
+            visible: root.addOrMoveEnabled && root.addOrMovePanelOpen
+            SplitView.preferredWidth: Math.max(420, root.width * 0.38)
+            SplitView.minimumWidth: 420
+            scanController: scanController
+            keyNotation: root.appSettingsController.keyNotation
+            browseSelectedPlaylistIndex: root.selectedPlaylistIndex
+            anchorSourceId: root.anchorSourceId
+            anchorTitle: root.anchorTitle
+            anchorArtist: root.anchorArtist
+            anchorKey: root.anchorKey
+            anchorBpm: root.anchorBpm
+            anchorArtworkPath: root.anchorArtworkPath
+            anchorPlaylistNames: root.anchorPlaylistNames
+            onCloseRequested: root.addOrMovePanelOpen = false
+        }
+        } // SplitView
     }
 
     BusyOverlay {
