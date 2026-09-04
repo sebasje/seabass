@@ -363,6 +363,24 @@ add_executable(track_scope_test
 target_include_directories(track_scope_test PRIVATE src)
 add_test(NAME track_scope_test COMMAND track_scope_test)
 
+# library_catalog_cache.cpp lives in src/gui/ (it's the format-string ->
+# concrete-reader dispatch every controller's own scan-task function
+# already did, just consolidated) but needs no Qt itself -- realScan()/
+# realMtime() reference the rekordbox/engine/onelibrary readers directly,
+# so this links the full seabass_core (which already PUBLIC-links
+# rekordbox_format/DjInterop/SQLite3) rather than hand-picking individual
+# infrastructure .cpp files. The test itself only exercises the injected-
+# fake constructor, never realScan()/realMtime(), but the linker still
+# needs those symbols to resolve since they're compiled into the same
+# translation unit.
+add_executable(library_catalog_cache_test
+    src/gui/library_catalog_cache.cpp
+    tests/library_catalog_cache_test.cpp
+)
+target_include_directories(library_catalog_cache_test PRIVATE src)
+target_link_libraries(library_catalog_cache_test PRIVATE seabass_core Threads::Threads)
+add_test(NAME library_catalog_cache_test COMMAND library_catalog_cache_test)
+
 add_executable(fuzzy_matcher_test
     src/domain/fuzzy_matcher.cpp
     tests/fuzzy_matcher_test.cpp
