@@ -104,6 +104,15 @@ std::vector<domain::Track> LibraryCatalogCache::tracksFor(const std::string &for
     }
 
     m_entries[key].inProgress = true;
+    // Captured before releasing the lock: if invalidate() runs on another
+    // thread while this scan is in flight (e.g. a write's own
+    // invalidate() landing while a different controller's already-started
+    // scan of the same catalog is still running), it bumps m_generation[key].
+    // The write-back below only commits if nothing bumped it in the
+    // meantime -- otherwise this scan's result (which may have read data
+    // from before whatever just invalidated it) would silently overwrite
+    // the invalidation with stale data the moment it finishes.
+    const std::uint64_t generationAtStart = m_generation[key];
     lock.unlock();
 
     std::vector<domain::Track> tracks;
@@ -117,14 +126,19 @@ std::vector<domain::Track> LibraryCatalogCache::tracksFor(const std::string &for
     lock.lock();
     Entry &entry = m_entries[key];
     entry.inProgress = false;
-    if (!error) {
+    if (!error && m_generation[key] == generationAtStart) {
         entry.tracks = tracks;
         entry.mtime = currentMtime;
         entry.valid = true;
     }
-    // On error, entry is left exactly as it was: a failed re-scan
-    // shouldn't evict a previously-good cached result out from under a
-    // concurrent waiter that's about to read it.
+    // On error, or a generation bump while this scan was running, entry
+    // is left exactly as it was: neither a failed re-scan nor a
+    // superseded one should evict a previously-good cached result (or
+    // resurrect an invalidated one) out from under a concurrent waiter
+    // that's about to read it. This call's own return value below is
+    // still whatever was actually just scanned -- only the *cache* skips
+    // it, the caller still gets a real (if possibly momentarily stale)
+    // answer rather than an error.
     lock.unlock();
     m_cv.notify_all();
 
@@ -137,7 +151,12 @@ std::vector<domain::Track> LibraryCatalogCache::tracksFor(const std::string &for
 void LibraryCatalogCache::invalidate(const std::string &format, const std::string &path)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
-    m_entries.erase(keyFor(format, path));
+    const std::string key = keyFor(format, path);
+    // Bumped (never reset) so an in-flight scan of this same key started
+    // before this call can tell, once it finishes, that it's no longer
+    // safe to cache its result -- see tracksFor()'s own comment.
+    ++m_generation[key];
+    m_entries.erase(key);
 }
 
 }  // namespace seabass::gui
