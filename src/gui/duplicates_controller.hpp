@@ -104,6 +104,14 @@ class DuplicatesController : public QObject
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(int scanCurrent READ scanCurrent NOTIFY scanProgressChanged)
     Q_PROPERTY(int scanTotal READ scanTotal NOTIFY scanProgressChanged)
+    // What's actually happening right now -- e.g. "Scanning rekordbox
+    // tracks" while the reader runs (scanCurrent/scanTotal move), then
+    // "Finding duplicates..." for the grouping pass afterward (no
+    // per-item progress for that one, scanTotal resets to 0 =
+    // indeterminate). Without this, the progress bar used to sit frozen
+    // at 100% for several seconds once the raw scan finished, with no
+    // indication anything was still happening.
+    Q_PROPERTY(QString scanLabel READ scanLabel NOTIFY scanProgressChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
     Q_PROPERTY(QString statusMessage READ statusMessage NOTIFY statusMessageChanged)
     Q_PROPERTY(bool canUndo READ canUndo NOTIFY canUndoChanged)
@@ -127,6 +135,7 @@ public:
     bool writing() const { return m_writing; }
     int scanCurrent() const { return m_scanCurrent; }
     int scanTotal() const { return m_scanTotal; }
+    QString scanLabel() const { return m_scanLabel; }
     QString errorMessage() const { return m_errorMessage; }
     QString statusMessage() const { return m_statusMessage; }
     bool canUndo() const { return !m_lastBackups.empty(); }
@@ -172,6 +181,7 @@ private:
     void setBusy(bool busy);
     void setWriting(bool writing);
     void setScanProgress(int current, int total);
+    void setScanLabel(const QString &label);
     void setErrorMessage(const QString &message);
     void setStatusMessage(const QString &message);
     void startApply(std::vector<DuplicatesCopyOp> ops, bool multiGroup);
@@ -185,6 +195,7 @@ private:
     bool m_busy = false;
     int m_scanCurrent = 0;
     int m_scanTotal = 0;
+    QString m_scanLabel;
     QString m_errorMessage;
     QString m_statusMessage;
     std::vector<UndoableBackup> m_lastBackups;
