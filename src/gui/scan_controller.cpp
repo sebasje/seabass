@@ -1,13 +1,16 @@
 #include "scan_controller.hpp"
 
+#include <QRegularExpression>
 #include <QtConcurrent/QtConcurrentRun>
 
 #include <algorithm>
+#include <array>
 #include <limits>
 #include <memory>
 #include <optional>
 #include <set>
 #include <unordered_map>
+#include <utility>
 
 #include "application/use_cases/scan_library.hpp"
 #include "domain/track_matching.hpp"
@@ -351,6 +354,52 @@ std::optional<int> playlistPosition(const domain::Track &track, const std::strin
     return std::nullopt;
 }
 
+// Camelot wheel position (1..12) plus minor/major, for sorting track.key
+// harmonically instead of alphabetically -- a plain string compare puts
+// "10A" before "2A" (wrong: '1' < '2'), and scrambles traditional-notation
+// keys ("Am", "C", "F#m", ...) into note-letter order, which has nothing
+// to do with which keys actually mix well together. Mirrors Theme.qml's
+// parseCamelotKey() (kept in sync by hand -- QML can't be shared with C++
+// here), including accepting either notation track.key may already hold:
+// traditional ("Fm", engine's own "F♯m") or, on some real rekordbox
+// libraries, Camelot notation stored as the key name itself ("8A").
+std::optional<std::pair<int, bool>> camelotSortKey(const std::string &key)
+{
+    if (key.empty()) {
+        return std::nullopt;
+    }
+    QString normalized = QString::fromStdString(key).replace(QChar(0x266F), '#').replace(QChar(0x266D), 'b');
+
+    static const QRegularExpression camelotPattern(QStringLiteral("^(1[0-2]|[1-9])([AB])$"));
+    auto camelotMatch = camelotPattern.match(normalized);
+    if (camelotMatch.hasMatch()) {
+        int camelotNumber = camelotMatch.captured(1).toInt();
+        bool isMinor = camelotMatch.captured(2) == QStringLiteral("A");
+        return std::make_pair(camelotNumber, isMinor);
+    }
+
+    static const std::unordered_map<std::string, int> pitchClassByName = {
+        {"C", 0}, {"B#", 0}, {"C#", 1}, {"Db", 1}, {"D", 2}, {"D#", 3}, {"Eb", 3}, {"E", 4}, {"Fb", 4},
+        {"F", 5}, {"E#", 5}, {"F#", 6}, {"Gb", 6}, {"G", 7}, {"G#", 8}, {"Ab", 8}, {"A", 9},
+        {"A#", 10}, {"Bb", 10}, {"B", 11}, {"Cb", 11},
+    };
+    // Pitch class -> Camelot number, one table per mode (see Theme.qml's
+    // own comment: derived from the wheel's relative-major/minor pairing).
+    static const std::array<int, 12> camelotMinorByPitchClass = {5, 12, 7, 2, 9, 4, 11, 6, 1, 8, 3, 10};
+    static const std::array<int, 12> camelotMajorByPitchClass = {8, 3, 10, 5, 12, 7, 2, 9, 4, 11, 6, 1};
+
+    std::string normalizedStd = normalized.toStdString();
+    bool isMinor = normalizedStd.size() > 1 && normalizedStd.back() == 'm';
+    std::string notePart = isMinor ? normalizedStd.substr(0, normalizedStd.size() - 1) : normalizedStd;
+    auto pitchClassIt = pitchClassByName.find(notePart);
+    if (pitchClassIt == pitchClassByName.end()) {
+        return std::nullopt;
+    }
+    int camelotNumber = isMinor ? camelotMinorByPitchClass[static_cast<size_t>(pitchClassIt->second)]
+                                 : camelotMajorByPitchClass[static_cast<size_t>(pitchClassIt->second)];
+    return std::make_pair(camelotNumber, isMinor);
+}
+
 }  // namespace
 
 void ScanController::applyFilters()
@@ -403,7 +452,13 @@ void ScanController::applyFilters()
             return a.artist < b.artist;
         }
         if (m_sortField == "key") {
-            return a.key < b.key;
+            // Unparseable/missing keys sort as the lowest wheel position
+            // (mirrors "plays"'s value_or(-1) sentinel below), so they
+            // consistently land at one end rather than being scattered
+            // alphabetically as plain strings would.
+            auto keyA = camelotSortKey(a.key).value_or(std::make_pair(0, false));
+            auto keyB = camelotSortKey(b.key).value_or(std::make_pair(0, false));
+            return keyA < keyB;
         }
         if (m_sortField == "bpm") {
             return a.bpm < b.bpm;
