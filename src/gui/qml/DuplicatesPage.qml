@@ -317,6 +317,12 @@ Page {
         busy: duplicatesController.busy
         current: duplicatesController.scanCurrent
         total: duplicatesController.scanTotal
-        label: duplicatesController.writing ? "Writing cues..." : "Scanning for duplicates..."
+        // duplicatesController.scanLabel tracks the real current phase
+        // ("Scanning rekordbox tracks", then "Finding duplicates..." for
+        // the grouping pass that used to leave this stuck at a frozen
+        // 100% with no explanation) -- falls back to a generic label only
+        // for the brief window before the first phase has reported in.
+        label: duplicatesController.writing ? "Writing cues..."
+            : (duplicatesController.scanLabel.length > 0 ? duplicatesController.scanLabel : "Scanning for duplicates...")
     }
 }

@@ -381,6 +381,12 @@ DuplicatesTaskResult runRescanTask(QString format, QString path, std::shared_ptr
                                      [](const domain::Track &t) { return !t.streamingSource.empty(); }),
                      tracks.end());
 
+        // No per-item progress for this pass (it's not a simple linear
+        // scan), but the label change alone is the actual fix: without
+        // it, the progress bar sat frozen at 100% -- the raw file scan's
+        // own end state -- for however long grouping took on a real
+        // library, with nothing telling the user it was still working.
+        reporter->start("Finding duplicates...", 0);
         auto allPlans = application::ConsolidateDuplicateCues().execute(tracks);
         std::vector<ConsolidationPlan> actionable;
         for (auto &plan : allPlans) {
@@ -450,8 +456,10 @@ void DuplicatesController::rescan()
 std::shared_ptr<QtProgressReporter> DuplicatesController::makeReporter()
 {
     auto reporter = std::make_shared<QtProgressReporter>();
-    connect(reporter.get(), &QtProgressReporter::started, this,
-            [this](const QString &, int total) { setScanProgress(0, total); });
+    connect(reporter.get(), &QtProgressReporter::started, this, [this](const QString &label, int total) {
+        setScanLabel(label);
+        setScanProgress(0, total);
+    });
     connect(reporter.get(), &QtProgressReporter::progressed, this,
             [this](int current) { setScanProgress(current, m_scanTotal); });
     return reporter;
@@ -610,6 +618,15 @@ void DuplicatesController::setScanProgress(int current, int total)
     }
     m_scanCurrent = current;
     m_scanTotal = total;
+    emit scanProgressChanged();
+}
+
+void DuplicatesController::setScanLabel(const QString &label)
+{
+    if (m_scanLabel == label) {
+        return;
+    }
+    m_scanLabel = label;
     emit scanProgressChanged();
 }
 
