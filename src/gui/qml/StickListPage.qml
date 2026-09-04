@@ -66,7 +66,7 @@ Page {
 
         RowLayout {
             PageTitle {
-                text: "USB Sticks"
+                text: "Home"
                 level: "page"
             }
             Item { Layout.fillWidth: true }

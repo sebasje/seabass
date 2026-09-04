@@ -29,15 +29,11 @@ Page {
             anchors.fill: parent
             anchors.margins: 10
             spacing: 12
-            ToolButton {
-                text: "‹"
-                font.pointSize: Theme.fontHuge
-                ToolTip.visible: hovered
-                ToolTip.text: "Back"
-                onClicked: root.StackView.view.pop()
-            }
-            PageTitle {
-                text: root.stickLabel + " · Backups"
+            BackBreadcrumb {
+                middleLabel: root.stickLabel
+                title: "Backups"
+                onHomeRequested: root.StackView.view.pop(null)
+                onBackRequested: root.StackView.view.pop()
             }
             Item { Layout.fillWidth: true }
         }

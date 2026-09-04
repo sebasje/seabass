@@ -68,15 +68,11 @@ Page {
             anchors.fill: parent
             anchors.margins: 10
             spacing: 12
-            ToolButton {
-                text: "‹"
-                font.pointSize: Theme.fontHuge
-                ToolTip.visible: hovered
-                ToolTip.text: "Back"
-                onClicked: root.StackView.view.pop()
-            }
-            PageTitle {
-                text: root.stickLabel + " · Clean-up and Housekeeping"
+            BackBreadcrumb {
+                middleLabel: root.stickLabel
+                title: "Clean-up and Housekeeping"
+                onHomeRequested: root.StackView.view.pop(null)
+                onBackRequested: root.StackView.view.pop()
             }
             Item { Layout.fillWidth: true }
         }
@@ -113,7 +109,7 @@ Page {
         }
         ActionCard {
             cardTitle: "Clean Up Stray Cues"
-            cardSubtitle: "Remove memory cues sitting at 0:00 -- almost always accidental"
+            cardSubtitle: "Remove memory cues sitting at 0:00, almost always accidental"
             cardIcon: "🧽"
             enabled: root.hasRekordbox || root.hasEngine
             onClicked: root.junkCueCleanupRequested(root.stickLabel, root.rekordboxPath, root.enginePath)

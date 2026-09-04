@@ -47,17 +47,12 @@ Page {
             anchors.fill: parent
             anchors.margins: 10
             spacing: 12
-            ToolButton {
-                text: "‹"
-                font.pointSize: Theme.fontHuge
-                enabled: !cleanupController.writing
-                ToolTip.visible: hovered
-                ToolTip.text: cleanupController.writing
-                    ? "Wait for the write to finish before leaving this page" : "Back"
-                onClicked: root.StackView.view.pop()
-            }
-            PageTitle {
-                text: root.stickLabel + " · Delete Orphaned Files"
+            BackBreadcrumb {
+                middleLabel: "Clean-up and Housekeeping"
+                title: "Delete Orphaned Files"
+                backEnabled: !cleanupController.writing
+                onHomeRequested: root.StackView.view.pop(null)
+                onBackRequested: root.StackView.view.pop()
             }
             Item { Layout.fillWidth: true }
             FormatToggle {
@@ -84,11 +79,11 @@ Page {
             width: parent.width
             wrapMode: Text.WordWrap
             text: "This frees " + cleanupController.includedPendingBytesHuman + ". Each selected file is "
-                + "re-verified against the current library right before deletion -- if anything still "
+                + "re-verified against the current library right before deletion: if anything still "
                 + "references it, it's left alone and reported instead of deleted.\n\n"
                 + "This step is irreversible: a deleted file is gone. The library-database edit that "
                 + "originally orphaned it was already backed up separately, when the duplicate was first "
-                + "cleaned up -- that backup restores the database entry, not this file."
+                + "cleaned up; that backup restores the database entry, not this file."
         }
     }
 
@@ -99,7 +94,7 @@ Page {
 
         StickWriteWarning {
             visible: cleanupController.writing
-            text: "Deleting orphaned files -- do not remove the stick until this finishes."
+            text: "Deleting orphaned files. Do not remove the stick until this finishes."
         }
 
         Label {
@@ -126,7 +121,7 @@ Page {
             }
             Label {
                 visible: pendingListView.count > 0
-                text: "-- " + cleanupController.totalPendingBytesHuman + " total"
+                text: "(" + cleanupController.totalPendingBytesHuman + " total)"
                 color: Theme.textMuted
             }
             Item { Layout.fillWidth: true }
@@ -184,7 +179,7 @@ Page {
                         ToolTip.text: "Include this file in the next deletion"
                     }
                     Label {
-                        text: pendingDelegate.title + " -- " + pendingDelegate.artist
+                        text: pendingDelegate.title + " - " + pendingDelegate.artist
                         elide: Text.ElideRight
                         Layout.preferredWidth: 260
                     }
@@ -206,7 +201,7 @@ Page {
             Label {
                 anchors.centerIn: parent
                 visible: pendingListView.count === 0 && !cleanupController.busy
-                text: "Nothing orphaned -- every earlier cleanup's files are either still in use or already deleted."
+                text: "Nothing orphaned: every earlier cleanup's files are either still in use or already deleted."
                 color: Theme.textMuted
             }
         }

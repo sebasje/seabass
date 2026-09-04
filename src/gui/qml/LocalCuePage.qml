@@ -101,17 +101,12 @@ Page {
             anchors.fill: parent
             anchors.margins: 10
             spacing: 12
-            ToolButton {
-                text: "‹"
-                font.pointSize: Theme.fontHuge
-                enabled: !localCueController.writing
-                ToolTip.visible: hovered
-                ToolTip.text: localCueController.writing
-                    ? "Wait for the write to finish before leaving this page" : "Back"
-                onClicked: root.StackView.view.pop()
-            }
-            PageTitle {
-                text: root.stickLabel + " · Local Cue Backup"
+            BackBreadcrumb {
+                middleLabel: "Backups"
+                title: "Local Cue Backup"
+                backEnabled: !localCueController.writing
+                onHomeRequested: root.StackView.view.pop(null)
+                onBackRequested: root.StackView.view.pop()
             }
             Item { Layout.fillWidth: true }
         }
@@ -132,14 +127,14 @@ Page {
         ColumnLayout {
             spacing: 8
             Label {
-                text: "Add new cues from this computer's backup onto " + restoreListView.count + " track(s) -- "
+                text: "Add new cues from this computer's backup onto " + restoreListView.count + " track(s): "
                     + "any cue already on the stick is kept exactly as it is, never overwritten."
                     + (confirmDialog.sourceDescription.length > 0
                         ? "\nSource: " + confirmDialog.sourceDescription : "")
                 wrapMode: Text.WordWrap
             }
             Label {
-                text: "The stick is backed up before anything is written -- once this finishes, "
+                text: "The stick is backed up before anything is written; once this finishes, "
                     + "\"Undo\" reverts every file it touched. Do not remove the stick while it's running."
                 color: Theme.textMuted
                 wrapMode: Text.WordWrap
@@ -176,7 +171,7 @@ Page {
 
         StickWriteWarning {
             visible: localCueController.writing
-            text: "Writing cues to the stick -- do not remove it until this finishes."
+            text: "Writing cues to the stick. Do not remove it until this finishes."
         }
 
         // No inline error/status Label here -- the MessagePopup declared above
@@ -241,7 +236,7 @@ Page {
 
                 Label { text: "Backup History"; font.bold: true }
                 Label {
-                    text: "Each backup here is frozen at the moment it was made -- restoring from one "
+                    text: "Each backup here is frozen at the moment it was made: restoring from one "
                         + "always uses exactly that snapshot, even if newer backups exist."
                     color: Theme.textMuted
                     wrapMode: Text.WordWrap
@@ -333,7 +328,7 @@ Page {
                     Label {
                         anchors.centerIn: parent
                         visible: snapshotListView.count === 0
-                        text: "No backups yet -- click \"Backup Now\" above to create the first one."
+                        text: "No backups yet. Click \"Backup Now\" above to create the first one."
                         color: Theme.textMuted
                     }
                 }
@@ -423,7 +418,7 @@ Page {
 
                         contentItem: ColumnLayout {
                             spacing: 2
-                            Label { text: title.length > 0 ? (title + " -- " + artist) : filename; font.bold: true }
+                            Label { text: title.length > 0 ? (title + " - " + artist) : filename; font.bold: true }
                             Label { text: description + " new cue(s) would be added"; color: Theme.textMuted }
                         }
                     }
@@ -431,7 +426,7 @@ Page {
                     Label {
                         anchors.centerIn: parent
                         visible: restoreListView.count === 0 && !localCueController.busy
-                        text: "Nothing to merge -- either the stick already has every cue this backup offers,\nor none of its tracks match one backed up on this computer."
+                        text: "Nothing to merge: either the stick already has every cue this backup offers,\nor none of its tracks match one backed up on this computer."
                         horizontalAlignment: Text.AlignHCenter
                         color: Theme.textMuted
                     }

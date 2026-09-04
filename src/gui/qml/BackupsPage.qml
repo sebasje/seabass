@@ -66,19 +66,12 @@ Page {
         RowLayout {
             anchors.fill: parent
             anchors.margins: 8
-            ToolButton {
-                text: "‹"
-
-                font.pointSize: Theme.fontHuge
-                enabled: !backupsController.busy
-
-                ToolTip.visible: hovered
-
-                ToolTip.text: backupsController.busy ? "Wait for the write to finish before leaving this page" : "Back"
-                onClicked: root.StackView.view.pop()
-            }
-            PageTitle {
-                text: root.stickLabel + " · Backups"
+            BackBreadcrumb {
+                middleLabel: "Backups"
+                title: "Manage Backups"
+                backEnabled: !backupsController.busy
+                onHomeRequested: root.StackView.view.pop(null)
+                onBackRequested: root.StackView.view.pop()
             }
             Item { Layout.fillWidth: true }
             Label { text: "Keep:" }
@@ -94,7 +87,7 @@ Page {
                 text: "Clean Up"
                 enabled: !backupsController.busy && backupsListView.count > 0
                 ToolTip.visible: hovered
-                ToolTip.text: "Permanently delete older backup copies -- never touches the stick's live data"
+                ToolTip.text: "Permanently delete older backup copies; never touches the stick's live data"
                 onClicked: confirmCleanDialog.open()
             }
             BusyIndicator {
@@ -182,7 +175,7 @@ Page {
             Layout.fillWidth: true
         }
         Label {
-            text: backupsListView.count + " backup(s), " + backupsController.totalSizeHuman + " total -- " + backupsController.backupDir
+            text: backupsListView.count + " backup(s), " + backupsController.totalSizeHuman + " total: " + backupsController.backupDir
             color: Theme.textMuted
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
@@ -216,7 +209,7 @@ Page {
                 ToolTip.visible: hovered
                 ToolTip.text: "ID: " + backupDelegate.id + "\nReason: " + backupDelegate.label
                     + "\nFiles: " + (backupDelegate.fileNames.length > 0
-                        ? root.friendlyFileNames(backupDelegate.fileNames) : "(unknown -- predates file tracking)")
+                        ? root.friendlyFileNames(backupDelegate.fileNames) : "(unknown, predates file tracking)")
 
                 contentItem: ColumnLayout {
                     id: backupContent
@@ -225,7 +218,7 @@ Page {
                         Layout.fillWidth: true
                         spacing: 8
                         Label {
-                            text: root.friendlyTimestamp(backupDelegate.id) + "  --  " + root.friendlyReason(backupDelegate.label)
+                            text: root.friendlyTimestamp(backupDelegate.id) + "  ·  " + root.friendlyReason(backupDelegate.label)
                             Layout.preferredWidth: 320
                             elide: Text.ElideRight
                         }
