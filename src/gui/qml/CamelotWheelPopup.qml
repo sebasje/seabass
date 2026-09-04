@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import SeabassGui
 
 // A visual Camelot wheel, opened by clicking any KeyBadge: a pure
 // reference, not an input -- it shows how every position relates to the
