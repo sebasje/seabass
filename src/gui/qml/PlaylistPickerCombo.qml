@@ -17,7 +17,10 @@ import SeabassGui
 // reasonable follow-up cleanup, not a redesign.
 ComboBox {
     id: root
-    property var model: []
+    // No local `model` property here -- ComboBox already declares one
+    // (FINAL in Qt 6, so redeclaring it is a hard QML error, not just
+    // shadowing); callers set the inherited one directly, same as they
+    // would on a plain ComboBox.
     signal playlistPicked(int index, var modelData)
 
     textRole: "name"
