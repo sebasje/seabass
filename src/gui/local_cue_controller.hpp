@@ -54,9 +54,10 @@ struct LocalCueTaskResult
     // backupToComputer: tracks upserted for each format actually present on
     // the stick, -1 for a format the stick doesn't have (so the UI can tell
     // "backed up 0 tracks" apart from "this stick has no Engine data").
-    // analyzeRestore: both unused.
+    // analyzeRestore: all three unused.
     int tracksAffectedRekordbox = -1;
     int tracksAffectedEngine = -1;
+    int tracksAffectedOneLibrary = -1;
     int stickTrackCount = 0;
     int localTrackCount = 0;
     std::vector<domain::RestoreCandidate> candidates;
@@ -128,16 +129,30 @@ public:
     // and freezes an independently-restorable snapshot of each under
     // `description`.
     Q_INVOKABLE void backupToComputer(const QString &stickLabel, const QString &description,
-                                       const QString &rekordboxPath, const QString &enginePath);
+                                       const QString &rekordboxPath, const QString &enginePath,
+                                       const QString &oneLibraryPath = QString());
+
+    // Same convention as CleanupController::hasOneLibrary()/
+    // DuplicatesController::hasOneLibrary()/ScanController::hasOneLibrary().
+    Q_INVOKABLE bool hasOneLibrary(const QString &pioneerRoot) const;
 
     // Phase 1 (read-only): scans the stick and matches it against the
     // local backup's merged "current state," proposing to merge in
     // whichever cues the backup has that the stick doesn't yet (see
-    // domain::LocalRestorePlanner::mergeCues()).
-    Q_INVOKABLE void analyzeRestore(const QString &format, const QString &path);
+    // domain::LocalRestorePlanner::mergeCues()). reportFeedback controls
+    // whether the outcome (found N / found nothing / busy / failed) is
+    // announced via actionFeedback -- false for the automatic calls this
+    // class makes itself (page load, format switch, the silent re-scan
+    // after a successful write), true for a direct user click ("Re-Analyze
+    // Latest"), so an automatic background refresh never pops up a message
+    // the user didn't ask for, while a button they actually pressed always
+    // gets a reaction, even a no-op one.
+    Q_INVOKABLE void analyzeRestore(const QString &format, const QString &path, bool reportFeedback = false);
 
     // Same as analyzeRestore(), but matches against one specific past
-    // snapshot instead of the merged current state.
+    // snapshot instead of the merged current state. Always user-initiated
+    // (the "Restore From Here" button, never called automatically), so
+    // always reports feedback.
     Q_INVOKABLE void analyzeSnapshotRestore(qint64 snapshotId, const QString &format, const QString &path);
 
     // Phase 2 (the confirmation gate) + phase 3: backs up the stick, then
@@ -165,6 +180,15 @@ signals:
     void statusMessageChanged();
     void canUndoChanged();
     void writingChanged();
+    // The one signal LocalCuePage.qml's popup actually listens to.
+    // Unlike a Q_PROPERTY change notification (errorMessage/statusMessage
+    // above), which only fires when the new value differs from the old
+    // one, this fires on every single emission -- including two outcomes
+    // in a row with identical text (e.g. "Restore From Here" on two
+    // different snapshots that both turn out to offer nothing new) and a
+    // busy-guard no-op, both of which a diffed property would risk
+    // silently swallowing. isError just picks the popup's color.
+    void actionFeedback(const QString &message, bool isError);
 
 private:
     void onBackupFinished();
@@ -192,6 +216,11 @@ private:
     QString m_statusMessage;
     std::vector<UndoableBackup> m_lastBackups;
     bool m_writing = false;
+    // Set right before kicking off the analyze task in flight, read back
+    // in onAnalyzeFinished() once it completes -- see analyzeRestore()'s
+    // own doc comment on why this needs to travel with the specific
+    // request, not just be inferred from context.
+    bool m_analyzeReportsFeedback = false;
 };
 
 }  // namespace seabass::gui
