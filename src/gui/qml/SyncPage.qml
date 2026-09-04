@@ -313,8 +313,18 @@ Page {
                                     text: root.conflictHeading(conflictCard.modelData)
                                 }
                                 StatusBadge {
-                                    label: "⚠ Conflict"
-                                    badgeColor: Theme.warnText
+                                    // Same "CONFLICT" wording and
+                                    // dedicated conflictText color
+                                    // LibraryConsistencyPage's own
+                                    // conflict badge uses -- warnText is
+                                    // the generic "needs attention" color
+                                    // (still used for this section's
+                                    // header/card chrome above and
+                                    // below), conflictText is Theme.qml's
+                                    // own dedicated "these two things
+                                    // disagree" token.
+                                    label: "CONFLICT"
+                                    badgeColor: Theme.conflictText
                                     // Spells out the actual conflicting
                                     // options, not just which two formats
                                     // disagree -- so the choice below
