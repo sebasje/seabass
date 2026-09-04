@@ -268,6 +268,20 @@ ApplicationWindow {
         ScanPage {
             playbackController: playbackCtrl
             appSettingsController: appSettingsCtrl
+            onTrackDetailRequested: (scanController, trackIndex, format, libraryPath) => stackView.push(trackDetailPageComponent, {
+                scanController: scanController,
+                trackIndex: trackIndex,
+                format: format,
+                libraryPath: libraryPath,
+            })
+        }
+    }
+
+    Component {
+        id: trackDetailPageComponent
+        TrackDetailPage {
+            playbackController: playbackCtrl
+            appSettingsController: appSettingsCtrl
         }
     }
 

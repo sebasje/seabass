@@ -119,6 +119,20 @@ void TrackListModel::setTracks(std::vector<domain::Track> tracks)
     endResetModel();
 }
 
+QVariantMap TrackListModel::trackAt(int index) const
+{
+    QVariantMap m;
+    if (index < 0 || static_cast<size_t>(index) >= m_tracks.size()) {
+        return m;
+    }
+    const QModelIndex idx = createIndex(index, 0);
+    const auto roles = roleNames();
+    for (auto it = roles.constBegin(); it != roles.constEnd(); ++it) {
+        m[QString::fromUtf8(it.value())] = data(idx, it.key());
+    }
+    return m;
+}
+
 namespace
 {
 
@@ -555,6 +569,35 @@ QVariantList ScanController::findCompatibleTracks(const QString &anchorSourceId,
         }
     }
     return result;
+}
+
+QVariantMap ScanController::keyRelation(const QString &keyA, const QString &keyB) const
+{
+    domain::KeyRelation relation = domain::classifyKeyRelation(keyA.toStdString(), keyB.toStdString());
+    QVariantMap m;
+    m["label"] = QString::fromStdString(domain::keyRelationLabel(relation));
+    switch (relation) {
+    case domain::KeyRelation::Same:
+        m["relation"] = QStringLiteral("same");
+        break;
+    case domain::KeyRelation::Relative:
+        m["relation"] = QStringLiteral("relative");
+        break;
+    case domain::KeyRelation::Adjacent:
+        m["relation"] = QStringLiteral("adjacent");
+        break;
+    case domain::KeyRelation::EnergyMix:
+        m["relation"] = QStringLiteral("energymix");
+        break;
+    case domain::KeyRelation::Unrelated:
+        m["relation"] = QStringLiteral("unrelated");
+        break;
+    case domain::KeyRelation::Unknown:
+    default:
+        m["relation"] = QStringLiteral("unknown");
+        break;
+    }
+    return m;
 }
 
 void ScanController::setBusy(bool busy)
