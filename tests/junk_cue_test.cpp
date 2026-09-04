@@ -63,6 +63,31 @@ int main()
         std::cout << "case 3 (memory cue away from 0:00 is not flagged) OK\n";
     }
 
+    // Case 3b: a memory cue near, but not exactly at, 0:00 is still junk --
+    // real Engine data has main_cue land a few hundred ms in (its own
+    // analysis picks the first detected beat/transient, not sample 0),
+    // and every mm:ss display in this app floors to "0:00" for anything
+    // under a second, so the two must agree on what "at 0:00" means.
+    {
+        std::vector<Track> tracks = {
+            makeTrack("a", "Song", "Artist", {makeCue(CuePoint::Kind::Memory, 539.0)}),
+        };
+        auto issues = JunkCueFinder::find(tracks);
+        assert(issues.size() == 1);
+        std::cout << "case 3b (memory cue at 539ms, displays as 0:00, is flagged) OK\n";
+    }
+
+    // Case 3c: a memory cue right at the 1-second boundary is not junk --
+    // it displays as "0:01", genuinely a different, deliberate position.
+    {
+        std::vector<Track> tracks = {
+            makeTrack("a", "Song", "Artist", {makeCue(CuePoint::Kind::Memory, 1000.0)}),
+        };
+        auto issues = JunkCueFinder::find(tracks);
+        assert(issues.empty());
+        std::cout << "case 3c (memory cue at exactly 1000ms, displays as 0:01, is not flagged) OK\n";
+    }
+
     // Case 4: multiple tracks, multiple cues, only the matching ones surface.
     {
         std::vector<Track> tracks = {
