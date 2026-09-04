@@ -1,10 +1,8 @@
 #include "scan_controller.hpp"
 
-#include <QRegularExpression>
 #include <QtConcurrent/QtConcurrentRun>
 
 #include <algorithm>
-#include <array>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -13,6 +11,7 @@
 #include <utility>
 
 #include "application/use_cases/scan_library.hpp"
+#include "domain/camelot_key.hpp"
 #include "domain/track_matching.hpp"
 #include "domain/track_scope.hpp"
 #include "gui/local_file_url.hpp"
@@ -86,6 +85,8 @@ QVariant TrackListModel::data(const QModelIndex &index, int role) const
     }
     case StreamingSourceRole:
         return QString::fromStdString(track.streamingSource);
+    case RatingRole:
+        return track.rating ? *track.rating : -1;
     default:
         return {};
     }
@@ -107,6 +108,7 @@ QHash<int, QByteArray> TrackListModel::roleNames() const
         {CuesRole, "cues"},
         {PlaylistNamesRole, "playlistNames"},
         {StreamingSourceRole, "streamingSource"},
+        {RatingRole, "rating"},
     };
 }
 
@@ -355,52 +357,6 @@ std::optional<int> playlistPosition(const domain::Track &track, const std::strin
     return std::nullopt;
 }
 
-// Camelot wheel position (1..12) plus minor/major, for sorting track.key
-// harmonically instead of alphabetically -- a plain string compare puts
-// "10A" before "2A" (wrong: '1' < '2'), and scrambles traditional-notation
-// keys ("Am", "C", "F#m", ...) into note-letter order, which has nothing
-// to do with which keys actually mix well together. Mirrors Theme.qml's
-// parseCamelotKey() (kept in sync by hand -- QML can't be shared with C++
-// here), including accepting either notation track.key may already hold:
-// traditional ("Fm", engine's own "F♯m") or, on some real rekordbox
-// libraries, Camelot notation stored as the key name itself ("8A").
-std::optional<std::pair<int, bool>> camelotSortKey(const std::string &key)
-{
-    if (key.empty()) {
-        return std::nullopt;
-    }
-    QString normalized = QString::fromStdString(key).replace(QChar(0x266F), '#').replace(QChar(0x266D), 'b');
-
-    static const QRegularExpression camelotPattern(QStringLiteral("^(1[0-2]|[1-9])([AB])$"));
-    auto camelotMatch = camelotPattern.match(normalized);
-    if (camelotMatch.hasMatch()) {
-        int camelotNumber = camelotMatch.captured(1).toInt();
-        bool isMinor = camelotMatch.captured(2) == QStringLiteral("A");
-        return std::make_pair(camelotNumber, isMinor);
-    }
-
-    static const std::unordered_map<std::string, int> pitchClassByName = {
-        {"C", 0}, {"B#", 0}, {"C#", 1}, {"Db", 1}, {"D", 2}, {"D#", 3}, {"Eb", 3}, {"E", 4}, {"Fb", 4},
-        {"F", 5}, {"E#", 5}, {"F#", 6}, {"Gb", 6}, {"G", 7}, {"G#", 8}, {"Ab", 8}, {"A", 9},
-        {"A#", 10}, {"Bb", 10}, {"B", 11}, {"Cb", 11},
-    };
-    // Pitch class -> Camelot number, one table per mode (see Theme.qml's
-    // own comment: derived from the wheel's relative-major/minor pairing).
-    static const std::array<int, 12> camelotMinorByPitchClass = {5, 12, 7, 2, 9, 4, 11, 6, 1, 8, 3, 10};
-    static const std::array<int, 12> camelotMajorByPitchClass = {8, 3, 10, 5, 12, 7, 2, 9, 4, 11, 6, 1};
-
-    std::string normalizedStd = normalized.toStdString();
-    bool isMinor = normalizedStd.size() > 1 && normalizedStd.back() == 'm';
-    std::string notePart = isMinor ? normalizedStd.substr(0, normalizedStd.size() - 1) : normalizedStd;
-    auto pitchClassIt = pitchClassByName.find(notePart);
-    if (pitchClassIt == pitchClassByName.end()) {
-        return std::nullopt;
-    }
-    int camelotNumber = isMinor ? camelotMinorByPitchClass[static_cast<size_t>(pitchClassIt->second)]
-                                 : camelotMajorByPitchClass[static_cast<size_t>(pitchClassIt->second)];
-    return std::make_pair(camelotNumber, isMinor);
-}
-
 }  // namespace
 
 void ScanController::applyFilters()
@@ -459,9 +415,9 @@ void ScanController::applyFilters()
             // (mirrors "plays"'s value_or(-1) sentinel below), so they
             // consistently land at one end rather than being scattered
             // alphabetically as plain strings would.
-            auto keyA = camelotSortKey(a.key).value_or(std::make_pair(0, false));
-            auto keyB = camelotSortKey(b.key).value_or(std::make_pair(0, false));
-            return keyA < keyB;
+            auto parsedA = domain::CamelotKey::parse(a.key).value_or(domain::CamelotKey{});
+            auto parsedB = domain::CamelotKey::parse(b.key).value_or(domain::CamelotKey{});
+            return std::make_pair(parsedA.number, parsedA.isMinor) < std::make_pair(parsedB.number, parsedB.isMinor);
         }
         if (m_sortField == "bpm") {
             return a.bpm < b.bpm;
@@ -487,6 +443,118 @@ void ScanController::applyFilters()
     });
 
     m_model.setTracks(std::move(result));
+}
+
+QVariantList ScanController::findCompatibleTracks(const QString &anchorSourceId, const QStringList &keyTiers,
+                                                    int minRating, double bpmTolerancePct, const QString &textQuery,
+                                                    const QString &targetPlaylistName) const
+{
+    QVariantList result;
+    std::string anchorId = anchorSourceId.toStdString();
+    const domain::Track *anchor = nullptr;
+    for (const auto &track : m_allTracks) {
+        if (track.sourceId == anchorId) {
+            anchor = &track;
+            break;
+        }
+    }
+    if (!anchor) {
+        return result;
+    }
+
+    std::vector<std::string> tiers;
+    tiers.reserve(static_cast<size_t>(keyTiers.size()));
+    for (const auto &tier : keyTiers) {
+        tiers.push_back(tier.toStdString());
+    }
+    bool keyFilterActive = !tiers.empty();
+    std::string targetPlaylist = targetPlaylistName.toStdString();
+    QString lowerQuery = textQuery.toLower();
+    double bpmLow = anchor->bpm * (1.0 - bpmTolerancePct / 100.0);
+    double bpmHigh = anchor->bpm * (1.0 + bpmTolerancePct / 100.0);
+
+    // Sorted by key relation (closer first, per KeyRelation's own
+    // declaration order -- see camelot_key.hpp) then BPM distance from
+    // the anchor; Ignore Key sorts by BPM distance alone, since key
+    // relation isn't a filter in that mode and isn't a meaningful order
+    // either.
+    std::vector<std::pair<domain::KeyRelation, const domain::Track *>> ranked;
+    for (const auto &track : m_allTracks) {
+        if (track.sourceId == anchorId) {
+            continue;
+        }
+        // Streaming tracks (Engine/TIDAL) are valid playlist members in
+        // principle, but never worth surfacing as a "compatible track to
+        // add" suggestion here -- see findMergeCandidates()'s own
+        // identical exclusion just above.
+        if (!track.streamingSource.empty()) {
+            continue;
+        }
+        domain::KeyRelation relation = domain::classifyKeyRelation(track.key, anchor->key);
+        if (!domain::keyRelationMatchesAnyMode(relation, tiers)) {
+            continue;
+        }
+        if (track.bpm < bpmLow || track.bpm > bpmHigh) {
+            continue;
+        }
+        if (minRating > 0 && (!track.rating || *track.rating < minRating)) {
+            continue;
+        }
+        if (!lowerQuery.isEmpty()) {
+            QString title = QString::fromStdString(track.title).toLower();
+            QString artist = QString::fromStdString(track.artist).toLower();
+            if (!title.contains(lowerQuery) && !artist.contains(lowerQuery)) {
+                continue;
+            }
+        }
+        // This Playlist is a filter like any other here, not just the
+        // write target: with a real playlist selected (not "All
+        // tracks"), Matching Tracks is scoped to that playlist's own
+        // members -- finding a track to reorder within it, never one to
+        // pull in from elsewhere. Only with "All tracks" selected
+        // (targetPlaylist empty) does the search range over the whole
+        // library, but Before/After also has nowhere real to write in
+        // that case (see AddOrMoveTrackPanel.qml's hasTarget).
+        if (!targetPlaylist.empty() && !playlistPosition(track, targetPlaylist).has_value()) {
+            continue;
+        }
+        ranked.emplace_back(relation, &track);
+    }
+    std::stable_sort(ranked.begin(), ranked.end(), [anchor, keyFilterActive](const auto &a, const auto &b) {
+        if (keyFilterActive && a.first != b.first) {
+            return static_cast<int>(a.first) < static_cast<int>(b.first);
+        }
+        double bpmDistanceA = a.second->bpm > anchor->bpm ? a.second->bpm - anchor->bpm : anchor->bpm - a.second->bpm;
+        double bpmDistanceB = b.second->bpm > anchor->bpm ? b.second->bpm - anchor->bpm : anchor->bpm - b.second->bpm;
+        return bpmDistanceA < bpmDistanceB;
+    });
+
+    for (const auto &[relation, trackPtr] : ranked) {
+        const domain::Track &track = *trackPtr;
+        QVariantMap m;
+        m["sourceId"] = QString::fromStdString(track.sourceId);
+        m["title"] = QString::fromStdString(track.title);
+        m["artist"] = QString::fromStdString(track.artist);
+        m["key"] = QString::fromStdString(track.key);
+        m["keyRelation"] = QString::fromStdString(domain::keyRelationLabel(relation));
+        auto parsedKey = domain::CamelotKey::parse(track.key);
+        m["camelotLabel"] =
+            parsedKey ? QString::number(parsedKey->number) + (parsedKey->isMinor ? "A" : "B") : QString();
+        m["bpm"] = track.bpm;
+        m["rating"] = track.rating ? *track.rating : -1;
+        m["artworkPath"] = toLocalFileUrl(track.artworkPath);
+        m["durationSeconds"] = track.durationSeconds;
+        QStringList playlistNames;
+        for (const auto &p : track.playlists) {
+            playlistNames << QString::fromStdString(p.name);
+        }
+        m["playlistNames"] = playlistNames;
+        result << m;
+        if (result.size() >= 100) {
+            break;
+        }
+    }
+    return result;
 }
 
 void ScanController::setBusy(bool busy)
