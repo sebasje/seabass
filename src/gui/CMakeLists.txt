@@ -30,11 +30,28 @@ qt_add_qml_module(seabass
     URI SeabassGui
     VERSION 1.0
     QML_FILES
+        # -- Generic UI primitives: no Seabass/DJ-domain concept in any of
+        # -- these (no track/playlist/cue/stick/key), just reusable widget
+        # -- shapes (badges, popups, typography, a scrollbar, a busy
+        # -- overlay, ...). Still styled via this app's own Theme
+        # -- singleton, not literally drop-in to another app's QML module
+        # -- as-is, but architecturally generic -- nothing here would need
+        # -- to change to serve a non-DJ app with its own Theme.
+        qml/common/ActionCard.qml
+        qml/common/BackBreadcrumb.qml
+        qml/common/BigScrollBar.qml
+        qml/common/BusyOverlay.qml
+        qml/common/InfoButton.qml
+        qml/common/MessagePopup.qml
+        qml/common/PageTitle.qml
+        qml/common/StatValue.qml
+        qml/common/StatusBadge.qml
+        qml/common/Subtitle.qml
+        qml/common/TableHeaderLabel.qml
         qml/Theme.qml
         qml/FormatLabels.qml
         qml/Main.qml
         qml/StickListPage.qml
-        qml/ActionCard.qml
         qml/DuplicatesHubPage.qml
         qml/BackupsHubPage.qml
         qml/ScanPage.qml
@@ -58,21 +75,11 @@ qt_add_qml_module(seabass
         qml/SettingsPage.qml
         qml/AppSettingsPage.qml
         qml/AnonymizeLibraryPage.qml
-        qml/InfoButton.qml
-        qml/PageTitle.qml
-        qml/Subtitle.qml
-        qml/TableHeaderLabel.qml
-        qml/StatValue.qml
         qml/UsbStickIcon.qml
         qml/StickWriteWarning.qml
         qml/RekordboxRunningWarning.qml
         qml/CueFallbackNotice.qml
         qml/TrackWaveformCard.qml
-        qml/BigScrollBar.qml
-        qml/BusyOverlay.qml
-        qml/StatusBadge.qml
-        qml/MessagePopup.qml
-        qml/BackBreadcrumb.qml
         qml/PlaylistPickerCombo.qml
     RESOURCES
         qml/icons/seabass_soundbass.svg
