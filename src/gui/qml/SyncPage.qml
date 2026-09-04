@@ -10,9 +10,21 @@ Page {
     required property string enginePath
     required property var playbackController
 
+    // "" scopes analyze() to the whole library (every catalog present),
+    // same empty-means-all convention every other picker in this app uses.
+    property string selectedPlaylistName: ""
+
     SyncController {
         id: syncController
     }
+
+    // "All tracks" first (no meaningful single count across up to three
+    // independent catalogs, so left blank rather than showing a
+    // misleading sum), then the union of playlist names across whichever
+    // catalogs are present -- built from syncController's own unfiltered
+    // scan, so this list doesn't shrink once a playlist is selected.
+    readonly property var playlistPickerModel: [{name: "All tracks", count: ""}].concat(
+        syncController.playlistNames.map((n) => ({name: n, count: syncController.playlistTrackCounts[n] ?? 0})))
 
     function formatLabel(format) { return FormatLabels.label(format); }
     function pathForFormat(format) {
@@ -51,12 +63,37 @@ Page {
                 onBackRequested: root.StackView.view.pop()
             }
             Item { Layout.fillWidth: true }
+            Label {
+                text: "Playlist:"
+                color: Theme.textMuted
+            }
+            PlaylistPickerCombo {
+                Layout.minimumWidth: 140
+                model: root.playlistPickerModel
+                currentIndex: {
+                    if (root.selectedPlaylistName.length === 0) {
+                        return 0;
+                    }
+                    for (var i = 1; i < root.playlistPickerModel.length; i++) {
+                        if (root.playlistPickerModel[i].name === root.selectedPlaylistName) {
+                            return i;
+                        }
+                    }
+                    return 0;
+                }
+                ToolTip.visible: hovered
+                ToolTip.text: "Scope Sync Cue Points to one playlist instead of the whole library"
+                onPlaylistPicked: (index, modelData) => {
+                    root.selectedPlaylistName = index === 0 ? "" : modelData.name;
+                    syncController.analyze(root.rekordboxPath, root.enginePath, root.selectedPlaylistName);
+                }
+            }
             Button {
                 text: "Re-Analyze"
                 enabled: !syncController.busy
                 ToolTip.visible: hovered
                 ToolTip.text: "Re-scan both libraries and recompute what needs syncing"
-                onClicked: syncController.analyze(root.rekordboxPath, root.enginePath)
+                onClicked: syncController.analyze(root.rekordboxPath, root.enginePath, root.selectedPlaylistName)
             }
             Button {
                 text: "Apply " + plansListView.count + " change(s)"
@@ -144,10 +181,15 @@ Page {
         }
         Label {
             visible: !syncController.busy
+            // Counts already reflect the selected playlist (SyncController
+            // scopes matching to it before counting) -- the trailing note
+            // makes that explicit rather than leaving a small number
+            // unexplained.
             text: "DeviceLibrary tracks: " + syncController.rekordboxTrackCount
                 + "   Engine tracks: " + syncController.engineTrackCount
                 + (syncController.oneLibraryTrackCount > 0 ? "   OneLibrary tracks: " + syncController.oneLibraryTrackCount : "")
                 + "   needing sync: " + plansListView.count
+                + (root.selectedPlaylistName.length > 0 ? "   (playlist: " + root.selectedPlaylistName + ")" : "")
             color: Theme.textMuted
         }
 
