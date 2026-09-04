@@ -28,6 +28,12 @@ Page {
         contentWidth: width
         contentHeight: content.implicitHeight + 64
         clip: true
+        // A Flickable is draggable by default even when there's nothing
+        // to scroll -- content shorter than the viewport still let you
+        // click-drag it into an elastic overshoot and snap back, which
+        // reads as a bug (dragging a page that visibly has no scrollbar
+        // and doesn't move). Only interactive once there's real overflow.
+        interactive: contentHeight > height
 
         ColumnLayout {
             id: content

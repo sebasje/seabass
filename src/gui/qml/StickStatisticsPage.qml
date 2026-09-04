@@ -125,6 +125,9 @@ Page {
         contentWidth: width
         contentHeight: statsColumn.height
         clip: true
+        // See AboutPage.qml's own comment on this same fix -- a Flickable
+        // is draggable by default even with nothing to scroll.
+        interactive: contentHeight > height
         ScrollBar.vertical: BigScrollBar {}
 
         ColumnLayout {
