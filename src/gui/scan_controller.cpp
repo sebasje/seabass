@@ -14,6 +14,7 @@
 
 #include "application/use_cases/scan_library.hpp"
 #include "domain/track_matching.hpp"
+#include "domain/track_scope.hpp"
 #include "gui/local_file_url.hpp"
 #include "gui/qt_progress_reporter.hpp"
 #include "infrastructure/engine/libdjinterop_engine_reader.hpp"
@@ -405,16 +406,10 @@ std::optional<std::pair<int, bool>> camelotSortKey(const std::string &key)
 void ScanController::applyFilters()
 {
     std::vector<domain::Track> result = m_allTracks;
-
     std::string playlistFilter = m_currentPlaylistFilter.toStdString();
+
     if (!m_currentPlaylistFilter.isEmpty()) {
-        std::vector<domain::Track> filtered;
-        for (const auto &track : result) {
-            if (playlistPosition(track, playlistFilter)) {
-                filtered.push_back(track);
-            }
-        }
-        result = std::move(filtered);
+        result = domain::filterByScope(result, domain::TrackScope::playlist(playlistFilter));
     }
 
     if (m_hideStreamingTracks) {
@@ -428,6 +423,14 @@ void ScanController::applyFilters()
     }
 
     if (!m_currentSearchQuery.isEmpty()) {
+        // Deliberately QString::toLower(), not domain::TrackScope::search()
+        // -- TrackScope's search is ASCII-only case folding (see its own
+        // doc comment), while this box has to handle real music metadata
+        // correctly (accented artist/title names are common), which needs
+        // QString's Unicode-aware case folding. Swapping this to
+        // TrackScope would silently regress search for exactly the
+        // tracks this codebase already goes out of its way to handle
+        // correctly elsewhere (see KeyBadge.qml's own Unicode handling).
         QString query = m_currentSearchQuery.toLower();
         std::vector<domain::Track> filtered;
         for (const auto &track : result) {

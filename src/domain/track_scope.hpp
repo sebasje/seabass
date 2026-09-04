@@ -26,8 +26,13 @@ class TrackScope
 public:
     static TrackScope all();
     static TrackScope playlist(std::string name);
-    // Case-insensitive substring match against title or artist, same
-    // matching rule ScanController::search() already uses.
+    // Case-insensitive substring match against title or artist. ASCII-only
+    // case folding (std::tolower per byte) -- fine for the tests and any
+    // ASCII-only caller, but NOT a drop-in for a user-facing search box:
+    // ScanController::search() deliberately keeps its own QString-based
+    // matching instead of calling this, specifically because real music
+    // metadata (accented artist/title names) needs Unicode-aware case
+    // folding, which domain/ has no dependency-free way to do correctly.
     static TrackScope search(std::string query);
     // An explicit set of tracks, unrelated to any playlist/search
     // criteria -- e.g. a manual multi-select in a future UI ("act on

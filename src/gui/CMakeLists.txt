@@ -73,6 +73,7 @@ qt_add_qml_module(seabass
         qml/StatusBadge.qml
         qml/MessagePopup.qml
         qml/BackBreadcrumb.qml
+        qml/PlaylistPickerCombo.qml
     RESOURCES
         qml/icons/seabass_soundbass.svg
     SOURCES
