@@ -48,7 +48,10 @@ TrackScope TrackScope::search(std::string query)
 {
     TrackScope scope;
     scope.m_kind = Kind::Search;
-    scope.m_value = std::move(query);
+    // Lowercased once here rather than per-track in matches() below --
+    // the query itself never changes for the lifetime of this scope, only
+    // title/artist (which do still need lowering per track) vary.
+    scope.m_value = toLowerAscii(query);
     return scope;
 }
 
@@ -67,11 +70,10 @@ bool TrackScope::matches(const Track &track) const
             return true;
         case Kind::Playlist:
             return inPlaylist(track, m_value);
-        case Kind::Search: {
-            std::string query = toLowerAscii(m_value);
-            return toLowerAscii(track.title).find(query) != std::string::npos
-                || toLowerAscii(track.artist).find(query) != std::string::npos;
-        }
+        case Kind::Search:
+            // m_value is already lowercased -- see TrackScope::search().
+            return toLowerAscii(track.title).find(m_value) != std::string::npos
+                || toLowerAscii(track.artist).find(m_value) != std::string::npos;
         case Kind::Arbitrary:
             return m_ids.count(TrackId{track.format, track.sourceId}) > 0;
     }
