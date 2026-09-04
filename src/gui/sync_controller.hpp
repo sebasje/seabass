@@ -189,8 +189,13 @@ public:
     // that playlist's tracks -- playlistNames/playlistTrackCounts
     // themselves stay unfiltered so the picker never shrinks its own
     // choices.
+    // searchQuery empty (the default) applies no text filter; a real query
+    // narrows by case-insensitive title/artist substring match, same rule
+    // ScanController's own search box uses, applied on top of
+    // playlistName (both can narrow at once, same as ScanPage's own
+    // playlist+search combination).
     Q_INVOKABLE void analyze(const QString &rekordboxPath, const QString &enginePath,
-                              const QString &playlistName = QString());
+                              const QString &playlistName = QString(), const QString &searchQuery = QString());
 
     // Phase 2 (the confirmation gate) + phase 3: writes every plan
     // currently in the model, across every pair. Only call this from a
@@ -250,6 +255,9 @@ private:
     // undoLastOperation() stays scoped to whatever playlist was selected,
     // instead of silently reverting to "All tracks".
     QString m_currentPlaylistName;
+    // Same reasoning as m_currentPlaylistName -- the search box's own text
+    // must also survive the automatic post-write re-analyze.
+    QString m_currentSearchQuery;
     bool m_busy = false;
     int m_scanCurrent = 0;
     int m_scanTotal = 0;

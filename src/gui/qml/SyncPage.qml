@@ -13,6 +13,7 @@ Page {
     // "" scopes analyze() to the whole library (every catalog present),
     // same empty-means-all convention every other picker in this app uses.
     property string selectedPlaylistName: ""
+    property string searchQuery: ""
 
     SyncController {
         id: syncController
@@ -86,15 +87,38 @@ Page {
                 ToolTip.text: "Scope Sync Cue Points to one playlist instead of the whole library"
                 onPlaylistPicked: (index, modelData) => {
                     root.selectedPlaylistName = index === 0 ? "" : modelData.name;
-                    syncController.analyze(root.rekordboxPath, root.enginePath, root.selectedPlaylistName);
+                    syncController.analyze(root.rekordboxPath, root.enginePath, root.selectedPlaylistName, root.searchQuery);
                 }
+            }
+            TextField {
+                id: searchField
+                Layout.preferredWidth: 160
+                enabled: !syncController.busy
+                placeholderText: "Search title/artist"
+                text: root.searchQuery
+                // analyze() does a real background scan+match pass, not a
+                // free in-memory filter over already-loaded tracks (unlike
+                // ScanController's own search box) -- debounced rather
+                // than firing on every keystroke, so typing doesn't spam
+                // redundant background tasks.
+                onTextEdited: {
+                    root.searchQuery = text;
+                    searchDebounce.restart();
+                }
+                ToolTip.visible: hovered
+                ToolTip.text: "Filter by title or artist, on top of the playlist scope"
+            }
+            Timer {
+                id: searchDebounce
+                interval: 350
+                onTriggered: syncController.analyze(root.rekordboxPath, root.enginePath, root.selectedPlaylistName, root.searchQuery)
             }
             Button {
                 text: "Re-Analyze"
                 enabled: !syncController.busy
                 ToolTip.visible: hovered
                 ToolTip.text: "Re-scan both libraries and recompute what needs syncing"
-                onClicked: syncController.analyze(root.rekordboxPath, root.enginePath, root.selectedPlaylistName)
+                onClicked: syncController.analyze(root.rekordboxPath, root.enginePath, root.selectedPlaylistName, root.searchQuery)
             }
             Button {
                 text: "Apply " + plansListView.count + " change(s)"
@@ -182,15 +206,16 @@ Page {
         }
         Label {
             visible: !syncController.busy
-            // Counts already reflect the selected playlist (SyncController
-            // scopes matching to it before counting) -- the trailing note
-            // makes that explicit rather than leaving a small number
-            // unexplained.
+            // Counts already reflect the selected playlist/search
+            // (SyncController scopes matching to both before counting) --
+            // the trailing note makes that explicit rather than leaving a
+            // small number unexplained.
             text: "DeviceLibrary tracks: " + syncController.rekordboxTrackCount
                 + "   Engine tracks: " + syncController.engineTrackCount
                 + (syncController.oneLibraryTrackCount > 0 ? "   OneLibrary tracks: " + syncController.oneLibraryTrackCount : "")
                 + "   needing sync: " + plansListView.count
                 + (root.selectedPlaylistName.length > 0 ? "   (playlist: " + root.selectedPlaylistName + ")" : "")
+                + (root.searchQuery.length > 0 ? "   (search: \"" + root.searchQuery + "\")" : "")
             color: Theme.textMuted
         }
 
