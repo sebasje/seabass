@@ -257,9 +257,10 @@ LocalCueWriteResult runApplyRestoreTask(QString format, QString path, std::vecto
             // per-candidate, since it's one shared file.
             writeToOneLibrary = infrastructure::onelibrary::OneLibraryCueWriter::existsFor(path.toStdString());
             if (writeToOneLibrary) {
-                std::string oneLibDbPath = infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(path.toStdString());
+                const std::string oneLibDbPath =
+                    infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(path.toStdString());
                 if (backedUpFiles.insert(oneLibDbPath).second) {
-                    auto record = backupStore.backup({oneLibDbPath}, "local-restore");
+                    const auto record = backupStore.backup({oneLibDbPath}, "local-restore");
                     log.record("local-restore: backed up before restoring cues from local backup -> " + record.path);
                     result.backups.push_back({QString::fromStdString(fs::path(record.path).parent_path().string()),
                                                QString::fromStdString(record.id)});
@@ -267,8 +268,8 @@ LocalCueWriteResult runApplyRestoreTask(QString format, QString path, std::vecto
             }
         } else if (format == "engine") {
             writer = std::make_unique<infrastructure::engine::LibdjinteropEngineCueWriter>(path.toStdString());
-            std::string engineDbFile = (fs::path(path.toStdString()) / "Database2" / "m.db").string();
-            auto record = backupStore.backup({engineDbFile}, "local-restore");
+            const std::string engineDbFile = (fs::path(path.toStdString()) / "Database2" / "m.db").string();
+            const auto record = backupStore.backup({engineDbFile}, "local-restore");
             log.record("local-restore: backed up before restoring cues from local backup -> " + record.path);
             result.backups.push_back({QString::fromStdString(fs::path(record.path).parent_path().string()),
                                        QString::fromStdString(record.id)});
