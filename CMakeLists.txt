@@ -111,6 +111,7 @@ add_library(seabass_core STATIC
     src/domain/sync_planning.cpp
     src/domain/track_matching.cpp
     src/domain/track_queries.cpp
+    src/domain/track_scope.cpp
     src/application/ports/progress_reporter.cpp
     src/application/use_cases/anonymize_library.cpp
     src/infrastructure/benchmark/stick_benchmark_history.cpp
@@ -354,6 +355,13 @@ add_executable(cross_source_sync_conflict_test
 )
 target_include_directories(cross_source_sync_conflict_test PRIVATE src)
 add_test(NAME cross_source_sync_conflict_test COMMAND cross_source_sync_conflict_test)
+
+add_executable(track_scope_test
+    src/domain/track_scope.cpp
+    tests/track_scope_test.cpp
+)
+target_include_directories(track_scope_test PRIVATE src)
+add_test(NAME track_scope_test COMMAND track_scope_test)
 
 add_executable(fuzzy_matcher_test
     src/domain/fuzzy_matcher.cpp
