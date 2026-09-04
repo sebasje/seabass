@@ -2,6 +2,7 @@
 
 #include <QtConcurrent/QtConcurrentRun>
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <map>
@@ -9,8 +10,9 @@
 #include <optional>
 #include <set>
 
-#include "application/use_cases/scan_library.hpp"
 #include "domain/junk_cue.hpp"
+#include "domain/track_scope.hpp"
+#include "gui/library_catalog_cache.hpp"
 #include "gui/local_file_url.hpp"
 #include "gui/write_guard.hpp"
 #include "infrastructure/backup/filesystem_backup_store.hpp"
@@ -19,11 +21,8 @@
 #include "infrastructure/durable_file_write.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cleanup_writer.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cue_writer.hpp"
-#include "infrastructure/engine/libdjinterop_engine_reader.hpp"
 #include "infrastructure/logging/file_operation_log.hpp"
 #include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
-#include "infrastructure/onelibrary/onelibrary_reader.hpp"
-#include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 #include "infrastructure/rekordbox/rekordbox_cleanup_writer.hpp"
 #include "infrastructure/rekordbox/rekordbox_cue_writer.hpp"
@@ -250,39 +249,57 @@ namespace
 std::vector<domain::Track> scanTracks(const QString &format, const QString &path,
                                        std::shared_ptr<QtProgressReporter> reporter)
 {
-    if (format == "rekordbox") {
-        infrastructure::rekordbox::KaitaiRekordboxReader reader(path.toStdString());
-        reader.setProgressReporter(*reporter);
-        return application::ScanLibrary(reader).execute();
+    return LibraryCatalogCache::instance().tracksFor(format.toStdString(), path.toStdString(), *reporter);
+}
+
+// This format's own playlist membership tally, unfiltered -- called on
+// the full track list before any TrackScope filtering below, so picking
+// a playlist in JunkCuePage.qml's picker never shrinks its own list of
+// choices. Mirrors the tally half of SyncController's own
+// collectPlaylistSummary(), just for one format at a time (see
+// LibraryConsistencyController::mergePlaylistSummary() for how each
+// format's contribution gets folded into the cross-catalog union).
+void tallyPlaylists(const std::vector<domain::Track> &tracks, LibraryConsistencyScanResult &result)
+{
+    std::map<std::string, int> countByName;
+    for (const auto &track : tracks) {
+        for (const auto &playlist : track.playlists) {
+            countByName[playlist.name]++;
+        }
     }
-    if (format == "engine") {
-        infrastructure::engine::LibdjinteropEngineReader reader(path.toStdString());
-        reader.setProgressReporter(*reporter);
-        return application::ScanLibrary(reader).execute();
+    for (const auto &[name, count] : countByName) {
+        QString qName = QString::fromStdString(name);
+        result.playlistNames << qName;
+        result.playlistTrackCounts[qName] = count;
     }
-    if (format == "onelibrary") {
-        infrastructure::onelibrary::OneLibraryReader reader(path.toStdString());
-        reader.setProgressReporter(*reporter);
-        return application::ScanLibrary(reader).execute();
-    }
-    throw std::runtime_error(("Unknown library format: " + format).toStdString());
 }
 
 // Runs entirely on a background thread (see LibraryConsistencyController::
 // scanNextPendingFormat()) - no access to the controller itself. Scans
 // exactly one format; the controller chains one of these per present
-// catalog to get the progressive, format-at-a-time behavior.
-LibraryConsistencyScanResult runScanTask(QString format, QString path, std::shared_ptr<QtProgressReporter> reporter)
+// catalog to get the progressive, format-at-a-time behavior. playlistName
+// empty scans/checks the whole format's library, same as before this
+// parameter existed; a real name scopes both the junk-cue list and the
+// consistency check to just that playlist's tracks, via domain::TrackScope
+// -- same seam SyncController::runAnalyzeTask already uses.
+LibraryConsistencyScanResult runScanTask(QString format, QString path, QString playlistName,
+                                          std::shared_ptr<QtProgressReporter> reporter)
 {
     LibraryConsistencyScanResult result;
     try {
         auto tracks = scanTracks(format, path, reporter);
 
+        tallyPlaylists(tracks, result);
+
+        if (!playlistName.isEmpty()) {
+            tracks = domain::filterByScope(tracks, domain::TrackScope::playlist(playlistName.toStdString()));
+        }
+
         // Junk-cue detection doesn't care about file existence at all,
-        // computed on the full track list before the healthy/broken
-        // split below moves tracks out of it. Streaming tracks are
-        // excluded here too, same "never touch these" policy as every
-        // other consistency action in this class (see Track::
+        // computed on the full (post-scope) track list before the
+        // healthy/broken split below moves tracks out of it. Streaming
+        // tracks are excluded here too, same "never touch these" policy
+        // as every other consistency action in this class (see Track::
         // streamingSource's own doc comment).
         for (auto &issue : domain::JunkCueFinder::find(tracks)) {
             if (issue.track.streamingSource.empty()) {
@@ -767,15 +784,37 @@ QString LibraryConsistencyController::pathForFormat(const QString &format) const
     return format == "engine" ? m_enginePath : m_rekordboxPath;
 }
 
-void LibraryConsistencyController::scan(const QString &rekordboxPath, const QString &enginePath)
+void LibraryConsistencyController::scan(const QString &rekordboxPath, const QString &enginePath,
+                                          const QString &playlistName)
 {
     if (m_busy) {
         return;
     }
     m_rekordboxPath = rekordboxPath;
     m_enginePath = enginePath;
+    m_currentPlaylistName = playlistName;
     m_model.clear();
     m_junkCueModel.clear();
+    // Deliberately NOT clearing m_playlistNames/m_playlistTrackCounts
+    // here: this scan() call is itself reachable synchronously from
+    // inside PlaylistPickerCombo's own row-delegate onClicked handler
+    // (JunkCuePage.qml's onPlaylistPicked calls straight back into
+    // scan() before that handler's own next line, popup.close(), runs).
+    // Clearing them here used to fire issuesChanged() synchronously mid-
+    // click, which re-evaluated JunkCuePage.qml's playlistPickerModel
+    // and reset the combo's own popup model out from under the very
+    // delegate item whose click handler was still executing -- Quick
+    // then crashed on a later frame's polishItems() pass, dereferencing
+    // that now-destroyed item (confirmed via gdb: SIGSEGV in
+    // QQuickItem::setY -> QQuickWindowPrivate::polishItems(), and the
+    // popup visibly failing to close, both symptoms of the corrupted
+    // item tree). These two never actually needed clearing mid-page-
+    // lifetime anyway: rekordboxPath/enginePath don't change within one
+    // page's life, only playlistName does, and a playlist's existence/
+    // track count doesn't change from a cue repair -- see this
+    // property's own doc comment ("picking one never shrinks the
+    // picker's own list of choices"), which this now actually holds
+    // for every scan() call, not just the first.
     emit issuesChanged();
     setErrorMessage({});
     setStatusMessage({});
@@ -807,7 +846,8 @@ void LibraryConsistencyController::scanNextPendingFormat()
     QString format = m_pendingScanFormats.front();
     m_pendingScanFormats.erase(m_pendingScanFormats.begin());
     setScanningFormat(format);
-    m_watcher.setFuture(QtConcurrent::run(runScanTask, format, pathForFormat(format), makeReporter()));
+    m_watcher.setFuture(
+        QtConcurrent::run(runScanTask, format, pathForFormat(format), m_currentPlaylistName, makeReporter()));
 }
 
 void LibraryConsistencyController::onScanFinished()
@@ -818,9 +858,28 @@ void LibraryConsistencyController::onScanFinished()
     } else {
         m_model.appendIssues(std::move(result.issues));
         m_junkCueModel.appendIssues(std::move(result.junkCues));
+        mergePlaylistSummary(result.playlistNames, result.playlistTrackCounts);
         emit issuesChanged();
     }
     scanNextPendingFormat();
+}
+
+void LibraryConsistencyController::mergePlaylistSummary(const QStringList &names, const QVariantMap &counts)
+{
+    for (const auto &name : names) {
+        int count = counts.value(name).toInt();
+        if (m_playlistTrackCounts.contains(name)) {
+            m_playlistTrackCounts[name] = std::max(m_playlistTrackCounts.value(name).toInt(), count);
+        } else {
+            m_playlistNames << name;
+            m_playlistTrackCounts[name] = count;
+        }
+    }
+    // Formats scan (and complete) one at a time, each contributing its
+    // own already-sorted slice -- re-sorting the whole list after every
+    // merge keeps the picker's overall order stable/alphabetical rather
+    // than however the per-format slices happened to interleave.
+    m_playlistNames.sort();
 }
 
 int LibraryConsistencyController::repairableCount() const
@@ -840,9 +899,18 @@ void LibraryConsistencyController::repairAll()
         return;
     }
     std::map<QString, std::vector<LibraryConsistencyIssue>> byFormat;
-    for (const auto &issue : m_model.issues()) {
+    m_pendingRepairedIndices.clear();
+    m_pendingRepairTouchedRekordbox = false;
+    const auto &issues = m_model.issues();
+    for (size_t i = 0; i < issues.size(); ++i) {
+        const auto &issue = issues[i];
         if (issue.kind == LibraryConsistencyIssue::Kind::Repairable) {
-            byFormat[issueFormat(issue)].push_back(issue);
+            QString format = issueFormat(issue);
+            byFormat[format].push_back(issue);
+            m_pendingRepairedIndices.push_back(static_cast<int>(i));
+            if (format == "rekordbox") {
+                m_pendingRepairTouchedRekordbox = true;
+            }
         }
     }
     if (byFormat.empty()) {
@@ -850,10 +918,11 @@ void LibraryConsistencyController::repairAll()
     }
 
     m_pendingRepairs.clear();
-    for (auto &[format, issues] : byFormat) {
-        m_pendingRepairs.emplace_back(format, std::move(issues));
+    for (auto &[format, issuesForFormat] : byFormat) {
+        m_pendingRepairs.emplace_back(format, std::move(issuesForFormat));
     }
 
+    m_pendingWriteKind = PendingWriteKind::Repair;
     setErrorMessage({});
     setStatusMessage({});
     setBusy(true);
@@ -880,10 +949,14 @@ void LibraryConsistencyController::repairOne(int index)
     if (issue.kind != LibraryConsistencyIssue::Kind::Repairable) {
         return;
     }
+    QString format = issueFormat(issue);
 
     m_pendingRepairs.clear();
-    m_pendingRepairs.emplace_back(issueFormat(issue), std::vector<LibraryConsistencyIssue>{issue});
+    m_pendingRepairs.emplace_back(format, std::vector<LibraryConsistencyIssue>{issue});
+    m_pendingRepairedIndices = {index};
+    m_pendingRepairTouchedRekordbox = (format == "rekordbox");
 
+    m_pendingWriteKind = PendingWriteKind::Repair;
     setErrorMessage({});
     setStatusMessage({});
     setBusy(true);
@@ -891,7 +964,6 @@ void LibraryConsistencyController::repairOne(int index)
     // Repairing one item just means the pending-repair batch has exactly
     // one (format, [issue]) entry, reuse the exact same chain as
     // repairAll() rather than a parallel single-item write path.
-    QString format = m_pendingRepairs.front().first;
     auto pendingIssues = std::move(m_pendingRepairs.front().second);
     m_pendingRepairs.erase(m_pendingRepairs.begin());
     m_writeWatcher.setFuture(QtConcurrent::run(runRepairTask, format, pathForFormat(format), pendingIssues));
@@ -912,6 +984,9 @@ void LibraryConsistencyController::deleteOrphan(int index)
     }
     LibraryConsistencyIssue issueCopy = issue;
 
+    m_pendingWriteKind = PendingWriteKind::Repair;
+    m_pendingRepairedIndices = {index};
+    m_pendingRepairTouchedRekordbox = false;  // deleteOrphan is OneLibrary-only, see the check above
     setErrorMessage({});
     setStatusMessage({});
     setBusy(true);
@@ -931,6 +1006,8 @@ void LibraryConsistencyController::removeJunkCue(int index)
     domain::Track track = issues[static_cast<size_t>(index)].track;
     QString format = QString::fromStdString(track.format);
 
+    m_pendingWriteKind = PendingWriteKind::RemoveOneJunkCue;
+    m_pendingJunkCueRemovalIndex = index;
     setErrorMessage({});
     setStatusMessage({});
     setBusy(true);
@@ -957,6 +1034,7 @@ void LibraryConsistencyController::removeAllJunkCues()
         m_pendingJunkCueRemovals.emplace_back(format, std::move(tracks));
     }
 
+    m_pendingWriteKind = PendingWriteKind::RemoveAllJunkCues;
     setErrorMessage({});
     setStatusMessage({});
     setBusy(true);
@@ -1007,10 +1085,59 @@ void LibraryConsistencyController::onWriteFinished()
 
     setBusy(false);
     setWriting(false);
-    // Whatever just got repaired/deleted is now stale in the model.
-    // Re-scan every format so the list reflects reality rather than
-    // showing rows that were just fixed.
-    scan(m_rekordboxPath, m_enginePath);
+
+    // A write may have touched any/all of the three catalogs -- rather
+    // than plumbing through exactly which one(s) a given batch actually
+    // wrote to, just invalidate all three; even the local-update
+    // branches below that skip the immediate re-scan still need this,
+    // so a *later* scan (switching playlists, reopening the page) can't
+    // read stale cached tracks from before the write within the same
+    // mtime-granularity window. Same convention as SyncController::
+    // onWriteFinished().
+    auto &catalogCache = LibraryCatalogCache::instance();
+    catalogCache.invalidate("rekordbox", m_rekordboxPath.toStdString());
+    catalogCache.invalidate("engine", m_enginePath.toStdString());
+    catalogCache.invalidate("onelibrary", m_rekordboxPath.toStdString());
+
+    if (m_pendingWriteKind == PendingWriteKind::RemoveOneJunkCue) {
+        // Removing a memory cue at 0:00 can't change file existence or
+        // which broken row matches which survivor -- the only two
+        // things LibraryConsistencyChecker actually looks at -- so
+        // there's nothing a full re-scan of the whole catalog from
+        // removable media could reveal here. Traced with gdb: a re-scan
+        // after every single removal was the entire cost of "removing
+        // stray cues is slow" (confirmed via repeated stack sampling
+        // during a real removal -- 100% of the sampled time was inside
+        // runScanTask/KaitaiRekordboxReader::readAll, never inside the
+        // write itself). Just drop the row locally instead, same as the
+        // no-write Ignore path already does.
+        m_junkCueModel.removeAt(m_pendingJunkCueRemovalIndex);
+        m_pendingJunkCueRemovalIndex = -1;
+    } else if (m_pendingWriteKind == PendingWriteKind::RemoveAllJunkCues) {
+        m_junkCueModel.clear();
+    } else if (m_pendingRepairTouchedRekordbox) {
+        // A rekordbox repair mirrors its cue merge/row removal into
+        // OneLibrary best-effort (see runRepairTask's "rekordbox"
+        // branch), and m_model combines every format's issues into one
+        // list -- that mirror write can silently stale an already-
+        // listed OneLibrary issue in ways only a fresh
+        // LibraryConsistencyChecker::check() run across every format
+        // could catch. Re-scan for real here, staying scoped to
+        // whatever playlist was selected rather than reverting to "All
+        // tracks". Every other repair/delete has no such cross-catalog
+        // side effect (verified: DuplicateTrackFinder groups by
+        // filename/title+artist+duration only, never cues or row
+        // existence, so repairing one group can't reclassify another)
+        // and is handled by the local removal below instead.
+        scan(m_rekordboxPath, m_enginePath, m_currentPlaylistName);
+    } else {
+        std::sort(m_pendingRepairedIndices.rbegin(), m_pendingRepairedIndices.rend());
+        for (int idx : m_pendingRepairedIndices) {
+            m_model.removeIssueAt(idx);
+        }
+        m_pendingRepairedIndices.clear();
+        emit issuesChanged();  // repairableCount reads m_model.issues()
+    }
 }
 
 void LibraryConsistencyController::setBusy(bool busy)

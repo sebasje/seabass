@@ -12,7 +12,7 @@
 #include "application/ports/cue_writer.hpp"
 #include "application/ports/operation_log.hpp"
 #include "application/use_cases/consolidate_duplicate_cues.hpp"
-#include "application/use_cases/scan_library.hpp"
+#include "gui/library_catalog_cache.hpp"
 #include "gui/local_file_url.hpp"
 #include "gui/onelibrary_cue_writer_adapter.hpp"
 #include "gui/qt_progress_reporter.hpp"
@@ -20,11 +20,8 @@
 #include "infrastructure/backup/filesystem_backup_store.hpp"
 #include "infrastructure/backup/stick_write_lock.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cue_writer.hpp"
-#include "infrastructure/engine/libdjinterop_engine_reader.hpp"
 #include "infrastructure/logging/file_operation_log.hpp"
 #include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
-#include "infrastructure/onelibrary/onelibrary_reader.hpp"
-#include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 #include "infrastructure/rekordbox/rekordbox_cue_writer.hpp"
 
@@ -162,6 +159,16 @@ void ConsolidationPlanListModel::setPlans(std::vector<domain::ConsolidationPlan>
     beginResetModel();
     m_plans = std::move(plans);
     endResetModel();
+}
+
+void ConsolidationPlanListModel::removePlanAt(int index)
+{
+    if (index < 0 || static_cast<size_t>(index) >= m_plans.size()) {
+        return;
+    }
+    beginRemoveRows(QModelIndex(), index, index);
+    m_plans.erase(m_plans.begin() + index);
+    endRemoveRows();
 }
 
 namespace
@@ -359,20 +366,8 @@ DuplicatesTaskResult runRescanTask(QString format, QString path, std::shared_ptr
 {
     DuplicatesTaskResult result;
     try {
-        std::vector<domain::Track> tracks;
-        if (format == "rekordbox") {
-            infrastructure::rekordbox::KaitaiRekordboxReader reader(path.toStdString());
-            reader.setProgressReporter(*reporter);
-            tracks = application::ScanLibrary(reader).execute();
-        } else if (format == "onelibrary") {
-            infrastructure::onelibrary::OneLibraryReader reader(path.toStdString());
-            reader.setProgressReporter(*reporter);
-            tracks = application::ScanLibrary(reader).execute();
-        } else {
-            infrastructure::engine::LibdjinteropEngineReader reader(path.toStdString());
-            reader.setProgressReporter(*reporter);
-            tracks = application::ScanLibrary(reader).execute();
-        }
+        std::vector<domain::Track> tracks =
+            LibraryCatalogCache::instance().tracksFor(format.toStdString(), path.toStdString(), *reporter);
 
         // Streaming tracks (Engine/TIDAL) have no real local file.
         // Never propose "syncing" cues onto/from one. See
@@ -493,6 +488,8 @@ void DuplicatesController::applyOne(int index)
     if (plan.kind != ConsolidationPlan::Kind::Unambiguous) {
         return;
     }
+    m_pendingWriteKind = PendingWriteKind::ApplyOne;
+    m_pendingApplyOneIndex = index;
     std::vector<DuplicatesCopyOp> ops{{*plan.source, plan.targets}};
     startApply(std::move(ops), false);
 }
@@ -525,6 +522,8 @@ void DuplicatesController::copyFromTrack(int index, const QString &sourceTrackId
         }
     }
 
+    m_pendingWriteKind = PendingWriteKind::ApplyOne;
+    m_pendingApplyOneIndex = index;
     std::vector<DuplicatesCopyOp> ops{{*source, std::move(targets)}};
     startApply(std::move(ops), false);
 }
@@ -540,6 +539,7 @@ void DuplicatesController::applyAllUnambiguous()
             ops.push_back({*plan.source, plan.targets});
         }
     }
+    m_pendingWriteKind = PendingWriteKind::ApplyAllUnambiguous;
     startApply(std::move(ops), true);
 }
 
@@ -574,7 +574,36 @@ void DuplicatesController::onWriteFinished()
     setBusy(false);
     setWriting(false);
 
-    rescan();
+    // Even the local-update branches below (which skip the immediate
+    // rescan) still need this, so a *later* rescan (reopening the page,
+    // switching formats and back) can't read stale cached tracks from
+    // before the write within an mtime-granularity window.
+    LibraryCatalogCache::instance().invalidate(m_format.toStdString(), m_path.toStdString());
+
+    if (m_pendingWriteKind == PendingWriteKind::ApplyOne) {
+        // Cues just got copied onto every other track in this group --
+        // it's now AlreadyConsistent, which this model never shows at
+        // all (see runRescanTask's own Unambiguous/Conflict-only
+        // filter), so the row should simply disappear. Grouping
+        // (DuplicateTrackFinder) never depends on cues, so this can't
+        // change any other group's own classification either.
+        m_model.removePlanAt(m_pendingApplyOneIndex);
+        m_pendingApplyOneIndex = -1;
+        emit plansChanged();
+    } else if (m_pendingWriteKind == PendingWriteKind::ApplyAllUnambiguous) {
+        // Every row that was Unambiguous just got consolidated the same
+        // way; only Conflict rows (never touched by this write) survive.
+        std::vector<domain::ConsolidationPlan> remaining;
+        for (auto &plan : m_model.plans()) {
+            if (plan.kind == ConsolidationPlan::Kind::Conflict) {
+                remaining.push_back(plan);
+            }
+        }
+        m_model.setPlans(std::move(remaining));
+        emit plansChanged();
+    } else {
+        rescan();
+    }
 }
 
 void DuplicatesController::undoLastOperation()
@@ -582,6 +611,7 @@ void DuplicatesController::undoLastOperation()
     if (m_busy || m_lastBackups.empty()) {
         return;
     }
+    m_pendingWriteKind = PendingWriteKind::Undo;
     setErrorMessage({});
     setStatusMessage({});
     setScanProgress(0, 0);

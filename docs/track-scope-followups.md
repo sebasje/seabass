@@ -16,7 +16,7 @@ sites total**:
 | `cleanup_controller.cpp` | 7 |
 | `add_cue_controller.cpp` | 3 |
 | `stick_statistics_controller.cpp` | 3 (done — see above) |
-| `library_consistency_controller.cpp` | 3 |
+| `library_consistency_controller.cpp` | 3 (done — see below) |
 | `local_cue_controller.cpp` | 3 |
 | `duplicates_controller.cpp` | 3 |
 | `sync_controller.cpp` | 3 (done — see above) |
@@ -61,24 +61,52 @@ This is the feature Sebas actually asked for when `TrackScope` was
 designed: "make pretty much all cleanup and sync operations operate on a
 subset of tracks... so we can clean up our library in small steps." Sync
 Cue Points has it (a `Playlist:` picker in its header, see
-`SyncPage.qml`); Clean Up doesn't yet.
+`SyncPage.qml`).
 
-Once (1) is done for `cleanup_controller.cpp`, adding a scope is small:
+**Done: Clean Up Stray Cues** (`library_consistency_controller.cpp` /
+`JunkCuePage.qml`). `LibraryConsistencyController::scan()` now takes the
+same `playlistName` parameter `SyncController::analyze()` has (empty =
+whole library); `runScanTask()` tallies each format's own playlist
+membership *before* scoping (so the picker's own choices never shrink),
+then filters through `domain::filterByScope(tracks,
+domain::TrackScope::playlist(name))` before junk-cue detection and the
+consistency check both run on the (possibly scoped) result. Since this
+controller's scan is progressive (one format at a time, see
+`scanNextPendingFormat()`), the cross-catalog playlist-name union is
+folded together incrementally as each format's scan completes
+(`LibraryConsistencyController::mergePlaylistSummary()`) rather than
+built in one pass the way `SyncController`'s own
+`collectPlaylistSummary()` does — same max-count-per-name semantics,
+different accumulation shape to fit the progressive scan. `scanTracks()`
+was also migrated to `LibraryCatalogCache::instance().tracksFor()` as
+part of this (a prerequisite for (1) below), and `onWriteFinished()` now
+invalidates all three catalogs' cache entries before its post-write
+re-scan, same convention as `SyncController::onWriteFinished()`.
+`JunkCuePage.qml` reuses `PlaylistPickerCombo.qml` unmodified for the
+picker UI.
+
+**Still open: Clean Up Duplicates** (`cleanup_controller.cpp` /
+`CleanupPage.qml`, a separate controller/page from the one above despite
+the similar name — see `CleanupPage.qml`'s own `BackBreadcrumb` title
+"Clean Up Duplicates"). Once (1) is done for `cleanup_controller.cpp`,
+adding a scope here is the same shape as what Clean Up Stray Cues just
+got:
 
 - Give `CleanupController`'s entry point(s) the same `playlistName`
-  parameter `SyncController::analyze()` has, and filter each scanned
-  catalog's tracks through `domain::filterByScope(tracks,
-  domain::TrackScope::playlist(name))` before whatever Clean Up does with
-  them — same seam, same pattern.
-- Reuse `PlaylistPickerCombo.qml` (`src/gui/qml/PlaylistPickerCombo.qml`)
-  for the picker UI — it's already generic (`model` + `currentIndex` +
-  `playlistPicked` signal), no Sync-specific assumptions baked in.
+  parameter, and filter each scanned catalog's tracks through
+  `domain::filterByScope(tracks, domain::TrackScope::playlist(name))`
+  before whatever Clean Up Duplicates does with them — same seam, same
+  pattern.
+- Reuse `PlaylistPickerCombo.qml` for the picker UI — already generic
+  (`model` + `currentIndex` + `playlistPicked` signal), no Sync-specific
+  assumptions baked in.
 - `CleanupController` will need its own `playlistNames`/
-  `playlistTrackCounts` properties, built the same way
-  `SyncController`'s are (`collectPlaylistSummary()` in
-  `sync_controller.cpp` — worth promoting to a shared free function once a
-  second caller needs the exact same union-across-catalogs logic, rather
-  than copy-pasting it a second time).
+  `playlistTrackCounts` properties. Whether that's a one-pass tally (like
+  `SyncController`'s `collectPlaylistSummary()`) or an incremental merge
+  (like `LibraryConsistencyController`'s `mergePlaylistSummary()`, added
+  above) depends on whether `CleanupController`'s own scan ends up
+  progressive per-format or all-at-once — check that before copying
+  either pattern verbatim.
 
 ## 3. `TrackScope::arbitrary()` + manual multi-select
 

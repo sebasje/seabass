@@ -22,7 +22,7 @@ namespace
 // About page" item) -- this is a stopgap literal, not a build-system
 // integration, and should be replaced with the real thing once that
 // item lands.
-constexpr const char *SeabassVersionStopgap = "0.5 (beta)";
+constexpr const char *SeabassVersionStopgap = "0.6 (beta)";
 
 std::string hostOsName()
 {

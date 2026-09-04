@@ -13,20 +13,17 @@
 #include "application/ports/backup_store.hpp"
 #include "application/ports/cue_writer.hpp"
 #include "application/ports/operation_log.hpp"
-#include "application/use_cases/scan_library.hpp"
 #include "domain/track_matching.hpp"
+#include "gui/library_catalog_cache.hpp"
 #include "gui/qt_progress_reporter.hpp"
 #include "gui/write_guard.hpp"
 #include "infrastructure/backup/filesystem_backup_store.hpp"
 #include "infrastructure/backup/stick_write_lock.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cue_writer.hpp"
-#include "infrastructure/engine/libdjinterop_engine_reader.hpp"
 #include "gui/onelibrary_cue_writer_adapter.hpp"
 #include "infrastructure/local/local_cue_store.hpp"
 #include "infrastructure/logging/file_operation_log.hpp"
 #include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
-#include "infrastructure/onelibrary/onelibrary_reader.hpp"
-#include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 #include "infrastructure/rekordbox/rekordbox_cue_writer.hpp"
 
@@ -53,24 +50,14 @@ QString describeCues(const std::vector<domain::CuePoint> &cues)
     return result;
 }
 
+// path is the PIONEER root for both "rekordbox" and "onelibrary" --
+// exportLibrary.db lives alongside export.pdb (see LocalCuePage.qml's
+// currentPath()), same convention LibraryCatalogCache's own callers
+// elsewhere already use.
 std::vector<domain::Track> scanStick(const QString &format, const QString &path,
                                       std::shared_ptr<QtProgressReporter> reporter)
 {
-    if (format == "rekordbox") {
-        infrastructure::rekordbox::KaitaiRekordboxReader reader(path.toStdString());
-        reader.setProgressReporter(*reporter);
-        return application::ScanLibrary(reader).execute();
-    }
-    if (format == "onelibrary") {
-        // path is the PIONEER root here, same as "rekordbox" -- exportLibrary.db
-        // lives alongside export.pdb (see LocalCuePage.qml's currentPath()).
-        infrastructure::onelibrary::OneLibraryReader reader(path.toStdString());
-        reader.setProgressReporter(*reporter);
-        return application::ScanLibrary(reader).execute();
-    }
-    infrastructure::engine::LibdjinteropEngineReader reader(path.toStdString());
-    reader.setProgressReporter(*reporter);
-    return application::ScanLibrary(reader).execute();
+    return LibraryCatalogCache::instance().tracksFor(format.toStdString(), path.toStdString(), *reporter);
 }
 
 }  // namespace
@@ -622,6 +609,7 @@ void LocalCueController::applyRestore()
         emit actionFeedback("Still busy with another operation on this stick -- try again once it finishes.", true);
         return;
     }
+    m_pendingWriteKind = PendingWriteKind::Apply;
     setErrorMessage({});
     setStatusMessage({});
     setScanProgress(0, 0);
@@ -652,11 +640,31 @@ void LocalCueController::onWriteFinished()
     setBusy(false);
     setWriting(false);
 
-    // Silent (reportFeedback defaults to false): this is an automatic
-    // background refresh following the write above, not something the
-    // user clicked -- the actionFeedback just emitted already covers
-    // what actually happened.
-    analyzeRestore(m_format, m_path);
+    // Even the local-update branch below (which skips the immediate
+    // re-scan) still needs this, so a *later* scan (reopening the page,
+    // switching formats and back) can't read stale cached tracks from
+    // before the write within an mtime-granularity window.
+    LibraryCatalogCache::instance().invalidate(m_format.toStdString(), m_path.toStdString());
+
+    if (m_pendingWriteKind == PendingWriteKind::Apply) {
+        // applyRestore() always writes every candidate currently in
+        // m_model, and LocalRestorePlanner::mergeCues() only ever adds
+        // cues the stick is missing -- so once this write succeeds,
+        // every listed candidate is already fully merged and there's
+        // nothing left for this same backup to offer. No re-scan can
+        // find anything new here; just clear the list locally.
+        m_model.setCandidates({});
+        emit analysisChanged();
+    } else {
+        // Undo restores the stick's prior file bytes directly; the
+        // candidate list for "what's missing" was already discarded
+        // locally by the apply that preceded it, so there's nothing to
+        // patch back in without a real re-scan. Silent (reportFeedback
+        // defaults to false): this is an automatic background refresh
+        // following the write above, not something the user clicked --
+        // the actionFeedback just emitted already covers what happened.
+        analyzeRestore(m_format, m_path);
+    }
 }
 
 void LocalCueController::undoLastOperation()
@@ -669,6 +677,7 @@ void LocalCueController::undoLastOperation()
         emit actionFeedback("Nothing to undo.", true);
         return;
     }
+    m_pendingWriteKind = PendingWriteKind::Undo;
     setErrorMessage({});
     setStatusMessage({});
     setScanProgress(0, 0);
