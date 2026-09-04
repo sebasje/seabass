@@ -322,6 +322,7 @@ ApplicationWindow {
         id: stickStatisticsPageComponent
         StickStatisticsPage {
             playbackController: playbackCtrl
+            appSettingsController: appSettingsCtrl
             onSyncRequested: (stickLabel, rekordboxPath, enginePath) => stackView.push(syncPageComponent, {
                 stickLabel: stickLabel,
                 rekordboxPath: rekordboxPath,

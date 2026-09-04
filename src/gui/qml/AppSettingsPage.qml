@@ -65,6 +65,43 @@ Page {
         }
 
         Subtitle {
+            text: "Musical key notation"
+            Layout.topMargin: 12
+        }
+        RowLayout {
+            spacing: 12
+            ButtonGroup { id: keyNotationGroup }
+            RadioButton {
+                text: "Camelot (e.g. 6A)"
+                ButtonGroup.group: keyNotationGroup
+                checked: root.appSettingsController.keyNotation !== "traditional"
+                onCheckedChanged: if (checked) root.appSettingsController.keyNotation = "camelot"
+            }
+            RadioButton {
+                text: "Traditional (e.g. F♯m)"
+                ButtonGroup.group: keyNotationGroup
+                checked: root.appSettingsController.keyNotation === "traditional"
+                onCheckedChanged: if (checked) root.appSettingsController.keyNotation = "traditional"
+            }
+            // Live preview, not just a description -- the two notations
+            // read differently enough (a color-coded wheel position vs.
+            // an actual note name) that seeing one example update as you
+            // switch is clearer than describing the difference in text.
+            KeyBadge {
+                keyName: "F#m"
+                notation: root.appSettingsController.keyNotation
+                Layout.leftMargin: 8
+            }
+        }
+        Label {
+            text: "Applies to every key badge in Browse Library and Library Statistics. Either way, the\n"
+                + "badge's color always comes from the same underlying Camelot wheel position -- only the\n"
+                + "printed label changes."
+            color: Theme.textMuted
+            font.pointSize: Theme.fontSmall
+        }
+
+        Subtitle {
             text: "Streaming tracks"
             Layout.topMargin: 12
         }

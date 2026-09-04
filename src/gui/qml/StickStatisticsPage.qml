@@ -13,6 +13,7 @@ Page {
     required property string rekordboxPath
     required property string enginePath
     required property var playbackController
+    required property var appSettingsController
 
     signal syncRequested(string stickLabel, string rekordboxPath, string enginePath)
 
@@ -378,6 +379,7 @@ Page {
                                     KeyBadge {
                                         visible: distSection.isKeySection
                                         keyName: barRow.modelData.label
+                                        notation: root.appSettingsController.keyNotation
                                     }
                                     Rectangle {
                                         Layout.fillWidth: true
