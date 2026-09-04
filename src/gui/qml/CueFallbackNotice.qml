@@ -38,7 +38,7 @@ Label {
         if (memory > 0) {
             parts.push(memory + " memory");
         }
-        return "⚠ " + parts.join(", ") + " cue(s) set -- not shown above: this track wasn't analyzed by "
+        return "⚠ " + parts.join(", ") + " cue(s) set, not shown above: this track wasn't analyzed by "
             + "Engine, so its duration is unknown.";
     }
 }

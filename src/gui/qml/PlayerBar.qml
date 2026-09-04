@@ -88,7 +88,7 @@ Frame {
             RowLayout {
                 Layout.fillWidth: true
                 Label {
-                    text: root.controller.title + (root.controller.artist.length > 0 ? "  -- " + root.controller.artist : "")
+                    text: root.controller.title + (root.controller.artist.length > 0 ? "  - " + root.controller.artist : "")
                     font.bold: true
                     elide: Text.ElideRight
                     Layout.fillWidth: true
