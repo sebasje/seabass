@@ -111,6 +111,8 @@ qt_add_qml_module(seabass
         write_guard.hpp
         write_guard.cpp
         qt_progress_reporter.hpp
+        library_catalog_cache.hpp
+        library_catalog_cache.cpp
         system_font_metrics.hpp
         system_font_metrics.cpp
 )
