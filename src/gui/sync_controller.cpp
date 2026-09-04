@@ -14,6 +14,8 @@
 #include "application/use_cases/scan_library.hpp"
 #include "application/use_cases/sync_libraries.hpp"
 #include "domain/cross_source_sync_conflict.hpp"
+#include "domain/track_scope.hpp"
+#include "gui/library_catalog_cache.hpp"
 #include "gui/qt_progress_reporter.hpp"
 #include "gui/write_guard.hpp"
 #include "infrastructure/backup/filesystem_backup_store.hpp"
@@ -167,12 +169,58 @@ std::chrono::system_clock::time_point fileMtime(const std::string &path)
     return std::chrono::clock_cast<std::chrono::system_clock>(std::filesystem::last_write_time(path));
 }
 
+// Builds SyncTaskResult::playlistNames/playlistTrackCounts from the union
+// of every catalog's own (unfiltered) tracks -- called before any
+// TrackScope filtering below, so picking a playlist never shrinks the
+// picker's own list of choices. A given playlist name's count is the max
+// across whichever catalogs have it, not a sum: the same playlist
+// typically exists independently in each catalog present on a stick with
+// near-identical membership, and summing would roughly double-count it
+// whenever two catalogs are present, without meaning "distinct real
+// tracks" (that would need real cross-catalog matching, not just a
+// display count).
+void collectPlaylistSummary(const std::vector<domain::Track> &rekordboxTracks,
+                             const std::vector<domain::Track> &engineTracks,
+                             const std::vector<domain::Track> &oneLibraryTracks, SyncTaskResult &result)
+{
+    std::unordered_map<std::string, int> maxCountByName;
+    auto tally = [&](const std::vector<domain::Track> &tracks) {
+        std::unordered_map<std::string, int> countThisCatalog;
+        for (const auto &track : tracks) {
+            for (const auto &playlist : track.playlists) {
+                countThisCatalog[playlist.name]++;
+            }
+        }
+        for (const auto &[name, count] : countThisCatalog) {
+            int &best = maxCountByName[name];
+            best = std::max(best, count);
+        }
+    };
+    tally(rekordboxTracks);
+    tally(engineTracks);
+    tally(oneLibraryTracks);
+
+    std::set<std::string> sortedNames;
+    for (const auto &[name, count] : maxCountByName) {
+        sortedNames.insert(name);
+    }
+    for (const auto &name : sortedNames) {
+        QString qName = QString::fromStdString(name);
+        result.playlistNames << qName;
+        result.playlistTrackCounts[qName] = maxCountByName[name];
+    }
+}
+
 // Runs entirely on a background thread (see SyncController::analyze()) -
 // no access to the controller itself. Scans whichever of the three
-// catalogs are present, then runs the exact same real diff+direction
-// logic (domain::SyncLibraries) once per pair actually available on this
-// stick, combining every pair's actionable plans into one list.
-SyncTaskResult runAnalyzeTask(QString rekordboxPath, QString enginePath, std::shared_ptr<QtProgressReporter> reporter)
+// catalogs are present (via the shared LibraryCatalogCache -- a repeat
+// analyze()/Re-Analyze on an unchanged stick pays no disk-read cost at
+// all), scopes them to playlistName when it's non-empty, then runs the
+// exact same real diff+direction logic (domain::SyncLibraries) once per
+// pair actually available on this stick, combining every pair's
+// actionable plans into one list.
+SyncTaskResult runAnalyzeTask(QString rekordboxPath, QString enginePath, QString playlistName,
+                               std::shared_ptr<QtProgressReporter> reporter)
 {
     SyncTaskResult result;
     try {
@@ -183,17 +231,15 @@ SyncTaskResult runAnalyzeTask(QString rekordboxPath, QString enginePath, std::sh
         std::vector<domain::Track> rekordboxTracks, engineTracks, oneLibraryTracks;
         std::chrono::system_clock::time_point rekordboxMtime, engineMtime, oneLibraryMtime;
 
+        auto &catalogCache = LibraryCatalogCache::instance();
+
         if (hasRekordbox) {
-            infrastructure::rekordbox::KaitaiRekordboxReader rbReader(rekordboxPath.toStdString());
-            rbReader.setProgressReporter(*reporter);
-            rekordboxTracks = application::ScanLibrary(rbReader).execute();
+            rekordboxTracks = catalogCache.tracksFor("rekordbox", rekordboxPath.toStdString(), *reporter);
             rekordboxMtime = fileMtime((fs::path(rekordboxPath.toStdString()) / "rekordbox" / "export.pdb").string());
             hasOneLibrary = infrastructure::onelibrary::OneLibraryCueWriter::existsFor(rekordboxPath.toStdString());
         }
         if (hasEngine) {
-            infrastructure::engine::LibdjinteropEngineReader engineReader(enginePath.toStdString());
-            engineReader.setProgressReporter(*reporter);
-            engineTracks = application::ScanLibrary(engineReader).execute();
+            engineTracks = catalogCache.tracksFor("engine", enginePath.toStdString(), *reporter);
             // Streaming tracks (TIDAL) have no real local file. Never
             // sync cues onto/from one. See domain::Track::streamingSource's
             // own doc comment.
@@ -203,11 +249,18 @@ SyncTaskResult runAnalyzeTask(QString rekordboxPath, QString enginePath, std::sh
             engineMtime = fileMtime((fs::path(enginePath.toStdString()) / "Database2" / "m.db").string());
         }
         if (hasOneLibrary) {
-            infrastructure::onelibrary::OneLibraryReader oneLibReader(rekordboxPath.toStdString());
-            oneLibReader.setProgressReporter(*reporter);
-            oneLibraryTracks = application::ScanLibrary(oneLibReader).execute();
+            oneLibraryTracks = catalogCache.tracksFor("onelibrary", rekordboxPath.toStdString(), *reporter);
             oneLibraryMtime =
                 fileMtime(infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(rekordboxPath.toStdString()));
+        }
+
+        collectPlaylistSummary(rekordboxTracks, engineTracks, oneLibraryTracks, result);
+
+        if (!playlistName.isEmpty()) {
+            domain::TrackScope scope = domain::TrackScope::playlist(playlistName.toStdString());
+            rekordboxTracks = domain::filterByScope(rekordboxTracks, scope);
+            engineTracks = domain::filterByScope(engineTracks, scope);
+            oneLibraryTracks = domain::filterByScope(oneLibraryTracks, scope);
         }
 
         result.rekordboxTrackCount = static_cast<int>(rekordboxTracks.size());
@@ -269,19 +322,20 @@ SyncController::SyncController(QObject *parent) : QObject(parent)
     connect(&m_writeWatcher, &QFutureWatcher<SyncWriteResult>::finished, this, &SyncController::onWriteFinished);
 }
 
-void SyncController::analyze(const QString &rekordboxPath, const QString &enginePath)
+void SyncController::analyze(const QString &rekordboxPath, const QString &enginePath, const QString &playlistName)
 {
     if (m_busy) {
         return;  // never overlap two analyses
     }
     m_rekordboxPath = rekordboxPath;
     m_enginePath = enginePath;
+    m_currentPlaylistName = playlistName;
     setErrorMessage({});
     setStatusMessage({});
     setScanProgress(0, 0);
     setBusy(true);
 
-    m_watcher.setFuture(QtConcurrent::run(runAnalyzeTask, rekordboxPath, enginePath, makeReporter()));
+    m_watcher.setFuture(QtConcurrent::run(runAnalyzeTask, rekordboxPath, enginePath, playlistName, makeReporter()));
 }
 
 // See ScanController::scan() for why the reporter is owned by the task
@@ -309,6 +363,8 @@ void SyncController::onAnalyzeFinished()
     m_rekordboxTrackCount = result.rekordboxTrackCount;
     m_engineTrackCount = result.engineTrackCount;
     m_oneLibraryTrackCount = result.oneLibraryTrackCount;
+    m_playlistNames = std::move(result.playlistNames);
+    m_playlistTrackCounts = std::move(result.playlistTrackCounts);
     m_model.setPlans(std::move(result.plans));
     recomputeDirectionCounts();
     // A rescan is a fresh snapshot -- any conflict resolved against the
@@ -766,8 +822,19 @@ void SyncController::onWriteFinished()
     setBusy(false);
     setWriting(false);
 
-    // Re-analyze so the model reflects the now-consistent state.
-    analyze(m_rekordboxPath, m_enginePath);
+    // A write may have touched any/all of the three catalogs -- rather
+    // than plumbing through exactly which ones a given apply actually
+    // wrote to, just invalidate all three; an unnecessary re-scan on an
+    // untouched catalog is cheap next to the cost of showing stale data.
+    auto &catalogCache = LibraryCatalogCache::instance();
+    catalogCache.invalidate("rekordbox", m_rekordboxPath.toStdString());
+    catalogCache.invalidate("engine", m_enginePath.toStdString());
+    catalogCache.invalidate("onelibrary", m_rekordboxPath.toStdString());
+
+    // Re-analyze so the model reflects the now-consistent state, staying
+    // scoped to whatever playlist was selected rather than reverting to
+    // "All tracks".
+    analyze(m_rekordboxPath, m_enginePath, m_currentPlaylistName);
 }
 
 void SyncController::undoLastOperation()

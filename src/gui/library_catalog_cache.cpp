@@ -39,24 +39,34 @@ std::chrono::system_clock::time_point realMtime(const std::string &format, const
     return std::chrono::clock_cast<std::chrono::system_clock>(fs::last_write_time(freshnessFile(format, path)));
 }
 
-std::vector<domain::Track> realScan(const std::string &format, const std::string &path)
+std::vector<domain::Track> realScan(const std::string &format, const std::string &path,
+                                     application::ProgressReporter &progress)
 {
     if (format == "rekordbox") {
         infrastructure::rekordbox::KaitaiRekordboxReader reader(path);
+        reader.setProgressReporter(progress);
         return application::ScanLibrary(reader).execute();
     }
     if (format == "engine") {
         infrastructure::engine::LibdjinteropEngineReader reader(path);
+        reader.setProgressReporter(progress);
         return application::ScanLibrary(reader).execute();
     }
     if (format == "onelibrary") {
         infrastructure::onelibrary::OneLibraryReader reader(path);
+        reader.setProgressReporter(progress);
         return application::ScanLibrary(reader).execute();
     }
     throw std::invalid_argument("LibraryCatalogCache: unknown format \"" + format + "\"");
 }
 
 }  // namespace
+
+LibraryCatalogCache &LibraryCatalogCache::instance()
+{
+    static LibraryCatalogCache cache;
+    return cache;
+}
 
 LibraryCatalogCache::LibraryCatalogCache() : m_scanFn(realScan), m_mtimeFn(realMtime) {}
 
@@ -70,7 +80,8 @@ std::string LibraryCatalogCache::keyFor(const std::string &format, const std::st
     return format + "\n" + path;
 }
 
-std::vector<domain::Track> LibraryCatalogCache::tracksFor(const std::string &format, const std::string &path)
+std::vector<domain::Track> LibraryCatalogCache::tracksFor(const std::string &format, const std::string &path,
+                                                            application::ProgressReporter &progress)
 {
     const std::string key = keyFor(format, path);
     const auto currentMtime = m_mtimeFn(format, path);
@@ -98,7 +109,7 @@ std::vector<domain::Track> LibraryCatalogCache::tracksFor(const std::string &for
     std::vector<domain::Track> tracks;
     std::exception_ptr error;
     try {
-        tracks = m_scanFn(format, path);
+        tracks = m_scanFn(format, path, progress);
     } catch (...) {
         error = std::current_exception();
     }
