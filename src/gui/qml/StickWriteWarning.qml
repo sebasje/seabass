@@ -34,7 +34,7 @@ Rectangle {
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
             color: Theme.warnText
-            text: "Writing to the stick -- do not remove it until this finishes."
+            text: "Writing to the stick. Do not remove it until this finishes."
         }
     }
 }

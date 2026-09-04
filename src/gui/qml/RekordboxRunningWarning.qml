@@ -36,7 +36,7 @@ Rectangle {
             wrapMode: Text.WordWrap
             font.bold: true
             color: Theme.dangerText
-            text: "Rekordbox appears to be running -- writes to this stick are refused until it's closed, "
+            text: "Rekordbox appears to be running: writes to this stick are refused until it's closed, "
                 + "to avoid corrupting your library."
         }
     }

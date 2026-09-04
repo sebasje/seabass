@@ -78,7 +78,7 @@ RowLayout {
         enabled: root.hasEngine
         ButtonGroup.group: group
         ToolTip.visible: hovered
-        ToolTip.text: "Denon Engine DJ's own library format (m.db) -- what Denon/inMusic hardware "
+        ToolTip.text: "Denon Engine DJ's own library format (m.db): what Denon/inMusic hardware "
             + "(SC5000, Prime series, ...) reads directly from the stick."
         onClicked: root.sourceRequested("engine")
     }
@@ -89,7 +89,7 @@ RowLayout {
         enabled: root.hasRekordbox
         ButtonGroup.group: group
         ToolTip.visible: hovered
-        ToolTip.text: "Rekordbox's classic per-stick export (export.pdb) -- what CDJs and XDJs read "
+        ToolTip.text: "Rekordbox's classic per-stick export (export.pdb): what CDJs and XDJs read "
             + "directly. Every rekordbox export has this."
         onClicked: root.sourceRequested("rekordbox")
     }
@@ -102,12 +102,12 @@ RowLayout {
         ToolTip.visible: hovered
         ToolTip.text: {
             if (!root.hasOneLibrary) {
-                return "Not present on this export -- OneLibrary only exists on newer rekordbox exports.";
+                return "Not present on this export: OneLibrary only exists on newer rekordbox exports.";
             }
             if (!root.oneLibrarySupported && root.oneLibraryUnsupportedReason.length > 0) {
                 return root.oneLibraryUnsupportedReason;
             }
-            return "Rekordbox 7's newer unified library format (exportLibrary.db) -- mirrors the Device "
+            return "Rekordbox 7's newer unified library format (exportLibrary.db): mirrors the Device "
                 + "Library's tracks in a richer schema. You can add cues here directly, and duplicate "
                 + "cues can be copied across copies the same way as the other two catalogs.";
         }

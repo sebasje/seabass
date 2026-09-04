@@ -68,7 +68,7 @@ Canvas {
                 title = cue.kind === "hot" ? "Hot cue " + cue.hotCueNumber : "Memory cue";
             }
             if (hit) {
-                return (cue.comment && cue.comment.length > 0) ? title + " — “" + cue.comment + "”" : title;
+                return (cue.comment && cue.comment.length > 0) ? title + ": “" + cue.comment + "”" : title;
             }
         }
         return "";
@@ -235,7 +235,7 @@ Canvas {
         readonly property bool noWaveformYet: root.format === "engine" && (!root.waveformData || root.waveformData.length === 0)
         ToolTip.visible: containsMouse && pressX < 0 && (noWaveformYet || root.hoveredCueText.length > 0)
         ToolTip.text: noWaveformYet
-            ? "No waveform yet -- Engine OS generates this the first time the track is loaded on the hardware."
+            ? "No waveform yet: Engine OS generates this the first time the track is loaded on the hardware."
             : root.hoveredCueText
 
         onPositionChanged: (mouse) => {
