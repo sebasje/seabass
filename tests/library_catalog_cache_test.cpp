@@ -133,6 +133,43 @@ int main()
         std::cout << "case 5 (different keys cached independently) OK\n";
     }
 
+    // Case 6: invalidate() landing while a scan is already in flight for
+    // that key must not be silently undone once that scan completes.
+    {
+        std::atomic<int> scanCount{0};
+        std::atomic<bool> firstScanStarted{false};
+        std::atomic<bool> proceedWithFirstScan{false};
+        auto scanFn = [&](const std::string &, const std::string &, seabass::application::ProgressReporter &) {
+            int n = ++scanCount;
+            if (n == 1) {
+                firstScanStarted = true;
+                while (!proceedWithFirstScan.load()) {
+                    std::this_thread::yield();
+                }
+            }
+            return oneTrack("1");
+        };
+        auto mtimeFn = [](const std::string &, const std::string &) { return std::chrono::system_clock::time_point{}; };
+        LibraryCatalogCache cache(scanFn, mtimeFn);
+
+        std::thread t1([&] { cache.tracksFor("rekordbox", "/stick"); });
+        while (!firstScanStarted.load()) {
+            std::this_thread::yield();
+        }
+        // Invalidate while the first scan is still blocked mid-flight,
+        // then let it finish.
+        cache.invalidate("rekordbox", "/stick");
+        proceedWithFirstScan = true;
+        t1.join();
+
+        assert(scanCount == 1);
+        // A fresh call must re-scan -- the in-flight scan's result must
+        // not have been cached despite completing after the invalidate().
+        cache.tracksFor("rekordbox", "/stick");
+        assert(scanCount == 2);
+        std::cout << "case 6 (invalidate() during an in-flight scan isn't undone by its completion) OK\n";
+    }
+
     std::cout << "All library_catalog_cache tests passed.\n";
     return 0;
 }

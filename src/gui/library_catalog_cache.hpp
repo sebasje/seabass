@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <condition_variable>
+#include <cstdint>
 #include <functional>
 #include <mutex>
 #include <string>
@@ -95,6 +96,12 @@ private:
     std::mutex m_mutex;
     std::condition_variable m_cv;
     std::unordered_map<std::string, Entry> m_entries;
+    // Per-key invalidation counter, incremented by invalidate() and never
+    // erased (unlike m_entries) -- lets tracksFor() detect an invalidate()
+    // that landed while its own scan was still running, so it doesn't
+    // write a since-stale result back into the cache. See tracksFor()'s
+    // own comment for the exact race this closes.
+    std::unordered_map<std::string, std::uint64_t> m_generation;
 };
 
 }  // namespace seabass::gui
