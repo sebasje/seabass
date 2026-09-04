@@ -4,7 +4,9 @@
 #include <QFutureWatcher>
 #include <QObject>
 #include <QQmlEngine>
+#include <QStringList>
 #include <QVariantList>
+#include <QVariantMap>
 
 #include <memory>
 #include <string>
@@ -13,6 +15,7 @@
 
 #include "domain/cross_source_sync_conflict.hpp"
 #include "domain/sync_planning.hpp"
+#include "domain/track_scope.hpp"
 #include "gui/qt_progress_reporter.hpp"
 #include "gui/undo_tracking.hpp"
 
@@ -82,7 +85,14 @@ struct SyncTaskResult
     int rekordboxTrackCount = 0;
     int engineTrackCount = 0;
     int oneLibraryTrackCount = 0;  // 0 when this stick has no OneLibrary export
-    QString errorMessage;          // empty on success
+    // Union of playlist names across every catalog scanned, built from the
+    // *unfiltered* scan regardless of which TrackScope analyze() was asked
+    // for -- so picking a playlist never shrinks the picker's own list of
+    // choices. Same shape as ScanController's own playlistNames/
+    // playlistTrackCounts.
+    QStringList playlistNames;
+    QVariantMap playlistTrackCounts;
+    QString errorMessage;  // empty on success
 };
 
 // Result of a background write task, see SyncController::apply()/
@@ -122,6 +132,12 @@ class SyncController : public QObject
     Q_PROPERTY(int rekordboxTrackCount READ rekordboxTrackCount NOTIFY analysisChanged)
     Q_PROPERTY(int engineTrackCount READ engineTrackCount NOTIFY analysisChanged)
     Q_PROPERTY(int oneLibraryTrackCount READ oneLibraryTrackCount NOTIFY analysisChanged)
+    // Backs the Playlist picker in SyncPage.qml -- same shape/convention as
+    // ScanController's own playlistNames/playlistTrackCounts (index 0 of
+    // ["All tracks"] + these is the "no filter" choice; see
+    // PlaylistListView.qml).
+    Q_PROPERTY(QStringList playlistNames READ playlistNames NOTIFY analysisChanged)
+    Q_PROPERTY(QVariantMap playlistTrackCounts READ playlistTrackCounts NOTIFY analysisChanged)
     // One entry per (sourceFormat, targetFormat, count) actually present
     // among the current plans, e.g. [{sourceFormat:"engine",
     // targetFormat:"rekordbox", count:12}, ...] -- replaces the old fixed
@@ -154,6 +170,8 @@ public:
     int rekordboxTrackCount() const { return m_rekordboxTrackCount; }
     int engineTrackCount() const { return m_engineTrackCount; }
     int oneLibraryTrackCount() const { return m_oneLibraryTrackCount; }
+    QStringList playlistNames() const { return m_playlistNames; }
+    QVariantMap playlistTrackCounts() const { return m_playlistTrackCounts; }
     QVariantList directionCounts() const { return m_directionCounts; }
     QVariantList unresolvedConflicts() const { return m_unresolvedConflicts; }
     QString errorMessage() const { return m_errorMessage; }
@@ -164,8 +182,15 @@ public:
     // DetectedStick.rekordboxPath / .enginePath (either may be empty if
     // that catalog isn't present); OneLibrary is picked up automatically
     // whenever exportLibrary.db exists under rekordboxPath, same
-    // convention as every other feature in this app.
-    Q_INVOKABLE void analyze(const QString &rekordboxPath, const QString &enginePath);
+    // convention as every other feature in this app. playlistName empty
+    // (the default) analyzes/syncs the whole library, same as before this
+    // parameter existed; a real name scopes matching, the plan list, and
+    // rekordboxTrackCount/engineTrackCount/oneLibraryTrackCount to just
+    // that playlist's tracks -- playlistNames/playlistTrackCounts
+    // themselves stay unfiltered so the picker never shrinks its own
+    // choices.
+    Q_INVOKABLE void analyze(const QString &rekordboxPath, const QString &enginePath,
+                              const QString &playlistName = QString());
 
     // Phase 2 (the confirmation gate) + phase 3: writes every plan
     // currently in the model, across every pair. Only call this from a
@@ -220,12 +245,19 @@ private:
     QFutureWatcher<SyncWriteResult> m_writeWatcher;
     QString m_rekordboxPath;
     QString m_enginePath;
+    // The playlistName analyze() was last called with -- so the automatic
+    // re-analyze onWriteFinished() runs after every apply()/applyOne()/
+    // undoLastOperation() stays scoped to whatever playlist was selected,
+    // instead of silently reverting to "All tracks".
+    QString m_currentPlaylistName;
     bool m_busy = false;
     int m_scanCurrent = 0;
     int m_scanTotal = 0;
     int m_rekordboxTrackCount = 0;
     int m_engineTrackCount = 0;
     int m_oneLibraryTrackCount = 0;
+    QStringList m_playlistNames;
+    QVariantMap m_playlistTrackCounts;
     QVariantList m_directionCounts;
     std::vector<domain::CrossSourceSyncConflict> m_conflicts;
     QVariantList m_unresolvedConflicts;

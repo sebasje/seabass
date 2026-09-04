@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "application/ports/progress_reporter.hpp"
 #include "domain/track.hpp"
 
 namespace seabass::gui
@@ -38,19 +39,27 @@ namespace seabass::gui
 // relying purely on the next mtime check, so a caller never has to wait
 // out a filesystem timestamp granularity window to see its own write.
 //
-// Note: unlike the per-controller scan tasks it replaces, a cache-miss
-// scan here has no progress reporting wired through it (no ProgressReporter
-// plumbed to whichever controller triggered it) -- a real simplification,
-// not an oversight. Reintroducing per-call progress would need the cache
-// to know which controller's progress properties to update, which breaks
-// the whole point of sharing one cache across controllers that don't know
-// about each other.
+// progress is only ever touched on a cache miss (a hit returns instantly,
+// nothing to report) -- passed in per-call rather than held as cache
+// state, so the cache itself stays agnostic to which controller's
+// progress properties a given caller wants updated. Callers that don't
+// care (StickStatisticsController's own scan reports no progress today
+// either) can omit it and get NullProgressReporter.
 class LibraryCatalogCache
 {
 public:
-    using ScanFn = std::function<std::vector<domain::Track>(const std::string &format, const std::string &path)>;
+    using ScanFn = std::function<std::vector<domain::Track>(const std::string &format, const std::string &path,
+                                                              application::ProgressReporter &progress)>;
     using MtimeFn =
         std::function<std::chrono::system_clock::time_point(const std::string &format, const std::string &path)>;
+
+    // One shared, process-wide instance -- controllers are QML-instantiated
+    // (e.g. `SyncController { id: syncController }`), so there's no single
+    // C++ construction point to inject a shared cache through; a singleton
+    // avoids threading a pointer through every page's QML property list for
+    // what is, from any one controller's point of view, a passive,
+    // stateless-looking dependency.
+    static LibraryCatalogCache &instance();
 
     // Real behavior: constructs the matching infrastructure reader
     // ("rekordbox"/"engine"/"onelibrary") and stats that catalog's own
@@ -61,7 +70,9 @@ public:
     // timestamps.
     LibraryCatalogCache(ScanFn scanFn, MtimeFn mtimeFn);
 
-    std::vector<domain::Track> tracksFor(const std::string &format, const std::string &path);
+    std::vector<domain::Track> tracksFor(const std::string &format, const std::string &path,
+                                          application::ProgressReporter &progress =
+                                              application::NullProgressReporter::instance());
 
     // Call after writing to this catalog (Sync's apply()/applyOne(), Clean
     // Up writes, ...) so the next tracksFor() re-scans unconditionally

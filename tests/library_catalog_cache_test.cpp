@@ -27,7 +27,7 @@ int main()
     // is served from the cache -- the scan function runs exactly once.
     {
         std::atomic<int> scanCount{0};
-        auto scanFn = [&](const std::string &, const std::string &) {
+        auto scanFn = [&](const std::string &, const std::string &, seabass::application::ProgressReporter &) {
             scanCount++;
             return oneTrack("1");
         };
@@ -45,7 +45,7 @@ int main()
     // Case 2: a changed mtime forces a re-scan.
     {
         std::atomic<int> scanCount{0};
-        auto scanFn = [&](const std::string &, const std::string &) {
+        auto scanFn = [&](const std::string &, const std::string &, seabass::application::ProgressReporter &) {
             scanCount++;
             return oneTrack("1");
         };
@@ -64,7 +64,7 @@ int main()
     // Case 3: invalidate() forces a re-scan even though mtime hasn't moved.
     {
         std::atomic<int> scanCount{0};
-        auto scanFn = [&](const std::string &, const std::string &) {
+        auto scanFn = [&](const std::string &, const std::string &, seabass::application::ProgressReporter &) {
             scanCount++;
             return oneTrack("1");
         };
@@ -87,7 +87,7 @@ int main()
     // didn't work.
     {
         std::atomic<int> scanCount{0};
-        auto scanFn = [&](const std::string &, const std::string &) {
+        auto scanFn = [&](const std::string &, const std::string &, seabass::application::ProgressReporter &) {
             scanCount++;
             std::this_thread::sleep_for(100ms);
             return oneTrack("1");
@@ -119,7 +119,7 @@ int main()
     // cached independently.
     {
         std::atomic<int> scanCount{0};
-        auto scanFn = [&](const std::string &format, const std::string &) {
+        auto scanFn = [&](const std::string &format, const std::string &, seabass::application::ProgressReporter &) {
             scanCount++;
             return oneTrack(format);
         };

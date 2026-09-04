@@ -7,16 +7,13 @@
 #include <set>
 #include <stdexcept>
 
-#include "application/use_cases/scan_library.hpp"
 #include "domain/disk_usage.hpp"
 #include "domain/filesystem_compatibility.hpp"
 #include "domain/library_statistics.hpp"
+#include "gui/library_catalog_cache.hpp"
 #include "infrastructure/benchmark/stick_benchmark_history.hpp"
 #include "infrastructure/benchmark/stick_speed_benchmark.hpp"
-#include "infrastructure/engine/libdjinterop_engine_reader.hpp"
 #include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
-#include "infrastructure/onelibrary/onelibrary_reader.hpp"
-#include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
 #include "infrastructure/system/stick_hardware_info.hpp"
 
 namespace seabass::gui
@@ -163,9 +160,10 @@ StickStatisticsScanResult runScanTask(QString stickLabel, QString rekordboxPath,
         std::set<std::string> seenFilePaths;
         std::vector<std::string> databaseFiles;
 
+        auto &catalogCache = LibraryCatalogCache::instance();
+
         if (!rekordboxPath.isEmpty()) {
-            infrastructure::rekordbox::KaitaiRekordboxReader reader(rekordboxPath.toStdString());
-            auto tracks = application::ScanLibrary(reader).execute();
+            auto tracks = catalogCache.tracksFor("rekordbox", rekordboxPath.toStdString());
             result.rekordboxStats = toVariant(domain::LibraryStatisticsCalculator::calculate(tracks));
             databaseFiles.push_back(rekordboxPath.toStdString() + "/rekordbox/export.pdb");
             for (auto &t : tracks) {
@@ -175,8 +173,7 @@ StickStatisticsScanResult runScanTask(QString stickLabel, QString rekordboxPath,
             }
         }
         if (!enginePath.isEmpty()) {
-            infrastructure::engine::LibdjinteropEngineReader reader(enginePath.toStdString());
-            auto tracks = application::ScanLibrary(reader).execute();
+            auto tracks = catalogCache.tracksFor("engine", enginePath.toStdString());
             result.engineStats = toVariant(domain::LibraryStatisticsCalculator::calculate(tracks));
             databaseFiles.push_back((fs::path(enginePath.toStdString()) / "Database2" / "m.db").string());
             for (auto &t : tracks) {
@@ -193,8 +190,7 @@ StickStatisticsScanResult runScanTask(QString stickLabel, QString rekordboxPath,
         }
         if (!rekordboxPath.isEmpty() &&
             infrastructure::onelibrary::OneLibraryCueWriter::existsFor(rekordboxPath.toStdString())) {
-            infrastructure::onelibrary::OneLibraryReader reader(rekordboxPath.toStdString());
-            auto tracks = application::ScanLibrary(reader).execute();
+            auto tracks = catalogCache.tracksFor("onelibrary", rekordboxPath.toStdString());
             result.oneLibraryStats = toVariant(domain::LibraryStatisticsCalculator::calculate(tracks));
             databaseFiles.push_back(infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(rekordboxPath.toStdString()));
             // OneLibrary's own tracks reference the same physical files
