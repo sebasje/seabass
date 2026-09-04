@@ -73,6 +73,12 @@ public:
         FormatRole = Qt::UserRole + 1,  // "rekordbox", "engine", or "onelibrary"
         TitleRole,
         ArtistRole,
+        // Same brokenTrackToMap() shape LibraryConsistencyIssueListModel's
+        // own survivor/brokenTracks roles already use (sourceId, title,
+        // artist, filePath, artworkPath, durationMs, cues) -- everything
+        // TrackWaveformCard needs, for the memory-cue section to show one
+        // instead of a bare title/artist line.
+        TrackRole,
     };
 
     explicit JunkCueIssueListModel(QObject *parent = nullptr);

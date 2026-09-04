@@ -715,48 +715,45 @@ Page {
                 Repeater {
                     id: junkCueRepeater
                     model: consistencyController.junkCues
-                    delegate: ItemDelegate {
+                    // Was a bare format-badge + title/artist line with no
+                    // way to see or hear the cue in question at all --
+                    // the same shared track delegate the missing-file
+                    // detail view and Sync/Duplicates use elsewhere, so
+                    // this row shows a real waveform with the 0:00 memory
+                    // cue about to be removed, and a Play button that
+                    // simply didn't exist here before.
+                    delegate: ColumnLayout {
                         id: junkDelegate
                         Layout.fillWidth: true
-                        hoverEnabled: false
+                        spacing: 4
 
                         required property int index
-                        required property string format
-                        required property string title
-                        required property string artist
+                        required property var track
 
-                        contentItem: RowLayout {
-                            spacing: 8
-                            Rectangle {
-                                radius: 3
-                                color: Theme.groupBackground
-                                border.color: Theme.borderSubtle
-                                implicitWidth: junkFormatLabelText.implicitWidth + 8
-                                implicitHeight: junkFormatLabelText.implicitHeight + 4
-                                Label {
-                                    id: junkFormatLabelText
-                                    anchors.centerIn: parent
-                                    text: root.formatLabel(junkDelegate.format)
-                                    font.pointSize: Theme.fontTiny
-                                    font.bold: true
-                                    color: Theme.textMuted
-                                }
+                        TrackWaveformCard {
+                            Layout.fillWidth: true
+                            track: junkDelegate.track
+                            formatLabelText: root.formatLabel(junkDelegate.track.side)
+                            // Highlights the memory cue at 0:00 -- the one
+                            // this row is actually about -- and dims every
+                            // other cue the track happens to have, so it's
+                            // unambiguous which one Remove kills. See
+                            // WaveformView's own doc comment on this
+                            // property.
+                            highlightCuePositionMs: 0
+                            actionButtonText: "Remove"
+                            actionButtonTooltip: "Permanently remove this memory cue at 0:00 from the track. Backed up first."
+                            actionButtonEnabled: !consistencyController.busy
+                            onActionTriggered: {
+                                confirmRemoveJunkCueDialog.pendingIndex = junkDelegate.index;
+                                confirmRemoveJunkCueDialog.open();
                             }
-                            Label {
-                                text: junkDelegate.title + " - " + junkDelegate.artist
-                                elide: Text.ElideRight
-                                Layout.fillWidth: true
-                            }
-                            Button {
-                                text: "Remove"
-                                enabled: !consistencyController.busy
-                                ToolTip.visible: hovered
-                                ToolTip.text: "Permanently remove this memory cue at 0:00 from the track. Backed up first."
-                                onClicked: {
-                                    confirmRemoveJunkCueDialog.pendingIndex = junkDelegate.index;
-                                    confirmRemoveJunkCueDialog.open();
-                                }
-                            }
+                            playbackController: root.playbackController
+                            playbackPath: root.pathForFormat(junkDelegate.track.side)
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Item { Layout.fillWidth: true }
                             Button {
                                 text: "Ignore"
                                 enabled: !consistencyController.busy

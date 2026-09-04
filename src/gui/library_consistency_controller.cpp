@@ -71,6 +71,14 @@ namespace
 QVariantMap brokenTrackToMap(const domain::Track &track)
 {
     QVariantMap m;
+    // Same "side" key every other trackToMap()-style helper in this
+    // codebase uses (sync_controller.cpp, duplicates_controller.cpp,
+    // cleanup_controller.cpp) -- TrackWaveformCard reads track.side, not
+    // track.format, for both its Play wiring and WaveformView's format
+    // hint. Unused by this file's own existing callers (the missing-file
+    // detail view passes format separately), added now for the new
+    // TrackWaveformCard usage in the memory-cue section below.
+    m["side"] = QString::fromStdString(track.format);
     m["sourceId"] = QString::fromStdString(track.sourceId);
     m["title"] = QString::fromStdString(track.title);
     m["artist"] = QString::fromStdString(track.artist);
@@ -190,6 +198,8 @@ QVariant JunkCueIssueListModel::data(const QModelIndex &index, int role) const
         return QString::fromStdString(issue.track.title);
     case ArtistRole:
         return QString::fromStdString(issue.track.artist);
+    case TrackRole:
+        return brokenTrackToMap(issue.track);
     default:
         return {};
     }
@@ -201,6 +211,7 @@ QHash<int, QByteArray> JunkCueIssueListModel::roleNames() const
         {FormatRole, "format"},
         {TitleRole, "title"},
         {ArtistRole, "artist"},
+        {TrackRole, "track"},
     };
 }
 

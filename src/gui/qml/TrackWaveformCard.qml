@@ -50,6 +50,11 @@ Frame {
     property var playbackController: null
     property string playbackPath: ""
 
+    // Passed straight through to the inner WaveformView -- see its own
+    // doc comment. -1 (default): every cue renders identically, today's
+    // behavior for every existing call site.
+    property real highlightCuePositionMs: -1
+
     // Optional status pill (e.g. "KEEPING"/"REMOVING" on CleanupPage,
     // which copy of a duplicate group survives) -- empty hides it.
     // Deliberately styled distinctly from the neutral format badge above
@@ -153,6 +158,7 @@ Frame {
             format: root.track.side
             cueData: root.track.cues
             trackDurationMs: root.track.durationMs
+            highlightCuePositionMs: root.highlightCuePositionMs
         }
         CueFallbackNotice {
             cues: root.track.cues
