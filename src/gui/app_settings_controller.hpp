@@ -20,6 +20,7 @@ class AppSettingsController : public QObject
     Q_PROPERTY(QString preferredFormat READ preferredFormat WRITE setPreferredFormat NOTIFY preferredFormatChanged)
     Q_PROPERTY(bool hideStreamingTracks READ hideStreamingTracks WRITE setHideStreamingTracks NOTIFY
                    hideStreamingTracksChanged)
+    Q_PROPERTY(QString keyNotation READ keyNotation WRITE setKeyNotation NOTIFY keyNotationChanged)
     // Always present (even in a build compiled with SEABASS_EXPERIMENTAL
     // off) so QML can gate the whole Settings section on it.
     Q_PROPERTY(bool experimentalBuildSupported READ experimentalBuildSupported CONSTANT)
@@ -51,6 +52,15 @@ public:
     bool hideStreamingTracks() const { return m_hideStreamingTracks; }
     void setHideStreamingTracks(bool value);
 
+    // How KeyBadge.qml renders a musical key everywhere it appears
+    // (Browse Library's Key column, Library Statistics' "Tracks per
+    // key") -- "camelot" (default, e.g. "6A") or "traditional" (e.g.
+    // "F♯m"). Either way the badge's color still comes from the same
+    // underlying Camelot wheel position (see Theme.colorForKey()), only
+    // the printed label changes.
+    QString keyNotation() const { return m_keyNotation; }
+    void setKeyNotation(const QString &value);
+
     // See docs/experimental-features.md for the convention this backs:
     // new non-trivial features default to hidden behind
     // experimentalFeaturesEnabled until proven, then graduate to
@@ -75,6 +85,7 @@ signals:
     void useSystemThemeChanged();
     void preferredFormatChanged();
     void hideStreamingTracksChanged();
+    void keyNotationChanged();
 #ifdef SEABASS_EXPERIMENTAL_BUILD
     void experimentalFeaturesEnabledChanged();
 #endif
@@ -84,6 +95,7 @@ private:
     bool m_useSystemTheme = false;
     QString m_preferredFormat = QStringLiteral("rekordbox");
     bool m_hideStreamingTracks = false;
+    QString m_keyNotation = QStringLiteral("camelot");
 #ifdef SEABASS_EXPERIMENTAL_BUILD
     bool m_experimentalFeaturesEnabled = false;
 #endif

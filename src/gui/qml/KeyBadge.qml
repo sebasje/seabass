@@ -11,6 +11,11 @@ import QtQuick.Layouts
 Item {
     id: root
     property string keyName: ""
+    // "camelot" (default, e.g. "6A") or "traditional" (e.g. "F♯m") --
+    // AppSettingsController.keyNotation, threaded through by every call
+    // site rather than read from Theme directly, so this stays testable/
+    // previewable without a running AppSettingsController.
+    property string notation: "camelot"
     Layout.preferredWidth: 50 * Theme.iconScale
     Layout.preferredHeight: 22 * Theme.iconScale
     Layout.alignment: Qt.AlignVCenter
@@ -18,6 +23,13 @@ Item {
     implicitHeight: 22 * Theme.iconScale
 
     readonly property string camelot: Theme.camelotLabel(root.keyName)
+    readonly property string badgeLabel: root.notation === "traditional"
+        ? Theme.traditionalLabel(root.keyName) : root.camelot
+    // Always the full spoken form regardless of notation -- the whole
+    // point of hovering is "how do I actually say this," which the
+    // short badge label (either "6A" or "F♯m") doesn't spell out on its
+    // own.
+    readonly property string spokenLabel: Theme.traditionalSpokenLabel(root.keyName)
 
     Label {
         anchors.centerIn: parent
@@ -43,7 +55,7 @@ Item {
 
         Label {
             anchors.centerIn: parent
-            text: root.camelot
+            text: root.badgeLabel
             font.bold: true
             font.pointSize: Theme.fontSmall
             color: Theme.contrastingTextColor(parent.color)
@@ -54,7 +66,8 @@ Item {
             anchors.fill: parent
             hoverEnabled: true
             ToolTip.visible: containsMouse
-            ToolTip.text: "Key: " + root.keyName
+            ToolTip.text: "Key: " + root.spokenLabel
+                + (root.notation === "traditional" ? " (" + root.camelot + ")" : "")
         }
     }
 }

@@ -492,7 +492,7 @@ Page {
                             }
                         }
 
-                        KeyBadge { keyName: key }
+                        KeyBadge { keyName: key; notation: root.appSettingsController.keyNotation }
                         Label { text: root.formatBpm(bpm); Layout.preferredWidth: 50 }
                         Label { text: root.formatDuration(durationSeconds); Layout.preferredWidth: 60 }
                         Label { text: cueCount; Layout.preferredWidth: 50 }

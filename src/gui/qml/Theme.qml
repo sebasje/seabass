@@ -135,24 +135,69 @@ QtObject {
         "A#": 10, "Bb": 10,
         "B": 11, "Cb": 11,
     })
+    // Pitch class -> canonical note name, sharps preferred -- only used
+    // to synthesize a note name when the input was already Camelot
+    // notation (see parseCamelotKey()'s own comment), so "traditional"
+    // notation mode has something to display. There's no "right" answer
+    // for which enharmonic spelling to pick when working backwards from
+    // a Camelot number alone (nothing in "10A" says whether it means
+    // B minor or, enharmonically, Cb minor); sharps are the more common
+    // convention in DJ software when one has to be chosen.
+    readonly property var noteNameByPitchClassSharp:
+        ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
     // Parses a key string like "Dm", "F#m", "Bb", "C#" into
     // {camelotNumber: 1..12, isMinor: bool}, or null if it isn't a
     // recognized key spelling (never guessed at -- an unparseable key
     // just gets no color, same "don't fabricate it" stance as
     // conflictText/color-tag handling elsewhere in this codebase).
+    //
+    // "♯"/"♭" (U+266F/U+266D, the real Unicode music sharp/flat glyphs)
+    // are normalized to ASCII "#"/"b" before the lookup -- confirmed via
+    // real Engine data that this is not a hypothetical: libdjinterop's
+    // own musical_key operator<< (third_party/libdjinterop/include/
+    // djinterop/musical_key.hpp) emits these Unicode glyphs for every
+    // accidental key ("F♯m", "D♭", ...), so every Engine track whose key
+    // isn't a natural note used to fail this lookup and fall back to
+    // KeyBadge's plain-text/"unrecognized" display -- not a rare edge
+    // case, close to half of any real key distribution given accidentals
+    // are as common as naturals.
+    // notePart keeps the original ASCII-normalized note+accidental
+    // spelling from the input (e.g. "Db" stays "Db", never respelled to
+    // "C#") -- only camelotNumber/isMinor collapse enharmonic spellings
+    // together. camelotLabel()/colorForKey() only need the latter;
+    // traditionalLabel()/traditionalSpokenLabel() below need notePart
+    // too, to render the key back out the way it actually reads.
     function parseCamelotKey(keyStr) {
         if (!keyStr || keyStr.length === 0) {
             return null;
         }
-        var isMinor = keyStr.length > 1 && keyStr.charAt(keyStr.length - 1) === "m";
-        var notePart = isMinor ? keyStr.slice(0, -1) : keyStr;
+        var normalized = keyStr.replace(/♯/g, "#").replace(/♭/g, "b");
+
+        // Camelot notation itself (e.g. "10A", "3B") -- some catalogs
+        // store the key field this way already rather than as a musical
+        // note name at all (confirmed on real rekordbox DeviceLibrary
+        // data: Mixed In Key-style tagging, or a track re-keyed by hand
+        // in Camelot terms, both land here as plain text same as any
+        // other key). A leading digit is never a valid note-name start,
+        // so this can't collide with the musical-notation branch below.
+        var camelotMatch = normalized.match(/^(1[0-2]|[1-9])([AB])$/);
+        if (camelotMatch) {
+            var camelotNum = parseInt(camelotMatch[1], 10);
+            var campIsMinor = camelotMatch[2] === "A";
+            var byPc = campIsMinor ? camelotMinorByPitchClass : camelotMajorByPitchClass;
+            var pc = byPc.indexOf(camelotNum);
+            return {camelotNumber: camelotNum, isMinor: campIsMinor, notePart: noteNameByPitchClassSharp[pc]};
+        }
+
+        var isMinor = normalized.length > 1 && normalized.charAt(normalized.length - 1) === "m";
+        var notePart = isMinor ? normalized.slice(0, -1) : normalized;
         var pitchClass = pitchClassByName[notePart];
         if (pitchClass === undefined) {
             return null;
         }
         var camelotNumber = isMinor ? camelotMinorByPitchClass[pitchClass] : camelotMajorByPitchClass[pitchClass];
-        return {camelotNumber: camelotNumber, isMinor: isMinor};
+        return {camelotNumber: camelotNumber, isMinor: isMinor, notePart: notePart};
     }
 
     function camelotLabel(keyStr) {
@@ -167,6 +212,37 @@ QtObject {
         }
         var hue = (parsed.camelotNumber - 1) / 12;
         return parsed.isMinor ? Qt.hsla(hue, 0.55, 0.38, 1.0) : Qt.hsla(hue, 0.65, 0.55, 1.0);
+    }
+
+    // Short badge label in proper musical (not Camelot) notation, e.g.
+    // "F♯m", "D♭", "C" -- the real Unicode sharp/flat glyphs, not the
+    // ASCII "#"/"b" this app's internal parsing normalizes to (or
+    // whatever a given catalog format happens to store; rekordbox and
+    // Engine don't even agree with each other -- see parseCamelotKey's
+    // own comment on libdjinterop emitting these glyphs natively).
+    function traditionalLabel(keyStr) {
+        var parsed = parseCamelotKey(keyStr);
+        if (!parsed) {
+            return "";
+        }
+        var glyphed = parsed.notePart.replace("#", "♯").replace("b", "♭");
+        return glyphed + (parsed.isMinor ? "m" : "");
+    }
+
+    // Full spoken form for a tooltip, e.g. "C major", "F♯ minor" -- pairs
+    // with traditionalLabel()'s short badge form, spelling out
+    // major/minor in full rather than the "m"/(nothing) suffix
+    // shorthand, since a tooltip has the room and "how do I actually say
+    // this" is the whole point of hovering for detail.
+    function traditionalSpokenLabel(keyStr) {
+        var parsed = parseCamelotKey(keyStr);
+        if (!parsed) {
+            return "";
+        }
+        var noteLetter = parsed.notePart.charAt(0);
+        var accidental = parsed.notePart.length > 1 ? parsed.notePart.charAt(1) : "";
+        var glyphedNote = noteLetter + accidental.replace("#", "♯").replace("b", "♭");
+        return glyphedNote + " " + (parsed.isMinor ? "minor" : "major");
     }
 
     // Legible text color for a badge painted with colorForKey()'s output
