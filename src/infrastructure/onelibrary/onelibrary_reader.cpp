@@ -175,7 +175,11 @@ std::vector<Track> OneLibraryReader::readAll()
             // hardware-written data, and unlike Engine's own art (see
             // libdjinterop_engine_reader.cpp's much longer version of this
             // same fix), no URI-unwrapping needed here at all.
-            fs::path candidate = stickRoot / imageRelPath.substr(1);
+            // make_preferred(): same mixed-separator fix as filePath
+            // above, same reason -- imageRelPath.substr(1)'s own forward
+            // slashes are appended as one path component and survive
+            // .string() as literal characters on Windows otherwise.
+            fs::path candidate = (stickRoot / imageRelPath.substr(1)).make_preferred();
             std::error_code ec;
             if (fs::exists(candidate, ec)) {
                 track.artworkPath = candidate.string();

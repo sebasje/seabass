@@ -131,19 +131,30 @@ private:
     // constructed against (or last wrote itself) -- shared by every
     // write method below rather than duplicated four times.
     //
-    // Checks BOTH filesystem metadata (size/mtime) and SQLite's own
-    // `PRAGMA data_version` (documented by SQLite specifically as "has
-    // any connection, including from another process, committed a
-    // change since I last checked" -- a value the library tracks
-    // internally, not derived from filesystem metadata at all). Added
-    // after a real Windows test failure where an external writer's
-    // change wasn't detected by size/mtime alone -- plausibly Windows
-    // filesystem metadata caching/timing, not reproducible on Linux, but
-    // never independently confirmed as the exact mechanism. data_version
-    // is additive here (either signal tripping is enough to refuse), so
-    // it only makes this guard *more* likely to catch a real external
-    // change, never less -- it can't un-catch anything size/mtime alone
-    // already did.
+    // Checks a whole-file CRC32 (via zlib, already a project dependency)
+    // against the baseline captured at construction/last write, alongside
+    // the cheaper size/mtime check as a fast pre-filter. The CRC32 is the
+    // authoritative signal: size/mtime alone are known-insufficient (a
+    // real Windows test found size unchanged for an external row INSERT
+    // that lands in an already-allocated page -- realistic for any edit
+    // smaller than a full page on a database this size -- and mtime,
+    // read via a path-based fs::last_write_time() stat, unreliable
+    // in-process on Windows for a mechanism not yet fully isolated,
+    // plausibly cached directory-entry metadata vs. a handle-based
+    // query). A whole-file byte read has no equivalent platform-metadata
+    // ambiguity -- it's the same "read the actual bytes and compare" this
+    // project's own PdbRowWriter already relies on for the equivalent
+    // rekordbox-format guard.
+    //
+    // NOTE on a rejected approach: `PRAGMA data_version` was tried first
+    // and is wrong for this call shape -- it's a *per-connection* counter
+    // that starts fresh at 1 for any newly-opened connection, so a helper
+    // that opens-queries-closes a connection every call (as this class
+    // does throughout) can never see it change, regardless of platform.
+    // Verified empirically (real sqlite3, three separate external
+    // writes, value never moved off 1) before removing it -- it would
+    // only work by holding one connection open for this writer's entire
+    // lifetime, a real structural change this class doesn't make.
     void checkNotStale() const;
 
     // Refreshes the staleness baseline to the file's new (post-write)
@@ -153,18 +164,17 @@ private:
     // prior write.
     void refreshStalenessBaseline();
 
-    // Opens a short-lived read-only connection and returns `PRAGMA
-    // data_version`. SQLCipher still needs the key set to read even this
-    // pragma, since the whole file (including the header page the
-    // version counter lives in) is encrypted.
-    int64_t queryDataVersion() const;
+    // Whole-file CRC32, read in one shot. exportLibrary.db-sized files
+    // are small enough (hundreds of KB to a few MB on real sticks) that
+    // this is cheap next to the SQL round trip each write already does.
+    std::uint32_t computeChecksum() const;
 
     std::string m_pioneerRoot;
     std::string m_stickRoot;
     std::string m_dbPath;
     std::uintmax_t m_originalFileSize = 0;
     std::filesystem::file_time_type m_originalMtime;
-    int64_t m_originalDataVersion = 0;
+    std::uint32_t m_originalChecksum = 0;
 };
 
 }  // namespace seabass::infrastructure::onelibrary

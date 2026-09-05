@@ -1,6 +1,10 @@
 #include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
 
+#include <zlib.h>
+
 #include <algorithm>
+#include <array>
+#include <fstream>
 #include <stdexcept>
 
 #include "infrastructure/onelibrary/onelibrary_key.hpp"
@@ -56,17 +60,21 @@ OneLibraryCueWriter::OneLibraryCueWriter(std::string pioneerRoot, std::optional<
     if (ec) {
         throw std::runtime_error("onelibrary: " + m_dbPath + " does not exist, check existsFor() first");
     }
-    m_originalDataVersion = queryDataVersion();
+    m_originalChecksum = computeChecksum();
 }
 
-int64_t OneLibraryCueWriter::queryDataVersion() const
+std::uint32_t OneLibraryCueWriter::computeChecksum() const
 {
-    SqlCipherLibrary lib;
-    SqlCipherDb db(lib, m_dbPath, /*readOnly=*/true);
-    db.exec("PRAGMA key = '" + deriveOneLibraryKey() + "';");
-    SqlCipherStatement stmt(db, "PRAGMA data_version");
-    stmt.step();
-    return stmt.columnInt64(0);
+    std::ifstream in(m_dbPath, std::ios::binary);
+    if (!in) {
+        throw std::runtime_error("onelibrary: " + m_dbPath + " could not be opened to checksum it");
+    }
+    unsigned long crc = crc32(0L, Z_NULL, 0);
+    std::array<char, 65536> buffer;
+    while (in.read(buffer.data(), static_cast<std::streamsize>(buffer.size())) || in.gcount() > 0) {
+        crc = crc32(crc, reinterpret_cast<const Bytef *>(buffer.data()), static_cast<uInt>(in.gcount()));
+    }
+    return static_cast<std::uint32_t>(crc);
 }
 
 void OneLibraryCueWriter::checkNotStale() const
@@ -75,8 +83,8 @@ void OneLibraryCueWriter::checkNotStale() const
     auto currentSize = fs::file_size(m_dbPath, statEc);
     auto currentMtime = fs::last_write_time(m_dbPath, statEc);
     bool statMismatch = statEc || currentSize != m_originalFileSize || currentMtime != m_originalMtime;
-    bool dataVersionMismatch = queryDataVersion() != m_originalDataVersion;
-    if (statMismatch || dataVersionMismatch) {
+    bool checksumMismatch = computeChecksum() != m_originalChecksum;
+    if (statMismatch || checksumMismatch) {
         throw std::runtime_error("onelibrary: " + m_dbPath +
                                   " changed since this writer was opened, refusing to write a stale copy");
     }
@@ -87,7 +95,7 @@ void OneLibraryCueWriter::refreshStalenessBaseline()
     std::error_code refreshEc;
     m_originalFileSize = fs::file_size(m_dbPath, refreshEc);
     m_originalMtime = fs::last_write_time(m_dbPath, refreshEc);
-    m_originalDataVersion = queryDataVersion();
+    m_originalChecksum = computeChecksum();
 }
 
 void OneLibraryCueWriter::writeCuesForPath(const std::string &filePath, const std::vector<CuePoint> &cues)
