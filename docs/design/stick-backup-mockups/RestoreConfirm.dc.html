@@ -1,0 +1,59 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@600&family=IBM+Plex+Mono&family=Noto+Sans:wght@400;500;700&display=swap">
+  <style>
+    body{margin:0;background:#14181c;color:#e8ecef;font-family:"Noto Sans",system-ui,sans-serif;font-size:13.3px;line-height:1.35}
+    a{color:#3daee9}a:hover{color:#6cc4f0}
+    .stage{display:flex;align-items:center;justify-content:center;background:rgba(20,24,28,.85)}
+    .dialog{display:flex;flex-direction:column;gap:14px;width:460px;background:#1a1f24;border-radius:4px;padding:20px 24px;box-shadow:0 12px 32px rgba(0,0,0,.55)}
+    .dtitle{font-size:16px;font-weight:500}
+    .dfooter{display:flex;justify-content:flex-end;gap:8px;padding-top:4px}
+    .muted{color:#898d90}
+    .small{font-size:12.3px}
+    .mono{font-family:"IBM Plex Mono",ui-monospace,monospace}
+    .kv{display:grid;grid-template-columns:auto 1fr;column-gap:12px;row-gap:4px;align-items:baseline}
+    .dangerbox{display:flex;gap:10px;padding:12px;border-radius:4px;background:#5c1a1a;border:1px solid #e74c3c;color:#fff}
+    .dangerbox .t{font-family:Manrope,system-ui,sans-serif;font-weight:600;font-size:15.3px}
+    .col{display:flex;flex-direction:column;gap:4px}
+    .field{display:flex;align-items:center;height:32px;padding:0 10px;border-radius:4px;background:#14181c;border:1px solid #333a40;color:#898d90}
+    .btn{display:inline-flex;align-items:center;justify-content:center;height:32px;padding:0 14px;border-radius:3px;background:#252b31;border:1px solid #333a40;color:#e8ecef;font-size:13.3px;white-space:nowrap}
+    .btn.primary{background:#123a52;border-color:#3daee9}
+    .btn.off{opacity:.45}
+    .ic{width:28px;height:28px;stroke:#fff;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+  </style>
+</helmet>
+<div class="stage" style="width:520px;height:520px">
+  <div class="dialog">
+    <div class="dtitle">Restore onto WHALESHARK2?</div>
+    <div class="dangerbox">
+      <svg class="ic" viewBox="0 0 24 24"><path d="M12 3l10 18H2z"></path><path d="M12 10v5M12 18h.01"></path></svg>
+      <div class="col">
+        <span class="t">This overwrites files on a drive that already holds a DJ library.</span>
+        <span><span class="mono">14</span> files on WHALESHARK2 will be replaced by the backup's copies and <span class="mono">3</span> files removed. The stick's database is backed up first; the audio files are not.</span>
+      </div>
+    </div>
+    <div class="kv">
+      <span class="muted small">Drive</span><span class="mono">/dev/sdb1 · 64 GB</span>
+      <span class="muted small">From</span><span class="mono">WHALESHARK2.zip · 3 Sep 2026, 21:14</span>
+      <span class="muted small">Mode</span><span>Exact restore</span>
+    </div>
+    <div class="col">
+      <span class="muted">Type WHALESHARK2 to confirm</span>
+      <div class="field"></div>
+    </div>
+    <div class="dfooter">
+      <span class="btn">Cancel</span>
+      <span class="btn primary off">Restore Drive</span>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

@@ -1,0 +1,65 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600&family=IBM+Plex+Mono&family=Noto+Sans:wght@400;700&display=swap">
+  <style>
+    body{margin:0;background:#14181c;color:#e8ecef;font-family:"Noto Sans",system-ui,sans-serif;font-size:13.3px;line-height:1.35}
+    a{color:#3daee9}a:hover{color:#6cc4f0}
+    .page{display:flex;flex-direction:column;background:#14181c;overflow:hidden}
+    .toolbar{display:flex;align-items:center;gap:12px;padding:10px;background:#1a1f24;flex-shrink:0}
+    .crumbs{display:flex;align-items:center;gap:4px}
+    .crumb{font-family:Manrope,system-ui,sans-serif;font-weight:500;font-size:26.7px;color:#898d90;padding:4px 8px;border-radius:4px}
+    .sep{font-size:26.7px;color:#898d90}
+    .title{font-family:Manrope,system-ui,sans-serif;font-weight:500;font-size:26.7px;color:#e8ecef;padding:4px 8px}
+    .body{display:flex;flex-direction:column;gap:12px;padding:16px;flex-grow:1}
+    .card{display:flex;align-items:center;gap:10px;height:68px;padding:0 12px;border-radius:3px;background:#252b31;border:1px solid #333a40}
+    .card .icon{width:30px;display:flex;justify-content:center;color:#898d90}
+    .card .t{font-family:Manrope,system-ui,sans-serif;font-weight:600;font-size:15.3px}
+    .card .s{color:#898d90;font-size:12px}
+    .col{display:flex;flex-direction:column;gap:2px;flex-grow:1}
+    .row{display:flex;align-items:center;gap:6px}
+    .exp{display:inline-flex;padding:2px 4px;border-radius:3px;background:#4a3510;border:1px solid #c99a2e;color:#f0d080;font-size:11.3px;font-weight:700}
+    .ic{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+  </style>
+</helmet>
+<div class="page" style="width:760px;height:400px">
+  <div class="toolbar">
+    <div class="crumbs">
+      <span class="crumb">Home</span><span class="sep">›</span>
+      <span class="crumb">WHALESHARK2</span><span class="sep">›</span>
+      <span class="title">Backups</span>
+    </div>
+  </div>
+  <div class="body">
+    <div class="card">
+      <div class="icon"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><circle cx="12" cy="12" r="2.5"></circle></svg></div>
+      <div class="col">
+        <div class="t">Local Cue Backup</div>
+        <div class="s">Back up or restore cues on this computer</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="icon"><svg class="ic" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="1"></rect><path d="M4 9h16M4 15h16M11 6h2M11 12h2M11 18h2"></path></svg></div>
+      <div class="col">
+        <div class="t">Manage Backups</div>
+        <div class="s">List and clean up automatic write backups</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="icon"><svg class="ic" viewBox="0 0 24 24"><path d="M3 7h18v13H3z"></path><path d="M3 7l2-4h14l2 4"></path><path d="M10 12h4"></path></svg></div>
+      <div class="col">
+        <div class="row"><span class="t">Full Stick Backup</span><span class="exp">EXPERIMENTAL</span></div>
+        <div class="s">Back up the whole stick into one file on this computer, or put it back</div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
