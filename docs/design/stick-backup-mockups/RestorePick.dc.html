@@ -1,0 +1,132 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600&family=IBM+Plex+Mono&family=Noto+Sans:wght@400;700&display=swap">
+  <style>
+    body{margin:0;background:#14181c;color:#e8ecef;font-family:"Noto Sans",system-ui,sans-serif;font-size:13.3px;line-height:1.35}
+    a{color:#3daee9}a:hover{color:#6cc4f0}
+    .page{display:flex;flex-direction:column;background:#14181c;overflow:hidden}
+    .toolbar{display:flex;align-items:center;gap:12px;padding:10px;background:#1a1f24;flex-shrink:0}
+    .crumbs{display:flex;align-items:center;gap:4px}
+    .crumb{font-family:Manrope,system-ui,sans-serif;font-weight:500;font-size:26.7px;color:#898d90;padding:4px 8px;border-radius:4px}
+    .sep{font-size:26.7px;color:#898d90}
+    .title{font-family:Manrope,system-ui,sans-serif;font-weight:500;font-size:26.7px;color:#e8ecef;padding:4px 8px}
+    .body{display:flex;flex-direction:column;gap:16px;padding:16px;flex-grow:1}
+    .group{display:flex;flex-direction:column;gap:8px;padding:12px;border:1px solid #333a40;border-radius:4px}
+    .sub{font-family:Manrope,system-ui,sans-serif;font-weight:500;font-size:17.3px}
+    .row{display:flex;align-items:center;gap:12px}
+    .col{display:flex;flex-direction:column;gap:2px}
+    .grow{flex-grow:1}
+    .h{font-weight:700}
+    .muted{color:#898d90}
+    .small{font-size:12.3px}
+    .tiny{font-size:11.3px}
+    .mono{font-family:"IBM Plex Mono",ui-monospace,monospace}
+    .good{color:#8fce8f}
+    .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:32px;padding:0 14px;border-radius:3px;background:#252b31;border:1px solid #333a40;color:#e8ecef;font-size:13.3px;white-space:nowrap}
+    .btn.primary{background:#123a52;border-color:#3daee9}
+    .badge{display:inline-flex;align-items:center;padding:3px 6px;border-radius:3px;border:1px solid;font-size:11.3px;font-weight:700;white-space:nowrap}
+    .b-good{color:#8fce8f;border-color:#8fce8f;background:rgba(143,206,143,.15)}
+    .b-warn{color:#f0c040;border-color:#f0c040;background:rgba(240,192,64,.15)}
+    .field{display:flex;align-items:center;height:32px;padding:0 10px;border-radius:4px;background:#14181c;border:1px solid #333a40}
+    .radio{width:18px;height:18px;border-radius:50%;border:2px solid #898d90;flex-shrink:0;display:flex;align-items:center;justify-content:center}
+    .radio.on{border-color:#3daee9}
+    .radio.on::after{content:"";width:8px;height:8px;border-radius:50%;background:#3daee9}
+    .drive{display:flex;align-items:center;gap:10px;padding:6px 4px}
+    .check{width:18px;height:18px;border-radius:3px;border:2px solid #898d90;flex-shrink:0}
+    .kv{display:grid;grid-template-columns:auto 1fr;column-gap:16px;row-gap:6px;align-items:center}
+  </style>
+</helmet>
+<div class="page" style="width:1040px;height:820px">
+  <div class="toolbar">
+    <div class="crumbs">
+      <span class="crumb">Home</span><span class="sep">›</span>
+      <span class="title">Restore a Stick Backup</span>
+    </div>
+  </div>
+  <div class="body">
+
+    <div class="muted">Puts a full stick backup onto a drive — a fresh stick after losing one, or the same stick after a bad night. Nothing is written until you confirm.</div>
+
+    <div class="group">
+      <div class="sub">1. Choose a backup</div>
+      <div class="row">
+        <div class="field grow mono">~/Seabass Backups/WHALESHARK2.zip</div>
+        <span class="btn">Choose File…</span>
+      </div>
+      <div class="row small">
+        <span>WHALESHARK2</span><span class="muted">·</span>
+        <span>3 Sep 2026, 21:14</span><span class="muted">·</span>
+        <span class="mono">23.4 GB</span><span class="muted">·</span>
+        <span class="mono">1,161 tracks</span>
+        <span class="badge b-good">VERIFIED</span>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="sub">2. Choose a drive</div>
+      <div class="muted">Every removable drive Seabass can see, formatted or not.</div>
+      <div class="drive">
+        <span class="radio on"></span>
+        <div class="col grow">
+          <span>WHALESHARK2</span>
+          <span class="muted mono tiny">/dev/sdb1 · Contents, Engine Library, PIONEER</span>
+        </div>
+        <span class="badge b-warn">Has a DJ library</span>
+        <span class="mono muted">64 GB</span>
+      </div>
+      <div class="drive">
+        <span class="radio"></span>
+        <div class="col grow">
+          <span>NO NAME</span>
+          <span class="muted mono tiny">/dev/sdc1 · empty</span>
+        </div>
+        <span class="badge b-good">Blank</span>
+        <span class="mono muted">128 GB</span>
+      </div>
+      <div class="drive" style="opacity:.6">
+        <span class="radio"></span>
+        <div class="col grow">
+          <span>Unformatted drive</span>
+          <span class="muted mono tiny">/dev/sdd · no filesystem</span>
+        </div>
+        <a href="#">Format it first…</a>
+        <span class="mono muted">32 GB</span>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="sub">3. What will happen</div>
+      <div class="kv">
+        <span class="muted small">Restore</span>
+        <span><span class="mono">1,161 tracks</span>, <span class="mono">23.4 GB</span> onto WHALESHARK2</span>
+        <span class="muted small">On the stick</span>
+        <span><span class="mono">14</span> files differ and will be overwritten <span class="muted">·</span> <span class="mono">3</span> files aren't in the backup and will be kept</span>
+        <span class="muted small">Free space</span>
+        <span class="good"><span class="mono">64 GB</span> drive, <span class="mono">23.4 GB</span> needed</span>
+      </div>
+      <div class="row" style="margin-top:4px">
+        <span class="check"></span>
+        <div class="col">
+          <span>Exact restore — also remove the 3 files that aren't in the backup</span>
+          <span class="muted small">Asks you to type the drive's name before starting.</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="row">
+      <span class="grow"></span>
+      <span class="btn primary">Restore Onto WHALESHARK2…</span>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

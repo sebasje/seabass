@@ -100,6 +100,31 @@ QtObject {
         return Qt.rgba(a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t, 1.0);
     }
 
+    // ---- Number formatting shared by pages that talk about sizes and
+    // durations (stick backup, statistics). Binary units, one decimal
+    // above bytes: "23.4 GiB". ----
+    function humanBytes(bytes) {
+        if (!bytes || bytes <= 0) return "0 B";
+        var units = ["B", "KiB", "MiB", "GiB", "TiB"];
+        var value = bytes;
+        var unitIndex = 0;
+        while (value >= 1024 && unitIndex < units.length - 1) {
+            value /= 1024;
+            unitIndex++;
+        }
+        return value.toFixed(unitIndex === 0 ? 0 : 1) + " " + units[unitIndex];
+    }
+
+    // "~4 min", "~25 s", "~1 h 12 min"; "" for unknown (< 0).
+    function humanDuration(seconds) {
+        if (seconds === undefined || seconds === null || seconds < 0) return "";
+        if (seconds < 60) return "~" + Math.max(1, Math.round(seconds)) + " s";
+        var minutes = Math.round(seconds / 60);
+        if (minutes < 60) return "~" + minutes + " min";
+        var hours = Math.floor(minutes / 60);
+        return "~" + hours + " h " + (minutes % 60) + " min";
+    }
+
     // ---- Musical key -> Camelot wheel color. The wheel itself (12
     // positions arranged by the circle of fifths, each with a relative
     // major/minor pair) is a standard, vendor-neutral DJ convention, not

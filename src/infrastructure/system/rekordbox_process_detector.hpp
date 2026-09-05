@@ -19,4 +19,15 @@ bool isProcessRunning(const std::string &name);
 // open is a real corruption risk.
 bool isRekordboxRunning();
 
+// Engine DJ (desktop; formerly Engine Prime) writes to the stick's Engine
+// database, which the full-stick backup must read while nothing else
+// touches it. Matches the process names the app has shipped under.
+bool isEngineDjRunning();
+
+// Either of the above; `conflictingDjSoftwareName()` returns which one
+// ("rekordbox", "Engine DJ"), or an empty string when none was detected,
+// for messages.
+bool isConflictingDjSoftwareRunning();
+std::string conflictingDjSoftwareName();
+
 }  // namespace seabass::infrastructure::system

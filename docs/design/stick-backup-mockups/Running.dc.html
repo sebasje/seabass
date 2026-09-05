@@ -1,0 +1,110 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600&family=IBM+Plex+Mono&family=Noto+Sans:wght@400;700&display=swap">
+  <style>
+    body{margin:0;background:#14181c;color:#e8ecef;font-family:"Noto Sans",system-ui,sans-serif;font-size:13.3px;line-height:1.35}
+    a{color:#3daee9}a:hover{color:#6cc4f0}
+    .page{display:flex;flex-direction:column;background:#14181c;overflow:hidden}
+    .toolbar{display:flex;align-items:center;gap:12px;padding:10px;background:#1a1f24;flex-shrink:0}
+    .crumbs{display:flex;align-items:center;gap:4px}
+    .crumb{font-family:Manrope,system-ui,sans-serif;font-weight:500;font-size:26.7px;color:#898d90;padding:4px 8px;border-radius:4px;opacity:.5}
+    .sep{font-size:26.7px;color:#898d90}
+    .title{font-family:Manrope,system-ui,sans-serif;font-weight:500;font-size:26.7px;color:#e8ecef;padding:4px 8px}
+    .body{display:flex;flex-direction:column;gap:16px;padding:16px;flex-grow:1}
+    .frame{display:flex;flex-direction:column;gap:8px;padding:12px;background:#1a1f24;border:1px solid #333a40;border-radius:4px}
+    .row{display:flex;align-items:center;gap:12px}
+    .col{display:flex;flex-direction:column;gap:2px}
+    .grow{flex-grow:1}
+    .h{font-weight:700}
+    .muted{color:#898d90}
+    .small{font-size:12.3px}
+    .mono{font-family:"IBM Plex Mono",ui-monospace,monospace}
+    .accent{color:#3daee9}
+    .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:32px;padding:0 14px;border-radius:3px;background:#252b31;border:1px solid #333a40;color:#e8ecef;font-size:13.3px;white-space:nowrap}
+    .btn.off{opacity:.45}
+    .warn{display:flex;gap:8px;align-items:flex-start;padding:8px;border-radius:4px;background:#4a3510;border:1px solid #c99a2e;color:#f0d080}
+    .progress{height:16px;border-radius:8px;background:#1a1f24;border:1px solid #333a40;overflow:hidden}
+    .fill{height:100%;border-radius:8px;background:#3daee9}
+    .phases{display:flex;align-items:center;gap:8px}
+    .phase{padding:2px 8px;border-radius:3px;color:#898d90}
+    .phase.on{color:#3daee9;background:rgba(61,174,233,.15);border:1px solid #3daee9;font-weight:700}
+    .exp{display:inline-flex;padding:2px 4px;border-radius:3px;background:#4a3510;border:1px solid #c99a2e;color:#f0d080;font-size:11.3px;font-weight:700}
+    .ic{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;color:#f0c040}
+  </style>
+</helmet>
+<div class="page" style="width:1040px;height:560px">
+  <div class="toolbar">
+    <div class="crumbs">
+      <span class="crumb">Home</span><span class="sep">›</span>
+      <span class="crumb">Backups</span><span class="sep">›</span>
+      <span class="title">Full Stick Backup</span>
+    </div>
+    <span class="exp">EXPERIMENTAL</span>
+  </div>
+  <div class="body">
+
+    <div class="warn">
+      <svg class="ic" viewBox="0 0 24 24"><path d="M12 3l10 18H2z"></path><path d="M12 10v5M12 18h.01"></path></svg>
+      <span>Backing up. Do not remove the stick until this finishes.</span>
+    </div>
+
+    <div class="frame" style="gap:12px">
+      <div class="row">
+        <div class="col grow">
+          <div class="h">Backing up WHALESHARK2</div>
+          <div class="phases" style="margin-top:6px">
+            <span class="phase on">Reading stick</span><span class="muted">›</span>
+            <span class="phase">Capturing database</span><span class="muted">›</span>
+            <span class="phase">Writing index</span><span class="muted">›</span>
+            <span class="phase">Verifying</span>
+          </div>
+        </div>
+        <div class="col" style="align-items:flex-end;gap:4px">
+          <span class="btn">Cancel</span>
+          <span class="muted small">Stops after the current file, then asks: keep what's copied for later, or discard it.</span>
+        </div>
+      </div>
+      <div class="progress"><div class="fill" style="width:38%"></div></div>
+      <div class="row">
+        <span class="mono">441 / 1,161 files</span><span class="muted">·</span>
+        <span class="mono">8.9 GB of 23.4 GB</span><span class="muted">·</span>
+        <span class="mono">16.2 MB/s</span>
+        <span class="grow"></span>
+        <span class="muted">~15 min remaining</span>
+      </div>
+      <div class="row small muted"><span>Reading</span><span class="mono">Contents/Amelie Lens/whatever you do.mp3</span></div>
+    </div>
+
+    <div class="frame" style="opacity:.45">
+      <div class="row">
+        <div class="col grow">
+          <div class="h">Archive Health</div>
+          <div class="muted">Available when the backup finishes.</div>
+        </div>
+        <span class="btn off">Verify Backup</span>
+        <span class="btn off">Compact…</span>
+      </div>
+    </div>
+
+    <div class="frame" style="opacity:.45">
+      <div class="row">
+        <div class="col grow">
+          <div class="h">Restore Onto WHALESHARK2</div>
+          <div class="muted">Puts this backup back onto the stick.</div>
+        </div>
+        <span class="btn off">Restore Onto Stick…</span>
+      </div>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

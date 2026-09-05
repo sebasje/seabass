@@ -33,6 +33,7 @@ Page {
     signal backupsHubRequested(string stickLabel, string rekordboxPath, string enginePath)
     signal aboutRequested()
     signal formatUsbRequested()
+    signal restoreStickBackupRequested()
 
     // A subtle brand watermark in the corner of the very first page shown --
     // same "Seabass / DJ USB Stick Management" text as AboutPage.qml, just
@@ -71,6 +72,20 @@ Page {
                 level: "page"
             }
             Item { Layout.fillWidth: true }
+            ToolButton {
+                // Top-level, not tucked into a per-stick card: the drive
+                // a backup gets restored onto is often a blank
+                // replacement the per-stick grid never shows. Experimental,
+                // see docs/experimental-features.md. (Format USB Stick
+                // itself lives as a card further down the page, not a
+                // top-level button here -- see that card's own comment.)
+                visible: root.appSettingsController.experimentalFeaturesEnabled
+                text: "🗃"
+                font.pointSize: Theme.fontLarge
+                ToolTip.visible: hovered
+                ToolTip.text: "Restore a Stick Backup (experimental)"
+                onClicked: root.restoreStickBackupRequested()
+            }
             ToolButton {
                 text: "ⓘ"
                 font.pointSize: Theme.fontLarge

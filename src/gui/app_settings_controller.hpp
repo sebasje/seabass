@@ -21,6 +21,8 @@ class AppSettingsController : public QObject
     Q_PROPERTY(bool hideStreamingTracks READ hideStreamingTracks WRITE setHideStreamingTracks NOTIFY
                    hideStreamingTracksChanged)
     Q_PROPERTY(QString keyNotation READ keyNotation WRITE setKeyNotation NOTIFY keyNotationChanged)
+    Q_PROPERTY(QString stickBackupDirectory READ stickBackupDirectory WRITE setStickBackupDirectory NOTIFY
+                   stickBackupDirectoryChanged)
     // Always present (even in a build compiled with SEABASS_EXPERIMENTAL
     // off) so QML can gate the whole Settings section on it.
     Q_PROPERTY(bool experimentalBuildSupported READ experimentalBuildSupported CONSTANT)
@@ -61,6 +63,15 @@ public:
     QString keyNotation() const { return m_keyNotation; }
     void setKeyNotation(const QString &value);
 
+    // Where full stick backups (one `<label>.zip` per stick) are kept.
+    // Defaults to "<home>/Seabass Backups" -- a place the user can find,
+    // browse with 7-Zip/unzip and copy elsewhere, deliberately not the
+    // hidden app-data directory (see docs/stick-backup-plan.md, "Archive
+    // location and identity").
+    QString stickBackupDirectory() const { return m_stickBackupDirectory; }
+    void setStickBackupDirectory(const QString &value);
+    static QString defaultStickBackupDirectory();
+
     // See docs/experimental-features.md for the convention this backs:
     // new non-trivial features default to hidden behind
     // experimentalFeaturesEnabled until proven, then graduate to
@@ -86,6 +97,7 @@ signals:
     void preferredFormatChanged();
     void hideStreamingTracksChanged();
     void keyNotationChanged();
+    void stickBackupDirectoryChanged();
 #ifdef SEABASS_EXPERIMENTAL_BUILD
     void experimentalFeaturesEnabledChanged();
 #endif
@@ -96,6 +108,7 @@ private:
     QString m_preferredFormat = QStringLiteral("rekordbox");
     bool m_hideStreamingTracks = false;
     QString m_keyNotation = QStringLiteral("camelot");
+    QString m_stickBackupDirectory;
 #ifdef SEABASS_EXPERIMENTAL_BUILD
     bool m_experimentalFeaturesEnabled = false;
 #endif

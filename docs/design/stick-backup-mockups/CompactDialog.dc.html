@@ -1,0 +1,45 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono&family=Noto+Sans:wght@400;500;700&display=swap">
+  <style>
+    body{margin:0;background:#14181c;color:#e8ecef;font-family:"Noto Sans",system-ui,sans-serif;font-size:13.3px;line-height:1.35}
+    a{color:#3daee9}a:hover{color:#6cc4f0}
+    .stage{display:flex;align-items:center;justify-content:center;background:rgba(20,24,28,.85)}
+    .dialog{display:flex;flex-direction:column;gap:14px;width:460px;background:#1a1f24;border-radius:4px;padding:20px 24px;box-shadow:0 12px 32px rgba(0,0,0,.55)}
+    .dtitle{font-size:16px;font-weight:500}
+    .dfooter{display:flex;justify-content:flex-end;gap:8px;padding-top:4px}
+    .muted{color:#898d90}
+    .small{font-size:12.3px}
+    .mono{font-family:"IBM Plex Mono",ui-monospace,monospace}
+    .good{color:#8fce8f}
+    .kv{display:grid;grid-template-columns:auto 1fr;column-gap:12px;row-gap:4px;align-items:baseline}
+    .btn{display:inline-flex;align-items:center;justify-content:center;height:32px;padding:0 14px;border-radius:3px;background:#252b31;border:1px solid #333a40;color:#e8ecef;font-size:13.3px;white-space:nowrap}
+    .btn.primary{background:#123a52;border-color:#3daee9}
+  </style>
+</helmet>
+<div class="stage" style="width:520px;height:340px">
+  <div class="dialog">
+    <div class="dtitle">Compact WHALESHARK2.zip?</div>
+    <div>Rewrites the backup without the space left behind by replaced and removed files. Every file is checked against its checksum on the way.</div>
+    <div class="kv">
+      <span class="muted small">Reclaims</span><span><span class="mono">4.2 GB</span> <span class="muted">(18%)</span></span>
+      <span class="muted small">Needs free space</span><span><span class="mono">19.2 GB</span> <span class="muted">·</span> <span class="good"><span class="mono">412 GB</span> available</span></span>
+      <span class="muted small">Takes about</span><span class="mono">3 min</span>
+    </div>
+    <div class="muted small">The current backup stays intact until the new one is complete. The stick isn't needed for this.</div>
+    <div class="dfooter">
+      <span class="btn">Cancel</span>
+      <span class="btn primary">Compact</span>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

@@ -2,6 +2,8 @@
 
 #include <filesystem>
 
+#include "infrastructure/engine/engine_library_layout.hpp"
+
 namespace seabass::infrastructure::media
 {
 
@@ -13,13 +15,13 @@ void scanMountedRoot(const std::string &mountPoint, DetectedStick &stick)
     std::error_code ec;
     fs::path root(mountPoint);
     fs::path pdbPath = root / "PIONEER" / "rekordbox" / "export.pdb";
-    fs::path engineDbPath = root / "Engine Library" / "Database2" / "m.db";
+    fs::path engineDbPath = engine::engineMainDatabasePath(root);
 
     if (fs::exists(pdbPath, ec)) {
         stick.rekordboxPath = (root / "PIONEER").string();
     }
     if (fs::exists(engineDbPath, ec)) {
-        stick.enginePath = (root / "Engine Library").string();
+        stick.enginePath = engine::engineLibraryPath(root).string();
     }
 
     // A cheap, top-level-only peek at what's already on the drive -- for

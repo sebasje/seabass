@@ -13,4 +13,9 @@ namespace seabass::gui
 // detection can only ever be advisory, never a substitute for that lock.
 QString refuseIfRekordboxRunning();
 
+// Same, for the operations that read or replace the Engine database as a
+// whole (full stick backup and restore): rekordbox *or* Engine DJ running
+// is a reason to refuse. Names the offender in the message.
+QString refuseIfDjSoftwareRunning();
+
 }  // namespace seabass::gui

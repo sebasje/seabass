@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Dialogs
 import QtQuick.Layouts
 import SeabassGui
 
@@ -128,6 +129,47 @@ Page {
                 ToolTip.text: "Streaming-linked tracks (e.g. TIDAL, via Engine DJ) have no local file on the "
                     + "stick: Seabass never plays, merges, syncs, or cleans them up regardless of this "
                     + "setting. This only controls whether they show up in Browse Library at all."
+            }
+        }
+
+        // Where full stick backups go (experimental feature, so the
+        // section follows the toggle below). One `<stick label>.zip` per
+        // stick, in a place the user can find and open with 7-Zip/unzip.
+        ColumnLayout {
+            visible: root.appSettingsController.experimentalFeaturesEnabled
+            spacing: 6 * Theme.iconScale
+            Subtitle { text: "Full stick backups" }
+            Label {
+                Layout.leftMargin: root.settingIndent
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                color: Theme.textMuted
+                text: "Folder where each stick's backup archive is kept. Moving it does not move existing backups."
+            }
+            RowLayout {
+                Layout.leftMargin: root.settingIndent
+                Layout.fillWidth: true
+                spacing: 8
+                Label {
+                    Layout.fillWidth: true
+                    elide: Text.ElideMiddle
+                    font.family: Theme.dataFamily
+                    text: root.appSettingsController.stickBackupDirectory
+                }
+                Button {
+                    text: "Change…"
+                    onClicked: backupFolderDialog.open()
+                }
+                Button {
+                    text: "Reset"
+                    onClicked: root.appSettingsController.stickBackupDirectory = ""
+                }
+            }
+            FolderDialog {
+                id: backupFolderDialog
+                title: "Choose where to keep full stick backups"
+                currentFolder: "file://" + root.appSettingsController.stickBackupDirectory
+                onAccepted: root.appSettingsController.stickBackupDirectory = selectedFolder.toString().replace(/^file:\/\//, "")
             }
         }
 
