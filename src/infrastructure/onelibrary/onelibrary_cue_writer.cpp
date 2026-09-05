@@ -56,6 +56,38 @@ OneLibraryCueWriter::OneLibraryCueWriter(std::string pioneerRoot, std::optional<
     if (ec) {
         throw std::runtime_error("onelibrary: " + m_dbPath + " does not exist, check existsFor() first");
     }
+    m_originalDataVersion = queryDataVersion();
+}
+
+int64_t OneLibraryCueWriter::queryDataVersion() const
+{
+    SqlCipherLibrary lib;
+    SqlCipherDb db(lib, m_dbPath, /*readOnly=*/true);
+    db.exec("PRAGMA key = '" + deriveOneLibraryKey() + "';");
+    SqlCipherStatement stmt(db, "PRAGMA data_version");
+    stmt.step();
+    return stmt.columnInt64(0);
+}
+
+void OneLibraryCueWriter::checkNotStale() const
+{
+    std::error_code statEc;
+    auto currentSize = fs::file_size(m_dbPath, statEc);
+    auto currentMtime = fs::last_write_time(m_dbPath, statEc);
+    bool statMismatch = statEc || currentSize != m_originalFileSize || currentMtime != m_originalMtime;
+    bool dataVersionMismatch = queryDataVersion() != m_originalDataVersion;
+    if (statMismatch || dataVersionMismatch) {
+        throw std::runtime_error("onelibrary: " + m_dbPath +
+                                  " changed since this writer was opened, refusing to write a stale copy");
+    }
+}
+
+void OneLibraryCueWriter::refreshStalenessBaseline()
+{
+    std::error_code refreshEc;
+    m_originalFileSize = fs::file_size(m_dbPath, refreshEc);
+    m_originalMtime = fs::last_write_time(m_dbPath, refreshEc);
+    m_originalDataVersion = queryDataVersion();
 }
 
 void OneLibraryCueWriter::writeCuesForPath(const std::string &filePath, const std::vector<CuePoint> &cues)
@@ -69,13 +101,7 @@ void OneLibraryCueWriter::writeCuesForPath(const std::string &filePath, const st
     // disk still look like the one this writer was constructed
     // against", refusing if something rewrote it out from under us in
     // between construction and this call.
-    std::error_code statEc;
-    auto currentSize = fs::file_size(m_dbPath, statEc);
-    auto currentMtime = fs::last_write_time(m_dbPath, statEc);
-    if (statEc || currentSize != m_originalFileSize || currentMtime != m_originalMtime) {
-        throw std::runtime_error("onelibrary: " + m_dbPath +
-                                  " changed since this writer was opened, refusing to write a stale copy");
-    }
+    checkNotStale();
 
     std::string contentPath = toContentPath(m_stickRoot, filePath);
     std::string key = deriveOneLibraryKey();
@@ -192,22 +218,14 @@ void OneLibraryCueWriter::writeCuesForPath(const std::string &filePath, const st
     // writeCuesForPath() calls (one write per track) would have every
     // call after the first refuse itself, since the file legitimately
     // changed size/mtime due to this writer's *own* prior write.
-    std::error_code refreshEc;
-    m_originalFileSize = fs::file_size(m_dbPath, refreshEc);
-    m_originalMtime = fs::last_write_time(m_dbPath, refreshEc);
+    refreshStalenessBaseline();
 }
 
 void OneLibraryCueWriter::removeTrackByPath(const std::string &filePath)
 {
     // Same staleness guard as writeCuesForPath(), see its own comment
     // for the reasoning.
-    std::error_code statEc;
-    auto currentSize = fs::file_size(m_dbPath, statEc);
-    auto currentMtime = fs::last_write_time(m_dbPath, statEc);
-    if (statEc || currentSize != m_originalFileSize || currentMtime != m_originalMtime) {
-        throw std::runtime_error("onelibrary: " + m_dbPath +
-                                  " changed since this writer was opened, refusing to write a stale copy");
-    }
+    checkNotStale();
 
     std::string contentPath = toContentPath(m_stickRoot, filePath);
     std::string key = deriveOneLibraryKey();
@@ -284,9 +302,7 @@ void OneLibraryCueWriter::removeTrackByPath(const std::string &filePath)
     // Refresh the staleness baseline, see writeCuesForPath()'s own
     // comment for why this matters when one writer instance is reused
     // across several calls.
-    std::error_code refreshEc;
-    m_originalFileSize = fs::file_size(m_dbPath, refreshEc);
-    m_originalMtime = fs::last_write_time(m_dbPath, refreshEc);
+    refreshStalenessBaseline();
 }
 
 void OneLibraryCueWriter::removeTrackByPathReplacingWith(const std::string &doomedFilePath,
@@ -294,13 +310,7 @@ void OneLibraryCueWriter::removeTrackByPathReplacingWith(const std::string &doom
 {
     // Same staleness guard as writeCuesForPath(), see its own comment
     // for the reasoning.
-    std::error_code statEc;
-    auto currentSize = fs::file_size(m_dbPath, statEc);
-    auto currentMtime = fs::last_write_time(m_dbPath, statEc);
-    if (statEc || currentSize != m_originalFileSize || currentMtime != m_originalMtime) {
-        throw std::runtime_error("onelibrary: " + m_dbPath +
-                                  " changed since this writer was opened, refusing to write a stale copy");
-    }
+    checkNotStale();
 
     std::string doomedContentPath = toContentPath(m_stickRoot, doomedFilePath);
     std::string survivorContentPath = toContentPath(m_stickRoot, survivorFilePath);
@@ -409,9 +419,7 @@ void OneLibraryCueWriter::removeTrackByPathReplacingWith(const std::string &doom
         }
     }
 
-    std::error_code refreshEc;
-    m_originalFileSize = fs::file_size(m_dbPath, refreshEc);
-    m_originalMtime = fs::last_write_time(m_dbPath, refreshEc);
+    refreshStalenessBaseline();
 }
 
 void OneLibraryCueWriter::propagateMissingFieldsForPath(const std::string &donorFilePath,
@@ -422,13 +430,7 @@ void OneLibraryCueWriter::propagateMissingFieldsForPath(const std::string &donor
         return;
     }
 
-    std::error_code statEc;
-    auto currentSize = fs::file_size(m_dbPath, statEc);
-    auto currentMtime = fs::last_write_time(m_dbPath, statEc);
-    if (statEc || currentSize != m_originalFileSize || currentMtime != m_originalMtime) {
-        throw std::runtime_error("onelibrary: " + m_dbPath +
-                                  " changed since this writer was opened, refusing to write a stale copy");
-    }
+    checkNotStale();
 
     std::string donorContentPath = toContentPath(m_stickRoot, donorFilePath);
     std::string targetContentPath = toContentPath(m_stickRoot, targetFilePath);
@@ -489,9 +491,7 @@ void OneLibraryCueWriter::propagateMissingFieldsForPath(const std::string &donor
         throw;
     }
 
-    std::error_code refreshEc;
-    m_originalFileSize = fs::file_size(m_dbPath, refreshEc);
-    m_originalMtime = fs::last_write_time(m_dbPath, refreshEc);
+    refreshStalenessBaseline();
 }
 
 }  // namespace seabass::infrastructure::onelibrary

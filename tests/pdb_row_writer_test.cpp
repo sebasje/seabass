@@ -284,7 +284,8 @@ int main()
     {
         writeFile(pdbPath, pristine);
         PdbRowWriter writer(pdbPath.string());
-        assert(writer.removePlaylistEntry(1, 200));
+        bool removedEntry = writer.removePlaylistEntry(1, 200);
+        assert(removedEntry);
         assert(writer.commit());
 
         auto rb = readBack(pdbPath);
@@ -300,7 +301,8 @@ int main()
     {
         writeFile(pdbPath, pristine);
         PdbRowWriter writer(pdbPath.string());
-        assert(writer.repointPlaylistEntry(1, 200, 999));
+        bool repointed = writer.repointPlaylistEntry(1, 200, 999);
+        assert(repointed);
         assert(writer.commit());
 
         auto rb = readBack(pdbPath);
@@ -318,7 +320,8 @@ int main()
     {
         writeFile(pdbPath, pristine);
         PdbRowWriter writer(pdbPath.string());
-        assert(writer.reassignPlaylistMemberships(100, 101) == 1);
+        size_t reassignedCount1 = writer.reassignPlaylistMemberships(100, 101);
+        assert(reassignedCount1 == 1);
         assert(writer.commit());
 
         auto rb = readBack(pdbPath);
@@ -336,7 +339,8 @@ int main()
     {
         writeFile(pdbPath, pristine);
         PdbRowWriter writer(pdbPath.string());
-        assert(writer.reassignPlaylistMemberships(200, 100) == 1);
+        size_t reassignedCount2 = writer.reassignPlaylistMemberships(200, 100);
+        assert(reassignedCount2 == 1);
         assert(writer.commit());
 
         auto rb = readBack(pdbPath);
@@ -352,7 +356,8 @@ int main()
     {
         writeFile(pdbPath, pristine);
         PdbRowWriter writer(pdbPath.string());
-        assert(writer.reassignPlaylistMemberships(999999, 100) == 0);
+        size_t reassignedCount3 = writer.reassignPlaylistMemberships(999999, 100);
+        assert(reassignedCount3 == 0);
         assert(!writer.commit());
         assert(readFile(pdbPath) == pristine);
         std::cout << "case 4d (reassignPlaylistMemberships: no matching entries -> no-op) OK\n";
@@ -452,7 +457,8 @@ int main()
         writeFile(pdbPath, withDonorFields);
 
         PdbRowWriter writer(pdbPath.string());
-        assert(writer.copyTrackFieldsIfMissing(101, 100, true, true, true) == 3);
+        size_t copiedCount1 = writer.copyTrackFieldsIfMissing(101, 100, true, true, true);
+        assert(copiedCount1 == 3);
         assert(writer.commit());
 
         auto rb = readBack(pdbPath);
@@ -483,7 +489,8 @@ int main()
         writeFile(pdbPath, withDonorFields);
 
         PdbRowWriter writer(pdbPath.string());
-        assert(writer.copyTrackFieldsIfMissing(101, 100, true, false, false) == 1);
+        size_t copiedCount2 = writer.copyTrackFieldsIfMissing(101, 100, true, false, false);
+        assert(copiedCount2 == 1);
         assert(writer.commit());
 
         auto rb = readBack(pdbPath);

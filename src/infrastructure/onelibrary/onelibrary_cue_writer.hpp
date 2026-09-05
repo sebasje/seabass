@@ -127,11 +127,44 @@ public:
                                         bool copyBpm, bool copyKey, bool copyArtwork);
 
 private:
+    // Throws if the file no longer looks like the one this writer was
+    // constructed against (or last wrote itself) -- shared by every
+    // write method below rather than duplicated four times.
+    //
+    // Checks BOTH filesystem metadata (size/mtime) and SQLite's own
+    // `PRAGMA data_version` (documented by SQLite specifically as "has
+    // any connection, including from another process, committed a
+    // change since I last checked" -- a value the library tracks
+    // internally, not derived from filesystem metadata at all). Added
+    // after a real Windows test failure where an external writer's
+    // change wasn't detected by size/mtime alone -- plausibly Windows
+    // filesystem metadata caching/timing, not reproducible on Linux, but
+    // never independently confirmed as the exact mechanism. data_version
+    // is additive here (either signal tripping is enough to refuse), so
+    // it only makes this guard *more* likely to catch a real external
+    // change, never less -- it can't un-catch anything size/mtime alone
+    // already did.
+    void checkNotStale() const;
+
+    // Refreshes the staleness baseline to the file's new (post-write)
+    // state -- without this, reusing one writer instance across several
+    // write calls would have every call after the first refuse itself,
+    // since the file legitimately changed due to this writer's *own*
+    // prior write.
+    void refreshStalenessBaseline();
+
+    // Opens a short-lived read-only connection and returns `PRAGMA
+    // data_version`. SQLCipher still needs the key set to read even this
+    // pragma, since the whole file (including the header page the
+    // version counter lives in) is encrypted.
+    int64_t queryDataVersion() const;
+
     std::string m_pioneerRoot;
     std::string m_stickRoot;
     std::string m_dbPath;
     std::uintmax_t m_originalFileSize = 0;
     std::filesystem::file_time_type m_originalMtime;
+    int64_t m_originalDataVersion = 0;
 };
 
 }  // namespace seabass::infrastructure::onelibrary
