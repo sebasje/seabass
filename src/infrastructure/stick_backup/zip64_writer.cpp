@@ -210,6 +210,15 @@ CentralEntry Zip64Writer::addFileFromMemory(std::string name, std::int64_t mtime
     return entry;
 }
 
+void Zip64Writer::forgetLastEntries(std::size_t count)
+{
+    requireNoOpenSink();
+    if (count > m_entries.size() - m_carriedCount) {
+        throw std::logic_error("Zip64Writer::forgetLastEntries: more entries than were added");
+    }
+    m_entries.resize(m_entries.size() - count);
+}
+
 std::string Zip64Writer::centralDirectoryEntry(const CentralEntry &entry)
 {
     const bool needSize = entry.size >= Max32;

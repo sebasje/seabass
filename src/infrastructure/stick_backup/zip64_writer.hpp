@@ -114,6 +114,12 @@ public:
     // spent afterwards.
     WriterBoundaries finish(std::string_view manifestBytes, std::string manifestName, std::int64_t manifestMtimeUnix);
 
+    // Drops the last `count` *new* entries from the list that finish()
+    // will write. Their bytes stay in the file as dead space -- this is
+    // how a torn database copy is retracted before the central directory
+    // exists. Never reaches into carried entries.
+    void forgetLastEntries(std::size_t count);
+
     // Carried entries followed by every entry added so far (excluding an
     // entry whose sink is still open).
     const std::vector<CentralEntry> &entries() const { return m_entries; }
