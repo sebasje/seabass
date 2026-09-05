@@ -197,7 +197,7 @@ ColumnLayout {
 
     Timer {
         id: refreshDebounce
-        interval: 500
+        interval: 200
         onTriggered: root.refresh()
     }
 
