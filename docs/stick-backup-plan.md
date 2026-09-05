@@ -1,8 +1,11 @@
 # Full stick backup and restore: design plan
 
-Status: design agreed 2026-09-05; implementation in progress on branch
-`worktree-stick-backup` (phased: primitives, archive format, crash-safe
-update, stick side, compaction, restore, GUI). Ships gated behind
+Status: design agreed 2026-09-05; implemented the same day on branch
+`worktree-stick-backup`, one commit per phase (primitives, archive format,
+crash-safe update, stick side, compaction, restore, GUI), every phase with
+its tests green. Still to do before it can graduate: the live verification
+list at the end of this document on real sticks, and the optional CLI
+subcommands. Ships gated behind
 `AppSettingsController::experimentalFeaturesEnabled` (add an entry to
 `experimental-features.md` when it lands). Principle for v1: **get it
 working correctly first, optimize later** — see "Optimization pass" at the
@@ -366,6 +369,18 @@ follow the existing convention: `backup_archive_roundtrip_test.cpp`,
    and a real Windows runner — compiling under MinGW is not testing NTFS
    semantics. Source-side stat-diff tests against FAT32/exFAT loopbacks for
    the 2 s resolution, DST shift and case-insensitivity behaviour.
+
+## Live verification before graduating (not yet done)
+
+On a **scratch copy** of a real stick first, never the live stick for the
+first runs: first backup -> VERIFIED badge; add/change/remove files ->
+the "since last backup" line shows the right counts and only those bytes
+are read; cancel mid-run -> Keep, rerun resumes; cancel a first backup ->
+Discard removes the file; `unzip -l` / 7-Zip open the archive; replace
+files then Compact -> exact reclaim numbers; restore onto a scratch exFAT
+stick -> the backup preview of the restored stick shows zero changes and
+Engine DJ / a player reads it; start Engine DJ or rekordbox -> refusal
+banner and refused run. Then the same on the real stick, over weeks.
 
 ## Optimization pass (deferred on purpose — revisit after v1 works)
 
