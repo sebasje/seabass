@@ -23,9 +23,28 @@ Page {
     required property var controller
 
     readonly property var disks: controller.disks
-    property int selectedIndex: -1
-    readonly property var selectedDisk: (root.selectedIndex >= 0 && root.selectedIndex < root.disks.length)
-        ? root.disks[root.selectedIndex] : null
+    // Tracked by the selected disk's own wholeDiskPath, not a plain
+    // index -- selectedIndex/selectedDisk below are derived by searching
+    // the *current* disks list for it on every read, so a background
+    // refresh (a hotplug event while this page is already open) can
+    // never leave a stale index silently pointing at a different
+    // physical disk than the one actually chosen. Empty ("") means
+    // nothing is selected, and this deliberately starts and stays that
+    // way until the person clicks a drive themselves: formatting is
+    // destructive enough that this page never guesses on anyone's
+    // behalf, not even when opened from a specific stick's own "Format
+    // USB Stick" action card -- picking the drive here is always a
+    // separate, conscious step.
+    property string selectedWholeDiskPath: ""
+    readonly property int selectedIndex: {
+        for (var i = 0; i < root.disks.length; ++i) {
+            if (root.disks[i].wholeDiskPath === root.selectedWholeDiskPath) {
+                return i;
+            }
+        }
+        return -1;
+    }
+    readonly property var selectedDisk: root.selectedIndex >= 0 ? root.disks[root.selectedIndex] : null
     property string selectedFilesystem: "fat32"
     property bool fat32Available: root.selectedDisk === null
         || controller.fat32MaxBytes < 0
@@ -37,29 +56,19 @@ Page {
     readonly property string recommendedFilesystem: root.selectedDisk
         ? controller.recommendedFilesystem(root.selectedDisk.capacityBytes) : ""
 
-    // Preselect the drive that's just been plugged in and has nothing on
-    // it yet -- the realistic "I want to format this stick" scenario --
-    // falling back to the first drive Seabass can see at all.
-    function pickDefaultDrive() {
-        for (var i = 0; i < root.disks.length; ++i) {
-            if (root.disks[i].hasNoFilesystem) {
-                return i;
-            }
-        }
-        return root.disks.length > 0 ? 0 : -1;
-    }
-
     function applySelection(index) {
-        root.selectedIndex = index;
-        if (root.selectedDisk === null) {
+        if (index < 0 || index >= root.disks.length) {
+            root.selectedWholeDiskPath = "";
             return;
         }
-        root.selectedFilesystem = controller.recommendedFilesystem(root.selectedDisk.capacityBytes);
-        volumeLabelField.text = root.selectedDisk.hasNoFilesystem ? "" : root.selectedDisk.label;
+        var disk = root.disks[index];
+        root.selectedWholeDiskPath = disk.wholeDiskPath;
+        root.selectedFilesystem = controller.recommendedFilesystem(disk.capacityBytes);
+        volumeLabelField.text = disk.hasNoFilesystem ? "" : disk.label;
+        if (disk.hasDjLibrary) {
+            djLibraryWarningDialog.open();
+        }
     }
-
-    onDisksChanged: root.applySelection(root.pickDefaultDrive())
-    Component.onCompleted: root.applySelection(root.pickDefaultDrive())
 
     header: ToolBar {
         background: Rectangle { color: Theme.surface }
@@ -76,6 +85,38 @@ Page {
             }
             Item { Layout.fillWidth: true }
             BusyIndicator { running: controller.busy; visible: controller.busy; implicitWidth: 20; implicitHeight: 20 }
+        }
+    }
+
+    // Shown every time selection lands on a drive with a recognized DJ
+    // library (see applySelection() above) -- separate from confirmDialog
+    // below, which gates the actual write. This one's job is just making
+    // sure a real, existing library was actually noticed before the
+    // person goes any further, not confirming the write itself.
+    Dialog {
+        id: djLibraryWarningDialog
+        objectName: "djLibraryWarningDialog"
+        anchors.centerIn: parent
+        modal: true
+        width: 420
+        title: "This Drive Has a DJ Library"
+        // No Escape/click-outside dismissal -- must be acknowledged via
+        // its own button, so it can't be skipped past accidentally.
+        closePolicy: Popup.NoAutoClose
+
+        footer: DialogButtonBox {
+            Button {
+                objectName: "djLibraryWarningAcknowledgeButton"
+                text: "I Understand"
+                DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
+            }
+        }
+
+        Label {
+            width: parent.width
+            wrapMode: Text.WordWrap
+            text: "\"" + (root.selectedDisk ? root.selectedDisk.label : "") + "\" has an existing DJ "
+                + "library on it: tracks, playlists, cues, all of it. Formatting will erase it permanently."
         }
     }
 
@@ -151,11 +192,22 @@ Page {
                             text: "This permanently erases everything on this drive."
                         }
                         Label {
+                            objectName: "confirmDialogDataLossLabel"
                             Layout.fillWidth: true
                             wrapMode: Text.WordWrap
                             color: Theme.dangerText
-                            text: "Every file -- including any existing DJ library -- will be gone for good, "
-                                + "and this can't be undone. Make sure this is the right drive before continuing."
+                            text: "All data on \"" + (root.selectedDisk ? root.selectedDisk.label : "") + "\" ("
+                                + (root.selectedDisk ? root.selectedDisk.wholeDiskPath : "") + ") will be lost "
+                                + "permanently, including any existing DJ library. This cannot be undone."
+                        }
+                        Label {
+                            objectName: "confirmDialogDoubleCheckLabel"
+                            Layout.fillWidth: true
+                            wrapMode: Text.WordWrap
+                            color: Theme.dangerText
+                            font.weight: Font.Bold
+                            text: "Double-check that you've selected the correct storage device before "
+                                + "continuing."
                         }
                     }
                 }
@@ -181,7 +233,7 @@ Page {
                     font.family: Theme.dataFamily
                     text: {
                         if (!root.selectedDisk) return "";
-                        if (root.selectedDisk.hasNoFilesystem) return "Empty -- no files";
+                        if (root.selectedDisk.hasNoFilesystem) return "Empty, no files";
                         var entries = root.selectedDisk.rootEntries;
                         return entries && entries.length > 0 ? entries.join(", ") : "(unknown)";
                     }
@@ -223,8 +275,8 @@ Page {
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
                 color: Theme.textMuted
-                text: "Prepares a drive so it's readable on CDJs, XDJs, and Denon Engine players -- no "
-                    + "filesystem knowledge needed. Pick a drive below; Seabass already knows which format fits it."
+                text: "Prepares a drive so it's readable on CDJs, XDJs, and Denon Engine players. Pick a "
+                    + "drive below; Seabass already knows which format fits it."
             }
 
             Label {
@@ -264,26 +316,58 @@ Page {
                         model: root.disks
                         delegate: RadioButton {
                             id: driveRadio
+                            objectName: "driveRadio"
                             required property var modelData
                             required property int index
                             Layout.fillWidth: true
                             ButtonGroup.group: driveGroup
                             checked: root.selectedIndex === index
-                            onToggled: if (checked) root.applySelection(index)
+                            // onClicked, not onToggled: clicking the
+                            // already-selected drive again is meant to
+                            // unselect it, but re-clicking an already-
+                            // checked exclusive RadioButton never actually
+                            // changes `checked` (nothing to toggle), so
+                            // onToggled would never fire for that case.
+                            // onClicked fires on every press+release
+                            // inside the button regardless of whether
+                            // checked changed, so it can tell the two
+                            // cases apart itself.
+                            onClicked: root.applySelection(root.selectedIndex === index ? -1 : index)
 
+                            // Control.leftPadding (tried first) turned out
+                            // not to reliably shift a RowLayout-based
+                            // contentItem clear of the indicator -- unlike
+                            // Label.leftPadding (used below for the format
+                            // RadioButtons), which Text's own internal
+                            // layout genuinely respects regardless of
+                            // whatever x/width Control's resizeContent()
+                            // externally imposes, RowLayout has no
+                            // comparable internal padding concept of its
+                            // own. Confirmed via an actual offscreen
+                            // screenshot (Xvfb + xdotool + xwd, cropped
+                            // and zoomed 4x) that leftPadding alone still
+                            // left the checked indicator drawn directly
+                            // over "WHALESHARK2"'s first two letters.
+                            // Layout.leftMargin on the RowLayout's own
+                            // first child is a real Qt Quick Layouts
+                            // property RowLayout consumes internally when
+                            // positioning its children -- immune to the
+                            // same external-stomping problem since
+                            // nothing outside the RowLayout ever touches
+                            // it.
                             contentItem: RowLayout {
-                                x: driveRadio.indicator.width + driveRadio.spacing
-                                width: driveRadio.width - x
                                 spacing: 10
 
                                 ColumnLayout {
                                     Layout.fillWidth: true
+                                    Layout.leftMargin: driveRadio.indicator.width + driveRadio.spacing
                                     spacing: 2
                                     Label {
                                         text: driveRadio.modelData.label
                                         font.pointSize: Theme.fontNormal
                                     }
                                     Label {
+                                        objectName: "driveSubtitleLabel"
                                         Layout.fillWidth: true
                                         elide: Text.ElideRight
                                         color: Theme.textMuted
@@ -297,9 +381,17 @@ Page {
                                     }
                                 }
                                 StatusBadge {
+                                    objectName: "driveStatusBadge"
+                                    // "In use" used to render exactly like
+                                    // "Blank" (both Theme.good) -- correct
+                                    // for a genuinely empty drive, but
+                                    // misleading for one that already has
+                                    // real (non-DJ-library) files on it:
+                                    // formatting loses those too.
                                     label: driveRadio.modelData.hasDjLibrary ? "Has a DJ library"
-                                        : (driveRadio.modelData.hasNoFilesystem ? "Blank" : "In use")
-                                    badgeColor: driveRadio.modelData.hasDjLibrary ? Theme.warnIcon : Theme.good
+                                        : (driveRadio.modelData.hasNoFilesystem ? "Blank" : "Data will be lost")
+                                    badgeColor: driveRadio.modelData.hasDjLibrary ? Theme.danger
+                                        : (driveRadio.modelData.hasNoFilesystem ? Theme.good : Theme.danger)
                                 }
                                 Label {
                                     font.family: Theme.dataFamily
@@ -313,9 +405,13 @@ Page {
             }
 
             GroupBox {
+                objectName: "formatGroupBox"
                 label: Subtitle { text: "2. Choose a format" }
                 Layout.fillWidth: true
-                visible: root.selectedDisk !== null
+                // Greyed out (not hidden) until a drive is picked -- shows
+                // what's coming next rather than making the page jump
+                // around every time the drive selection changes.
+                enabled: root.selectedDisk !== null
                 ColumnLayout {
                     anchors.fill: parent
                     spacing: 4
@@ -333,33 +429,93 @@ Page {
                     ButtonGroup { id: fsGroup }
 
                     RadioButton {
+                        id: fat32Radio
+                        objectName: "fat32Radio"
                         Layout.fillWidth: true
-                        text: "Works on every player" + (root.recommendedFilesystem === "fat32" ? "  (Recommended)" : "")
+                        Layout.maximumWidth: 560
+                        // Without this, Layout.fillWidth can't actually
+                        // shrink the control below its own implicitWidth,
+                        // and a wrapping Label's implicitWidth is still
+                        // its full *unwrapped* single-line width (wrapMode
+                        // only affects rendering once a width is already
+                        // imposed, not the implicit-size calculation) --
+                        // so the button (and the whole page) was forced at
+                        // least as wide as this row's longest unwrapped
+                        // string, overflowing a narrower window instead of
+                        // the text ever actually wrapping.
+                        Layout.minimumWidth: 0
                         ButtonGroup.group: fsGroup
                         checked: root.selectedFilesystem === "fat32"
                         enabled: root.fat32Available
                         onToggled: if (checked) root.selectedFilesystem = "fat32"
+
+                        // A custom contentItem, so this can wrap -- the
+                        // default RadioButton contentItem doesn't. Uses
+                        // Label's own `leftPadding` (a real Text/Label
+                        // property that Text's internal layout genuinely
+                        // respects, both for where it paints and for how
+                        // much width is left to wrap/elide within), NOT a
+                        // manual `x`/`width` binding: Control's own
+                        // resizeContent() imperatively calls
+                        // contentItem->setPosition()/setSize() on every
+                        // relayout, silently overwriting a plain `x:`/
+                        // `width:` QML binding out from under it. That's
+                        // what caused the checked-state overlap bug this
+                        // page shipped with twice already -- confirmed
+                        // via an actual offscreen screenshot
+                        // (DISPLAY=:99 xdotool + xwd, not just a
+                        // synthetic test) that the checked radio's own
+                        // indicator visibly overlapped "FAT32"'s first
+                        // couple of characters. leftPadding is left
+                        // completely alone by resizeContent(), so it
+                        // can't be clobbered the same way.
+                        contentItem: Label {
+                            objectName: "fat32Label"
+                            leftPadding: fat32Radio.indicator.width + fat32Radio.spacing
+                            wrapMode: Text.WordWrap
+                            verticalAlignment: Text.AlignVCenter
+                            text: "FAT32 · Works on every player"
+                                + (root.recommendedFilesystem === "fat32" ? "  (Recommended)" : "")
+                        }
                     }
                     Label {
                         Layout.fillWidth: true
+                        Layout.maximumWidth: 560
                         Layout.leftMargin: 28
                         wrapMode: Text.WordWrap
                         color: Theme.textMuted
                         font.pointSize: Theme.fontSmall
                         text: root.fat32Available
-                            ? "Very long recordings or lossless masters over 4 GB won't fit -- everything else is unaffected."
-                            : "Not available for this drive -- Windows can't create a FAT32 filesystem this large."
+                            ? "Very long recordings or lossless masters over 4 GB won't fit. Everything else "
+                                + "is unaffected."
+                            : "Not available for this drive: Windows can't create a FAT32 filesystem this large."
                     }
 
                     RadioButton {
+                        id: exfatRadio
+                        objectName: "exfatRadio"
                         Layout.fillWidth: true
-                        text: "Modern players, no file-size limit" + (root.recommendedFilesystem === "exfat" ? "  (Recommended)" : "")
+                        Layout.maximumWidth: 560
+                        // See fat32Radio's own comment above.
+                        Layout.minimumWidth: 0
                         ButtonGroup.group: fsGroup
                         checked: root.selectedFilesystem === "exfat"
                         onToggled: if (checked) root.selectedFilesystem = "exfat"
+
+                        // See fat32Radio's own comment: leftPadding, not
+                        // a manual x/width binding.
+                        contentItem: Label {
+                            objectName: "exfatLabel"
+                            leftPadding: exfatRadio.indicator.width + exfatRadio.spacing
+                            wrapMode: Text.WordWrap
+                            verticalAlignment: Text.AlignVCenter
+                            text: "exFAT · Modern players, no file-size limit"
+                                + (root.recommendedFilesystem === "exfat" ? "  (Recommended)" : "")
+                        }
                     }
                     Label {
                         Layout.fillWidth: true
+                        Layout.maximumWidth: 560
                         Layout.leftMargin: 28
                         wrapMode: Text.WordWrap
                         color: Theme.textMuted
@@ -370,11 +526,12 @@ Page {
 
                     Label {
                         Layout.fillWidth: true
+                        Layout.maximumWidth: 560
                         Layout.topMargin: 6
                         wrapMode: Text.WordWrap
                         color: Theme.textMuted
                         font.pointSize: Theme.fontSmall
-                        text: "Drives over 32 GB always use exFAT -- Windows itself can't create a FAT32 "
+                        text: "Drives over 32 GB always use exFAT: Windows itself can't create a FAT32 "
                             + "filesystem larger than that, so bigger sticks aren't limited by the old 32 GB "
                             + "ceiling, they just skip FAT32 automatically."
                     }
@@ -382,17 +539,34 @@ Page {
             }
 
             GroupBox {
+                objectName: "nameGroupBox"
                 label: Subtitle { text: "3. Name it" }
                 Layout.fillWidth: true
-                visible: root.selectedDisk !== null
+                // See "2. Choose a format" above: greyed out, not hidden.
+                enabled: root.selectedDisk !== null
                 ColumnLayout {
                     anchors.fill: parent
+                    spacing: 4
                     TextField {
                         id: volumeLabelField
                         objectName: "volumeLabelField"
                         Layout.fillWidth: true
                         Layout.maximumWidth: 320
                         placeholderText: "Name this drive..."
+                        // FAT32/exFAT volume labels are limited by the
+                        // filesystem spec itself (not a Seabass choice):
+                        // 11 characters for FAT32, 15 for exFAT.
+                        maximumLength: root.selectedFilesystem === "fat32" ? 11 : 15
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        Layout.maximumWidth: 320
+                        wrapMode: Text.WordWrap
+                        color: Theme.textMuted
+                        font.pointSize: Theme.fontSmall
+                        text: root.selectedFilesystem === "fat32"
+                            ? "Up to 11 characters for FAT32."
+                            : "Up to 15 characters for exFAT."
                     }
                 }
             }

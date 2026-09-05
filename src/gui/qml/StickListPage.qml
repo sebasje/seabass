@@ -72,13 +72,6 @@ Page {
             }
             Item { Layout.fillWidth: true }
             ToolButton {
-                text: "💽"
-                font.pointSize: Theme.fontLarge
-                ToolTip.visible: hovered
-                ToolTip.text: "Format USB Stick"
-                onClicked: root.formatUsbRequested()
-            }
-            ToolButton {
                 text: "ⓘ"
                 font.pointSize: Theme.fontLarge
                 ToolTip.visible: hovered
@@ -288,8 +281,13 @@ Page {
                 }
 
                 ColumnLayout {
+                    // Always visible now, unlike the individual cards
+                    // below -- Format is available for every stick
+                    // regardless of whether it has a recognized library
+                    // (it's the one thing you can do to a stick that
+                    // *doesn't*), so this whole grid can no longer be
+                    // gated behind hasKnownLibrary the way it used to be.
                     Layout.fillWidth: true
-                    visible: delegateRoot.hasKnownLibrary
 
                     GridLayout {
                         Layout.fillWidth: true
@@ -303,6 +301,7 @@ Page {
                             cardTitle: "Browse Library"
                             cardSubtitle: "View tracks, playlists and cues"
                             cardIcon: "▤"
+                            visible: delegateRoot.hasKnownLibrary
                             enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
                             onClicked: root.browseRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
                         }
@@ -310,6 +309,7 @@ Page {
                             cardTitle: "Clean-up and Housekeeping"
                             cardSubtitle: "Duplicate stats, sync metadata across copies, and clean up"
                             cardIcon: "▣"
+                            visible: delegateRoot.hasKnownLibrary
                             enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
                             onClicked: root.duplicateTracksHubRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
                         }
@@ -320,6 +320,7 @@ Page {
                             // Graduated from experimental (see
                             // docs/experimental-features.md) after real
                             // use with no incidents.
+                            visible: delegateRoot.hasKnownLibrary
                             enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
                             onClicked: root.libraryHealthRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
                         }
@@ -330,6 +331,7 @@ Page {
                             // Graduated from experimental (see
                             // docs/experimental-features.md) after real
                             // use with no incidents.
+                            visible: delegateRoot.hasKnownLibrary
                             enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
                             onClicked: root.stickStatisticsRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
                         }
@@ -345,6 +347,7 @@ Page {
                             // no Engine Library already present to overwrite.
                             experimental: true
                             experimentalFeaturesEnabled: root.appSettingsController.experimentalFeaturesEnabled
+                            visible: delegateRoot.hasKnownLibrary
                             enabled: delegateRoot.hasRekordbox && !delegateRoot.hasEngine
                             onClicked: root.engineLibraryCreatorRequested(delegateRoot.label, delegateRoot.rekordboxPath)
                         }
@@ -353,6 +356,7 @@ Page {
                             cardSubtitle: "Copy cues between DeviceLibrary and Engine"
                             cardIcon: "⇄"
                             cardIconFont: "Noto Sans Math"
+                            visible: delegateRoot.hasKnownLibrary
                             enabled: delegateRoot.hasRekordbox && delegateRoot.hasEngine
                             onClicked: root.syncRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
                         }
@@ -360,6 +364,7 @@ Page {
                             cardTitle: "Backups"
                             cardSubtitle: "Local cue backup/restore and automatic write backups"
                             cardIcon: "🗄"
+                            visible: delegateRoot.hasKnownLibrary
                             enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
                             onClicked: root.backupsHubRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
                         }
@@ -368,8 +373,27 @@ Page {
                             cardSubtitle: "View this stick's saved Rekordbox player settings"
                             cardIcon: "⚙"
                             cardIconFont: "Noto Sans Symbols"
+                            visible: delegateRoot.hasKnownLibrary
                             enabled: delegateRoot.hasRekordbox
                             onClicked: root.settingsRequested(delegateRoot.label, delegateRoot.rekordboxPath)
+                        }
+                        ActionCard {
+                            cardTitle: "Format USB Stick"
+                            cardSubtitle: "Erase and prepare this drive for CDJs, XDJs, and Denon Engine players"
+                            cardIcon: "💽"
+                            // Experimental (see docs/experimental-features.md):
+                            // the first feature here that can permanently
+                            // erase a drive, not just modify/consolidate
+                            // library data on one -- wants real use before
+                            // graduating.
+                            experimental: true
+                            experimentalFeaturesEnabled: root.appSettingsController.experimentalFeaturesEnabled
+                            // Available for every stick regardless of
+                            // hasKnownLibrary -- unlike every other card
+                            // here, this is the one action meant for a
+                            // stick with nothing recognizable on it yet.
+                            enabled: !root.mediaController.busy
+                            onClicked: root.formatUsbRequested()
                         }
                     }
                 }
