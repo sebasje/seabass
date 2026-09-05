@@ -249,6 +249,9 @@ namespace
 std::vector<domain::Track> scanTracks(const QString &format, const QString &path,
                                        std::shared_ptr<QtProgressReporter> reporter)
 {
+    // No explicit format check here -- LibraryCatalogCache::tracksFor()
+    // already throws for anything unrecognized (see its own realScan()),
+    // caught by the same catch (const std::exception &) below either way.
     return LibraryCatalogCache::instance().tracksFor(format.toStdString(), path.toStdString(), *reporter);
 }
 

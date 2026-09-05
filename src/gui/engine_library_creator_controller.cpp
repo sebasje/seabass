@@ -4,9 +4,8 @@
 
 #include <filesystem>
 
-#include "application/use_cases/scan_library.hpp"
+#include "gui/library_catalog_cache.hpp"
 #include "infrastructure/engine/libdjinterop_engine_library_creator.hpp"
-#include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
 
 namespace seabass::gui
 {
@@ -35,9 +34,7 @@ EngineLibraryCreationTaskResult runCreateTask(QString rekordboxPath, int schemaG
 {
     EngineLibraryCreationTaskResult result;
     try {
-        infrastructure::rekordbox::KaitaiRekordboxReader reader(rekordboxPath.toStdString());
-        reader.setProgressReporter(*reporter);
-        auto tracks = application::ScanLibrary(reader).execute();
+        auto tracks = LibraryCatalogCache::instance().tracksFor("rekordbox", rekordboxPath.toStdString(), *reporter);
 
         std::string engineLibraryPath =
             (fs::path(rekordboxPath.toStdString()).parent_path() / "Engine Library").string();
@@ -53,6 +50,13 @@ EngineLibraryCreationTaskResult runCreateTask(QString rekordboxPath, int schemaG
         result.cuesCopied = creation.cuesCopied;
         if (!creation.errorMessage.empty()) {
             result.errorMessage = QString::fromStdString(creation.errorMessage);
+        } else {
+            // A brand-new database at this exact path -- if a stale
+            // "engine" entry from a prior library that once lived here
+            // (and was since deleted) is still cached, make sure the next
+            // read reflects what was actually just created rather than
+            // trusting a coincidentally-matching mtime.
+            LibraryCatalogCache::instance().invalidate("engine", engineLibraryPath);
         }
     } catch (const std::exception &e) {
         result.errorMessage = QString::fromStdString(e.what());

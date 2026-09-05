@@ -8,16 +8,13 @@
 
 #include "application/ports/backup_store.hpp"
 #include "application/ports/cue_writer.hpp"
-#include "application/use_cases/scan_library.hpp"
+#include "gui/library_catalog_cache.hpp"
 #include "gui/write_guard.hpp"
 #include "infrastructure/backup/filesystem_backup_store.hpp"
 #include "infrastructure/backup/stick_write_lock.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cue_writer.hpp"
-#include "infrastructure/engine/libdjinterop_engine_reader.hpp"
 #include "infrastructure/logging/file_operation_log.hpp"
 #include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
-#include "infrastructure/onelibrary/onelibrary_reader.hpp"
-#include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 #include "infrastructure/rekordbox/rekordbox_cue_writer.hpp"
 
@@ -62,26 +59,16 @@ AddCueResult runAddCueTask(QString format, QString path, QString sourceId, doubl
         infrastructure::backup::FilesystemBackupStore backupStore((stickRoot / ".seabass-backups").string());
         infrastructure::logging::FileOperationLog log((stickRoot / ".seabass.log").string());
 
-        // Never trust whatever cue list the calling page had cached --
-        // re-scan fresh so the augmented list below always starts from
-        // this track's real current state.
-        std::vector<domain::Track> tracks;
-        if (format == "rekordbox") {
-            infrastructure::rekordbox::KaitaiRekordboxReader reader(path.toStdString());
-            reader.setProgressReporter(*reporter);
-            tracks = application::ScanLibrary(reader).execute();
-        } else if (format == "engine") {
-            infrastructure::engine::LibdjinteropEngineReader reader(path.toStdString());
-            reader.setProgressReporter(*reporter);
-            tracks = application::ScanLibrary(reader).execute();
-        } else if (format == "onelibrary") {
-            infrastructure::onelibrary::OneLibraryReader reader(path.toStdString());
-            reader.setProgressReporter(*reporter);
-            tracks = application::ScanLibrary(reader).execute();
-        } else {
+        if (format != "rekordbox" && format != "engine" && format != "onelibrary") {
             result.errorMessage = "Unknown library format: " + format;
             return result;
         }
+        // Never trust whatever cue list the calling page had cached --
+        // re-scan fresh (via the shared cache, which itself re-reads
+        // whenever the catalog's mtime has moved) so the augmented list
+        // below always starts from this track's real current state.
+        std::vector<domain::Track> tracks =
+            LibraryCatalogCache::instance().tracksFor(format.toStdString(), path.toStdString(), *reporter);
 
         std::string id = sourceId.toStdString();
         const domain::Track *track = nullptr;
@@ -142,6 +129,7 @@ AddCueResult runAddCueTask(QString format, QString path, QString sourceId, doubl
             }
             infrastructure::onelibrary::OneLibraryCueWriter writer(pioneerRoot);
             writer.writeCuesForPath(track->filePath, cues);
+            LibraryCatalogCache::instance().invalidate("onelibrary", pioneerRoot);
             log.record("add-cue: added " + kind.toStdString() + " cue at " +
                        std::to_string(static_cast<int>(positionMs)) + "ms to OneLibrary track id=" + id + " (\"" +
                        track->title + "\")" + (dbBackupId.empty() ? "" : ", backup " + dbBackupId));
@@ -166,6 +154,7 @@ AddCueResult runAddCueTask(QString format, QString path, QString sourceId, doubl
             }
 
             writer->writeHotCues(id, cues);
+            LibraryCatalogCache::instance().invalidate(format.toStdString(), pioneerRoot);
             log.record("add-cue: added " + kind.toStdString() + (isLoop ? " loop" : " cue") + " at " +
                        std::to_string(static_cast<int>(positionMs)) + "ms to track id=" + id + " (\"" +
                        track->title + "\")" + (dbBackupId.empty() ? "" : ", backup " + dbBackupId));
@@ -178,6 +167,7 @@ AddCueResult runAddCueTask(QString format, QString path, QString sourceId, doubl
                 try {
                     infrastructure::onelibrary::OneLibraryCueWriter oneLibWriter(pioneerRoot);
                     oneLibWriter.writeCuesForPath(track->filePath, cues);
+                    LibraryCatalogCache::instance().invalidate("onelibrary", pioneerRoot);
                     log.record("add-cue: also wrote into OneLibrary");
                 } catch (const std::exception &e) {
                     log.record(std::string("add-cue: OneLibrary write failed: ") + e.what());
