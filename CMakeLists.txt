@@ -46,6 +46,14 @@ find_package(SQLite3 REQUIRED)
 # metadata backups before they hit disk (see infrastructure/compression/).
 find_package(ZLIB REQUIRED)
 
+# Independent ZIP implementations for the stick-backup cross-validation
+# test (tests/backup_archive_crossvalidation_test.cpp). All optional: the
+# test skips (exit 77) without python3 and skips the individual tool
+# cases without unzip / 7z.
+find_package(Python3 COMPONENTS Interpreter QUIET)
+find_program(UNZIP_EXECUTABLE unzip)
+find_program(SEVENZIP_EXECUTABLE NAMES 7z 7zz 7za)
+
 # Only needed by stick_write_lock_test, which spawns a real std::thread to
 # prove StickWriteLock actually excludes a concurrent locker.
 find_package(Threads REQUIRED)
@@ -154,6 +162,10 @@ add_library(seabass_core STATIC
     src/infrastructure/zip_archive_writer.cpp
     src/infrastructure/hashing/sha256.cpp
     src/infrastructure/stick_backup/posix_archive_file.cpp
+    src/infrastructure/stick_backup/zip_format.cpp
+    src/infrastructure/stick_backup/zip64_writer.cpp
+    src/infrastructure/stick_backup/zip64_reader.cpp
+    src/infrastructure/stick_backup/backup_manifest.cpp
 )
 target_include_directories(seabass_core PUBLIC src)
 target_link_libraries(seabass_core PUBLIC rekordbox_format DjInterop ZLIB::ZLIB)
@@ -796,6 +808,35 @@ add_executable(archive_file_test
 )
 target_include_directories(archive_file_test PRIVATE src)
 add_test(NAME archive_file_test COMMAND archive_file_test)
+
+set(SEABASS_STICK_BACKUP_FORMAT_SOURCES
+    src/infrastructure/hashing/sha256.cpp
+    src/infrastructure/stick_backup/posix_archive_file.cpp
+    src/infrastructure/stick_backup/zip_format.cpp
+    src/infrastructure/stick_backup/zip64_writer.cpp
+    src/infrastructure/stick_backup/zip64_reader.cpp
+    src/infrastructure/stick_backup/backup_manifest.cpp
+)
+
+add_executable(backup_archive_roundtrip_test
+    ${SEABASS_STICK_BACKUP_FORMAT_SOURCES}
+    tests/backup_archive_roundtrip_test.cpp
+)
+target_include_directories(backup_archive_roundtrip_test PRIVATE src)
+target_link_libraries(backup_archive_roundtrip_test PRIVATE ZLIB::ZLIB)
+add_test(NAME backup_archive_roundtrip_test COMMAND backup_archive_roundtrip_test)
+
+add_executable(backup_archive_crossvalidation_test
+    ${SEABASS_STICK_BACKUP_FORMAT_SOURCES}
+    tests/backup_archive_crossvalidation_test.cpp
+)
+target_include_directories(backup_archive_crossvalidation_test PRIVATE src)
+target_link_libraries(backup_archive_crossvalidation_test PRIVATE ZLIB::ZLIB)
+add_test(NAME backup_archive_crossvalidation_test COMMAND backup_archive_crossvalidation_test)
+set_tests_properties(backup_archive_crossvalidation_test PROPERTIES
+    ENVIRONMENT "SEABASS_PYTHON3=${Python3_EXECUTABLE};SEABASS_UNZIP=${UNZIP_EXECUTABLE};SEABASS_SEVENZIP=${SEVENZIP_EXECUTABLE}"
+    SKIP_RETURN_CODE 77
+)
 
 add_executable(pending_deletion_resolver_test
     src/infrastructure/cleanup/pending_deletion_resolver.cpp
