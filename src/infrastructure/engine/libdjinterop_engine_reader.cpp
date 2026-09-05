@@ -132,7 +132,15 @@ std::unordered_map<int64_t, std::string> readArtworkPaths(const std::string &eng
         if (pos == std::string::npos) {
             continue;
         }
-        std::filesystem::path candidate = stickRoot / hash.substr(pos);
+        // make_preferred(): hash.substr(pos) carries its own forward
+        // slashes ("PIONEER/Artwork/...") appended as one path component
+        // in a single operator/ call, so fs::path preserves them as
+        // literal characters rather than re-splitting into components --
+        // .string() would otherwise mix them with the native separator
+        // from the stickRoot join on Windows. Same bug/fix as
+        // OneLibraryReader's artworkPath (onelibrary_reader.cpp), found
+        // via a real Windows test failure there.
+        std::filesystem::path candidate = (stickRoot / hash.substr(pos)).make_preferred();
         std::error_code ec;
         if (std::filesystem::exists(candidate, ec)) {
             result[trackId] = candidate.string();
