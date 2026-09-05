@@ -9,8 +9,8 @@
 #include <optional>
 #include <set>
 
-#include "application/use_cases/scan_library.hpp"
 #include "domain/junk_cue.hpp"
+#include "gui/library_catalog_cache.hpp"
 #include "gui/local_file_url.hpp"
 #include "gui/write_guard.hpp"
 #include "infrastructure/backup/filesystem_backup_store.hpp"
@@ -19,11 +19,8 @@
 #include "infrastructure/durable_file_write.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cleanup_writer.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cue_writer.hpp"
-#include "infrastructure/engine/libdjinterop_engine_reader.hpp"
 #include "infrastructure/logging/file_operation_log.hpp"
 #include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
-#include "infrastructure/onelibrary/onelibrary_reader.hpp"
-#include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 #include "infrastructure/rekordbox/rekordbox_cleanup_writer.hpp"
 #include "infrastructure/rekordbox/rekordbox_cue_writer.hpp"
@@ -250,22 +247,10 @@ namespace
 std::vector<domain::Track> scanTracks(const QString &format, const QString &path,
                                        std::shared_ptr<QtProgressReporter> reporter)
 {
-    if (format == "rekordbox") {
-        infrastructure::rekordbox::KaitaiRekordboxReader reader(path.toStdString());
-        reader.setProgressReporter(*reporter);
-        return application::ScanLibrary(reader).execute();
+    if (format != "rekordbox" && format != "engine" && format != "onelibrary") {
+        throw std::runtime_error(("Unknown library format: " + format).toStdString());
     }
-    if (format == "engine") {
-        infrastructure::engine::LibdjinteropEngineReader reader(path.toStdString());
-        reader.setProgressReporter(*reporter);
-        return application::ScanLibrary(reader).execute();
-    }
-    if (format == "onelibrary") {
-        infrastructure::onelibrary::OneLibraryReader reader(path.toStdString());
-        reader.setProgressReporter(*reporter);
-        return application::ScanLibrary(reader).execute();
-    }
-    throw std::runtime_error(("Unknown library format: " + format).toStdString());
+    return LibraryCatalogCache::instance().tracksFor(format.toStdString(), path.toStdString(), *reporter);
 }
 
 // Runs entirely on a background thread (see LibraryConsistencyController::
@@ -1007,6 +992,22 @@ void LibraryConsistencyController::onWriteFinished()
 
     setBusy(false);
     setWriting(false);
+
+    // Every repair/removal that just ran (could be one format or a whole
+    // chain across all present catalogs, see m_pendingRepairs/
+    // m_pendingJunkCueRemovals above) wrote to the shared cache's data --
+    // invalidate all three potential catalogs unconditionally rather than
+    // tracking exactly which ones a given batch touched, since scan()
+    // right below is about to re-read all of them anyway.
+    auto &catalogCache = LibraryCatalogCache::instance();
+    if (!m_rekordboxPath.isEmpty()) {
+        catalogCache.invalidate("rekordbox", m_rekordboxPath.toStdString());
+        catalogCache.invalidate("onelibrary", m_rekordboxPath.toStdString());
+    }
+    if (!m_enginePath.isEmpty()) {
+        catalogCache.invalidate("engine", m_enginePath.toStdString());
+    }
+
     // Whatever just got repaired/deleted is now stale in the model.
     // Re-scan every format so the list reflects reality rather than
     // showing rows that were just fixed.
