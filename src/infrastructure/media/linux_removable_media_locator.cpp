@@ -147,14 +147,23 @@ std::vector<DetectedStick> LinuxRemovableMediaLocator::detect()
         DetectedStick stick;
         stick.devicePath = devnode;
 
+        // The parent whole-disk device for a partition entry (e.g. "sdb"
+        // for "sdb1") -- looked up once and reused below for
+        // wholeDiskPath, capacityBytes, and isSdCard. Owned by dev's own
+        // lifetime (libudev's contract for this call), no separate unref
+        // needed. Null for a disk-devtype entry, which has no parent disk
+        // of its own.
+        udev_device *parentDisk = devtype == "partition"
+            ? udev_device_get_parent_with_subsystem_devtype(dev.get(), "block", "disk") : nullptr;
+
         // wholeDiskPath is the parent disk for a partition (e.g. "/dev/sdb"
         // for "/dev/sdb1"); for a disk-devtype entry (blank or superfloppy
         // media with no partition table) it's the same device as
         // devicePath. Needed by the Format USB Stick feature, which always
         // operates on the whole disk, never a single partition.
         if (devtype == "partition") {
-            if (udev_device *parent = udev_device_get_parent_with_subsystem_devtype(dev.get(), "block", "disk")) {
-                if (const char *parentDevnode = udev_device_get_devnode(parent)) {
+            if (parentDisk) {
+                if (const char *parentDevnode = udev_device_get_devnode(parentDisk)) {
                     stick.wholeDiskPath = parentDevnode;
                 }
             }
@@ -171,8 +180,23 @@ std::vector<DetectedStick> LinuxRemovableMediaLocator::detect()
 
         // sizeAttr is in 512-byte sectors regardless of the device's real
         // block size -- a fixed unit the kernel always reports this
-        // attribute in, not the drive's actual sector size.
-        stick.capacityBytes = std::stoull(sizeAttr) * 512ULL;
+        // attribute in, not the drive's actual sector size. For a
+        // partition, this device node's own "size" is that one
+        // partition's size (e.g. a small utility/recovery partition can
+        // be a few MB on a drive that's otherwise many GB) -- Format USB
+        // Stick always formats the whole disk, so the capacity shown has
+        // to be the whole disk's, read from the parent disk device
+        // instead (confirmed against a real stick: a ~21 MB FAT
+        // partition on a ~29 GB drive previously showed as "0 GB").
+        // Falls back to the partition's own size if no parent could be
+        // resolved, rather than reporting nothing.
+        const char *effectiveSizeAttr = sizeAttr;
+        if (parentDisk) {
+            if (const char *parentSizeAttr = udev_device_get_sysattr_value(parentDisk, "size")) {
+                effectiveSizeAttr = parentSizeAttr;
+            }
+        }
+        stick.capacityBytes = std::stoull(effectiveSizeAttr) * 512ULL;
 
         auto fsLabel = udevProperty(dev.get(), "ID_FS_LABEL");
         auto model = udevProperty(dev.get(), "ID_MODEL");
@@ -185,10 +209,8 @@ std::vector<DetectedStick> LinuxRemovableMediaLocator::detect()
         // parent disk too when this device itself doesn't have it.
         auto isFlashSd = [](udev_device *d) { return udevProperty(d, "ID_DRIVE_FLASH_SD").has_value(); };
         stick.isSdCard = isFlashSd(dev.get());
-        if (!stick.isSdCard) {
-            if (udev_device *parent = udev_device_get_parent_with_subsystem_devtype(dev.get(), "block", "disk")) {
-                stick.isSdCard = isFlashSd(parent);
-            }
+        if (!stick.isSdCard && parentDisk) {
+            stick.isSdCard = isFlashSd(parentDisk);
         }
 
         auto mountIt = mountedByDevice.find(devnode);

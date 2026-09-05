@@ -38,14 +38,33 @@ Every controller now goes through `gui::LibraryCatalogCache::instance()
 (Clean Up's apply/undo/pending-deletion, Add Cue, Library Health's
 repair/junk-cue removal, Local Cue's restore/undo, Duplicates' apply/undo,
 Sync's apply/undo) calls `LibraryCatalogCache::instance().invalidate(format,
-path)` right after the write succeeds, including the handful of
-rekordbox-primary writers that also best-effort mirror into OneLibrary's
-`exportLibrary.db` when one exists alongside `export.pdb` (Clean Up, Add
-Cue, Local Cue) — those invalidate `"onelibrary"` too, not just the
-primary format. `application::ScanLibrary`/the per-format reader includes
-were removed from every file above once nothing local called them anymore
-(`git grep 'application::ScanLibrary'` now only matches
-`library_catalog_cache.cpp` itself).
+path)` for the catalog(s) it touches — called *before* the write is
+attempted where the write and the invalidate happen inline in the same
+function (Add Cue, Engine Library Creator: a write that throws partway
+through may still have modified the file on disk, so invalidating only on
+success would leave the cache trusting a stale pre-write entry), or
+unconditionally in a shared completion handler right after the write's
+background task finishes either way (Clean Up, Local Cue, Duplicates,
+Library Health, Sync). The handful of rekordbox-primary writers that also
+best-effort mirror into OneLibrary's `exportLibrary.db` when one exists
+alongside `export.pdb` (Clean Up, Add Cue, Local Cue) invalidate
+`"onelibrary"` too via the shared `LibraryCatalogCache::
+invalidateWithOneLibraryMirror(format, path)` helper, rather than each
+repeating the same `if (format == "rekordbox") invalidate("onelibrary",
+path)` conditional inline.
+
+`application::ScanLibrary`/the per-format reader includes were removed
+from every `src/gui/` controller above once nothing local called them
+anymore — `library_catalog_cache.cpp` is the only remaining direct
+`application::ScanLibrary` caller *under `src/gui/`*. `src/cli/main.cpp`
+and a handful of `tests/` files (`anonymized_fixture_integration_test
+.cpp`, `libdjinterop_engine_loop_cue_test.cpp`,
+`libdjinterop_engine_sync_scratch_replace_test.cpp`,
+`libdjinterop_engine_library_creator_test.cpp`) still call it directly and
+were never in scope for this migration — the CLI has no shared cache to
+go through (it's a one-shot process, not a long-lived session with
+multiple pages that could double-scan), and the tests are deliberately
+exercising `ScanLibrary` itself.
 
 Switching the Library page's format toggle (Rekordbox/Engine/OneLibrary)
 back and forth no longer re-reads a catalog from disk that another page

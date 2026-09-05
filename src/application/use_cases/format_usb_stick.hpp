@@ -48,14 +48,14 @@ public:
             }
         }
         if (target == nullptr) {
-            errorMessage = "That drive is no longer present -- reconnect it and try again.";
+            errorMessage = "That drive is no longer present. Reconnect it and try again.";
             return false;
         }
 
         auto maxSize = m_formatter.maxSizeFor(fs);
         if (maxSize && target->capacityBytes > *maxSize) {
             errorMessage = domain::usbFilesystemName(fs) + " can't be created on a drive this large on this "
-                           "platform -- choose a different format.";
+                           "platform. Choose a different format.";
             return false;
         }
 

@@ -170,6 +170,38 @@ int main()
         std::cout << "case 6 (invalidate() during an in-flight scan isn't undone by its completion) OK\n";
     }
 
+    // Case 7: invalidateWithOneLibraryMirror() also invalidates
+    // "onelibrary" at the same path when format is "rekordbox" (the
+    // rekordbox-primary-write-mirrors-into-OneLibrary shape several
+    // controllers share), but leaves "onelibrary" alone for any other
+    // format -- it's a mirror of rekordbox specifically, not a blanket
+    // "also invalidate onelibrary" for every write.
+    {
+        std::atomic<int> scanCount{0};
+        auto scanFn = [&](const std::string &, const std::string &, seabass::application::ProgressReporter &) {
+            scanCount++;
+            return oneTrack("1");
+        };
+        auto mtimeFn = [](const std::string &, const std::string &) { return std::chrono::system_clock::time_point{}; };
+        LibraryCatalogCache cache(scanFn, mtimeFn);
+
+        cache.tracksFor("rekordbox", "/stick");
+        cache.tracksFor("onelibrary", "/stick");
+        cache.tracksFor("engine", "/stick");
+        assert(scanCount == 3);
+
+        cache.invalidateWithOneLibraryMirror("rekordbox", "/stick");
+        cache.tracksFor("rekordbox", "/stick");
+        cache.tracksFor("onelibrary", "/stick");
+        assert(scanCount == 5);  // both rekordbox and its onelibrary mirror re-scanned
+
+        cache.invalidateWithOneLibraryMirror("engine", "/stick");
+        cache.tracksFor("engine", "/stick");
+        cache.tracksFor("onelibrary", "/stick");
+        assert(scanCount == 6);  // engine re-scanned, onelibrary still cached (not a mirror of engine)
+        std::cout << "case 7 (invalidateWithOneLibraryMirror only mirrors rekordbox) OK\n";
+    }
+
     std::cout << "All library_catalog_cache tests passed.\n";
     return 0;
 }

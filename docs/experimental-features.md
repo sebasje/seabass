@@ -13,6 +13,23 @@ exercised live against real hardware, not just a read-only scan.
 
 ## Currently experimental
 
+- **Format USB Stick** (added 2026-09-05) — erases and reformats a
+  removable drive as FAT32 or exFAT (always MBR), for a stick that's
+  never been prepared for CDJ/XDJ/Engine OS hardware, or one being
+  reused. The only feature so far that can destroy an entire drive
+  outright, not just modify or consolidate library data on one: layered
+  with its own extra safety net beyond the experimental gate itself (a
+  must-dismiss warning popup when the selected drive already has a
+  recognized DJ library, a red "Data will be lost" badge for any
+  non-blank drive, no drive preselected by default, and a final confirm
+  dialog naming the exact drive/path with a type-to-confirm gate). The
+  actual destructive call (udisks2's CreatePartitionAndFormat on Linux,
+  PowerShell's Format-Volume on Windows) is unverified against real
+  hardware on either platform: `linux_usb_formatter.cpp` flags this in
+  its own comment, and there's no Windows machine in this dev
+  environment to exercise `windows_usb_formatter.cpp` at all. Promote to
+  stable once both platforms have been confirmed against real hardware.
+
 - **Matching** (added 2026-09-04) — a panel on the Library page
   (`MatchingPage.qml`) that finds tracks compatible in key (Camelot-wheel
   Harmonic/Nearby matching, or Ignore Key) and BPM with whichever Browse row you've

@@ -80,6 +80,15 @@ public:
     // instead of trusting a possibly-stale mtime comparison.
     void invalidate(const std::string &format, const std::string &path);
 
+    // Same as invalidate(), plus "onelibrary" at the same path when
+    // format == "rekordbox" -- the shape every rekordbox-primary write
+    // path that also best-effort mirrors cues into OneLibrary's
+    // exportLibrary.db needs (Clean Up, Local Cue restore, Add Cue), so
+    // that mirrored cache entry doesn't go stale even though it's never
+    // the format actually being edited. A no-op mirror invalidation for
+    // any other format.
+    void invalidateWithOneLibraryMirror(const std::string &format, const std::string &path);
+
 private:
     struct Entry
     {

@@ -159,4 +159,12 @@ void LibraryCatalogCache::invalidate(const std::string &format, const std::strin
     m_entries.erase(key);
 }
 
+void LibraryCatalogCache::invalidateWithOneLibraryMirror(const std::string &format, const std::string &path)
+{
+    invalidate(format, path);
+    if (format == "rekordbox") {
+        invalidate("onelibrary", path);
+    }
+}
+
 }  // namespace seabass::gui
