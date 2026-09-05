@@ -260,6 +260,14 @@ ApplicationWindow {
                 enginePath: enginePath,
             })
             onAboutRequested: stackView.push(aboutPageComponent)
+            onFormatUsbRequested: stackView.push(formatUsbPageComponent)
+        }
+    }
+
+    Component {
+        id: formatUsbPageComponent
+        FormatUsbPage {
+            controller: FormatUsbController {}
         }
     }
 

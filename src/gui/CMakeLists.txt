@@ -89,6 +89,7 @@ qt_add_qml_module(seabass
         qml/PlaylistListView.qml
         qml/MatchingPage.qml
         qml/StarRating.qml
+        qml/FormatUsbPage.qml
     RESOURCES
         qml/icons/seabass_soundbass.svg
     SOURCES
@@ -108,6 +109,8 @@ qt_add_qml_module(seabass
         stick_statistics_controller.cpp
         engine_library_creator_controller.hpp
         engine_library_creator_controller.cpp
+        format_usb_controller.hpp
+        format_usb_controller.cpp
         sync_controller.hpp
         sync_controller.cpp
         backups_controller.hpp

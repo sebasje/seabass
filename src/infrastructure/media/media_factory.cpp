@@ -4,9 +4,11 @@
 #include "infrastructure/media/windows_removable_media_locator.hpp"
 #include "infrastructure/media/windows_removable_media_monitor.hpp"
 #include "infrastructure/media/windows_removable_media_mounter.hpp"
+#include "infrastructure/media/windows_usb_formatter.hpp"
 #else
 #include "infrastructure/media/linux_removable_media_locator.hpp"
 #include "infrastructure/media/linux_udev_media_monitor.hpp"
+#include "infrastructure/media/linux_usb_formatter.hpp"
 #include "infrastructure/media/udisksctl_media_mounter.hpp"
 #endif
 
@@ -37,6 +39,15 @@ std::unique_ptr<application::RemovableMediaMounter> createRemovableMediaMounter(
     return std::make_unique<WindowsRemovableMediaMounter>();
 #else
     return std::make_unique<UdisksctlMediaMounter>();
+#endif
+}
+
+std::unique_ptr<application::UsbFormatter> createUsbFormatter()
+{
+#if defined(_WIN32)
+    return std::make_unique<WindowsUsbFormatter>();
+#else
+    return std::make_unique<LinuxUsbFormatter>();
 #endif
 }
 

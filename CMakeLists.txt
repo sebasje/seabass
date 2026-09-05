@@ -113,6 +113,7 @@ add_library(seabass_core STATIC
     src/domain/track_matching.cpp
     src/domain/track_queries.cpp
     src/domain/track_scope.cpp
+    src/domain/usb_filesystem.cpp
     src/application/ports/progress_reporter.cpp
     src/application/use_cases/anonymize_library.cpp
     src/infrastructure/benchmark/stick_benchmark_history.cpp
@@ -179,12 +180,16 @@ if(WIN32)
         src/infrastructure/media/windows_removable_media_locator.cpp
         src/infrastructure/media/windows_removable_media_monitor.cpp
         src/infrastructure/media/windows_removable_media_mounter.cpp
+        src/infrastructure/media/windows_usb_formatter.cpp
+        src/infrastructure/process/run_command_windows.cpp
     )
 else()
     target_sources(seabass_core PRIVATE
         src/infrastructure/media/linux_removable_media_locator.cpp
         src/infrastructure/media/linux_udev_media_monitor.cpp
         src/infrastructure/media/udisksctl_media_mounter.cpp
+        src/infrastructure/media/linux_usb_formatter.cpp
+        src/infrastructure/process/run_command_posix.cpp
     )
     target_link_libraries(seabass_core PUBLIC udev)
 endif()
@@ -321,6 +326,7 @@ if(Qt6_FOUND)
                 src/gui/qml/common/BackBreadcrumb.qml
                 src/gui/qml/common/PageTitle.qml
                 src/gui/qml/common/Subtitle.qml
+                src/gui/qml/common/StatusBadge.qml
                 src/gui/qml/PlaylistPickerCombo.qml
                 src/gui/qml/CamelotWheelPosition.qml
                 src/gui/qml/CamelotWheelPopup.qml
@@ -328,6 +334,7 @@ if(Qt6_FOUND)
                 src/gui/qml/WaveformView.qml
                 src/gui/qml/CueFallbackNotice.qml
                 src/gui/qml/TrackDetailPage.qml
+                src/gui/qml/FormatUsbPage.qml
             SOURCES
                 # Theme.qml's font-size properties (fontSmall, iconScale,
                 # ...) bind to this QML_SINGLETON C++ type.
@@ -439,6 +446,14 @@ add_executable(sync_planning_test
 )
 target_include_directories(sync_planning_test PRIVATE src)
 add_test(NAME sync_planning_test COMMAND sync_planning_test)
+
+add_executable(format_usb_stick_test
+    src/domain/usb_filesystem.cpp
+    src/application/ports/progress_reporter.cpp
+    tests/format_usb_stick_test.cpp
+)
+target_include_directories(format_usb_stick_test PRIVATE src)
+add_test(NAME format_usb_stick_test COMMAND format_usb_stick_test)
 
 add_executable(cross_source_sync_conflict_test
     src/domain/cross_source_sync_conflict.cpp
