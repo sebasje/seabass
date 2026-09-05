@@ -1,5 +1,7 @@
 #include "infrastructure/rekordbox/pdb_row_writer.hpp"
 
+#include <zlib.h>
+
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -192,6 +194,13 @@ std::string readWholeFile(const std::string &path)
     return oss.str();
 }
 
+std::uint32_t checksumOf(const std::string &buffer)
+{
+    unsigned long crc = crc32(0L, Z_NULL, 0);
+    crc = crc32(crc, reinterpret_cast<const Bytef *>(buffer.data()), static_cast<uInt>(buffer.size()));
+    return static_cast<std::uint32_t>(crc);
+}
+
 // Rejects a file too small/implausible to even hold a real root header,
 // or whose len_page/num_tables are outside any sane real-world range --
 // catches "this isn't really an export.pdb" (or a truncated/corrupt
@@ -367,6 +376,10 @@ PdbRowWriter::PdbRowWriter(std::string pdbPath) : m_pdbPath(std::move(pdbPath)),
     validateLooksLikeRealPdb(m_buffer);
     m_originalFileSize = fs::file_size(m_pdbPath);
     m_originalMtime = fs::last_write_time(m_pdbPath);
+    // Checksummed here, before any edit method mutates m_buffer in
+    // place -- this is the pristine baseline commit() re-derives a fresh
+    // on-disk read against, never m_buffer's later (edited) state.
+    m_originalChecksum = checksumOf(m_buffer);
 }
 
 bool PdbRowWriter::trackExists(uint32_t trackId) const
@@ -558,13 +571,28 @@ bool PdbRowWriter::commit()
         return false;
     }
 
-    // Staleness check: if the real file changed since we read it (size
-    // or mtime), something else touched it in the meantime -- our
-    // in-memory copy is no longer a safe base to overwrite it with.
+    // Staleness check: if the real file changed since we read it,
+    // something else touched it in the meantime -- our in-memory copy is
+    // no longer a safe base to overwrite it with. size/mtime are a cheap
+    // pre-filter but proven insufficient alone on Windows: an in-process
+    // external write that doesn't change the file's length can leave
+    // both blind (confirmed empirically -- fs::last_write_time() genuinely
+    // does not observe an in-process rewrite of identical length on
+    // Windows, while a fresh read of the file's actual bytes does). A
+    // whole-file checksum against a real re-read is the authoritative
+    // signal; size/mtime stay as an OR alongside it since they're free
+    // and catch the common case without reading the whole file again.
     std::error_code statEc;
     auto currentSize = fs::file_size(m_pdbPath, statEc);
     auto currentMtime = fs::last_write_time(m_pdbPath, statEc);
-    if (statEc || currentSize != m_originalFileSize || currentMtime != m_originalMtime) {
+    bool statMismatch = statEc || currentSize != m_originalFileSize || currentMtime != m_originalMtime;
+    bool checksumMismatch = true;
+    try {
+        checksumMismatch = checksumOf(readWholeFile(m_pdbPath)) != m_originalChecksum;
+    } catch (const std::exception &) {
+        checksumMismatch = true;  // couldn't even re-read it -- treat as stale, not as "unchanged"
+    }
+    if (statMismatch || checksumMismatch) {
         return false;
     }
 
