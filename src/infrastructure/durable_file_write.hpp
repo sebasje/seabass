@@ -30,4 +30,12 @@ bool writeFileDurablyAtomic(const std::string &path, const std::string &data);
 // can't be read.
 bool copyFileDurablyAtomic(const std::string &sourcePath, const std::string &targetPath);
 
+// The second half of the durable-rename pattern on its own: fsync the
+// directory that contains `filePath`, so a rename/create/unlink of that
+// entry survives a crash. No-op on Windows (MoveFileEx-based renames have
+// no equivalent gap). Exposed for callers that do their own rename -- the
+// stick backup's compaction replaces a multi-GB archive by rename and
+// cannot go through writeFileDurablyAtomic()'s in-memory buffer.
+void fsyncDirectoryContaining(const std::string &filePath);
+
 }  // namespace seabass::infrastructure
