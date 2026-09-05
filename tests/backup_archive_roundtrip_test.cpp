@@ -72,6 +72,7 @@ WriterBoundaries writeFixtures(ArchiveFile &file, const std::vector<Fixture> &fi
             assert(entry.size == f.content.size());
             row.size = f.content.size();
             row.sha256 = sink.sha256();
+            row.crc32 = entry.crc32;
             assert(row.sha256 == Sha256::of(f.content));
         }
         manifestOut.rows.push_back(row);
@@ -201,8 +202,11 @@ int main()
             assert(!Zip64Reader::tryOpen(broken, &error).has_value());
             assert(!error.empty());
         }
-        // A flipped byte in an entry's *name* parses fine structurally --
-        // that is exactly the hole the manifest exists to close.
+        // A flipped byte in an entry's *name* in the central directory
+        // parses fine structurally -- ZIP has no checksum there. Two
+        // independent nets catch it: the manifest no longer lists the
+        // name, and the local header's own copy of the name disagrees the
+        // moment the entry is touched.
         {
             std::vector<std::byte> bytes = pristine.bytes();
             std::size_t nameByte = static_cast<std::size_t>(b.centralDirectoryOffset) + zip::CentralDirectoryEntrySize + 2;
@@ -212,8 +216,14 @@ int main()
             std::string manifestText = reader.readEntryToString(*reader.findEntry(ManifestEntryName));
             auto parsed = BackupManifest::parse(manifestText);
             assert(parsed.has_value());
-            assert(parsed->findRow(reader.entries()[0].name) == nullptr);  // caught
-            assert(reader.verifyCrc(0));                                    // CRC alone would not have
+            assert(parsed->findRow(reader.entries()[0].name) == nullptr);
+            bool threw = false;
+            try {
+                reader.verifyCrc(0);
+            } catch (const ArchiveFormatError &e) {
+                threw = std::string(e.what()).find("local header name differs") != std::string::npos;
+            }
+            assert(threw);
         }
         // A flipped data byte: CRC catches it.
         {
