@@ -15,12 +15,12 @@
 #include "application/ports/operation_log.hpp"
 #include "domain/track_matching.hpp"
 #include "gui/library_catalog_cache.hpp"
+#include "gui/onelibrary_cue_writer_adapter.hpp"
 #include "gui/qt_progress_reporter.hpp"
 #include "gui/write_guard.hpp"
 #include "infrastructure/backup/filesystem_backup_store.hpp"
 #include "infrastructure/backup/stick_write_lock.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cue_writer.hpp"
-#include "gui/onelibrary_cue_writer_adapter.hpp"
 #include "infrastructure/local/local_cue_store.hpp"
 #include "infrastructure/logging/file_operation_log.hpp"
 #include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
@@ -644,7 +644,14 @@ void LocalCueController::onWriteFinished()
     // re-scan) still needs this, so a *later* scan (reopening the page,
     // switching formats and back) can't read stale cached tracks from
     // before the write within an mtime-granularity window.
-    LibraryCatalogCache::instance().invalidate(m_format.toStdString(), m_path.toStdString());
+    auto &catalogCache = LibraryCatalogCache::instance();
+    catalogCache.invalidate(m_format.toStdString(), m_path.toStdString());
+    if (m_format == "rekordbox") {
+        // runApplyRestoreTask() also best-effort writes cues into
+        // OneLibrary's exportLibrary.db when one exists alongside
+        // export.pdb -- keep its cache entry honest too.
+        catalogCache.invalidate("onelibrary", m_path.toStdString());
+    }
 
     if (m_pendingWriteKind == PendingWriteKind::Apply) {
         // applyRestore() always writes every candidate currently in
