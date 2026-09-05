@@ -5,6 +5,7 @@
 #include <QQmlApplicationEngine>
 #include <QSettings>
 #include <QStandardPaths>
+#include <QStyleHints>
 #include <QThreadPool>
 
 namespace
@@ -36,15 +37,28 @@ namespace
 //
 // Must run before the QGuiApplication is constructed -- Qt Quick
 // Controls reads these at first use, effectively at process startup.
-void exportMaterialPalette()
+// Returns the useSystemTheme setting it read, so main() can reuse it
+// without opening QSettings a second time.
+bool exportMaterialPalette()
 {
-    // Same file AppSettingsController's own (default-constructed)
-    // QSettings resolves to -- duplicated here as a literal path rather
-    // than relying on organizationName/applicationName being set up by
-    // the time this runs (they aren't, this executes before
-    // QGuiApplication exists at all).
-    QSettings settings(QDir::homePath() + "/.config/seabass/seabass.conf", QSettings::IniFormat);
-    bool useSystemTheme = settings.value("useSystemTheme", false).toBool();
+    // Same store AppSettingsController's own QSettings resolves to, and
+    // constructed the same way ("seabass", "seabass") instead of as a
+    // literal path: the two-argument constructor takes the organization
+    // and application names directly, so it does NOT depend on
+    // organizationName/applicationName having been set up by the time
+    // this runs (they haven't -- this executes before QGuiApplication
+    // exists at all), which was the original reason for hardcoding a
+    // path here.
+    //
+    // The hardcoded "~/.config/seabass/seabass.conf" it replaces was
+    // correct on Linux but wrong on Windows, where QSettings' native
+    // format is the registry (HKCU\Software\seabass\seabass), not an INI
+    // file under $HOME. That file therefore never existed on Windows, so
+    // this read always fell through to the default, pinning
+    // useSystemTheme to false forever and making the Settings toggle a
+    // no-op for everything driven from here.
+    QSettings settings("seabass", "seabass");
+    const bool useSystemTheme = settings.value("useSystemTheme", false).toBool();
 
     // "Current"/"Abyss" -- this app's own brand colors (see Theme.qml),
     // applied regardless of theme, same as the QML-level Material.accent/
@@ -82,15 +96,42 @@ void exportMaterialPalette()
         qputenv("QT_QUICK_CONTROLS_STYLE", "FluentWinUI3");
     }
 #endif
+
+    return useSystemTheme;
 }
 
 }  // namespace
 
 int main(int argc, char **argv)
 {
-    exportMaterialPalette();
+    const bool useSystemTheme = exportMaterialPalette();
     QGuiApplication app(argc, argv);
     app.setWindowIcon(QIcon(QStringLiteral(":/qt/qml/SeabassGui/qml/icons/seabass_soundbass.svg")));
+
+#ifdef Q_OS_WIN
+    // FluentWinUI3 (opted into above) draws native Windows 11 controls and
+    // deliberately ignores the Material attached properties, so Main.qml's
+    // `Material.theme: ... : Material.Dark` -- the binding that gives the
+    // Linux build its always-dark "Kelp" look -- has no effect on any of
+    // them. Left alone, FluentWinUI3 simply follows the Windows system
+    // colour scheme, so on a light-mode machine the entire app renders
+    // light no matter what this app asked for.
+    //
+    // Qt 6.8+ exposes the colour scheme as a settable style hint, which is
+    // what makes a native-looking style honour the app's own preference
+    // rather than the OS setting. Only forced when useSystemTheme is off:
+    // leaving it unset (Qt::ColorScheme::Unknown) is exactly what "follow
+    // the system" means, so the true branch needs no code.
+    //
+    // Read once at startup, deliberately matching the palette env vars
+    // above -- toggling this in Settings needs an app restart to take
+    // effect here. Doing it live would mean reaching a C++ hook out of
+    // AppSettingsController, which is a QML_ELEMENT instantiated by
+    // Main.qml rather than something main() holds a handle to.
+    if (!useSystemTheme) {
+        app.styleHints()->setColorScheme(Qt::ColorScheme::Dark);
+    }
+#endif
 
     // Two seabass instances writing to the same stick at once is
     // exactly the corruption risk StickWriteLock exists to prevent -- that

@@ -196,12 +196,24 @@ void extractZip(const fs::path &zipPath, const fs::path &destDir)
         std::string content(uncompressedSize, '\0');
         if (uncompressedSize > 0) {
             z_stream stream{};
-            assert(inflateInit2(&stream, -MAX_WBITS) == Z_OK);
+            // Deliberately NOT inflateInit2(...)/inflate(...) inside the
+            // assert() itself: assert() expands to nothing under NDEBUG
+            // (which -DNDEBUG in any non-Debug CMAKE_BUILD_TYPE defines),
+            // so the zlib calls would never run at all in a Release
+            // build. The zero-filled `content` buffer then got written
+            // out verbatim -- same length as the real file, entirely
+            // zeros -- and the resulting "Database2/m.db" failed to open
+            // later with sqlite's notadb ("file is not a database").
+            const int initRc = inflateInit2(&stream, -MAX_WBITS);
+            assert(initRc == Z_OK);
+            static_cast<void>(initRc);
             stream.next_in = reinterpret_cast<Bytef *>(compressed.data());
             stream.avail_in = static_cast<uInt>(compressed.size());
             stream.next_out = reinterpret_cast<Bytef *>(content.data());
             stream.avail_out = static_cast<uInt>(content.size());
-            assert(inflate(&stream, Z_FINISH) == Z_STREAM_END);
+            const int inflateRc = inflate(&stream, Z_FINISH);
+            assert(inflateRc == Z_STREAM_END);
+            static_cast<void>(inflateRc);
             inflateEnd(&stream);
         }
         writeFile(destDir / name, content);

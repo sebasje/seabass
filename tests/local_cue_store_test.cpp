@@ -141,12 +141,25 @@ int main()
         // Simulate a snapshot written by some future seabass version this
         // build doesn't know about.
         sqlite3 *rawDb = nullptr;
-        assert(sqlite3_open(dbPath.c_str(), &rawDb) == SQLITE_OK);
+        // Two separate reasons this can't be `assert(sqlite3_open(...))`:
+        // assert() expands to nothing under NDEBUG, so in a Release build
+        // the database was never opened at all (rawDb stayed null and
+        // every sqlite3 call below silently did nothing, making this case
+        // pass without testing anything); and fs::path::c_str() is
+        // const wchar_t* on Windows, which sqlite3_open's const char*
+        // parameter refuses -- an error the NDEBUG build never even
+        // compiled, so it only surfaced in a Debug build.
+        const std::string dbPathUtf8 = dbPath.string();
+        const int openRc = sqlite3_open(dbPathUtf8.c_str(), &rawDb);
+        assert(openRc == SQLITE_OK);
+        static_cast<void>(openRc);
         sqlite3_stmt *stmt = nullptr;
         sqlite3_prepare_v2(rawDb, "UPDATE backup_sessions SET schema_version = 999 WHERE id = ?", -1, &stmt,
                             nullptr);
         sqlite3_bind_int64(stmt, 1, id);
-        assert(sqlite3_step(stmt) == SQLITE_DONE);
+        const int stepRc = sqlite3_step(stmt);
+        assert(stepRc == SQLITE_DONE);
+        static_cast<void>(stepRc);
         sqlite3_finalize(stmt);
         sqlite3_close(rawDb);
 
