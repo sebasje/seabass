@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <filesystem>
 
 #include "infrastructure/stick_backup/archive_file.hpp"
 
@@ -37,6 +38,14 @@ struct JournalState
 // CRC32 of the preceding 20.
 namespace journal
 {
+
+// `<archive>.journal`, next to the archive on the same volume.
+inline std::filesystem::path journalPathFor(const std::filesystem::path &archivePath)
+{
+    std::filesystem::path path = archivePath;
+    path += ".journal";
+    return path;
+}
 
 // Appends the record and issues a barrier. The file must be empty.
 void write(ArchiveFile &journalFile, const JournalRecord &record);

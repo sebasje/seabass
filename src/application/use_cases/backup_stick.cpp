@@ -316,9 +316,7 @@ BackupStickOutcome PendingBackup::discard()
 
 fs::path BackupStick::journalPathFor(const fs::path &archivePath)
 {
-    fs::path journal = archivePath;
-    journal += ".journal";
-    return journal;
+    return journal::journalPathFor(archivePath);
 }
 
 BackupPreview BackupStick::preview(const BackupStickOptions &options, ProgressReporter &reporter)
