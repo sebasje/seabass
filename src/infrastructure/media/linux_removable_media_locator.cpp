@@ -147,6 +147,33 @@ std::vector<DetectedStick> LinuxRemovableMediaLocator::detect()
         DetectedStick stick;
         stick.devicePath = devnode;
 
+        // wholeDiskPath is the parent disk for a partition (e.g. "/dev/sdb"
+        // for "/dev/sdb1"); for a disk-devtype entry (blank or superfloppy
+        // media with no partition table) it's the same device as
+        // devicePath. Needed by the Format USB Stick feature, which always
+        // operates on the whole disk, never a single partition.
+        if (devtype == "partition") {
+            if (udev_device *parent = udev_device_get_parent_with_subsystem_devtype(dev.get(), "block", "disk")) {
+                if (const char *parentDevnode = udev_device_get_devnode(parent)) {
+                    stick.wholeDiskPath = parentDevnode;
+                }
+            }
+        } else {
+            stick.wholeDiskPath = devnode;
+            // A disk-devtype entry only reaches here when it has no
+            // partitions (see disksWithPartitions above) -- it's blank
+            // exactly when it also has no filesystem or partition table
+            // of its own (the rare superfloppy case: a filesystem written
+            // directly to the raw disk, no partition table at all).
+            stick.hasNoFilesystem =
+                !udevProperty(dev.get(), "ID_FS_TYPE") && !udevProperty(dev.get(), "ID_PART_TABLE_TYPE");
+        }
+
+        // sizeAttr is in 512-byte sectors regardless of the device's real
+        // block size -- a fixed unit the kernel always reports this
+        // attribute in, not the drive's actual sector size.
+        stick.capacityBytes = std::stoull(sizeAttr) * 512ULL;
+
         auto fsLabel = udevProperty(dev.get(), "ID_FS_LABEL");
         auto model = udevProperty(dev.get(), "ID_MODEL");
         stick.label = fsLabel ? *fsLabel : (model ? *model : fs::path(devnode).filename().string());

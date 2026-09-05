@@ -32,6 +32,7 @@ Page {
     signal appSettingsRequested()
     signal backupsHubRequested(string stickLabel, string rekordboxPath, string enginePath)
     signal aboutRequested()
+    signal formatUsbRequested()
 
     // A subtle brand watermark in the corner of the very first page shown --
     // same "Seabass / DJ USB Stick Management" text as AboutPage.qml, just
@@ -70,6 +71,13 @@ Page {
                 level: "page"
             }
             Item { Layout.fillWidth: true }
+            ToolButton {
+                text: "💽"
+                font.pointSize: Theme.fontLarge
+                ToolTip.visible: hovered
+                ToolTip.text: "Format USB Stick"
+                onClicked: root.formatUsbRequested()
+            }
             ToolButton {
                 text: "ⓘ"
                 font.pointSize: Theme.fontLarge

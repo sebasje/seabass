@@ -12,13 +12,24 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <winioctl.h>
+
+#include <exception>
+#include <map>
+#include <optional>
+#include <set>
+#include <sstream>
+#include <string>
+#include <utility>
 
 #include "infrastructure/media/stick_root_scan.hpp"
+#include "infrastructure/process/run_command.hpp"
 
 namespace seabass::infrastructure::media
 {
 
 using application::DetectedStick;
+using process::runCommand;
 
 namespace
 {
@@ -28,11 +39,96 @@ std::string driveLetterToPath(char letter)
     return std::string(1, letter) + ":\\";
 }
 
+// Returns the physical disk number (0, 1, 2, ...) a mounted drive letter
+// lives on, via IOCTL_STORAGE_GET_DEVICE_NUMBER -- the standard, minimal
+// WinAPI way to answer "which disk is this volume on" without needing to
+// shell out to PowerShell a second time (Get-Partition -DriveLetter would
+// answer the same question, but this needs no elevation, no process
+// launch, and no text parsing).
+std::optional<int> physicalDiskNumberForDriveLetter(char letter)
+{
+    std::string path = "\\\\.\\" + std::string(1, letter) + ":";
+    HANDLE handle = ::CreateFileA(path.c_str(), 0, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0,
+                                   nullptr);
+    if (handle == INVALID_HANDLE_VALUE) {
+        return std::nullopt;
+    }
+    STORAGE_DEVICE_NUMBER deviceNumber = {};
+    DWORD bytesReturned = 0;
+    BOOL ok = ::DeviceIoControl(handle, IOCTL_STORAGE_GET_DEVICE_NUMBER, nullptr, 0, &deviceNumber,
+                                 sizeof(deviceNumber), &bytesReturned, nullptr);
+    ::CloseHandle(handle);
+    if (!ok) {
+        return std::nullopt;
+    }
+    return static_cast<int>(deviceNumber.DeviceNumber);
+}
+
+struct UsbDiskInfo
+{
+    std::uint64_t sizeBytes = 0;
+    std::string friendlyName;
+    bool blank = false;  // PartitionStyle == "RAW" -- no partition table at all
+};
+
+// Every USB-attached whole disk, keyed by disk number -- includes disks
+// with no partition table (invisible to the drive-letter-based loop
+// below, which is why this exists: see the Format USB Stick plan's own
+// "current stick detection can't see blank/unpartitioned drives" gap).
+// Uses PowerShell's Storage module (Get-Disk), confirmed via real testing
+// on Windows hardware to enumerate fully without elevation -- the same
+// module WindowsUsbFormatter uses (elevated) for the actual format, so
+// enumeration and formatting share one consistent API.
+std::map<int, UsbDiskInfo> queryUsbDisks()
+{
+    std::map<int, UsbDiskInfo> disks;
+    auto result = runCommand({
+        "powershell.exe",
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "Get-Disk | Where-Object { $_.BusType -eq 'USB' } | ForEach-Object { "
+        "\"{0}|{1}|{2}|{3}\" -f $_.Number, $_.Size, $_.FriendlyName, $_.PartitionStyle }",
+    });
+    if (result.exitCode != 0) {
+        return disks;
+    }
+
+    std::istringstream lines(result.output);
+    std::string line;
+    while (std::getline(lines, line)) {
+        std::istringstream fields(line);
+        std::string numberStr, sizeStr, friendlyName, partitionStyle;
+        if (!std::getline(fields, numberStr, '|') || !std::getline(fields, sizeStr, '|') ||
+            !std::getline(fields, friendlyName, '|') || !std::getline(fields, partitionStyle)) {
+            continue;
+        }
+        try {
+            int number = std::stoi(numberStr);
+            UsbDiskInfo info;
+            info.sizeBytes = std::stoull(sizeStr);
+            info.friendlyName = friendlyName;
+            info.blank = partitionStyle == "RAW";
+            disks[number] = std::move(info);
+        } catch (const std::exception &) {
+            continue;  // a malformed line is skipped, not fatal to the rest of detection
+        }
+    }
+    return disks;
+}
+
+std::string physicalDrivePath(int number)
+{
+    return "\\\\.\\PhysicalDrive" + std::to_string(number);
+}
+
 }  // namespace
 
 std::vector<DetectedStick> WindowsRemovableMediaLocator::detect()
 {
     std::vector<DetectedStick> sticks;
+    auto usbDisks = queryUsbDisks();
+    std::set<int> claimedDiskNumbers;
 
     // Bit N set means drive letter 'A' + N exists -- the standard way to
     // enumerate assigned drive letters without touching SetupAPI's much
@@ -78,7 +174,36 @@ std::vector<DetectedStick> WindowsRemovableMediaLocator::detect()
             stick.label = rootPath;
         }
 
+        if (auto diskNumber = physicalDiskNumberForDriveLetter(static_cast<char>('A' + i))) {
+            if (auto it = usbDisks.find(*diskNumber); it != usbDisks.end()) {
+                stick.wholeDiskPath = physicalDrivePath(*diskNumber);
+                stick.capacityBytes = it->second.sizeBytes;
+                stick.hasNoFilesystem = false;  // it has a mounted volume, so it's clearly not blank
+                claimedDiskNumbers.insert(*diskNumber);
+            }
+        }
+
         scanMountedRoot(rootPath, stick);
+        sticks.push_back(std::move(stick));
+    }
+
+    // Any USB disk not already represented by a mounted drive letter above
+    // -- most commonly a genuinely blank drive (PartitionStyle == "RAW"
+    // has no filesystem to assign a letter to at all), but also covers a
+    // drive whose one partition simply isn't mounted for some other
+    // reason. This is what makes a blank stick visible to the Format USB
+    // Stick feature at all -- GetDriveTypeA() alone never can, since it
+    // only ever answers for a path that already has a drive letter.
+    for (const auto &[number, info] : usbDisks) {
+        if (claimedDiskNumbers.count(number)) {
+            continue;
+        }
+        DetectedStick stick;
+        stick.wholeDiskPath = physicalDrivePath(number);
+        stick.capacityBytes = info.sizeBytes;
+        stick.hasNoFilesystem = info.blank;
+        stick.label = info.friendlyName.empty() ? stick.wholeDiskPath : info.friendlyName;
+        stick.mounted = false;
         sticks.push_back(std::move(stick));
     }
 
