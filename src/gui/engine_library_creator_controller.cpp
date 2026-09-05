@@ -38,6 +38,12 @@ EngineLibraryCreationTaskResult runCreateTask(QString rekordboxPath, int schemaG
 
         std::string engineLibraryPath =
             (fs::path(rekordboxPath.toStdString()).parent_path() / "Engine Library").string();
+        // Invalidated before create() runs, not just on success: a
+        // partially-failed create() may still have written real files at
+        // this exact path, and a stale "engine" entry from a prior
+        // library that once lived here (and was since deleted) must not
+        // keep being served either way.
+        LibraryCatalogCache::instance().invalidate("engine", engineLibraryPath);
         // Same reporter as the scan above -- a second start()/tick() run
         // for this second phase, same idiom SyncController's own analyze
         // task uses, rather than leaving the bar looking stalled once the
@@ -50,13 +56,6 @@ EngineLibraryCreationTaskResult runCreateTask(QString rekordboxPath, int schemaG
         result.cuesCopied = creation.cuesCopied;
         if (!creation.errorMessage.empty()) {
             result.errorMessage = QString::fromStdString(creation.errorMessage);
-        } else {
-            // A brand-new database at this exact path -- if a stale
-            // "engine" entry from a prior library that once lived here
-            // (and was since deleted) is still cached, make sure the next
-            // read reflects what was actually just created rather than
-            // trusting a coincidentally-matching mtime.
-            LibraryCatalogCache::instance().invalidate("engine", engineLibraryPath);
         }
     } catch (const std::exception &e) {
         result.errorMessage = QString::fromStdString(e.what());

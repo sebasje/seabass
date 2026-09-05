@@ -1219,11 +1219,7 @@ void CleanupController::onWriteFinished()
     // rekordbox apply also mirrors best-effort into OneLibrary (see
     // runApplyTask's own comment), so that cache entry needs
     // invalidating too even though it's never part of *this* model.
-    auto &catalogCache = LibraryCatalogCache::instance();
-    catalogCache.invalidate(m_format.toStdString(), m_path.toStdString());
-    if (m_format == "rekordbox") {
-        catalogCache.invalidate("onelibrary", m_path.toStdString());
-    }
+    LibraryCatalogCache::instance().invalidateWithOneLibraryMirror(m_format.toStdString(), m_path.toStdString());
 
     if (m_pendingWriteKind == PendingWriteKind::Apply) {
         // apply() only ever writes groups already in m_model, and
