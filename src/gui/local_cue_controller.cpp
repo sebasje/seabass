@@ -644,14 +644,10 @@ void LocalCueController::onWriteFinished()
     // re-scan) still needs this, so a *later* scan (reopening the page,
     // switching formats and back) can't read stale cached tracks from
     // before the write within an mtime-granularity window.
-    auto &catalogCache = LibraryCatalogCache::instance();
-    catalogCache.invalidate(m_format.toStdString(), m_path.toStdString());
-    if (m_format == "rekordbox") {
-        // runApplyRestoreTask() also best-effort writes cues into
-        // OneLibrary's exportLibrary.db when one exists alongside
-        // export.pdb -- keep its cache entry honest too.
-        catalogCache.invalidate("onelibrary", m_path.toStdString());
-    }
+    // runApplyRestoreTask() also best-effort writes cues into
+    // OneLibrary's exportLibrary.db when one exists alongside
+    // export.pdb -- keep its cache entry honest too.
+    LibraryCatalogCache::instance().invalidateWithOneLibraryMirror(m_format.toStdString(), m_path.toStdString());
 
     if (m_pendingWriteKind == PendingWriteKind::Apply) {
         // applyRestore() always writes every candidate currently in
