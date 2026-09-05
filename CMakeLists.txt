@@ -152,6 +152,8 @@ add_library(seabass_core STATIC
     src/infrastructure/system/rekordbox_process_detector.cpp
     src/infrastructure/system/stick_hardware_info.cpp
     src/infrastructure/zip_archive_writer.cpp
+    src/infrastructure/hashing/sha256.cpp
+    src/infrastructure/stick_backup/posix_archive_file.cpp
 )
 target_include_directories(seabass_core PUBLIC src)
 target_link_libraries(seabass_core PUBLIC rekordbox_format DjInterop ZLIB::ZLIB)
@@ -778,6 +780,22 @@ add_executable(zip_archive_writer_test
 target_include_directories(zip_archive_writer_test PRIVATE src)
 target_link_libraries(zip_archive_writer_test PRIVATE ZLIB::ZLIB)
 add_test(NAME zip_archive_writer_test COMMAND zip_archive_writer_test)
+
+# --- stick backup (docs/stick-backup-plan.md) ---
+
+add_executable(sha256_test
+    src/infrastructure/hashing/sha256.cpp
+    tests/sha256_test.cpp
+)
+target_include_directories(sha256_test PRIVATE src)
+add_test(NAME sha256_test COMMAND sha256_test)
+
+add_executable(archive_file_test
+    src/infrastructure/stick_backup/posix_archive_file.cpp
+    tests/archive_file_test.cpp
+)
+target_include_directories(archive_file_test PRIVATE src)
+add_test(NAME archive_file_test COMMAND archive_file_test)
 
 add_executable(pending_deletion_resolver_test
     src/infrastructure/cleanup/pending_deletion_resolver.cpp
