@@ -4,56 +4,53 @@
 
 `domain::TrackScope` (`src/domain/track_scope.hpp`) and
 `gui::LibraryCatalogCache` (`src/gui/library_catalog_cache.hpp`) were built
-as generic, reusable pieces — not one-offs for Sync Cue Points — but this
-first pass only wired them into **two** controllers
+as generic, reusable pieces — not one-offs for Sync Cue Points — but the
+first pass only wired the cache into **two** controllers
 (`SyncController`, `StickStatisticsController`), deliberately. A repo-wide
 grep at the time this was written found `ScanLibrary(reader).execute()` (a
 full catalog read) called independently from **8 controllers, 26 call
-sites total**:
-
-| Controller | `ScanLibrary` call sites |
-|---|---|
-| `cleanup_controller.cpp` | 7 |
-| `add_cue_controller.cpp` | 3 |
-| `stick_statistics_controller.cpp` | 3 (done — see above) |
-| `library_consistency_controller.cpp` | 3 |
-| `local_cue_controller.cpp` | 3 |
-| `duplicates_controller.cpp` | 3 |
-| `sync_controller.cpp` | 3 (done — see above) |
-| `engine_library_creator_controller.cpp` | 1 |
+sites total** (the table below; `ScanController` itself was missed by that
+grep and turned out to be a ninth, found later — see item 1's status).
 
 Migrating all of them in one pass wasn't attempted: this is a careful,
 heavily-commented, "verify against real hardware" codebase (see
 `README.md`'s own beta-software warning), not one to mechanically touch 8
 controllers at once without individually verifying each against real
-stick data. What follows is the concrete, mechanical work left, written up
-so the pattern doesn't get lost.
+stick data.
 
-## 1. Migrate the remaining 6 controllers to `LibraryCatalogCache`
+## 1. Migrate every controller to `LibraryCatalogCache` — done
 
-For each: replace `infrastructure::rekordbox::KaitaiRekordboxReader
-reader(path); application::ScanLibrary(reader).execute()` (and the
-Engine/OneLibrary equivalents) with
-`gui::LibraryCatalogCache::instance().tracksFor("rekordbox", path)` (etc.),
-exactly the substitution already done in `SyncController::runAnalyzeTask`
-and `StickStatisticsController::runScanTask` — see those two for the
-pattern, including how to thread a `ProgressReporter` through on a caller
-that wants one (`SyncController` does; `StickStatisticsController`
-doesn't).
+| Controller | `ScanLibrary` call sites | Status |
+|---|---|---|
+| `cleanup_controller.cpp` | 7 | done |
+| `add_cue_controller.cpp` | 3 | done |
+| `stick_statistics_controller.cpp` | 3 | done (first pass) |
+| `library_consistency_controller.cpp` | 3 | done |
+| `local_cue_controller.cpp` | 3 | done |
+| `duplicates_controller.cpp` | 3 | done |
+| `sync_controller.cpp` | 3 | done (first pass) |
+| `engine_library_creator_controller.cpp` | 1 | done |
+| `scan_controller.cpp` (missed by the original grep — it's `ScanPage`'s own browse/format-toggle scan, not caught because the earlier search was scoped to a fixed controller list rather than a fresh repo-wide grep) | 1 (+1 sibling-rekordbox scan for Engine artwork borrowing) | done |
 
-`cleanup_controller.cpp` is the biggest win here: 7 call sites, several of
-which likely re-scan the *same* catalog more than once within a single
-Clean Up run (e.g. once for orphan detection, once for duplicate
-detection) — those collapse to one real read each, not just one across
-controllers.
+Every controller now goes through `gui::LibraryCatalogCache::instance()
+.tracksFor(format, path, progress)` instead of constructing its own reader
++ `application::ScanLibrary`. Every write path that mutates a catalog
+(Clean Up's apply/undo/pending-deletion, Add Cue, Library Health's
+repair/junk-cue removal, Local Cue's restore/undo, Duplicates' apply/undo,
+Sync's apply/undo) calls `LibraryCatalogCache::instance().invalidate(format,
+path)` right after the write succeeds, including the handful of
+rekordbox-primary writers that also best-effort mirror into OneLibrary's
+`exportLibrary.db` when one exists alongside `export.pdb` (Clean Up, Add
+Cue, Local Cue) — those invalidate `"onelibrary"` too, not just the
+primary format. `application::ScanLibrary`/the per-format reader includes
+were removed from every file above once nothing local called them anymore
+(`git grep 'application::ScanLibrary'` now only matches
+`library_catalog_cache.cpp` itself).
 
-**Write paths must call `invalidate()`.** Any controller that writes to a
-catalog (Clean Up's cue/file writes, Local Cue's restore, etc.) needs the
-same `LibraryCatalogCache::instance().invalidate(format, path)` calls
-`SyncController::onWriteFinished()` already makes, right after a
-successful write and before anything re-scans. Skipping this means a
-write's own effects wouldn't be visible until the next mtime-driven
-staleness check happens to catch it.
+Switching the Library page's format toggle (Rekordbox/Engine/OneLibrary)
+back and forth no longer re-reads a catalog from disk that another page
+already scanned this session — the original complaint this whole effort
+started from.
 
 ## 2. Wire `TrackScope` into Clean Up (and friends) for playlist/selection scoping
 

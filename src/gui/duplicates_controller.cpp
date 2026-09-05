@@ -12,7 +12,7 @@
 #include "application/ports/cue_writer.hpp"
 #include "application/ports/operation_log.hpp"
 #include "application/use_cases/consolidate_duplicate_cues.hpp"
-#include "application/use_cases/scan_library.hpp"
+#include "gui/library_catalog_cache.hpp"
 #include "gui/local_file_url.hpp"
 #include "gui/onelibrary_cue_writer_adapter.hpp"
 #include "gui/qt_progress_reporter.hpp"
@@ -20,11 +20,8 @@
 #include "infrastructure/backup/filesystem_backup_store.hpp"
 #include "infrastructure/backup/stick_write_lock.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cue_writer.hpp"
-#include "infrastructure/engine/libdjinterop_engine_reader.hpp"
 #include "infrastructure/logging/file_operation_log.hpp"
 #include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
-#include "infrastructure/onelibrary/onelibrary_reader.hpp"
-#include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 #include "infrastructure/rekordbox/rekordbox_cue_writer.hpp"
 
@@ -359,20 +356,8 @@ DuplicatesTaskResult runRescanTask(QString format, QString path, std::shared_ptr
 {
     DuplicatesTaskResult result;
     try {
-        std::vector<domain::Track> tracks;
-        if (format == "rekordbox") {
-            infrastructure::rekordbox::KaitaiRekordboxReader reader(path.toStdString());
-            reader.setProgressReporter(*reporter);
-            tracks = application::ScanLibrary(reader).execute();
-        } else if (format == "onelibrary") {
-            infrastructure::onelibrary::OneLibraryReader reader(path.toStdString());
-            reader.setProgressReporter(*reporter);
-            tracks = application::ScanLibrary(reader).execute();
-        } else {
-            infrastructure::engine::LibdjinteropEngineReader reader(path.toStdString());
-            reader.setProgressReporter(*reporter);
-            tracks = application::ScanLibrary(reader).execute();
-        }
+        std::vector<domain::Track> tracks =
+            LibraryCatalogCache::instance().tracksFor(format.toStdString(), path.toStdString(), *reporter);
 
         // Streaming tracks (Engine/TIDAL) have no real local file.
         // Never propose "syncing" cues onto/from one. See
@@ -573,6 +558,12 @@ void DuplicatesController::onWriteFinished()
     }
     setBusy(false);
     setWriting(false);
+
+    // Covers applyOne()/copyFromTrack()/applyAllUnambiguous()/
+    // undoLastOperation() (this slot handles all of them, see its own
+    // doc comment) -- rescan() right below would otherwise read the
+    // cache's still-fresh-by-mtime pre-write entry.
+    LibraryCatalogCache::instance().invalidate(m_format.toStdString(), m_path.toStdString());
 
     rescan();
 }

@@ -10,16 +10,13 @@
 #include <unordered_map>
 #include <utility>
 
-#include "application/use_cases/scan_library.hpp"
 #include "domain/camelot_key.hpp"
 #include "domain/track_matching.hpp"
 #include "domain/track_scope.hpp"
+#include "gui/library_catalog_cache.hpp"
 #include "gui/local_file_url.hpp"
 #include "gui/qt_progress_reporter.hpp"
-#include "infrastructure/engine/libdjinterop_engine_reader.hpp"
 #include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
-#include "infrastructure/onelibrary/onelibrary_reader.hpp"
-#include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
 
 namespace seabass::gui
 {
@@ -144,28 +141,23 @@ ScanTaskResult runScanTask(QString format, QString path, QString siblingRekordbo
 {
     ScanTaskResult result;
     try {
+        auto &catalogCache = LibraryCatalogCache::instance();
         std::vector<domain::Track> tracks;
         if (format == "rekordbox") {
-            infrastructure::rekordbox::KaitaiRekordboxReader reader(path.toStdString());
-            reader.setProgressReporter(*reporter);
-            application::ScanLibrary useCase(reader);
-            tracks = useCase.execute();
+            tracks = catalogCache.tracksFor("rekordbox", path.toStdString(), *reporter);
         } else if (format == "engine") {
-            infrastructure::engine::LibdjinteropEngineReader reader(path.toStdString());
-            reader.setProgressReporter(*reporter);
-            application::ScanLibrary useCase(reader);
-            tracks = useCase.execute();
+            tracks = catalogCache.tracksFor("engine", path.toStdString(), *reporter);
 
             if (!siblingRekordboxPath.isEmpty()) {
                 try {
                     // This is a second full scan (to build the artwork
                     // lookup) that can take as long as the one above, give
                     // it the same reporter rather than let the bar sit at
-                    // 100% while this runs silently in the background.
-                    infrastructure::rekordbox::KaitaiRekordboxReader rbReader(siblingRekordboxPath.toStdString());
-                    rbReader.setProgressReporter(*reporter);
-                    application::ScanLibrary rbUseCase(rbReader);
-                    auto rbTracks = rbUseCase.execute();
+                    // 100% while this runs silently in the background. Goes
+                    // through the same cache -- Sync/Stick Statistics may
+                    // already have this exact rekordbox catalog cached from
+                    // a prior page visit.
+                    auto rbTracks = catalogCache.tracksFor("rekordbox", siblingRekordboxPath.toStdString(), *reporter);
 
                     std::unordered_map<std::string, std::string> artworkByTitleArtist;
                     for (const auto &rbTrack : rbTracks) {
@@ -197,10 +189,7 @@ ScanTaskResult runScanTask(QString format, QString path, QString siblingRekordbo
             // under it), not a separate stored path. OneLibrary is a
             // third view onto that same side of the stick, not an
             // independent catalog with its own DetectedStick field.
-            infrastructure::onelibrary::OneLibraryReader reader(path.toStdString());
-            reader.setProgressReporter(*reporter);
-            application::ScanLibrary useCase(reader);
-            tracks = useCase.execute();
+            tracks = catalogCache.tracksFor("onelibrary", path.toStdString(), *reporter);
         }
         result.tracks = std::move(tracks);
     } catch (const std::exception &e) {

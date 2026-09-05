@@ -16,8 +16,8 @@
 #include "application/ports/cue_writer.hpp"
 #include "application/ports/library_cleanup_writer.hpp"
 #include "application/ports/operation_log.hpp"
-#include "application/use_cases/scan_library.hpp"
 #include "domain/duplicate_cue_consolidation.hpp"
+#include "gui/library_catalog_cache.hpp"
 #include "gui/onelibrary_cue_writer_adapter.hpp"
 #include "gui/qt_progress_reporter.hpp"
 #include "gui/write_guard.hpp"
@@ -30,11 +30,8 @@
 #include "infrastructure/durable_file_write.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cleanup_writer.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cue_writer.hpp"
-#include "infrastructure/engine/libdjinterop_engine_reader.hpp"
 #include "infrastructure/logging/file_operation_log.hpp"
 #include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
-#include "infrastructure/onelibrary/onelibrary_reader.hpp"
-#include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 #include "infrastructure/rekordbox/pdb_row_writer.hpp"
 #include "infrastructure/rekordbox/rekordbox_cleanup_writer.hpp"
@@ -897,16 +894,8 @@ PendingDeletionApplyResult runDeletePendingTask(QString format, QString path,
             (stickRoot / ".seabass-pending-deletions.jsonl").string());
         infrastructure::logging::FileOperationLog log((stickRoot / ".seabass.log").string());
 
-        std::vector<domain::Track> tracks;
-        if (format == "rekordbox") {
-            infrastructure::rekordbox::KaitaiRekordboxReader reader(path.toStdString());
-            reader.setProgressReporter(*reporter);
-            tracks = application::ScanLibrary(reader).execute();
-        } else {
-            infrastructure::engine::LibdjinteropEngineReader reader(path.toStdString());
-            reader.setProgressReporter(*reporter);
-            tracks = application::ScanLibrary(reader).execute();
-        }
+        std::vector<domain::Track> tracks =
+            LibraryCatalogCache::instance().tracksFor(format.toStdString(), path.toStdString(), *reporter);
 
         auto resolution = infrastructure::cleanup::resolvePendingDeletions(selected, tracks);
 
@@ -959,20 +948,8 @@ CleanupTaskResult runRescanTask(QString format, QString path, std::shared_ptr<Qt
 {
     CleanupTaskResult result;
     try {
-        std::vector<domain::Track> tracks;
-        if (format == "rekordbox") {
-            infrastructure::rekordbox::KaitaiRekordboxReader reader(path.toStdString());
-            reader.setProgressReporter(*reporter);
-            tracks = application::ScanLibrary(reader).execute();
-        } else if (format == "onelibrary") {
-            infrastructure::onelibrary::OneLibraryReader reader(path.toStdString());
-            reader.setProgressReporter(*reporter);
-            tracks = application::ScanLibrary(reader).execute();
-        } else {
-            infrastructure::engine::LibdjinteropEngineReader reader(path.toStdString());
-            reader.setProgressReporter(*reporter);
-            tracks = application::ScanLibrary(reader).execute();
-        }
+        std::vector<domain::Track> tracks =
+            LibraryCatalogCache::instance().tracksFor(format.toStdString(), path.toStdString(), *reporter);
 
         // Streaming tracks (Engine/TIDAL) have no real local file.
         // Never let duplicate detection consider one, whether as
@@ -1008,16 +985,8 @@ CleanupTaskResult runManualMergeTask(QString format, QString path, QString sourc
 {
     CleanupTaskResult result;
     try {
-        std::vector<domain::Track> tracks;
-        if (format == "rekordbox") {
-            infrastructure::rekordbox::KaitaiRekordboxReader reader(path.toStdString());
-            reader.setProgressReporter(*reporter);
-            tracks = application::ScanLibrary(reader).execute();
-        } else {
-            infrastructure::engine::LibdjinteropEngineReader reader(path.toStdString());
-            reader.setProgressReporter(*reporter);
-            tracks = application::ScanLibrary(reader).execute();
-        }
+        std::vector<domain::Track> tracks =
+            LibraryCatalogCache::instance().tracksFor(format.toStdString(), path.toStdString(), *reporter);
 
         std::string idA = sourceIdA.toStdString();
         std::string idB = sourceIdB.toStdString();
@@ -1202,6 +1171,19 @@ void CleanupController::onWriteFinished()
     }
     setBusy(false);
     setWriting(false);
+
+    // Covers both apply() and undoLastOperation() (this slot handles
+    // both, see m_writeWatcher's two setFuture() call sites) -- rescan()
+    // right below would otherwise read the cache's still-fresh-by-mtime
+    // pre-write entry.
+    auto &catalogCache = LibraryCatalogCache::instance();
+    catalogCache.invalidate(m_format.toStdString(), m_path.toStdString());
+    if (m_format == "rekordbox") {
+        // runApplyTask() also best-effort writes cues into OneLibrary's
+        // exportLibrary.db (see makeContext()'s ctx.pioneerRoot) when one
+        // exists alongside export.pdb -- keep its cache entry honest too.
+        catalogCache.invalidate("onelibrary", m_path.toStdString());
+    }
 
     rescan();
 }

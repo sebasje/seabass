@@ -13,20 +13,17 @@
 #include "application/ports/backup_store.hpp"
 #include "application/ports/cue_writer.hpp"
 #include "application/ports/operation_log.hpp"
-#include "application/use_cases/scan_library.hpp"
 #include "domain/track_matching.hpp"
+#include "gui/library_catalog_cache.hpp"
+#include "gui/onelibrary_cue_writer_adapter.hpp"
 #include "gui/qt_progress_reporter.hpp"
 #include "gui/write_guard.hpp"
 #include "infrastructure/backup/filesystem_backup_store.hpp"
 #include "infrastructure/backup/stick_write_lock.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cue_writer.hpp"
-#include "infrastructure/engine/libdjinterop_engine_reader.hpp"
-#include "gui/onelibrary_cue_writer_adapter.hpp"
 #include "infrastructure/local/local_cue_store.hpp"
 #include "infrastructure/logging/file_operation_log.hpp"
 #include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
-#include "infrastructure/onelibrary/onelibrary_reader.hpp"
-#include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 #include "infrastructure/rekordbox/rekordbox_cue_writer.hpp"
 
@@ -56,21 +53,10 @@ QString describeCues(const std::vector<domain::CuePoint> &cues)
 std::vector<domain::Track> scanStick(const QString &format, const QString &path,
                                       std::shared_ptr<QtProgressReporter> reporter)
 {
-    if (format == "rekordbox") {
-        infrastructure::rekordbox::KaitaiRekordboxReader reader(path.toStdString());
-        reader.setProgressReporter(*reporter);
-        return application::ScanLibrary(reader).execute();
-    }
-    if (format == "onelibrary") {
-        // path is the PIONEER root here, same as "rekordbox" -- exportLibrary.db
-        // lives alongside export.pdb (see LocalCuePage.qml's currentPath()).
-        infrastructure::onelibrary::OneLibraryReader reader(path.toStdString());
-        reader.setProgressReporter(*reporter);
-        return application::ScanLibrary(reader).execute();
-    }
-    infrastructure::engine::LibdjinteropEngineReader reader(path.toStdString());
-    reader.setProgressReporter(*reporter);
-    return application::ScanLibrary(reader).execute();
+    // "onelibrary": path is the PIONEER root here, same as "rekordbox" --
+    // exportLibrary.db lives alongside export.pdb (see LocalCuePage.qml's
+    // currentPath()).
+    return LibraryCatalogCache::instance().tracksFor(format.toStdString(), path.toStdString(), *reporter);
 }
 
 }  // namespace
@@ -651,6 +637,19 @@ void LocalCueController::onWriteFinished()
     }
     setBusy(false);
     setWriting(false);
+
+    // Covers both applyRestore() and undoLastOperation() (this slot
+    // handles both, see its own doc comment) -- analyzeRestore() right
+    // below would otherwise read the cache's still-fresh-by-mtime
+    // pre-write entry.
+    auto &catalogCache = LibraryCatalogCache::instance();
+    catalogCache.invalidate(m_format.toStdString(), m_path.toStdString());
+    if (m_format == "rekordbox") {
+        // runApplyRestoreTask() also best-effort writes cues into
+        // OneLibrary's exportLibrary.db when one exists alongside
+        // export.pdb -- keep its cache entry honest too.
+        catalogCache.invalidate("onelibrary", m_path.toStdString());
+    }
 
     // Silent (reportFeedback defaults to false): this is an automatic
     // background refresh following the write above, not something the
