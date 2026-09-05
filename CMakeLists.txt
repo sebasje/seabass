@@ -169,6 +169,10 @@ add_library(seabass_core STATIC
     src/infrastructure/stick_backup/archive_journal.cpp
     src/infrastructure/stick_backup/archive_updater.cpp
     src/infrastructure/stick_backup/archive_recovery.cpp
+    src/infrastructure/stick_backup/stick_tree_walker.cpp
+    src/infrastructure/stick_backup/stat_diff.cpp
+    src/infrastructure/stick_backup/sqlite_db_set.cpp
+    src/application/use_cases/backup_stick.cpp
 )
 target_include_directories(seabass_core PUBLIC src)
 target_link_libraries(seabass_core PUBLIC rekordbox_format DjInterop ZLIB::ZLIB)
@@ -863,6 +867,41 @@ add_executable(backup_archive_truncation_fuzz_test
 target_include_directories(backup_archive_truncation_fuzz_test PRIVATE src)
 target_link_libraries(backup_archive_truncation_fuzz_test PRIVATE ZLIB::ZLIB)
 add_test(NAME backup_archive_truncation_fuzz_test COMMAND backup_archive_truncation_fuzz_test)
+
+set(SEABASS_STICK_BACKUP_STICK_SOURCES
+    ${SEABASS_STICK_BACKUP_UPDATE_SOURCES}
+    src/infrastructure/stick_backup/stick_tree_walker.cpp
+    src/infrastructure/stick_backup/stat_diff.cpp
+    src/infrastructure/stick_backup/sqlite_db_set.cpp
+)
+
+add_executable(stat_diff_test
+    src/infrastructure/hashing/sha256.cpp
+    src/infrastructure/stick_backup/backup_manifest.cpp
+    src/infrastructure/stick_backup/stick_tree_walker.cpp
+    src/infrastructure/stick_backup/stat_diff.cpp
+    tests/stat_diff_test.cpp
+)
+target_include_directories(stat_diff_test PRIVATE src)
+add_test(NAME stat_diff_test COMMAND stat_diff_test)
+
+add_executable(backup_database_capture_test
+    ${SEABASS_STICK_BACKUP_STICK_SOURCES}
+    tests/backup_database_capture_test.cpp
+)
+target_include_directories(backup_database_capture_test PRIVATE src)
+target_link_libraries(backup_database_capture_test PRIVATE ZLIB::ZLIB SQLite::SQLite3)
+add_test(NAME backup_database_capture_test COMMAND backup_database_capture_test)
+
+add_executable(backup_stick_test
+    ${SEABASS_STICK_BACKUP_STICK_SOURCES}
+    src/application/ports/progress_reporter.cpp
+    src/application/use_cases/backup_stick.cpp
+    tests/backup_stick_test.cpp
+)
+target_include_directories(backup_stick_test PRIVATE src)
+target_link_libraries(backup_stick_test PRIVATE ZLIB::ZLIB SQLite::SQLite3)
+add_test(NAME backup_stick_test COMMAND backup_stick_test)
 
 add_executable(pending_deletion_resolver_test
     src/infrastructure/cleanup/pending_deletion_resolver.cpp

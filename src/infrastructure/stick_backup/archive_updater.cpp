@@ -86,6 +86,12 @@ CentralEntry ArchiveUpdater::appendDirectory(const std::string &name, std::int64
     return m_writer.addDirectory(name, mtimeUnix);
 }
 
+void ArchiveUpdater::forgetLastEntries(std::size_t count)
+{
+    requireBegun();
+    m_writer.forgetLastEntries(count);
+}
+
 ArchiveUpdater::CommitResult ArchiveUpdater::commit(const BackupManifest &manifest)
 {
     requireBegun();

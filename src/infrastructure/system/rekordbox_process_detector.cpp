@@ -135,4 +135,33 @@ bool isRekordboxRunning()
     return isProcessRunning("rekordbox");
 }
 
+bool isEngineDjRunning()
+{
+    // "Engine DJ" is the current name (and the Windows executable, "Engine
+    // DJ.exe"); "Engine Prime" was the previous one. Linux's 15-byte comm
+    // truncation is not a concern for any of these.
+    for (const char *name : {"Engine DJ", "EngineDJ", "Engine Prime", "EnginePrime", "Engine OS"}) {
+        if (isProcessRunning(name)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool isConflictingDjSoftwareRunning()
+{
+    return isRekordboxRunning() || isEngineDjRunning();
+}
+
+std::string conflictingDjSoftwareName()
+{
+    if (isRekordboxRunning()) {
+        return "rekordbox";
+    }
+    if (isEngineDjRunning()) {
+        return "Engine DJ";
+    }
+    return {};
+}
+
 }  // namespace seabass::infrastructure::system

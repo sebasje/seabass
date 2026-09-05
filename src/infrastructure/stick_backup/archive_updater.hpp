@@ -76,6 +76,10 @@ public:
     AppendedEntry appendFromMemory(const std::string &name, std::int64_t mtimeUnix, std::span<const std::byte> content);
     CentralEntry appendDirectory(const std::string &name, std::int64_t mtimeUnix);
 
+    // Retracts the last `count` appended entries (they become dead space);
+    // see Zip64Writer::forgetLastEntries.
+    void forgetLastEntries(std::size_t count);
+
     // Throws ArchiveFormatError if the freshly written archive does not
     // read back correctly; the journal is then left in place on purpose,
     // so the next open rolls the update back.
