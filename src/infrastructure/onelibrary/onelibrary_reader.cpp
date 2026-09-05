@@ -147,7 +147,19 @@ std::vector<Track> OneLibraryReader::readAll()
             // relPath is already "/Contents/..." (leading slash) --
             // fs::path's own "/" operator would treat a leading-slash RHS
             // as an absolute replacement, not a join, so strip it first.
-            track.filePath = (stickRoot / relPath.substr(1)).string();
+            //
+            // make_preferred() matters on Windows specifically: relPath's
+            // *own* forward slashes (e.g. "Contents/Artist/Track.mp3")
+            // are appended as one path component in a single operator/
+            // call, so fs::path preserves them as literal '/' characters
+            // rather than re-splitting them into separate components --
+            // .string() would otherwise return a path mixing Windows'
+            // native backslash (from the stickRoot join) with these
+            // untouched forward slashes. Found via a real Windows test
+            // failure comparing this against a path built the "normal"
+            // way (separate operator/ calls per component, which do get
+            // the native separator throughout).
+            track.filePath = (stickRoot / relPath.substr(1)).make_preferred().string();
         }
         track.filename = stmt.columnText(6);
         track.bitrate = static_cast<int>(stmt.columnInt64(7));

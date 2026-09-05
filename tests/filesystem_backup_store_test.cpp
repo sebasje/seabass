@@ -52,7 +52,8 @@ int main()
         writeFile(targetFile, "corrupted by something later");
         assert(readFile(targetFile) == "corrupted by something later");
 
-        assert(store.restore(record.id));
+        bool restored = store.restore(record.id);
+        assert(restored);
         assert(readFile(targetFile) == "original contents");
 
         // restore() itself backs up what it overwrote first -- the
@@ -78,7 +79,8 @@ int main()
         writeFile(manifestPath, withoutHeader);
 
         writeFile(targetFile, "changed again");
-        assert(store.restore(record.id));
+        bool restored = store.restore(record.id);
+        assert(restored);
         assert(readFile(targetFile) == "original contents");
         std::cout << "case 2 (manifest without a version header still restores, as version 1) OK\n";
     }
@@ -110,7 +112,8 @@ int main()
         auto record2 = store.backup({targetFile.string()}, "sync");
         assert(store.list().size() == 2);
 
-        assert(store.remove(record1.id));
+        bool removed = store.remove(record1.id);
+        assert(removed);
         auto remaining = store.list();
         assert(remaining.size() == 1);
         assert(remaining[0].id == record2.id);
@@ -175,10 +178,12 @@ int main()
         store.backup({targetFile.string()}, "two");
         assert(store.list().size() == 2);
 
-        assert(store.prune(2) == 0);
+        std::uint64_t prunedCount1 = store.prune(2);
+        assert(prunedCount1 == 0);
         assert(store.list().size() == 2);
 
-        assert(store.prune(10) == 0);  // keepCount well beyond what exists
+        std::uint64_t prunedCount2 = store.prune(10);
+        assert(prunedCount2 == 0);  // keepCount well beyond what exists
         assert(store.list().size() == 2);
         std::cout << "case 6 (prune: keepCount >= existing count is a true no-op) OK\n";
     }

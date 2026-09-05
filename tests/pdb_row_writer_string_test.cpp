@@ -329,8 +329,10 @@ int main()
         text.comment = "Fake";                                      // longer than the 2-char utf16le capacity
         text.filename = "fake.mp3";                                 // exactly fits the 8-byte long_ascii capacity
         text.filePath = "x";                                        // longer than the 0-byte capacity
-        assert(writer.overwriteTrackText(100, text));
-        assert(writer.commit());
+        bool overwrote = writer.overwriteTrackText(100, text);
+        assert(overwrote);
+        bool committed = writer.commit();
+        assert(committed);
 
         auto texts = readTrackTexts(pdbPath, 100);
         assert(texts.title == "Obfuscated");  // truncated to the original 10-byte capacity
@@ -360,8 +362,10 @@ int main()
         text.comment = "H";
         text.filename = "x";
         text.filePath = "";
-        assert(writer.overwriteTrackText(100, text));
-        assert(writer.commit());
+        bool overwrote = writer.overwriteTrackText(100, text);
+        assert(overwrote);
+        bool committed = writer.commit();
+        assert(committed);
 
         auto texts = readTrackTexts(pdbPath, 100);
         // Original field capacities: title=10 (len("Real Title")),
@@ -392,11 +396,14 @@ int main()
     {
         writeFile(pdbPath, pristine);
         PdbRowWriter writer(pdbPath.string());
-        assert(writer.overwriteArtistName(5, "Artist Z"));
-        assert(writer.overwritePlaylistName(9, "Set 1"));
+        bool overwroteArtist = writer.overwriteArtistName(5, "Artist Z");
+        assert(overwroteArtist);
+        bool overwrotePlaylist = writer.overwritePlaylistName(9, "Set 1");
+        assert(overwrotePlaylist);
         assert(!writer.overwriteArtistName(999999, "nope"));
         assert(!writer.overwritePlaylistName(999999, "nope"));
-        assert(writer.commit());
+        bool committed = writer.commit();
+        assert(committed);
 
         // Original capacities: artist name=11 (len("Real Artist")),
         // playlist name=13 (len("Real Playlist")).
