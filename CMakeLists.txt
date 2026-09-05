@@ -361,6 +361,10 @@ if(Qt6_FOUND)
                 src/gui/qml/CueFallbackNotice.qml
                 src/gui/qml/TrackDetailPage.qml
                 src/gui/qml/FormatUsbPage.qml
+                src/gui/qml/common/MessagePopup.qml
+                src/gui/qml/StickWriteWarning.qml
+                src/gui/qml/StickBackupPage.qml
+                src/gui/qml/RestoreStickBackupPage.qml
             SOURCES
                 # Theme.qml's font-size properties (fontSmall, iconScale,
                 # ...) bind to this QML_SINGLETON C++ type.

@@ -136,10 +136,27 @@ private:
     std::unique_ptr<Impl> m_impl;
 };
 
+struct VerifyOutcome
+{
+    bool ok = false;
+    std::string error;  // the archive could not be opened or is structurally broken
+    std::size_t entriesChecked = 0;
+    std::uint64_t bytesChecked = 0;
+    std::vector<std::string> failures;  // entries whose bytes do not match the manifest
+    infrastructure::stick_backup::BackupStatus status = infrastructure::stick_backup::BackupStatus::Complete;
+};
+
 class BackupStick
 {
 public:
     static std::filesystem::path journalPathFor(const std::filesystem::path &archivePath);
+
+    // The user-facing "Verify backup": structure, every entry's CRC and
+    // SHA-256 against the manifest. Reads the whole archive; never touches
+    // the stick.
+    static VerifyOutcome verify(const std::filesystem::path &archivePath,
+                                CancellationToken cancel = CancellationToken::none(),
+                                const std::function<void(std::uint64_t bytesDone, std::uint64_t bytesTotal)> &onProgress = {});
 
     static BackupPreview preview(const BackupStickOptions &options,
                                  ProgressReporter &reporter = NullProgressReporter::instance());

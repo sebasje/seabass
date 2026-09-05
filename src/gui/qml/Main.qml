@@ -77,7 +77,15 @@ ApplicationWindow {
         spacing: 0
 
         RekordboxRunningWarning {
-            visible: rekordboxGuardCtrl.rekordboxRunning
+            visible: rekordboxGuardCtrl.conflictingSoftware.length > 0
+            // The default text is rekordbox's (every stick write refuses
+            // on it); Engine DJ only blocks the full-stick backup and
+            // restore, so its banner says just that.
+            text: rekordboxGuardCtrl.rekordboxRunning
+                ? "Rekordbox appears to be running: writes to this stick are refused until it's closed, "
+                  + "to avoid corrupting your library."
+                : rekordboxGuardCtrl.conflictingSoftware + " appears to be running: full stick backups and restores "
+                  + "are refused until it's closed, so the Engine database can't change while Seabass reads or replaces it."
         }
 
         StackView {
@@ -261,6 +269,7 @@ ApplicationWindow {
             })
             onAboutRequested: stackView.push(aboutPageComponent)
             onFormatUsbRequested: stackView.push(formatUsbPageComponent)
+            onRestoreStickBackupRequested: stackView.push(restoreStickBackupPageComponent)
         }
     }
 
@@ -403,6 +412,7 @@ ApplicationWindow {
     Component {
         id: backupsHubPageComponent
         BackupsHubPage {
+            appSettingsController: appSettingsCtrl
             onLocalCueRequested: (stickLabel, rekordboxPath, enginePath) => stackView.push(localCuePageComponent, {
                 stickLabel: stickLabel,
                 rekordboxPath: rekordboxPath,
@@ -413,6 +423,35 @@ ApplicationWindow {
                 rekordboxPath: rekordboxPath,
                 enginePath: enginePath,
             })
+            onFullStickBackupRequested: (stickLabel, rekordboxPath, enginePath) => stackView.push(stickBackupPageComponent, {
+                stickLabel: stickLabel,
+                rekordboxPath: rekordboxPath,
+                enginePath: enginePath,
+            })
+        }
+    }
+
+    Component {
+        id: stickBackupPageComponent
+        StickBackupPage {
+            appSettingsController: appSettingsCtrl
+            controller: StickBackupController {}
+            conflictingSoftware: rekordboxGuardCtrl.conflictingSoftware
+            onRestoreRequested: (stickLabel, stickRoot, archivePath) => stackView.push(restoreStickBackupPageComponent, {
+                preselectedMountPoint: stickRoot,
+                preselectedArchivePath: archivePath,
+                preselectedLabel: stickLabel,
+            })
+        }
+    }
+
+    Component {
+        id: restoreStickBackupPageComponent
+        RestoreStickBackupPage {
+            controller: RestoreStickBackupController {
+                defaultBackupDirectory: appSettingsCtrl.stickBackupDirectory
+            }
+            onFormatUsbRequested: stackView.push(formatUsbPageComponent)
         }
     }
 
