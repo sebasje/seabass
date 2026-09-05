@@ -172,7 +172,9 @@ add_library(seabass_core STATIC
     src/infrastructure/stick_backup/stick_tree_walker.cpp
     src/infrastructure/stick_backup/stat_diff.cpp
     src/infrastructure/stick_backup/sqlite_db_set.cpp
+    src/infrastructure/stick_backup/archive_compactor.cpp
     src/application/use_cases/backup_stick.cpp
+    src/application/use_cases/compact_stick_backup.cpp
 )
 target_include_directories(seabass_core PUBLIC src)
 target_link_libraries(seabass_core PUBLIC rekordbox_format DjInterop ZLIB::ZLIB)
@@ -902,6 +904,17 @@ add_executable(backup_stick_test
 target_include_directories(backup_stick_test PRIVATE src)
 target_link_libraries(backup_stick_test PRIVATE ZLIB::ZLIB SQLite::SQLite3)
 add_test(NAME backup_stick_test COMMAND backup_stick_test)
+
+add_executable(backup_archive_compaction_test
+    ${SEABASS_STICK_BACKUP_UPDATE_SOURCES}
+    src/infrastructure/durable_file_write.cpp
+    src/infrastructure/stick_backup/archive_compactor.cpp
+    src/application/use_cases/compact_stick_backup.cpp
+    tests/backup_archive_compaction_test.cpp
+)
+target_include_directories(backup_archive_compaction_test PRIVATE src)
+target_link_libraries(backup_archive_compaction_test PRIVATE ZLIB::ZLIB)
+add_test(NAME backup_archive_compaction_test COMMAND backup_archive_compaction_test)
 
 add_executable(pending_deletion_resolver_test
     src/infrastructure/cleanup/pending_deletion_resolver.cpp
