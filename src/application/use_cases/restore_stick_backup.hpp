@@ -1,0 +1,110 @@
+#pragma once
+
+#include <cstdint>
+#include <filesystem>
+#include <functional>
+#include <optional>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "application/ports/cancellation_token.hpp"
+#include "application/ports/progress_reporter.hpp"
+#include "infrastructure/stick_backup/backup_manifest.hpp"
+
+namespace seabass::application
+{
+
+struct RestoreProgress
+{
+    enum class Phase
+    {
+        Analyzing,
+        Writing,
+        Removing,  // exact mode: files not in the backup
+        Checking,  // opening the restored database
+    };
+    Phase phase = Phase::Analyzing;
+    std::size_t filesDone = 0;
+    std::size_t filesTotal = 0;
+    std::uint64_t bytesDone = 0;
+    std::uint64_t bytesTotal = 0;
+    std::string currentFile;
+};
+
+// Runs after the files are in place and reports every track the restored
+// Engine database references that does not exist -- the domain-level
+// "did it work". Injected because the concrete implementation lives with
+// the Engine reader (libdjinterop); see infrastructure/engine/
+// engine_restore_check.hpp. Returns nullopt when there is no database to
+// open.
+using RestoredLibraryCheck = std::function<std::optional<std::vector<std::string>>(const std::filesystem::path &targetRoot)>;
+
+struct RestoreOptions
+{
+    std::filesystem::path archivePath;
+    std::filesystem::path targetRoot;  // a mounted, formatted volume (or any directory)
+    // Overlay (default): files on the target that are not in the backup
+    // stay. Exact: they are removed after the restore.
+    bool exact = false;
+    CancellationToken cancel = CancellationToken::none();
+    std::function<void(const RestoreProgress &)> onProgress;
+    RestoredLibraryCheck libraryCheck;
+    std::size_t chunkSize = 1u << 20;
+    std::uint64_t freeSpaceMarginBytes = 64u << 20;
+};
+
+struct RestorePreview
+{
+    std::string error;
+    std::string stickLabel;
+    std::string stickIdentifier;
+    infrastructure::stick_backup::BackupStatus status = infrastructure::stick_backup::BackupStatus::Complete;
+    std::int64_t createdAtUnix = 0;
+    std::size_t entries = 0;   // files + directories in the backup
+    std::uint64_t bytes = 0;   // total file bytes in the backup
+    std::size_t filesToWrite = 0;   // missing on the target or different size/mtime
+    std::size_t filesUnchanged = 0; // present with the same size and mtime: skipped
+    std::uint64_t bytesToWrite = 0;
+    std::size_t extras = 0;    // on the target, not in the backup (removed only in exact mode)
+    std::vector<std::pair<std::string, std::string>> rejected;  // entry name, reason
+    bool targetHasEngineLibrary = false;
+    std::uint64_t freeBytesAtTarget = 0;
+    bool enoughFreeSpace = true;
+};
+
+struct RestoreSummary
+{
+    enum class Status
+    {
+        Restored,
+        RestoredWithProblems,  // rejected entries, missing tracks, or write errors -- see the lists
+        Cancelled,
+        Failed,                // nothing usable happened (archive unreadable, target unwritable)
+    };
+    Status status = Status::Failed;
+    std::string message;
+    std::size_t filesWritten = 0;
+    std::size_t filesUnchanged = 0;
+    std::size_t directoriesCreated = 0;
+    std::size_t extrasRemoved = 0;
+    std::uint64_t bytesWritten = 0;
+    std::vector<std::pair<std::string, std::string>> rejected;
+    std::vector<std::string> writeErrors;
+    std::optional<std::vector<std::string>> missingTrackPaths;  // nullopt: no database / no check
+    std::vector<std::string> warnings;
+};
+
+// Streams entries out of the archive onto the target -- one seek and one
+// read per file, never an "extract everything first" step. Each file is
+// written to a temporary name next to its destination, flushed, then
+// renamed over it, and its mtime restored so the next incremental backup
+// sees zero changes. Database sets are written together and last.
+class RestoreStickBackup
+{
+public:
+    static RestorePreview preview(const RestoreOptions &options);
+    static RestoreSummary execute(const RestoreOptions &options, ProgressReporter &reporter = NullProgressReporter::instance());
+};
+
+}  // namespace seabass::application
