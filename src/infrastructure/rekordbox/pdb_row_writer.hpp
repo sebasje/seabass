@@ -132,6 +132,16 @@ private:
     std::set<uint32_t> m_editedPageIndices;
     std::uintmax_t m_originalFileSize = 0;
     std::filesystem::file_time_type m_originalMtime;
+    // A whole-file CRC32 of m_buffer as originally read (before any
+    // edits mutate it in place), checked at commit() against a *fresh*
+    // read of the real file -- filesystem size/mtime alone are a known-
+    // insufficient staleness signal on Windows: an in-process write that
+    // doesn't change the file's length leaves both blind there (proven
+    // empirically -- same finding, same fix, as
+    // OneLibraryCueWriter::checkNotStale(), which this class's own
+    // staleness convention was originally the model for). Kept alongside
+    // size/mtime as a cheap pre-filter, not a replacement.
+    std::uint32_t m_originalChecksum = 0;
 };
 
 }  // namespace seabass::infrastructure::rekordbox

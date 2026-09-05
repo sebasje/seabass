@@ -631,7 +631,7 @@ add_executable(pdb_row_writer_test
     tests/pdb_row_writer_test.cpp
 )
 target_include_directories(pdb_row_writer_test PRIVATE src)
-target_link_libraries(pdb_row_writer_test PRIVATE rekordbox_format)
+target_link_libraries(pdb_row_writer_test PRIVATE rekordbox_format ZLIB::ZLIB)
 add_test(NAME pdb_row_writer_test COMMAND pdb_row_writer_test)
 
 add_executable(pdb_row_writer_string_test
@@ -641,7 +641,7 @@ add_executable(pdb_row_writer_string_test
     tests/pdb_row_writer_string_test.cpp
 )
 target_include_directories(pdb_row_writer_string_test PRIVATE src)
-target_link_libraries(pdb_row_writer_string_test PRIVATE rekordbox_format)
+target_link_libraries(pdb_row_writer_string_test PRIVATE rekordbox_format ZLIB::ZLIB)
 add_test(NAME pdb_row_writer_string_test COMMAND pdb_row_writer_string_test)
 
 add_executable(rekordbox_library_anonymizer_test
@@ -654,7 +654,7 @@ add_executable(rekordbox_library_anonymizer_test
     tests/rekordbox_library_anonymizer_test.cpp
 )
 target_include_directories(rekordbox_library_anonymizer_test PRIVATE src)
-target_link_libraries(rekordbox_library_anonymizer_test PRIVATE rekordbox_format)
+target_link_libraries(rekordbox_library_anonymizer_test PRIVATE rekordbox_format ZLIB::ZLIB)
 add_test(NAME rekordbox_library_anonymizer_test COMMAND rekordbox_library_anonymizer_test)
 
 add_executable(rekordbox_cleanup_writer_test
@@ -664,7 +664,7 @@ add_executable(rekordbox_cleanup_writer_test
     tests/rekordbox_cleanup_writer_test.cpp
 )
 target_include_directories(rekordbox_cleanup_writer_test PRIVATE src)
-target_link_libraries(rekordbox_cleanup_writer_test PRIVATE rekordbox_format)
+target_link_libraries(rekordbox_cleanup_writer_test PRIVATE rekordbox_format ZLIB::ZLIB)
 add_test(NAME rekordbox_cleanup_writer_test COMMAND rekordbox_cleanup_writer_test)
 
 add_executable(libdjinterop_engine_library_creator_test
