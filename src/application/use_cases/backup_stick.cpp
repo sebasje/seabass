@@ -9,6 +9,7 @@
 #include <unordered_map>
 
 #include "infrastructure/engine/engine_library_layout.hpp"
+#include "infrastructure/hashing/sha256.hpp"
 #include "infrastructure/stick_backup/archive_recovery.hpp"
 #include "infrastructure/stick_backup/archive_stats.hpp"
 #include "infrastructure/stick_backup/archive_updater.hpp"
@@ -317,6 +318,60 @@ BackupStickOutcome PendingBackup::discard()
 fs::path BackupStick::journalPathFor(const fs::path &archivePath)
 {
     return journal::journalPathFor(archivePath);
+}
+
+VerifyOutcome BackupStick::verify(const fs::path &archivePath, CancellationToken cancel,
+                                  const std::function<void(std::uint64_t, std::uint64_t)> &onProgress)
+{
+    VerifyOutcome outcome;
+    BackupStickOptions options;
+    options.archivePath = archivePath;
+    OpenedArchive opened;
+    if (!opened.open(options)) {
+        outcome.error = opened.error;
+        return outcome;
+    }
+    if (!opened.reader) {
+        outcome.error = "there is no backup to verify";
+        return outcome;
+    }
+    std::string structural;
+    if (!verifyArchiveTail(*opened.archive, 0, &structural)) {
+        outcome.error = structural;
+        return outcome;
+    }
+    outcome.status = opened.manifest->status;
+    std::uint64_t total = 0;
+    for (const CentralEntry &entry : opened.reader->entries()) {
+        total += entry.size;
+    }
+    std::uint64_t done = 0;
+    for (std::size_t i = 0; i < opened.reader->entries().size(); ++i) {
+        const CentralEntry &entry = opened.reader->entries()[i];
+        if (entry.isDirectory || entry.name == ManifestEntryName) {
+            continue;
+        }
+        if (cancel.cancelled()) {
+            outcome.error = "cancelled";
+            return outcome;
+        }
+        auto row = opened.rowsByPath.find(entry.name);
+        infrastructure::hashing::Sha256 hasher;
+        opened.reader->readEntry(i, [&](std::span<const std::byte> piece) {
+            hasher.update(piece);
+            done += piece.size();
+            if (onProgress) {
+                onProgress(done, total);
+            }
+        });
+        if (row == opened.rowsByPath.end() || hasher.finish() != row->second->sha256) {
+            outcome.failures.push_back(entry.name);
+        }
+        ++outcome.entriesChecked;
+        outcome.bytesChecked += entry.size;
+    }
+    outcome.ok = outcome.failures.empty();
+    return outcome;
 }
 
 BackupPreview BackupStick::preview(const BackupStickOptions &options, ProgressReporter &reporter)

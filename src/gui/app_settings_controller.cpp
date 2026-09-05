@@ -1,7 +1,15 @@
 #include "app_settings_controller.hpp"
 
+#include <QDir>
+#include <QStandardPaths>
+
 namespace seabass::gui
 {
+
+QString AppSettingsController::defaultStickBackupDirectory()
+{
+    return QDir(QStandardPaths::writableLocation(QStandardPaths::HomeLocation)).filePath(QStringLiteral("Seabass Backups"));
+}
 
 AppSettingsController::AppSettingsController(QObject *parent)
     : QObject(parent), m_settings("seabass", "seabass")
@@ -10,6 +18,10 @@ AppSettingsController::AppSettingsController(QObject *parent)
     m_preferredFormat = m_settings.value("preferredFormat", "rekordbox").toString();
     m_hideStreamingTracks = m_settings.value("hideStreamingTracks", false).toBool();
     m_keyNotation = m_settings.value("keyNotation", "camelot").toString();
+    m_stickBackupDirectory = m_settings.value("stickBackupDirectory", defaultStickBackupDirectory()).toString();
+    if (m_stickBackupDirectory.isEmpty()) {
+        m_stickBackupDirectory = defaultStickBackupDirectory();
+    }
 #ifdef SEABASS_EXPERIMENTAL_BUILD
     m_experimentalFeaturesEnabled = m_settings.value("experimentalFeaturesEnabled", false).toBool();
 #endif
@@ -53,6 +65,17 @@ void AppSettingsController::setKeyNotation(const QString &value)
     m_keyNotation = value;
     m_settings.setValue("keyNotation", value);
     emit keyNotationChanged();
+}
+
+void AppSettingsController::setStickBackupDirectory(const QString &value)
+{
+    QString effective = value.isEmpty() ? defaultStickBackupDirectory() : value;
+    if (m_stickBackupDirectory == effective) {
+        return;
+    }
+    m_stickBackupDirectory = effective;
+    m_settings.setValue("stickBackupDirectory", effective);
+    emit stickBackupDirectoryChanged();
 }
 
 #ifdef SEABASS_EXPERIMENTAL_BUILD

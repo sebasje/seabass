@@ -90,6 +90,8 @@ qt_add_qml_module(seabass
         qml/MatchingPage.qml
         qml/StarRating.qml
         qml/FormatUsbPage.qml
+        qml/StickBackupPage.qml
+        qml/RestoreStickBackupPage.qml
     RESOURCES
         qml/icons/seabass_soundbass.svg
     SOURCES
@@ -111,6 +113,10 @@ qt_add_qml_module(seabass
         engine_library_creator_controller.cpp
         format_usb_controller.hpp
         format_usb_controller.cpp
+        stick_backup_controller.hpp
+        stick_backup_controller.cpp
+        restore_stick_backup_controller.hpp
+        restore_stick_backup_controller.cpp
         sync_controller.hpp
         sync_controller.cpp
         backups_controller.hpp
