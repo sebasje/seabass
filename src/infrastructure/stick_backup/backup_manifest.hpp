@@ -39,6 +39,12 @@ struct ManifestRow
     // Free-form per-row data; today the SQLite DB-set fingerprint on
     // `.db` / `-wal` / `-journal` rows, empty otherwise.
     std::string extra;
+    // The entry's ZIP CRC32 (files only). Redundant with the central
+    // directory on purpose: together with path, size and mtime it makes
+    // the manifest a complete second copy of every CD field that matters,
+    // so damage to a carried entry's CD record is caught without
+    // re-reading its data.
+    std::uint32_t crc32 = 0;
 };
 
 // The archive's own index of what it holds, written as the last entry
@@ -52,8 +58,8 @@ struct ManifestRow
 // `unzip -p backup.zip SEABASS-MANIFEST.tsv` and needs no JSON library.
 //
 //   seabass-stick-manifest<TAB>1<TAB>stickIdentifier<TAB>label<TAB>status<TAB>createdAtUnix
-//   f<TAB>path<TAB>size<TAB>mtimeUnix<TAB>sha256hex<TAB>extra
-//   d<TAB>path<TAB>0<TAB>mtimeUnix<TAB><TAB>
+//   f<TAB>path<TAB>size<TAB>mtimeUnix<TAB>crc32hex<TAB>sha256hex<TAB>extra
+//   d<TAB>path<TAB>0<TAB>mtimeUnix<TAB><TAB><TAB>
 //   ...
 //   #sha256<TAB>hex-of-everything-above
 //

@@ -28,13 +28,20 @@ struct FaultClock
 // and write-reordering tests in tests/backup_archive_truncation_fuzz_test
 // .cpp are built on this.
 //
-// Durability model (the one fsync actually gives you): a mutation is
-// durable at crash time T iff *this file* had a barrier() at tick b with
-// mutation.tick <= b < T. Anything else is in flight and may or may not
-// have reached the medium -- the test decides per mutation via a
-// predicate, which is how both "lost tail" and "reordered writes" cases
-// get generated from one log.
-class InMemoryArchiveFile final : public ArchiveFile
+// Durability model (the one fsync actually gives you). A crash "at tick
+// T" means the process died somewhere inside interval T: after the T-th
+// barrier of the clock... no, after barrier number T-1 had returned and
+// before barrier number T returned. Then:
+//   - a mutation with tick < T is durable iff *this file* had a barrier at
+//     tick b with mutation.tick <= b < T; otherwise it is in flight;
+//   - mutations with tick == T were being issued during the interval, so
+//     only a program-order prefix of them happened at all, and those are
+//     in flight;
+//   - mutations with tick > T never happened.
+// In-flight mutations may or may not have reached the medium; the test
+// decides per mutation via a predicate, which is how both "lost tail" and
+// "reordered writes" cases come out of one log.
+class InMemoryArchiveFile : public ArchiveFile
 {
 public:
     explicit InMemoryArchiveFile(std::shared_ptr<FaultClock> clock = std::make_shared<FaultClock>())
@@ -42,8 +49,10 @@ public:
     {
     }
 
+    // `initial` is what is already on the medium when the file is opened
+    // -- durable regardless of any later barrier.
     InMemoryArchiveFile(std::vector<std::byte> initial, std::shared_ptr<FaultClock> clock = std::make_shared<FaultClock>())
-        : m_bytes(std::move(initial)), m_clock(std::move(clock))
+        : m_bytes(initial), m_initial(std::move(initial)), m_clock(std::move(clock))
     {
     }
 
@@ -104,17 +113,40 @@ public:
         return image;
     }
 
-    // The file as it may be on disk if the process died after `crashTick`
-    // barriers (across all files sharing the clock) had completed. Durable
-    // mutations are always applied; each in-flight mutation is applied iff
-    // `keepInFlight(mutationIndex)` says so. Replaying in log order means a
-    // lost append between two kept ones reads as zeros, exactly what a
-    // real filesystem shows for an unflushed hole.
-    std::vector<std::byte> crashImage(std::size_t crashTick, const std::function<bool(std::size_t)> &keepInFlight) const
+    // How many mutations this file issued during interval `tick`; the
+    // valid range of `issuedAtCrashTick` below is 0..that.
+    std::size_t mutationCountAtTick(std::size_t tick) const
     {
-        std::vector<std::byte> image;
+        std::size_t n = 0;
+        for (const Mutation &m : m_log) {
+            n += m.tick == tick ? 1 : 0;
+        }
+        return n;
+    }
+
+    // The file as it may be on disk after a crash inside interval
+    // `crashTick` (see the class comment), with the first
+    // `issuedAtCrashTick` of this file's tick-`crashTick` mutations having
+    // been issued. Durable mutations are always applied; each in-flight
+    // one is applied iff `keepInFlight(mutationIndex)` says so. Replaying
+    // in log order means a lost append between two kept ones reads as
+    // zeros, exactly what a real filesystem shows for an unflushed hole.
+    std::vector<std::byte> crashImage(std::size_t crashTick, std::size_t issuedAtCrashTick,
+                                      const std::function<bool(std::size_t)> &keepInFlight) const
+    {
+        std::vector<std::byte> image = m_initial;
+        std::size_t issuedSoFar = 0;
         for (std::size_t i = 0; i < m_log.size(); ++i) {
             const Mutation &m = m_log[i];
+            if (m.tick > crashTick) {
+                break;
+            }
+            if (m.tick == crashTick) {
+                if (issuedSoFar >= issuedAtCrashTick) {
+                    break;
+                }
+                ++issuedSoFar;
+            }
             bool durable = false;
             for (std::size_t b : m_barrierTicks) {
                 if (m.tick <= b && b < crashTick) {
@@ -138,6 +170,16 @@ public:
         return image;
     }
 
+    // Flips one bit in place without logging it -- stands in for a
+    // medium that returned success and then handed back different bytes.
+    void corruptByteForTesting(std::uint64_t offset)
+    {
+        if (offset >= m_bytes.size()) {
+            throw ArchiveIoError("corruptByteForTesting past end");
+        }
+        m_bytes[static_cast<std::size_t>(offset)] ^= std::byte{0x01};
+    }
+
 private:
     struct Mutation
     {
@@ -153,6 +195,7 @@ private:
     };
 
     std::vector<std::byte> m_bytes;
+    std::vector<std::byte> m_initial;
     std::shared_ptr<FaultClock> m_clock;
     std::vector<Mutation> m_log;
     std::vector<std::size_t> m_barrierTicks;

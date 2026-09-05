@@ -50,8 +50,16 @@ public:
     std::optional<std::size_t> findEntry(std::string_view name) const;
 
     // Offset of the entry's first data byte; reads and validates the local
-    // header on first use.
+    // header on first use (signature, and the name must match the central
+    // directory's -- tools like unzip trust the local name).
     std::uint64_t dataOffset(std::size_t index) const;
+
+    // For entries written with a data descriptor: the descriptor after the
+    // data must carry the central directory's CRC and sizes. Our own
+    // restore never reads it, but third-party tools do, and a zeroed one
+    // is exactly the kind of "structurally fine, subtly wrong" tail the
+    // crash-recovery rule must reject. True for entries without one.
+    bool verifyDataDescriptor(std::size_t index) const;
 
     // Bytes the entry occupies in the file: local header + data + data
     // descriptor. Sums to `centralDirectoryOffset` minus dead space.

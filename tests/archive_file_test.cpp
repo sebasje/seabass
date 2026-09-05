@@ -143,28 +143,32 @@ int main()
         appendString(file, "CCCC");  // mutation 2, tick 1
         file.barrier();              // barrier at tick 1 -> clock 2
         appendString(file, "DDDD");  // mutation 3, tick 2 (never flushed)
+        assert(file.mutationCountAtTick(0) == 1 && file.mutationCountAtTick(1) == 2 && file.mutationCountAtTick(2) == 1);
 
-        // Crash before any barrier: everything is in flight.
-        assert(file.crashImage(0, dropAll).empty());
-        assert(stringOf(file.crashImage(0, keepAll)) == "AAAABBBBCCCCDDDD");
+        // Crash inside interval 0: only AAAA may even have been issued;
+        // nothing after barrier 0 exists yet.
+        assert(file.crashImage(0, 0, keepAll).empty());
+        assert(file.crashImage(0, 1, dropAll).empty());
+        assert(stringOf(file.crashImage(0, 1, keepAll)) == "AAAA");
 
-        // After the first barrier: AAAA durable, the rest in flight.
-        assert(stringOf(file.crashImage(1, dropAll)) == "AAAA");
+        // Interval 1: AAAA durable; B and C issued (prefix), in flight.
+        assert(stringOf(file.crashImage(1, 0, keepAll)) == "AAAA");
+        assert(stringOf(file.crashImage(1, 2, dropAll)) == "AAAA");
+        assert(stringOf(file.crashImage(1, 1, keepAll)) == "AAAABBBB");
         // Lost BBBB but kept CCCC -> a zero-filled hole where BBBB was.
-        std::string reordered = stringOf(file.crashImage(1, [](std::size_t i) { return i == 2; }));
+        std::string reordered = stringOf(file.crashImage(1, 2, [](std::size_t i) { return i == 2; }));
         assert(reordered.size() == 12);
         assert(reordered.substr(0, 4) == "AAAA");
         assert(reordered.substr(4, 4) == std::string(4, '\0'));
         assert(reordered.substr(8, 4) == "CCCC");
 
-        // After the second barrier: A, B, C durable; D still in flight.
-        assert(stringOf(file.crashImage(2, dropAll)) == "AAAABBBBCCCC");
-        assert(stringOf(file.crashImage(2, keepAll)) == "AAAABBBBCCCCDDDD");
+        // Interval 2: A, B, C durable; D issued but never flushed.
+        assert(stringOf(file.crashImage(2, 1, dropAll)) == "AAAABBBBCCCC");
+        assert(stringOf(file.crashImage(2, 1, keepAll)) == "AAAABBBBCCCCDDDD");
 
-        // A crash tick beyond every barrier still leaves the unflushed
-        // tail in flight -- there was no barrier after it.
-        assert(stringOf(file.crashImage(50, dropAll)) == "AAAABBBBCCCC");
-        std::cout << "case 4 (in-memory: barrier-based durability, lost writes read as zeros) OK\n";
+        // Later intervals: D still in flight -- there was no barrier after it.
+        assert(stringOf(file.crashImage(50, 0, dropAll)) == "AAAABBBBCCCC");
+        std::cout << "case 4 (in-memory: interval-based durability, issued prefixes, lost writes read as zeros) OK\n";
     }
 
     // ---- Two files on one clock (archive + journal) ----
@@ -181,17 +185,19 @@ int main()
         journal.truncate(0);          // journal mutation 1, tick 2 (clear, not yet flushed)
         journal.barrier();            // tick 2 -> 3
 
-        // Crash after the archive's barrier but before the journal's
-        // clear was flushed: the archive has X, the journal still says J.
-        assert(stringOf(archive.crashImage(2, dropAll)) == "X");
-        assert(stringOf(journal.crashImage(2, dropAll)) == "J");
-        // The archive's own barrier does nothing for the journal's
-        // in-flight truncate -- fsync is per file.
-        // After the journal's barrier the clear is durable.
-        assert(journal.crashImage(3, dropAll).empty());
-        // Before the archive's barrier, X is in flight even though the
-        // journal had already flushed.
-        assert(archive.crashImage(1, dropAll).empty());
+        // Crash inside interval 2 (after the archive's barrier, before the
+        // journal's clear was flushed): the archive has X; the journal's
+        // truncate was issued but is in flight -- lost, it still says J.
+        assert(stringOf(archive.crashImage(2, 0, dropAll)) == "X");
+        assert(stringOf(journal.crashImage(2, 1, dropAll)) == "J");
+        assert(journal.crashImage(2, 1, [](std::size_t) { return true; }).empty());
+        // The archive's own barrier does nothing for the journal -- fsync
+        // is per file. After the journal's barrier the clear is durable.
+        assert(journal.crashImage(3, 0, dropAll).empty());
+        // Inside interval 1 X was issued but not yet flushed, even though
+        // the journal had.
+        assert(archive.crashImage(1, 1, dropAll).empty());
+        assert(stringOf(journal.crashImage(1, 0, dropAll)) == "J");
         assert(clock->ticks == 3);
         std::cout << "case 5 (in-memory: two files share a clock, fsync is per file) OK\n";
     }

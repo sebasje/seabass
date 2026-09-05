@@ -135,6 +135,13 @@ std::string BackupManifest::serialize() const
         out += std::to_string(row.mtimeUnix);
         out += '\t';
         if (row.kind == ManifestRow::Kind::File) {
+            static constexpr char Alphabet[] = "0123456789abcdef";
+            for (int shift = 28; shift >= 0; shift -= 4) {
+                out.push_back(Alphabet[(row.crc32 >> shift) & 0xf]);
+            }
+        }
+        out += '\t';
+        if (row.kind == ManifestRow::Kind::File) {
             out += hashing::toHex(row.sha256);
         }
         out += '\t';
@@ -216,14 +223,14 @@ std::optional<BackupManifest> BackupManifest::parse(std::string_view text, std::
             continue;
         }
 
-        if (fields.size() != 6 || fields[0].size() != 1 || (fields[0][0] != 'f' && fields[0][0] != 'd')) {
+        if (fields.size() != 7 || fields[0].size() != 1 || (fields[0][0] != 'f' && fields[0][0] != 'd')) {
             fail(error, "manifest row " + std::to_string(lineNumber) + " malformed");
             return std::nullopt;
         }
         ManifestRow row;
         row.kind = fields[0][0] == 'd' ? ManifestRow::Kind::Directory : ManifestRow::Kind::File;
         auto path = unescapeManifestField(fields[1]);
-        auto extra = unescapeManifestField(fields[5]);
+        auto extra = unescapeManifestField(fields[6]);
         if (!path || path->empty() || !extra || !parseNumber(fields[2], row.size) || !parseNumber(fields[3], row.mtimeUnix)) {
             fail(error, "manifest row " + std::to_string(lineNumber) + " malformed");
             return std::nullopt;
@@ -231,14 +238,25 @@ std::optional<BackupManifest> BackupManifest::parse(std::string_view text, std::
         row.path = *path;
         row.extra = *extra;
         if (row.kind == ManifestRow::Kind::File) {
-            auto digest = hashing::digestFromHex(fields[4]);
-            if (!digest) {
+            auto digest = hashing::digestFromHex(fields[5]);
+            std::uint32_t crc = 0;
+            bool crcOk = fields[4].size() == 8;
+            for (char c : fields[4]) {
+                int nibble = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1;
+                if (nibble < 0) {
+                    crcOk = false;
+                    break;
+                }
+                crc = (crc << 4) | static_cast<std::uint32_t>(nibble);
+            }
+            if (!digest || !crcOk) {
                 fail(error, "manifest row " + std::to_string(lineNumber) + " has a malformed hash");
                 return std::nullopt;
             }
             row.sha256 = *digest;
-        } else if (!fields[4].empty()) {
-            fail(error, "manifest directory row " + std::to_string(lineNumber) + " carries a hash");
+            row.crc32 = crc;
+        } else if (!fields[4].empty() || !fields[5].empty() || row.size != 0) {
+            fail(error, "manifest directory row " + std::to_string(lineNumber) + " carries file fields");
             return std::nullopt;
         }
         manifest.rows.push_back(std::move(row));

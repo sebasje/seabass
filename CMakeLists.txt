@@ -166,6 +166,9 @@ add_library(seabass_core STATIC
     src/infrastructure/stick_backup/zip64_writer.cpp
     src/infrastructure/stick_backup/zip64_reader.cpp
     src/infrastructure/stick_backup/backup_manifest.cpp
+    src/infrastructure/stick_backup/archive_journal.cpp
+    src/infrastructure/stick_backup/archive_updater.cpp
+    src/infrastructure/stick_backup/archive_recovery.cpp
 )
 target_include_directories(seabass_core PUBLIC src)
 target_link_libraries(seabass_core PUBLIC rekordbox_format DjInterop ZLIB::ZLIB)
@@ -837,6 +840,29 @@ set_tests_properties(backup_archive_crossvalidation_test PROPERTIES
     ENVIRONMENT "SEABASS_PYTHON3=${Python3_EXECUTABLE};SEABASS_UNZIP=${UNZIP_EXECUTABLE};SEABASS_SEVENZIP=${SEVENZIP_EXECUTABLE}"
     SKIP_RETURN_CODE 77
 )
+
+set(SEABASS_STICK_BACKUP_UPDATE_SOURCES
+    ${SEABASS_STICK_BACKUP_FORMAT_SOURCES}
+    src/infrastructure/stick_backup/archive_journal.cpp
+    src/infrastructure/stick_backup/archive_updater.cpp
+    src/infrastructure/stick_backup/archive_recovery.cpp
+)
+
+add_executable(backup_archive_incremental_update_test
+    ${SEABASS_STICK_BACKUP_UPDATE_SOURCES}
+    tests/backup_archive_incremental_update_test.cpp
+)
+target_include_directories(backup_archive_incremental_update_test PRIVATE src)
+target_link_libraries(backup_archive_incremental_update_test PRIVATE ZLIB::ZLIB)
+add_test(NAME backup_archive_incremental_update_test COMMAND backup_archive_incremental_update_test)
+
+add_executable(backup_archive_truncation_fuzz_test
+    ${SEABASS_STICK_BACKUP_UPDATE_SOURCES}
+    tests/backup_archive_truncation_fuzz_test.cpp
+)
+target_include_directories(backup_archive_truncation_fuzz_test PRIVATE src)
+target_link_libraries(backup_archive_truncation_fuzz_test PRIVATE ZLIB::ZLIB)
+add_test(NAME backup_archive_truncation_fuzz_test COMMAND backup_archive_truncation_fuzz_test)
 
 add_executable(pending_deletion_resolver_test
     src/infrastructure/cleanup/pending_deletion_resolver.cpp
