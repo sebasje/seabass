@@ -634,6 +634,22 @@ target_include_directories(pdb_row_writer_test PRIVATE src)
 target_link_libraries(pdb_row_writer_test PRIVATE rekordbox_format ZLIB::ZLIB)
 add_test(NAME pdb_row_writer_test COMMAND pdb_row_writer_test)
 
+# Uses the committed real-library fixture rather than a synthetic .pdb:
+# the staleness guard compares the whole file's bytes, so exercising it
+# against a real 1.5MB export.pdb is closer to what it actually protects
+# than a hand-built two-page buffer would be. SEABASS_SOURCE_DIR is how
+# it finds that fixture, same as anonymized_fixture_integration_test.
+add_executable(pdb_row_writer_staleness_test
+    src/infrastructure/durable_file_write.cpp
+    src/infrastructure/rekordbox/pdb_row_writer.cpp
+    tests/pdb_row_writer_staleness_test.cpp
+)
+target_include_directories(pdb_row_writer_staleness_test PRIVATE src)
+target_link_libraries(pdb_row_writer_staleness_test PRIVATE rekordbox_format ZLIB::ZLIB)
+target_compile_definitions(pdb_row_writer_staleness_test PRIVATE
+    SEABASS_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+add_test(NAME pdb_row_writer_staleness_test COMMAND pdb_row_writer_staleness_test)
+
 add_executable(pdb_row_writer_string_test
     src/infrastructure/durable_file_write.cpp
     src/infrastructure/rekordbox/pdb_row_writer.cpp
