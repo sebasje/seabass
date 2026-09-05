@@ -94,10 +94,44 @@ FormatUsbController::FormatUsbController(QObject *parent) : QObject(parent)
     }
 
     refresh();
+
+    // Without this, a stick pulled (or inserted) while this page is open
+    // never disappears (or appears) from "1. Choose a drive" until the
+    // page is closed and reopened -- confirmed as a real report, not
+    // hypothetical: unplugging an unrelated backup stick mid-session left
+    // it sitting in the list as if still present. Same
+    // debounce-timer-then-refresh pattern as MediaController's own
+    // hotplug handling (a burst of udev events for one physical
+    // plug/unplug should still trigger exactly one re-scan, not one per
+    // event).
+    m_debounceTimer.setSingleShot(true);
+    m_debounceTimer.setInterval(500);
+    connect(&m_debounceTimer, &QTimer::timeout, this, &FormatUsbController::refresh);
+
+    m_monitor = infrastructure::media::createRemovableMediaMonitor();
+    m_monitor->start([this]() {
+        QMetaObject::invokeMethod(this, [this]() { m_debounceTimer.start(); }, Qt::QueuedConnection);
+    });
+}
+
+FormatUsbController::~FormatUsbController()
+{
+    if (m_monitor) {
+        m_monitor->stop();
+    }
 }
 
 void FormatUsbController::refresh()
 {
+    // A refresh landing mid-format (the monitor's own callback can fire
+    // for changes the format operation itself causes, e.g. the target
+    // unmounting) would otherwise race runFormatTask()'s own use of the
+    // locator/mounter on a background thread -- safe to just skip it,
+    // onFormatFinished() already calls refresh() again once the format
+    // itself completes.
+    if (m_busy) {
+        return;
+    }
     // Whole-disk enumeration (this project's own udev/Get-Disk-backed
     // adapters) is lightweight -- no library scan, just a handful of
     // devices -- so this runs synchronously on the UI thread, same as
