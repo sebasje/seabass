@@ -128,8 +128,12 @@ AddCueResult runAddCueTask(QString format, QString path, QString sourceId, doubl
                 dbBackupId = record.id;
             }
             infrastructure::onelibrary::OneLibraryCueWriter writer(pioneerRoot);
-            writer.writeCuesForPath(track->filePath, cues);
+            // Invalidated before the write, not after: a write that
+            // throws partway through may still have modified the file on
+            // disk, and the cache must not keep serving the pre-write
+            // result in that case either.
             LibraryCatalogCache::instance().invalidate("onelibrary", pioneerRoot);
+            writer.writeCuesForPath(track->filePath, cues);
             log.record("add-cue: added " + kind.toStdString() + " cue at " +
                        std::to_string(static_cast<int>(positionMs)) + "ms to OneLibrary track id=" + id + " (\"" +
                        track->title + "\")" + (dbBackupId.empty() ? "" : ", backup " + dbBackupId));
@@ -153,21 +157,26 @@ AddCueResult runAddCueTask(QString format, QString path, QString sourceId, doubl
                 dbBackupId = record.id;
             }
 
+            // Invalidated before the write (and, for rekordbox, its
+            // OneLibrary mirror below) rather than after: a write that
+            // throws partway through may still have modified the file on
+            // disk, and the cache must not keep serving the pre-write
+            // result in that case either.
+            LibraryCatalogCache::instance().invalidateWithOneLibraryMirror(format.toStdString(), pioneerRoot);
             writer->writeHotCues(id, cues);
-            LibraryCatalogCache::instance().invalidate(format.toStdString(), pioneerRoot);
             log.record("add-cue: added " + kind.toStdString() + (isLoop ? " loop" : " cue") + " at " +
                        std::to_string(static_cast<int>(positionMs)) + "ms to track id=" + id + " (\"" +
                        track->title + "\")" + (dbBackupId.empty() ? "" : ", backup " + dbBackupId));
 
             // Best-effort OneLibrary mirror -- same secondary write every
             // other rekordbox cue path here already does, never fatal to
-            // the primary write above.
+            // the primary write above. Its cache entry was already
+            // invalidated above regardless of whether this succeeds.
             if (format == "rekordbox" && !track->filePath.empty() &&
                 infrastructure::onelibrary::OneLibraryCueWriter::existsFor(pioneerRoot)) {
                 try {
                     infrastructure::onelibrary::OneLibraryCueWriter oneLibWriter(pioneerRoot);
                     oneLibWriter.writeCuesForPath(track->filePath, cues);
-                    LibraryCatalogCache::instance().invalidate("onelibrary", pioneerRoot);
                     log.record("add-cue: also wrote into OneLibrary");
                 } catch (const std::exception &e) {
                     log.record(std::string("add-cue: OneLibrary write failed: ") + e.what());

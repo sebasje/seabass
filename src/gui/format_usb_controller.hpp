@@ -3,10 +3,12 @@
 #include <QFutureWatcher>
 #include <QObject>
 #include <QQmlEngine>
+#include <QTimer>
 #include <QVariantList>
 
 #include <memory>
 
+#include "application/ports/removable_media_monitor.hpp"
 #include "gui/qt_progress_reporter.hpp"
 
 namespace seabass::gui
@@ -44,6 +46,7 @@ class FormatUsbController : public QObject
 
 public:
     explicit FormatUsbController(QObject *parent = nullptr);
+    ~FormatUsbController() override;
 
     QVariantList disks() const { return m_disks; }
     bool busy() const { return m_busy; }
@@ -52,8 +55,12 @@ public:
     qlonglong fat32MaxBytes() const { return m_fat32MaxBytes; }
 
     // Re-scans for removable disks (blank and already-recognized alike)
-    // and repopulates `disks`. Call on page open and after a successful
-    // format.
+    // and repopulates `disks`. Called on construction, after a successful
+    // format, and automatically on every hotplug event (see m_monitor
+    // below) -- a stick pulled while this page is open (to back up to,
+    // say, unrelated to whatever's about to be formatted) needs to
+    // disappear from "1. Choose a drive" immediately, the same way
+    // MediaController already keeps the Home page's own stick list live.
     Q_INVOKABLE void refresh();
 
     // Pure heuristic, no I/O -- domain::recommendedUsbFilesystem() exposed
@@ -78,6 +85,8 @@ private:
     void setDisks(QVariantList disks);
 
     QFutureWatcher<FormatUsbTaskResult> m_watcher;
+    std::unique_ptr<application::RemovableMediaMonitor> m_monitor;
+    QTimer m_debounceTimer;
     QVariantList m_disks;
     bool m_busy = false;
     QString m_errorMessage;
