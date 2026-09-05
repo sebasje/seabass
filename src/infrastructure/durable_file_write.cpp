@@ -40,15 +40,6 @@ bool writeFileDurably(const std::string &path, const std::string &data)
     return ok != 0;
 }
 
-void fsyncDirectoryContaining(const std::string &)
-{
-    // No direct equivalent needed on Windows: FlushFileBuffers on the
-    // file itself (above) already forces the data durable, and
-    // MoveFileEx-based renames (what std::filesystem::rename uses here)
-    // don't have the same "directory entry update" durability gap POSIX
-    // rename does.
-}
-
 #else
 
 bool writeFileDurably(const std::string &path, const std::string &data)
@@ -70,11 +61,34 @@ bool writeFileDurably(const std::string &path, const std::string &data)
         remaining -= static_cast<size_t>(n);
     }
     if (ok) {
+#if defined(__APPLE__)
+        // fsync() on macOS does not flush the drive's write cache;
+        // F_FULLFSYNC does. Fall back to fsync where a filesystem
+        // rejects it.
+        ok = ::fcntl(fd, F_FULLFSYNC) == 0 || ::fsync(fd) == 0;
+#else
         ok = ::fsync(fd) == 0;
+#endif
     }
     ::close(fd);
     return ok;
 }
+
+#endif
+
+}  // namespace
+
+#if defined(_WIN32)
+
+void fsyncDirectoryContaining(const std::string &)
+{
+    // No direct equivalent needed on Windows: FlushFileBuffers on the
+    // file itself already forces the data durable, and MoveFileEx-based
+    // renames (what std::filesystem::rename uses here) don't have the
+    // same "directory entry update" durability gap POSIX rename does.
+}
+
+#else
 
 // Standard "durable rename" pattern: fsync-ing the file's own data
 // isn't enough by itself -- the directory entry the rename just updated
@@ -94,8 +108,6 @@ void fsyncDirectoryContaining(const std::string &filePath)
 }
 
 #endif
-
-}  // namespace
 
 bool writeFileDurablyAtomic(const std::string &path, const std::string &data)
 {

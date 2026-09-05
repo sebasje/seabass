@@ -46,6 +46,14 @@ find_package(SQLite3 REQUIRED)
 # metadata backups before they hit disk (see infrastructure/compression/).
 find_package(ZLIB REQUIRED)
 
+# Independent ZIP implementations for the stick-backup cross-validation
+# test (tests/backup_archive_crossvalidation_test.cpp). All optional: the
+# test skips (exit 77) without python3 and skips the individual tool
+# cases without unzip / 7z.
+find_package(Python3 COMPONENTS Interpreter QUIET)
+find_program(UNZIP_EXECUTABLE unzip)
+find_program(SEVENZIP_EXECUTABLE NAMES 7z 7zz 7za)
+
 # Only needed by stick_write_lock_test, which spawns a real std::thread to
 # prove StickWriteLock actually excludes a concurrent locker.
 find_package(Threads REQUIRED)
@@ -152,6 +160,24 @@ add_library(seabass_core STATIC
     src/infrastructure/system/rekordbox_process_detector.cpp
     src/infrastructure/system/stick_hardware_info.cpp
     src/infrastructure/zip_archive_writer.cpp
+    src/infrastructure/hashing/sha256.cpp
+    src/infrastructure/stick_backup/posix_archive_file.cpp
+    src/infrastructure/stick_backup/zip_format.cpp
+    src/infrastructure/stick_backup/zip64_writer.cpp
+    src/infrastructure/stick_backup/zip64_reader.cpp
+    src/infrastructure/stick_backup/backup_manifest.cpp
+    src/infrastructure/stick_backup/archive_journal.cpp
+    src/infrastructure/stick_backup/archive_updater.cpp
+    src/infrastructure/stick_backup/archive_recovery.cpp
+    src/infrastructure/stick_backup/stick_tree_walker.cpp
+    src/infrastructure/stick_backup/stat_diff.cpp
+    src/infrastructure/stick_backup/sqlite_db_set.cpp
+    src/infrastructure/stick_backup/archive_compactor.cpp
+    src/infrastructure/stick_backup/restore_path_sanitizer.cpp
+    src/infrastructure/engine/engine_restore_check.cpp
+    src/application/use_cases/backup_stick.cpp
+    src/application/use_cases/compact_stick_backup.cpp
+    src/application/use_cases/restore_stick_backup.cpp
 )
 target_include_directories(seabass_core PUBLIC src)
 target_link_libraries(seabass_core PUBLIC rekordbox_format DjInterop ZLIB::ZLIB)
@@ -335,6 +361,10 @@ if(Qt6_FOUND)
                 src/gui/qml/CueFallbackNotice.qml
                 src/gui/qml/TrackDetailPage.qml
                 src/gui/qml/FormatUsbPage.qml
+                src/gui/qml/common/MessagePopup.qml
+                src/gui/qml/StickWriteWarning.qml
+                src/gui/qml/StickBackupPage.qml
+                src/gui/qml/RestoreStickBackupPage.qml
             SOURCES
                 # Theme.qml's font-size properties (fontSmall, iconScale,
                 # ...) bind to this QML_SINGLETON C++ type.
@@ -794,6 +824,135 @@ add_executable(zip_archive_writer_test
 target_include_directories(zip_archive_writer_test PRIVATE src)
 target_link_libraries(zip_archive_writer_test PRIVATE ZLIB::ZLIB)
 add_test(NAME zip_archive_writer_test COMMAND zip_archive_writer_test)
+
+# --- stick backup (docs/stick-backup-plan.md) ---
+
+add_executable(sha256_test
+    src/infrastructure/hashing/sha256.cpp
+    tests/sha256_test.cpp
+)
+target_include_directories(sha256_test PRIVATE src)
+add_test(NAME sha256_test COMMAND sha256_test)
+
+add_executable(archive_file_test
+    src/infrastructure/stick_backup/posix_archive_file.cpp
+    tests/archive_file_test.cpp
+)
+target_include_directories(archive_file_test PRIVATE src)
+add_test(NAME archive_file_test COMMAND archive_file_test)
+
+set(SEABASS_STICK_BACKUP_FORMAT_SOURCES
+    src/infrastructure/hashing/sha256.cpp
+    src/infrastructure/stick_backup/posix_archive_file.cpp
+    src/infrastructure/stick_backup/zip_format.cpp
+    src/infrastructure/stick_backup/zip64_writer.cpp
+    src/infrastructure/stick_backup/zip64_reader.cpp
+    src/infrastructure/stick_backup/backup_manifest.cpp
+)
+
+add_executable(backup_archive_roundtrip_test
+    ${SEABASS_STICK_BACKUP_FORMAT_SOURCES}
+    tests/backup_archive_roundtrip_test.cpp
+)
+target_include_directories(backup_archive_roundtrip_test PRIVATE src)
+target_link_libraries(backup_archive_roundtrip_test PRIVATE ZLIB::ZLIB)
+add_test(NAME backup_archive_roundtrip_test COMMAND backup_archive_roundtrip_test)
+
+add_executable(backup_archive_crossvalidation_test
+    ${SEABASS_STICK_BACKUP_FORMAT_SOURCES}
+    tests/backup_archive_crossvalidation_test.cpp
+)
+target_include_directories(backup_archive_crossvalidation_test PRIVATE src)
+target_link_libraries(backup_archive_crossvalidation_test PRIVATE ZLIB::ZLIB)
+add_test(NAME backup_archive_crossvalidation_test COMMAND backup_archive_crossvalidation_test)
+set_tests_properties(backup_archive_crossvalidation_test PROPERTIES
+    ENVIRONMENT "SEABASS_PYTHON3=${Python3_EXECUTABLE};SEABASS_UNZIP=${UNZIP_EXECUTABLE};SEABASS_SEVENZIP=${SEVENZIP_EXECUTABLE}"
+    SKIP_RETURN_CODE 77
+)
+
+set(SEABASS_STICK_BACKUP_UPDATE_SOURCES
+    ${SEABASS_STICK_BACKUP_FORMAT_SOURCES}
+    src/infrastructure/stick_backup/archive_journal.cpp
+    src/infrastructure/stick_backup/archive_updater.cpp
+    src/infrastructure/stick_backup/archive_recovery.cpp
+)
+
+add_executable(backup_archive_incremental_update_test
+    ${SEABASS_STICK_BACKUP_UPDATE_SOURCES}
+    tests/backup_archive_incremental_update_test.cpp
+)
+target_include_directories(backup_archive_incremental_update_test PRIVATE src)
+target_link_libraries(backup_archive_incremental_update_test PRIVATE ZLIB::ZLIB)
+add_test(NAME backup_archive_incremental_update_test COMMAND backup_archive_incremental_update_test)
+
+add_executable(backup_archive_truncation_fuzz_test
+    ${SEABASS_STICK_BACKUP_UPDATE_SOURCES}
+    tests/backup_archive_truncation_fuzz_test.cpp
+)
+target_include_directories(backup_archive_truncation_fuzz_test PRIVATE src)
+target_link_libraries(backup_archive_truncation_fuzz_test PRIVATE ZLIB::ZLIB)
+add_test(NAME backup_archive_truncation_fuzz_test COMMAND backup_archive_truncation_fuzz_test)
+
+set(SEABASS_STICK_BACKUP_STICK_SOURCES
+    ${SEABASS_STICK_BACKUP_UPDATE_SOURCES}
+    src/infrastructure/stick_backup/stick_tree_walker.cpp
+    src/infrastructure/stick_backup/stat_diff.cpp
+    src/infrastructure/stick_backup/sqlite_db_set.cpp
+)
+
+add_executable(stat_diff_test
+    src/infrastructure/hashing/sha256.cpp
+    src/infrastructure/stick_backup/backup_manifest.cpp
+    src/infrastructure/stick_backup/stick_tree_walker.cpp
+    src/infrastructure/stick_backup/stat_diff.cpp
+    tests/stat_diff_test.cpp
+)
+target_include_directories(stat_diff_test PRIVATE src)
+add_test(NAME stat_diff_test COMMAND stat_diff_test)
+
+add_executable(backup_database_capture_test
+    ${SEABASS_STICK_BACKUP_STICK_SOURCES}
+    tests/backup_database_capture_test.cpp
+)
+target_include_directories(backup_database_capture_test PRIVATE src)
+target_link_libraries(backup_database_capture_test PRIVATE ZLIB::ZLIB SQLite::SQLite3)
+add_test(NAME backup_database_capture_test COMMAND backup_database_capture_test)
+
+add_executable(backup_stick_test
+    ${SEABASS_STICK_BACKUP_STICK_SOURCES}
+    src/application/ports/progress_reporter.cpp
+    src/application/use_cases/backup_stick.cpp
+    tests/backup_stick_test.cpp
+)
+target_include_directories(backup_stick_test PRIVATE src)
+target_link_libraries(backup_stick_test PRIVATE ZLIB::ZLIB SQLite::SQLite3)
+add_test(NAME backup_stick_test COMMAND backup_stick_test)
+
+add_executable(backup_archive_compaction_test
+    ${SEABASS_STICK_BACKUP_UPDATE_SOURCES}
+    src/infrastructure/durable_file_write.cpp
+    src/infrastructure/stick_backup/archive_compactor.cpp
+    src/application/use_cases/compact_stick_backup.cpp
+    tests/backup_archive_compaction_test.cpp
+)
+target_include_directories(backup_archive_compaction_test PRIVATE src)
+target_link_libraries(backup_archive_compaction_test PRIVATE ZLIB::ZLIB)
+add_test(NAME backup_archive_compaction_test COMMAND backup_archive_compaction_test)
+
+add_executable(backup_restore_test
+    ${SEABASS_STICK_BACKUP_STICK_SOURCES}
+    src/infrastructure/durable_file_write.cpp
+    src/infrastructure/stick_backup/archive_compactor.cpp
+    src/infrastructure/stick_backup/restore_path_sanitizer.cpp
+    src/application/ports/progress_reporter.cpp
+    src/application/use_cases/backup_stick.cpp
+    src/application/use_cases/compact_stick_backup.cpp
+    src/application/use_cases/restore_stick_backup.cpp
+    tests/backup_restore_test.cpp
+)
+target_include_directories(backup_restore_test PRIVATE src)
+target_link_libraries(backup_restore_test PRIVATE ZLIB::ZLIB SQLite::SQLite3)
+add_test(NAME backup_restore_test COMMAND backup_restore_test)
 
 add_executable(pending_deletion_resolver_test
     src/infrastructure/cleanup/pending_deletion_resolver.cpp

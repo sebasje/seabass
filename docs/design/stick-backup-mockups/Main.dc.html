@@ -1,0 +1,102 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600&family=IBM+Plex+Mono&family=Noto+Sans:wght@400;700&display=swap">
+  <style>
+    body{margin:0;background:#14181c;color:#e8ecef;font-family:"Noto Sans",system-ui,sans-serif;font-size:13.3px;line-height:1.35}
+    a{color:#3daee9}a:hover{color:#6cc4f0}
+    .page{display:flex;flex-direction:column;background:#14181c;overflow:hidden}
+    .toolbar{display:flex;align-items:center;gap:12px;padding:10px;background:#1a1f24;flex-shrink:0}
+    .crumbs{display:flex;align-items:center;gap:4px}
+    .crumb{font-family:Manrope,system-ui,sans-serif;font-weight:500;font-size:26.7px;color:#898d90;padding:4px 8px;border-radius:4px}
+    .sep{font-size:26.7px;color:#898d90}
+    .title{font-family:Manrope,system-ui,sans-serif;font-weight:500;font-size:26.7px;color:#e8ecef;padding:4px 8px}
+    .body{display:flex;flex-direction:column;gap:16px;padding:16px;flex-grow:1}
+    .frame{display:flex;flex-direction:column;gap:8px;padding:12px;background:#1a1f24;border:1px solid #333a40;border-radius:4px}
+    .row{display:flex;align-items:center;gap:12px}
+    .col{display:flex;flex-direction:column;gap:2px}
+    .grow{flex-grow:1}
+    .h{font-weight:700}
+    .muted{color:#898d90}
+    .small{font-size:12.3px}
+    .mono{font-family:"IBM Plex Mono",ui-monospace,monospace}
+    .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:32px;padding:0 14px;border-radius:3px;background:#252b31;border:1px solid #333a40;color:#e8ecef;font-size:13.3px;white-space:nowrap}
+    .btn.primary{background:#123a52;border-color:#3daee9}
+    .badge{display:inline-flex;align-items:center;padding:3px 6px;border-radius:3px;border:1px solid;font-size:11.3px;font-weight:700}
+    .b-good{color:#8fce8f;border-color:#8fce8f;background:rgba(143,206,143,.15)}
+    .kv{display:grid;grid-template-columns:auto 1fr;column-gap:16px;row-gap:6px;align-items:center}
+    .exp{display:inline-flex;padding:2px 4px;border-radius:3px;background:#4a3510;border:1px solid #c99a2e;color:#f0d080;font-size:11.3px;font-weight:700}
+  </style>
+</helmet>
+<div class="page" style="width:1040px;height:640px">
+  <div class="toolbar">
+    <div class="crumbs">
+      <span class="crumb">Home</span><span class="sep">›</span>
+      <span class="crumb">Backups</span><span class="sep">›</span>
+      <span class="title">Full Stick Backup</span>
+    </div>
+    <span class="exp">EXPERIMENTAL</span>
+  </div>
+  <div class="body">
+
+    <div class="frame">
+      <div class="kv">
+        <span class="muted small">Last backup</span>
+        <div class="row"><span>3 Sep 2026, 21:14</span><span class="muted">·</span><span class="mono">23.4 GB</span><span class="muted">·</span><span class="mono">1,161 tracks</span><span class="badge b-good">VERIFIED</span></div>
+        <span class="muted small">Archive</span>
+        <div class="row"><span class="mono">~/Seabass Backups/WHALESHARK2.zip</span><span class="grow"></span><span class="btn">Open Folder</span></div>
+      </div>
+    </div>
+
+    <div class="frame">
+      <div class="row">
+        <div class="col grow">
+          <div class="h">Back Up to This Computer</div>
+          <div class="muted">Reads the whole stick into one file on this computer. Never writes to the stick.</div>
+        </div>
+        <span class="btn primary">Back Up Now</span>
+      </div>
+      <div class="row" style="margin-top:4px">
+        <span class="muted">Since last backup</span>
+        <span><span class="mono">12</span> added <span class="muted">(1.2 GB)</span></span><span class="muted">·</span>
+        <span><span class="mono">3</span> changed</span><span class="muted">·</span>
+        <span><span class="mono">1</span> removed</span><span class="muted">·</span>
+        <span>database changed</span>
+        <span class="muted">→</span>
+        <span>about <span class="mono">1.3 GB</span> to read, <span class="mono">~4 min</span></span>
+      </div>
+      <div class="muted small">Time estimated from this stick's last read-speed benchmark.</div>
+    </div>
+
+    <div class="frame">
+      <div class="row">
+        <div class="col grow">
+          <div class="h">Archive Health</div>
+          <div class="muted"><span class="mono" style="color:#e8ecef">4.2 GB</span> reclaimable (18% of 23.4 GB) — space left behind by files replaced or removed since the first backup.</div>
+        </div>
+        <span class="btn">Verify Backup</span>
+        <span class="btn">Compact…</span>
+      </div>
+    </div>
+
+    <div class="frame">
+      <div class="row">
+        <div class="col grow">
+          <div class="h">Restore Onto WHALESHARK2</div>
+          <div class="muted">Puts this backup back onto the stick. Files on the stick that aren't in the backup are kept unless you choose an exact restore.</div>
+        </div>
+        <span class="btn">Restore Onto Stick…</span>
+      </div>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

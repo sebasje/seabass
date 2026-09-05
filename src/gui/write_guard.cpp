@@ -14,4 +14,15 @@ QString refuseIfRekordboxRunning()
     return {};
 }
 
+QString refuseIfDjSoftwareRunning()
+{
+    std::string name = infrastructure::system::conflictingDjSoftwareName();
+    if (name.empty()) {
+        return {};
+    }
+    return QStringLiteral("Refused: %1 appears to be running on this machine. Close it first -- it may be writing to "
+                          "the stick's database while Seabass reads or replaces it.")
+        .arg(QString::fromStdString(name));
+}
+
 }  // namespace seabass::gui

@@ -3,18 +3,21 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import SeabassGui
 
-// Fans out the "Backups" top-level card into its two sub-features --
-// LocalCuePage (cue backup/restore to/from this computer) and BackupsPage
+// Fans out the "Backups" top-level card into its sub-features --
+// LocalCuePage (cue backup/restore to/from this computer), BackupsPage
 // (listing/cleaning up the automatic per-write backups already kept on the
-// stick itself). Two distinct backup stores, kept as two sub-pages rather
-// than merged, same as before this reorg -- only the entry point changed.
+// stick itself) and, experimentally, StickBackupPage (the whole stick into
+// one archive on this computer). Distinct backup stores, kept as separate
+// sub-pages rather than merged -- only the entry point is shared.
 Page {
     id: root
     required property string stickLabel
     required property string rekordboxPath
     required property string enginePath
+    required property var appSettingsController
     signal localCueRequested(string stickLabel, string rekordboxPath, string enginePath)
     signal manageBackupsRequested(string stickLabel, string rekordboxPath, string enginePath)
+    signal fullStickBackupRequested(string stickLabel, string rekordboxPath, string enginePath)
 
     readonly property bool hasRekordbox: rekordboxPath.length > 0
     readonly property bool hasEngine: enginePath.length > 0
@@ -57,6 +60,18 @@ Page {
             cardIcon: "🗄"
             enabled: root.hasRekordbox || root.hasEngine
             onClicked: root.manageBackupsRequested(root.stickLabel, root.rekordboxPath, root.enginePath)
+        }
+        ActionCard {
+            cardTitle: "Full Stick Backup"
+            cardSubtitle: "Back up the whole stick into one file on this computer, or put it back"
+            cardIcon: "🗃"
+            // Experimental (see docs/experimental-features.md and
+            // docs/stick-backup-plan.md): a new archive format and a
+            // restore path that overwrites files on a stick.
+            experimental: true
+            experimentalFeaturesEnabled: root.appSettingsController.experimentalFeaturesEnabled
+            enabled: root.hasRekordbox || root.hasEngine
+            onClicked: root.fullStickBackupRequested(root.stickLabel, root.rekordboxPath, root.enginePath)
         }
         Item { Layout.fillHeight: true }
     }

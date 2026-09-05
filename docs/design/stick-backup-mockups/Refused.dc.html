@@ -1,0 +1,104 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600&family=IBM+Plex+Mono&family=Noto+Sans:wght@400;700&display=swap">
+  <style>
+    body{margin:0;background:#14181c;color:#e8ecef;font-family:"Noto Sans",system-ui,sans-serif;font-size:13.3px;line-height:1.35}
+    a{color:#3daee9}a:hover{color:#6cc4f0}
+    .page{display:flex;flex-direction:column;background:#14181c;overflow:hidden}
+    .toolbar{display:flex;align-items:center;gap:12px;padding:10px;background:#1a1f24;flex-shrink:0}
+    .crumbs{display:flex;align-items:center;gap:4px}
+    .crumb{font-family:Manrope,system-ui,sans-serif;font-weight:500;font-size:26.7px;color:#898d90;padding:4px 8px;border-radius:4px}
+    .sep{font-size:26.7px;color:#898d90}
+    .title{font-family:Manrope,system-ui,sans-serif;font-weight:500;font-size:26.7px;color:#e8ecef;padding:4px 8px}
+    .body{display:flex;flex-direction:column;gap:16px;padding:16px;flex-grow:1}
+    .frame{display:flex;flex-direction:column;gap:8px;padding:12px;background:#1a1f24;border:1px solid #333a40;border-radius:4px}
+    .row{display:flex;align-items:center;gap:12px}
+    .col{display:flex;flex-direction:column;gap:2px}
+    .grow{flex-grow:1}
+    .h{font-weight:700}
+    .muted{color:#898d90}
+    .small{font-size:12.3px}
+    .mono{font-family:"IBM Plex Mono",ui-monospace,monospace}
+    .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:32px;padding:0 14px;border-radius:3px;background:#252b31;border:1px solid #333a40;color:#e8ecef;font-size:13.3px;white-space:nowrap}
+    .btn.primary{background:#123a52;border-color:#3daee9}
+    .btn.off{opacity:.45}
+    .badge{display:inline-flex;align-items:center;padding:3px 6px;border-radius:3px;border:1px solid;font-size:11.3px;font-weight:700}
+    .b-warn{color:#f0c040;border-color:#f0c040;background:rgba(240,192,64,.15)}
+    .kv{display:grid;grid-template-columns:auto 1fr;column-gap:16px;row-gap:6px;align-items:center}
+    .warn{display:flex;gap:8px;align-items:flex-start;padding:8px;border-radius:4px;background:#4a3510;border:1px solid #c99a2e;color:#f0d080}
+    .dangerbar{display:flex;gap:8px;align-items:flex-start;padding:8px;border-radius:4px;background:#5c1a1a;border:1px solid #e74c3c;color:#fff;font-weight:700}
+    .exp{display:inline-flex;padding:2px 4px;border-radius:3px;background:#4a3510;border:1px solid #c99a2e;color:#f0d080;font-size:11.3px;font-weight:700}
+    .ic{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+  </style>
+</helmet>
+<div class="page" style="width:1040px;height:600px">
+  <div class="toolbar">
+    <div class="crumbs">
+      <span class="crumb">Home</span><span class="sep">›</span>
+      <span class="crumb">Backups</span><span class="sep">›</span>
+      <span class="title">Full Stick Backup</span>
+    </div>
+    <span class="exp">EXPERIMENTAL</span>
+  </div>
+  <div class="body">
+
+    <div class="dangerbar">
+      <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M7 12h10"></path></svg>
+      <span>Engine DJ appears to be running: backups are refused until it's closed, so the database can't change while it's being read.</span>
+    </div>
+
+    <div class="frame">
+      <div class="kv">
+        <span class="muted small">Last backup</span>
+        <div class="row"><span>5 Sep 2026, 03:12</span><span class="muted">·</span><span class="mono">23.9 GB</span><span class="muted">·</span><span class="mono">1,173 tracks</span><span class="badge b-warn">INCOMPLETE</span><span class="muted small">database not captured — Engine DJ was opened during the backup</span></div>
+        <span class="muted small">Archive</span>
+        <div class="row"><span class="mono">~/Seabass Backups/WHALESHARK2.zip</span><span class="grow"></span><span class="btn">Open Folder</span></div>
+      </div>
+    </div>
+
+    <div class="frame">
+      <div class="row">
+        <div class="col grow">
+          <div class="h">Back Up to This Computer</div>
+          <div class="muted">Reads the whole stick into one file on this computer. Never writes to the stick.</div>
+        </div>
+        <div class="col" style="align-items:flex-end;gap:4px">
+          <span class="btn primary off">Back Up Now</span>
+          <span class="muted small">Close Engine DJ to continue.</span>
+        </div>
+      </div>
+      <div class="warn" style="margin-top:4px">
+        <svg class="ic" viewBox="0 0 24 24" style="color:#f0c040"><path d="M12 3l10 18H2z"></path><path d="M12 10v5M12 18h.01"></path></svg>
+        <span>The Engine database is <span class="mono">1.3 GB</span> — too large for Seabass to back up safely. Everything else will be backed up; copy <span class="mono">Engine Library/Database2/m.db</span> by hand, and the backup will stay marked incomplete.</span>
+      </div>
+      <div class="row" style="margin-top:2px">
+        <span class="muted">Since last backup</span>
+        <span><span class="mono">0</span> added</span><span class="muted">·</span>
+        <span><span class="mono">0</span> changed</span><span class="muted">·</span>
+        <span><span class="mono">0</span> removed</span><span class="muted">·</span>
+        <span>database not yet captured</span>
+      </div>
+    </div>
+
+    <div class="frame">
+      <div class="row">
+        <div class="col grow">
+          <div class="h">Archive Health</div>
+          <div class="muted"><span class="mono" style="color:#e8ecef">0.6 GB</span> reclaimable (3%) — not worth compacting yet.</div>
+        </div>
+        <span class="btn">Verify Backup</span>
+      </div>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

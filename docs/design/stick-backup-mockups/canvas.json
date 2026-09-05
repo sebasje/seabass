@@ -1,0 +1,21 @@
+{
+  "artboards": [
+    { "file": "Hub.dc.html", "x": 0, "y": 0, "w": 760, "h": 400, "title": "Backups hub — new card" },
+    { "file": "Main.dc.html", "x": 860, "y": 0, "w": 1040, "h": 640, "title": "Backup page — existing backup" },
+    { "file": "FirstBackup.dc.html", "x": 0, "y": 780, "w": 1040, "h": 500, "title": "Backup page — first backup" },
+    { "file": "Running.dc.html", "x": 1140, "y": 780, "w": 1040, "h": 560, "title": "Backup page — running" },
+    { "file": "CancelDecision.dc.html", "x": 2260, "y": 780, "w": 520, "h": 360, "title": "Cancel — keep or discard" },
+    { "file": "Refused.dc.html", "x": 0, "y": 1480, "w": 1040, "h": 600, "title": "Backup page — refused / incomplete" },
+    { "file": "CompactDialog.dc.html", "x": 1140, "y": 1480, "w": 520, "h": 340, "title": "Compact — enough space" },
+    { "file": "CompactRefused.dc.html", "x": 1760, "y": 1480, "w": 520, "h": 380, "title": "Compact — not enough space" },
+    { "file": "RestorePick.dc.html", "x": 0, "y": 2220, "w": 1040, "h": 820, "title": "Restore — top-level page" },
+    { "file": "RestoreConfirm.dc.html", "x": 1140, "y": 2220, "w": 520, "h": 520, "title": "Restore — confirm" }
+  ],
+  "annotations": [
+    { "id": "assumptions", "x": 860, "y": -170, "w": 520, "text": "Agreed 2026-09-05:\n• Restore = overlay (keeps files not in the backup), with an 'Exact restore' checkbox that adds type-to-confirm.\n• No in-app archive browser in v1 — 'Open Folder' instead; browser comes next.\n• Backup location fixed at ~/Seabass Backups/, with 'Change Location…' here and in App Settings." },
+    { "id": "icons", "x": 0, "y": -110, "w": 380, "text": "Card icons drawn as line SVG here; the real ActionCards use Noto Sans Symbols glyphs — pick one when the card is built." },
+    { "id": "cancel-semantics", "x": 2260, "y": 1180, "w": 520, "text": "Cancel stops after the current file and leaves the archive in its journaled state. Keep for later = commit what completed as a partial backup (the next run resumes from there). Discard = roll back; on a first backup the file is removed. If the app dies before the choice, journal recovery discards." },
+    { "id": "restore-entry", "x": 1140, "y": 2780, "w": 520, "text": "Restore lives top-level (next to Format USB Stick) because the per-stick card grid only shows for recognised DJ sticks — a blank replacement stick would never reach it. The per-stick page's 'Restore Onto Stick…' pushes this same page with the drive preselected." }
+  ],
+  "launch": { "view": "canvas" }
+}
