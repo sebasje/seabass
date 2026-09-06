@@ -8,6 +8,7 @@
 #include <chrono>
 #include <filesystem>
 
+#include "gui/stick_backup_paths.hpp"
 #include "gui/write_guard.hpp"
 #include "infrastructure/engine/engine_restore_check.hpp"
 #include "infrastructure/media/media_factory.hpp"
@@ -152,16 +153,7 @@ void RestoreStickBackupController::setDefaultBackupDirectory(const QString &dire
 
 QString RestoreStickBackupController::archivePathForLabel(const QString &label) const
 {
-    QString name = label.trimmed();
-    for (QChar &c : name) {
-        if (QStringLiteral("/\\:*?\"<>|").contains(c) || c.unicode() < 0x20) {
-            c = QLatin1Char('_');
-        }
-    }
-    if (name.isEmpty()) {
-        name = QStringLiteral("stick");
-    }
-    return QDir(m_defaultBackupDirectory).filePath(name + QStringLiteral(".zip"));
+    return gui::archivePathForLabel(m_defaultBackupDirectory, label);
 }
 
 void RestoreStickBackupController::refreshKnownBackups()
