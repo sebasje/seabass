@@ -9,6 +9,7 @@
 #include <filesystem>
 
 #include "gui/stick_backup_paths.hpp"
+#include "gui/future_result.hpp"
 #include "gui/write_guard.hpp"
 #include "infrastructure/engine/engine_restore_check.hpp"
 #include "infrastructure/media/media_factory.hpp"
@@ -187,7 +188,11 @@ void RestoreStickBackupController::refreshKnownBackups()
 
 void RestoreStickBackupController::onListFinished()
 {
-    m_knownBackups = m_listWatcher.result();
+    QString thrown;
+    m_knownBackups = takeResult(m_listWatcher, &thrown);
+    if (!thrown.isEmpty()) {
+        setErrorMessage(QStringLiteral("Could not list the backup folder: ") + thrown);
+    }
     emit knownBackupsChanged();
 }
 
@@ -215,8 +220,13 @@ void RestoreStickBackupController::mount(const QString &devicePath)
 
 void RestoreStickBackupController::onMountFinished()
 {
-    const std::shared_ptr<MountResult> result = m_mountWatcher.result();
+    QString thrown;
+    const std::shared_ptr<MountResult> result = takeResult(m_mountWatcher, &thrown);
     m_mounting = false;
+    if (!thrown.isEmpty()) {
+        setErrorMessage(thrown);
+        emit actionFeedback(thrown, true);
+    }
     emit busyChanged();
     if (!result) {
         return;
@@ -267,8 +277,12 @@ void RestoreStickBackupController::analyze(const QString &targetRoot)
 
 void RestoreStickBackupController::onAnalyzeFinished()
 {
-    std::shared_ptr<AnalyzeResult> result = m_analyzeWatcher.result();
+    QString thrown;
+    std::shared_ptr<AnalyzeResult> result = takeResult(m_analyzeWatcher, &thrown);
     m_analyzing = false;
+    if (!thrown.isEmpty()) {
+        setErrorMessage(QStringLiteral("Could not read the backup: ") + thrown);
+    }
     if (result) {
         const RestorePreview &p = result->preview;
         QVariantMap info;
@@ -407,8 +421,13 @@ void RestoreStickBackupController::clearResult()
 
 void RestoreStickBackupController::onRestoreFinished()
 {
-    std::shared_ptr<RestoreResult> result = m_restoreWatcher.result();
+    QString thrown;
+    std::shared_ptr<RestoreResult> result = takeResult(m_restoreWatcher, &thrown);
     m_restoring = false;
+    if (!thrown.isEmpty()) {
+        setErrorMessage(thrown);
+        emit actionFeedback(thrown, true);
+    }
     emit busyChanged();
     if (!result) {
         return;

@@ -132,6 +132,7 @@ qt_add_qml_module(seabass
         library_fingerprint_reader.hpp
         library_fingerprint_reader.cpp
         stick_backup_paths.hpp
+        future_result.hpp
         sync_controller.hpp
         sync_controller.cpp
         backups_controller.hpp
