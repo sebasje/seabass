@@ -12,6 +12,7 @@
 #include "application/use_cases/backup_stick.hpp"
 #include "application/use_cases/compact_stick_backup.hpp"
 #include "application/use_cases/restore_stick_backup.hpp"
+#include "infrastructure/long_paths.hpp"
 #include "infrastructure/stick_backup/posix_archive_file.hpp"
 #include "infrastructure/stick_backup/restore_path_sanitizer.hpp"
 #include "infrastructure/stick_backup/stick_tree_walker.hpp"
@@ -22,6 +23,7 @@
 using namespace seabass::application;
 using namespace seabass::infrastructure::stick_backup;
 using seabass::infrastructure::hashing::Sha256;
+using seabass::infrastructure::removeTreeDeepestFirst;
 namespace fs = std::filesystem;
 
 namespace
@@ -96,34 +98,6 @@ std::string readLongPathFile(const fs::path &p)
         f.readAt(0, std::span<std::byte>(reinterpret_cast<std::byte *>(out.data()), out.size()));
     }
     return out;
-}
-
-// Deletes a tree depth-first, reaching every entry through longPathSafe.
-// fs::remove_all cannot be used on a tree that contains paths past
-// MAX_PATH: on Windows it never returns. It retries the entry it cannot
-// reach instead of giving up, so it spins at 100% CPU rather than
-// reporting the failure -- and it does that even through the error_code
-// overload, and even when its root argument is already \\?\-prefixed
-// (verified both ways against a tree of this shape). Fixture's destructor
-// calls plain remove_all, so the long-path case has to leave nothing
-// behind for it to trip over.
-void removeTreeDeepestFirst(const fs::path &dir)
-{
-    std::error_code ec;
-    for (const fs::directory_entry &entry : fs::directory_iterator(longPathSafe(dir), ec)) {
-        // Ask about the prefixed path, not entry.is_directory(): a child of
-        // a still-short parent can itself be past MAX_PATH, and there the
-        // unprefixed query fails and reports "not a directory", which would
-        // send a whole subtree down the fs::remove branch and leave it in
-        // place for Fixture's remove_all to hang on.
-        const fs::path child = longPathSafe(entry.path());
-        if (fs::is_directory(child, ec)) {
-            removeTreeDeepestFirst(child);
-        } else {
-            fs::remove(child, ec);
-        }
-    }
-    fs::remove(longPathSafe(dir), ec);
 }
 
 std::size_t tempFilesUnder(const fs::path &root)

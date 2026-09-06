@@ -6,6 +6,7 @@
 #include <system_error>
 
 #include "infrastructure/engine/libdjinterop_engine_anonymizer.hpp"
+#include "infrastructure/long_paths.hpp"
 #include "infrastructure/rekordbox/rekordbox_library_anonymizer.hpp"
 #include "infrastructure/zip_archive_writer.hpp"
 
@@ -223,7 +224,11 @@ AnonymizationSummary AnonymizeLibrary::execute(const std::optional<std::string> 
     std::error_code sizeEc;
     summary.finalZipBytes = fs::file_size(zipPath, sizeEc);
 
-    fs::remove_all(outputDir);
+    // Not fs::remove_all: outputDir mirrors a real rekordbox/Engine
+    // library, so it can hold a path past MAX_PATH, and remove_all never
+    // returns on one -- it spins instead of reporting that it is stuck.
+    // See infrastructure/long_paths.hpp.
+    infrastructure::removeTreeDeepestFirst(outputDir);
 
     return summary;
 }
