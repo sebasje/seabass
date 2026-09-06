@@ -3,11 +3,13 @@
 #include <QAbstractListModel>
 #include <QFutureWatcher>
 #include <QObject>
+#include <QPointer>
 #include <QQmlEngine>
 #include <QStringList>
 #include <QVariantList>
 #include <QVariantMap>
 
+#include <map>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -18,10 +20,11 @@
 #include "domain/track_scope.hpp"
 #include "application/ports/cancellation_token.hpp"
 #include "gui/qt_progress_reporter.hpp"
-#include "gui/undo_tracking.hpp"
 
 namespace seabass::gui
 {
+
+class LibraryEditSession;
 
 // Read-only Qt list model over the SyncPlans SyncController last computed,
 // across every pair of catalogs actually present on the stick (rekordbox
@@ -46,6 +49,9 @@ public:
         DescriptionRole,
         ConflictRole,
         TracksRole,
+        // This plan is staged in the edit session: what Save will write.
+        StagedRole,
+        StagedDescriptionRole,
     };
 
     explicit SyncPlanListModel(QObject *parent = nullptr);
@@ -77,9 +83,12 @@ public:
     // consistent, nothing else in the model could have changed (see
     // SyncController::onWriteFinished()'s own comment on why).
     void removePlanAt(int index);
+    void setStaged(int index, bool staged, const QString &description);
+    void clearStaged();
 
 private:
     std::vector<domain::SyncPlan> m_plans;
+    std::vector<QString> m_stagedDescriptions;  // empty = not staged; parallel to m_plans
 };
 
 // Result of a background analyze task, see SyncController::analyze().
@@ -102,19 +111,6 @@ struct SyncTaskResult
     bool cancelled = false;  // stopped via cancelScan(); nothing else is set
 };
 
-// Result of a background write task, see SyncController::apply()/
-// applyOne()/undoLastOperation(). Built entirely on a worker thread, with
-// no access to the controller. Shared by both apply and undo: an undo
-// task always returns an empty `backups` (there is nothing left to undo
-// once it's done), which is exactly what should replace the controller's
-// undo trail either way.
-struct SyncWriteResult
-{
-    QString errorMessage;  // empty on success
-    QString statusMessage;
-    std::vector<UndoableBackup> backups;
-};
-
 // Wraps SyncLibraries for QML: two-phase, non-destructive sync across
 // every pair of catalogs actually present on a stick. Originally this
 // only ever compared rekordbox against Engine, with OneLibrary bolted on
@@ -126,8 +122,13 @@ struct SyncWriteResult
 // SyncPlanner, matching primarily by exact resolved file path -- the
 // same physical file on the same stick, format-agnostic and far more
 // reliable than title+artist+duration), and all three pairs' actionable
-// plans are combined into one list. analyze() only ever reads, apply()
-// is the single confirmation gate the QML confirm dialog calls into.
+// plans are combined into one list. analyze() only ever reads.
+//
+// Edits are staged, not written: apply()/applyOne()/resolveConflict()
+// stage one SyncPlanChange per target track in the library's
+// LibraryEditSession (the first one takes the edit lock), the row shows
+// it, and the page's Save writes them all. A row whose change reached the
+// stick disappears from the list.
 class SyncController : public QObject
 {
     Q_OBJECT
@@ -164,17 +165,17 @@ class SyncController : public QObject
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
     Q_PROPERTY(QString statusMessage READ statusMessage NOTIFY statusMessageChanged)
     Q_PROPERTY(bool canUndo READ canUndo NOTIFY canUndoChanged)
+    // Mirrors the session: true while a save is writing to the stick.
     Q_PROPERTY(bool writing READ writing NOTIFY writingChanged)
+    Q_PROPERTY(int stagedCount READ stagedCount NOTIFY stagedChanged)
 
 public:
     explicit SyncController(QObject *parent = nullptr);
 
     SyncPlanListModel *plansModel() { return &m_model; }
     bool busy() const { return m_busy; }
-    // True only while actually writing to the stick (apply()/applyOne()/
-    // undoLastOperation()), unlike busy(), which is also true during the
-    // read-only analyze() scan, which is safe to interrupt.
-    bool writing() const { return m_writing; }
+    bool writing() const;
+    int stagedCount() const { return static_cast<int>(m_stagedByTarget.size()); }
     int scanCurrent() const { return m_scanCurrent; }
     int scanTotal() const { return m_scanTotal; }
     int rekordboxTrackCount() const { return m_rekordboxTrackCount; }
@@ -186,7 +187,7 @@ public:
     QVariantList unresolvedConflicts() const { return m_unresolvedConflicts; }
     QString errorMessage() const { return m_errorMessage; }
     QString statusMessage() const { return m_statusMessage; }
-    bool canUndo() const { return !m_lastBackups.empty(); }
+    bool canUndo() const;
 
     // Phase 1: read-only. rekordboxPath/enginePath are the stick's
     // DetectedStick.rekordboxPath / .enginePath (either may be empty if
@@ -207,32 +208,25 @@ public:
     Q_INVOKABLE void analyze(const QString &rekordboxPath, const QString &enginePath,
                               const QString &playlistName = QString(), const QString &searchQuery = QString());
 
-    // Phase 2 (the confirmation gate) + phase 3: writes every plan
-    // currently in the model, across every pair. Only call this from a
-    // confirm dialog.
+    // Stages every plan currently in the model, across every pair; the
+    // page's Save writes them.
     Q_INVOKABLE void apply();
 
-    // Same as apply(), scoped to the single plan at index, lets a track
-    // be synced on its own without waiting on (or being blocked by) every
-    // other matched track.
+    // Same as apply(), scoped to the single plan at index.
     Q_INVOKABLE void applyOne(int index);
+    Q_INVOKABLE void unstage(int index);
 
-    // Reverts every file the last apply()/applyOne() touched back to what
-    // it was immediately before that write, using the very backups that
-    // write made, restored via FilesystemBackupStore::restore(). Available
-    // only right after a write (canUndo), and only once: a fresh apply
-    // clears the trail.
+    // Reverts every file the last save touched (the session's undo).
     Q_INVOKABLE void undoLastOperation();
 
     // Picks one side of unresolvedConflicts[index] as the winner: turns
-    // it into an ordinary actionable plan (added to `plans`, so it's
-    // immediately appliable and counted in directionCounts like any
-    // other) and removes it from unresolvedConflicts. useSourceA selects
-    // CrossSourceSyncConflict::sourceA/cuesFromA when true, sourceB/
-    // cuesFromB when false.
+    // it into an ordinary actionable plan (added to `plans` and staged
+    // right away -- the decision is the edit) and removes it from
+    // unresolvedConflicts. useSourceA selects CrossSourceSyncConflict::
+    // sourceA/cuesFromA when true, sourceB/cuesFromB when false.
     Q_INVOKABLE void resolveConflict(int index, bool useSourceA);
 
-    bool scanCancellable() const { return m_busy && !m_writing; }
+    bool scanCancellable() const { return m_busy && !writing(); }
     Q_INVOKABLE void cancelScan();
 
 signals:
@@ -245,24 +239,32 @@ signals:
     void statusMessageChanged();
     void canUndoChanged();
     void writingChanged();
+    void stagedChanged();
 
 private:
     void onAnalyzeFinished();
-    void onWriteFinished();
     void setBusy(bool busy);
-    void setWriting(bool writing);
     void setScanProgress(int current, int total);
     void setErrorMessage(const QString &message);
     void setStatusMessage(const QString &message);
     void recomputeDirectionCounts();
     void rebuildUnresolvedConflictsList();
-    void startApply(std::vector<domain::SyncPlan> plans);
+    void attachSession();
+    void stagePlan(int index);
+    static QString targetKeyFor(const domain::SyncPlan &plan);
+    int indexOfTargetKey(const QString &targetKey) const;
     std::shared_ptr<QtProgressReporter> makeReporter();
 
     SyncPlanListModel m_model;
     QFutureWatcher<SyncTaskResult> m_watcher;
     application::CancellationToken m_scanCancel;  // fresh per analyze()
-    QFutureWatcher<SyncWriteResult> m_writeWatcher;
+    QPointer<LibraryEditSession> m_session;
+    struct StagedInfo
+    {
+        QString changeId;
+        QString description;
+    };
+    std::map<QString, StagedInfo> m_stagedByTarget;  // target key -> what is staged for it
     QString m_rekordboxPath;
     QString m_enginePath;
     // The playlistName analyze() was last called with -- so the automatic
@@ -271,23 +273,8 @@ private:
     // instead of silently reverting to "All tracks".
     QString m_currentPlaylistName;
     // Same reasoning as m_currentPlaylistName -- the search box's own text
-    // must also survive the automatic post-write re-analyze.
+    // must also survive the automatic post-undo re-analyze.
     QString m_currentSearchQuery;
-    // What onWriteFinished() should do once the write completes, set by
-    // whichever public write method just kicked it off. apply()/
-    // applyOne() write only plans already in the model -- domain::
-    // SyncPlanner classifies each match independently and
-    // CrossSourceConflictDetector::detect() already ran once at analyze()
-    // time, so applying one plan can't change any other plan's
-    // classification (see onWriteFinished()'s own comment) -- a full
-    // re-analyze is never needed for those two. undoLastOperation()
-    // restores prior file bytes this session already discarded the old
-    // plan list for, so it keeps doing a real re-analyze.
-    enum class PendingWriteKind { ApplyAll, ApplyOne, Undo };
-    PendingWriteKind m_pendingWriteKind = PendingWriteKind::Undo;
-    // Valid only when m_pendingWriteKind is ApplyOne: the row applyOne()
-    // was called with, removed from m_model once the write succeeds.
-    int m_pendingApplyOneIndex = -1;
     bool m_busy = false;
     int m_scanCurrent = 0;
     int m_scanTotal = 0;
@@ -301,8 +288,6 @@ private:
     QVariantList m_unresolvedConflicts;
     QString m_errorMessage;
     QString m_statusMessage;
-    std::vector<UndoableBackup> m_lastBackups;
-    bool m_writing = false;
 };
 
 }  // namespace seabass::gui
