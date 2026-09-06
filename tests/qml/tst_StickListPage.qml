@@ -190,6 +190,51 @@ TestCase {
         compare(restore.signalArguments[0][2], "/b/MAIN.zip");
     }
 
+    // The card is visible unconditionally for a blank stick (it is also
+    // how you restore a backup file that never was in the default
+    // directory), so its wording carries the whole burden of being
+    // honest about whether one was actually found. Reported as "Seabass
+    // offers to restore a backup ... but we don't have one": a blank
+    // stick with an empty backup directory used to get the same "Put one
+    // of your stick backups onto this empty stick" text as a stick with
+    // a real match, phrased as though a backup were known to exist.
+    function test_emptyStickWithNoBackupsGetsHonestRestoreCardText() {
+        var empty = makeStick({label: "BLANK", mountPoint: "/media/BLANK", devicePath: "/dev/sdd1",
+                               hasRekordbox: false, hasEngine: false, rekordboxPath: "", enginePath: ""});
+        var advice = {};
+        advice["/media/BLANK"] = makeAdvice({});  // default state: "no-backups"
+        var page = makePage([empty], advice);
+        var card = findCard(page, "/media/BLANK", "Restore a Backup");
+        verify(card !== null);
+        compare(card.visible, true);
+        compare(card.cardSubtitle.toLowerCase().indexOf("one of your"), -1);
+        compare(card.cardSubtitle, "No known stick backups yet -- browse for a backup file to restore");
+
+        var restore = createTemporaryObject(spyComponent, testCase, {target: page, signalName: "restoreStickBackupRequested"});
+        card.clicked();
+        compare(restore.count, 1);
+        compare(restore.signalArguments[0][0], "/media/BLANK");
+        // No specific match: the restore page opens to browse, not to a
+        // preselected archive.
+        compare(restore.signalArguments[0][2], "");
+    }
+
+    function test_emptyStickWithAMatchedBackupNamesIt() {
+        var empty = makeStick({label: "BLANK", mountPoint: "/media/BLANK", devicePath: "/dev/sdd1",
+                               hasRekordbox: false, hasEngine: false, rekordboxPath: "", enginePath: ""});
+        var advice = {};
+        advice["/media/BLANK"] = makeAdvice({state: "restore", backupPath: "/b/OLD.zip", backupLabel: "OLD",
+            detail: "The newest backup can be restored onto this empty stick."});
+        var page = makePage([empty], advice);
+        var card = findCard(page, "/media/BLANK", "Restore a Backup");
+        compare(card.cardSubtitle, "Restore OLD onto this empty stick");
+
+        var restore = createTemporaryObject(spyComponent, testCase, {target: page, signalName: "restoreStickBackupRequested"});
+        card.clicked();
+        compare(restore.count, 1);
+        compare(restore.signalArguments[0][2], "/b/OLD.zip");
+    }
+
     Component {
         id: spyComponent
         SignalSpy {}
