@@ -3,8 +3,10 @@ import QtTest
 import SeabassGui
 
 // BackupsHubPage.qml headless with a fake advisor: the Update Stick card
-// (from a peer stick -> clone page, from the disk backup -> restore page),
-// the restore card, and the deprecated badges on the two older stores.
+// (from a peer stick -> clone page, from the disk backup -> restore page)
+// and the deprecated badge on Manage Backups. Restore a Stick Backup and
+// Local Cue Backup moved to a general block on Home (see
+// tst_StickListPage.qml) -- neither card lives here anymore.
 TestCase {
     id: testCase
     name: "BackupsHubPage"
@@ -63,25 +65,20 @@ TestCase {
         var page = makePage({}, {editRegistry: registry});
         compare(page.lockedByOther, true);
         compare(findChild(page, "manageBackupsCard").readOnly, true);
-        compare(findChild(page, "restoreCard").readOnly, true);
-        var spy = createTemporaryObject(spyComponent, testCase, {target: page, signalName: "restoreStickBackupRequested"});
-        mouseClick(findChild(page, "restoreCard"));
+        compare(findChild(page, "fullStickBackupCard").readOnly, true);
+        var spy = createTemporaryObject(spyComponent, testCase, {target: page, signalName: "fullStickBackupRequested"});
+        mouseClick(findChild(page, "fullStickBackupCard"));
         compare(spy.count, 0);
         tryCompare(findChild(page, "lockedDialog"), "opened", true);
         saveScreenshot(page, "backups-hub-read-only");
     }
 
-    function test_deprecatedBadgesAndRestoreCard() {
+    function test_deprecatedBadgeAndNoUpdateSource() {
         var page = makePage({});
-        compare(findChild(page, "localCueCard").deprecated, true);
         compare(findChild(page, "manageBackupsCard").deprecated, true);
         compare(findChild(page, "updateStickCard").visible, false);
-        var spy = createTemporaryObject(spyComponent, testCase, {target: page, signalName: "restoreStickBackupRequested"});
-        findChild(page, "restoreCard").clicked();
-        compare(spy.count, 1);
-        compare(spy.signalArguments[0][0], "/media/MAIN");
-        compare(spy.signalArguments[0][1], "/dev/sdb1");
-        compare(spy.signalArguments[0][2], "");
+        compare(findChild(page, "restoreCard"), null);
+        compare(findChild(page, "localCueCard"), null);
         saveScreenshot(page, "backups-hub");
     }
 
@@ -124,9 +121,10 @@ TestCase {
         compare(restore.signalArguments[0][2], "/b/MAIN.zip");
     }
 
-    function test_hiddenWithoutExperimentalFeatures() {
+    function test_fullStickBackupHiddenWithoutExperimentalFeatures() {
         var page = makePage({}, {appSettingsController: {experimentalFeaturesEnabled: false}});
-        compare(findChild(page, "restoreCard").visible, false);
-        compare(findChild(page, "localCueCard").visible, true);
+        compare(findChild(page, "fullStickBackupCard").visible, false);
+        // Not experimental at all -- always there regardless of the flag.
+        compare(findChild(page, "manageBackupsCard").visible, true);
     }
 }

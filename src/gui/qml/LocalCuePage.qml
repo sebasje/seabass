@@ -62,11 +62,21 @@ Page {
     // with reportFeedback: true instead of this, precisely so it gets one.
     function refresh() { localCueController.analyzeRestore(root.format, root.currentPath()); }
 
+    readonly property bool hasAnyStick: root.hasRekordbox || root.hasEngine
+
     Component.onCompleted: {
-        refresh();
+        // Opened generally (from the Backups block on Home, with no
+        // stick's paths given): nothing to scan yet, and scanning an
+        // empty path would just surface a confusing read error for a
+        // page that's mainly here to show Backup History, which needs
+        // no stick at all. Backup Now / Merge Cues below hide themselves
+        // the same way.
+        if (root.hasAnyStick) {
+            refresh();
+        }
         refreshSnapshots();
     }
-    onFormatChanged: refresh()
+    onFormatChanged: if (root.hasAnyStick) refresh()
 
     // Snapshot list/description/delete are synchronous calls with no
     // signal of their own, so refresh whenever a background operation
@@ -180,6 +190,15 @@ Page {
         anchors.margins: 16
         spacing: 16
 
+        Label {
+            visible: !root.hasAnyStick
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            color: Theme.textMuted
+            text: "Backup History below covers every stick you've ever backed up here. "
+                + "Open this from a specific stick's Backups page to back it up now or merge cues onto it."
+        }
+
         // No inline error/status Label here -- the MessagePopup declared above
         // (fired from the same statusMessage/errorMessage changes) is the
         // only place either shows up now; having both said the same
@@ -187,6 +206,7 @@ Page {
 
         Frame {
             Layout.fillWidth: true
+            visible: root.hasAnyStick
             ColumnLayout {
                 anchors.fill: parent
                 spacing: 8
@@ -346,6 +366,7 @@ Page {
         Frame {
             Layout.fillWidth: true
             Layout.fillHeight: true
+            visible: root.hasAnyStick
             ColumnLayout {
                 anchors.fill: parent
                 spacing: 8

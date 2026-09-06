@@ -3,6 +3,7 @@
 #include <QtConcurrent/QtConcurrentRun>
 
 #include "gui/edit/edit_session_registry.hpp"
+#include "gui/future_result.hpp"
 #include "infrastructure/system/rekordbox_process_detector.hpp"
 
 namespace seabass::gui
@@ -116,7 +117,10 @@ void DjSoftwareGuardController::onPollFinished()
     if (!m_timer.isActive()) {
         return;  // stopped meanwhile; a late answer must not resurrect the state
     }
-    setConflictingSoftware(m_watcher.result());
+    // A failed probe reads as "nothing running" and the next tick tries
+    // again -- this polls forever in the background, so it must never be
+    // the thing that takes the app down.
+    setConflictingSoftware(takeResult(m_watcher));
 }
 
 void DjSoftwareGuardController::setConflictingSoftware(const QString &name)

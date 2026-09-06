@@ -3,6 +3,7 @@
 #include "domain/library_fingerprint.hpp"
 #include "gui/library_fingerprint_reader.hpp"
 #include "gui/stick_backup_paths.hpp"
+#include "gui/future_result.hpp"
 
 #include <QDateTime>
 #include <QDesktopServices>
@@ -92,8 +93,8 @@ StickBackupController::~StickBackupController()
     // A pending decision that never got made is left to journal recovery
     // (= discard) on the next open; nothing to do here but let it go.
     m_cancel.cancel();
-    m_runWatcher.waitForFinished();
-    m_previewWatcher.waitForFinished();
+    awaitQuietly(m_runWatcher);
+    awaitQuietly(m_previewWatcher);
 }
 
 void StickBackupController::configure(const QString &stickLabel, const QString &rekordboxPath, const QString &enginePath,
@@ -153,8 +154,12 @@ void StickBackupController::refresh()
 
 void StickBackupController::onPreviewFinished()
 {
-    std::shared_ptr<PreviewResult> result = m_previewWatcher.result();
+    QString thrown;
+    std::shared_ptr<PreviewResult> result = takeResult(m_previewWatcher, &thrown);
     m_previewing = false;
+    if (!thrown.isEmpty()) {
+        setErrorMessage(QStringLiteral("Could not read the stick or its backup: ") + thrown);
+    }
     if (result) {
         m_stickIdentifier = result->stickIdentifier;
         const BackupPreview &p = result->preview;
@@ -513,9 +518,16 @@ void StickBackupController::finishOutcome(const BackupStickOutcome &outcome)
 
 void StickBackupController::onRunFinished()
 {
-    std::shared_ptr<RunResult> result = m_runWatcher.result();
+    QString thrown;
+    std::shared_ptr<RunResult> result = takeResult(m_runWatcher, &thrown);
     m_writeHold.release();
     setActivity({});
+    if (!thrown.isEmpty()) {
+        setErrorMessage(thrown);
+        emit actionFeedback(thrown, true);
+        refresh();
+        return;
+    }
     if (!result) {
         return;
     }

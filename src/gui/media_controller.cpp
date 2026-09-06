@@ -9,6 +9,7 @@
 
 #include "application/stick_presence_diff.hpp"
 #include "infrastructure/media/media_factory.hpp"
+#include "gui/future_result.hpp"
 
 namespace seabass::gui
 {
@@ -228,87 +229,102 @@ std::optional<application::StickIdentity> MediaController::lastKnownIdentity(con
 void MediaController::queueAutoMounts()
 {
     QSet<QString> present;
+    QSet<QString> queuedOrBusy;
+    for (const PendingTask &task : m_taskQueue) {
+        queuedOrBusy.insert(task.devicePath);
+    }
+    if (m_busy) {
+        queuedOrBusy.insert(m_busyTask.devicePath);
+    }
     for (const application::DetectedStick &stick : m_model.sticks()) {
         const QString devicePath = QString::fromStdString(stick.devicePath);
         if (devicePath.isEmpty()) {
             continue;
         }
         present.insert(devicePath);
-        if (stick.mounted) {
+        if (stick.mounted || stick.hasNoFilesystem || queuedOrBusy.contains(devicePath)
+            || m_userUnmounted.contains(devicePath) || m_autoMountFailed.contains(devicePath)) {
             continue;
         }
-        if (stick.hasNoFilesystem || m_userUnmounted.contains(devicePath) || m_autoMountFailed.contains(devicePath)
-            || m_autoMountQueue.contains(devicePath) || (m_busy && m_busyDevicePath == devicePath)) {
-            continue;
-        }
-        m_autoMountQueue.push_back(devicePath);
+        enqueue(devicePath, true, true, false);
     }
     for (QSet<QString> *set : {&m_userUnmounted, &m_autoMountFailed, &m_mountedByUs}) {
         for (auto it = set->begin(); it != set->end();) {
             it = present.contains(*it) ? std::next(it) : set->erase(it);
         }
     }
-    m_autoMountQueue.erase(std::remove_if(m_autoMountQueue.begin(), m_autoMountQueue.end(),
-                                          [&](const QString &d) { return !present.contains(d); }),
-                           m_autoMountQueue.end());
-    startNextAutoMount();
-}
-
-void MediaController::startNextAutoMount()
-{
-    if (m_busy || m_autoMountQueue.isEmpty()) {
-        return;
-    }
-    const QString devicePath = m_autoMountQueue.takeFirst();
-    startTask(true, devicePath, true);
+    m_taskQueue.erase(std::remove_if(m_taskQueue.begin(), m_taskQueue.end(),
+                                     [&](const PendingTask &t) { return !present.contains(t.devicePath); }),
+                      m_taskQueue.end());
 }
 
 void MediaController::mountStick(const QString &devicePath)
 {
     m_userUnmounted.remove(devicePath);
     m_autoMountFailed.remove(devicePath);
-    startTask(true, devicePath, false);
+    enqueue(devicePath, true, false, true);
 }
 
 void MediaController::unmountStick(const QString &devicePath)
 {
     m_userUnmounted.insert(devicePath);
-    m_autoMountQueue.removeAll(devicePath);
-    startTask(false, devicePath, false);
+    enqueue(devicePath, false, false, true);
 }
 
-void MediaController::startTask(bool mount, const QString &devicePath, bool automatic)
+void MediaController::enqueue(const QString &devicePath, bool mount, bool automatic, bool priority)
 {
-    if (m_busy) {
+    m_taskQueue.erase(std::remove_if(m_taskQueue.begin(), m_taskQueue.end(),
+                                     [&](const PendingTask &t) { return t.devicePath == devicePath; }),
+                      m_taskQueue.end());
+    const PendingTask task{devicePath, mount, automatic};
+    if (priority) {
+        m_taskQueue.prepend(task);
+    } else {
+        m_taskQueue.append(task);
+    }
+    processQueue();
+}
+
+void MediaController::processQueue()
+{
+    if (m_busy || m_taskQueue.isEmpty()) {
         return;
     }
+    startTask(m_taskQueue.takeFirst());
+}
+
+void MediaController::startTask(const PendingTask &task)
+{
     setErrorMessage({});
     m_busy = true;
-    m_busyIsMount = mount;
-    m_busyIsAutomatic = automatic;
-    m_busyDevicePath = devicePath;
+    m_busyTask = task;
     emit busyChanged();
-    m_watcher.setFuture(QtConcurrent::run(runMediaTask, mount, devicePath));
+    m_watcher.setFuture(QtConcurrent::run(runMediaTask, task.mount, task.devicePath));
 }
 
 void MediaController::onTaskFinished()
 {
-    MediaTaskResult result = m_watcher.result();
-    const QString devicePath = m_busyDevicePath;
+    QString thrown;
+    MediaTaskResult result = takeResult(m_watcher, &thrown);
+    if (!thrown.isEmpty()) {
+        result.errorMessage = thrown;
+    }
+    const PendingTask task = m_busyTask;
     m_busy = false;
-    m_busyDevicePath.clear();
-    if (m_busyIsMount) {
+    m_busyTask = {};
+    if (task.mount) {
         if (result.success) {
-            m_mountedByUs.insert(devicePath);
-        } else if (m_busyIsAutomatic) {
-            m_autoMountFailed.insert(devicePath);
+            m_mountedByUs.insert(task.devicePath);
+        } else if (task.automatic) {
+            m_autoMountFailed.insert(task.devicePath);
         }
     } else if (result.success) {
-        m_mountedByUs.remove(devicePath);
+        m_mountedByUs.remove(task.devicePath);
     }
     setErrorMessage(result.errorMessage);
     emit busyChanged();
     detect();
+    processQueue();
 }
 
 void MediaController::unmountOwnMounts()
@@ -317,8 +333,8 @@ void MediaController::unmountOwnMounts()
         return;
     }
     m_ownMountsReleased = true;
-    m_autoMountQueue.clear();
-    m_watcher.waitForFinished();
+    m_taskQueue.clear();
+    awaitQuietly(m_watcher);
     if (m_mountedByUs.isEmpty()) {
         return;
     }

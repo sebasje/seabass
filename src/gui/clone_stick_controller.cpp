@@ -9,6 +9,7 @@
 #include "gui/library_fingerprint_reader.hpp"
 #include "gui/stick_backup_paths.hpp"
 #include "gui/edit/edit_session_registry.hpp"
+#include "gui/future_result.hpp"
 #include "gui/write_guard.hpp"
 #include "infrastructure/engine/engine_restore_check.hpp"
 #include "infrastructure/system/rekordbox_process_detector.hpp"
@@ -104,8 +105,8 @@ CloneStickController::CloneStickController(QObject *parent) : QObject(parent)
 CloneStickController::~CloneStickController()
 {
     m_cancel.cancel();
-    m_runWatcher.waitForFinished();
-    m_previewWatcher.waitForFinished();
+    awaitQuietly(m_runWatcher);
+    awaitQuietly(m_previewWatcher);
 }
 
 void CloneStickController::configure(const QString &sourceLabel, const QString &sourceRekordboxPath,
@@ -156,8 +157,12 @@ void CloneStickController::refresh()
 
 void CloneStickController::onPreviewFinished()
 {
-    std::shared_ptr<PreviewResult> result = m_previewWatcher.result();
+    QString thrown;
+    std::shared_ptr<PreviewResult> result = takeResult(m_previewWatcher, &thrown);
     m_previewing = false;
+    if (!thrown.isEmpty()) {
+        setErrorMessage(QStringLiteral("Could not read the source stick or its backup: ") + thrown);
+    }
     if (result) {
         const CloneStickPreview &p = result->preview;
         QVariantMap map;
@@ -338,10 +343,17 @@ void CloneStickController::clearResult()
 
 void CloneStickController::onRunFinished()
 {
-    std::shared_ptr<RunResult> result = m_runWatcher.result();
+    QString thrown;
+    std::shared_ptr<RunResult> result = takeResult(m_runWatcher, &thrown);
     m_writeHold.release();
     m_cloning = false;
     emit busyChanged();
+    if (!thrown.isEmpty()) {
+        setErrorMessage(thrown);
+        emit actionFeedback(thrown, true);
+        refresh();
+        return;
+    }
     if (!result) {
         return;
     }
