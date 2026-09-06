@@ -30,6 +30,21 @@ exercised live against real hardware, not just a read-only scan.
   environment to exercise `windows_usb_formatter.cpp` at all. Promote to
   stable once both platforms have been confirmed against real hardware.
 
+- **Backup USB Stick: create / update from another stick** (added
+  2026-09-06) — with two sticks inserted, an empty one gets a "Create
+  Backup USB Stick" card naming the stick to copy from, and a stick that
+  holds an older copy of the same library gets an "Update from <X>" card,
+  where X is the newest copy: another mounted stick, or the disk backup.
+  Copies are chained, never direct: an incremental full stick backup of
+  the source into its own archive, then a restore of that archive onto
+  the target (`application::CloneStick`, `CloneStickPage.qml`, pushed
+  from `StickListPage.qml`; the disk-backup case reuses the restore
+  page). The advice comes from `adviseStickBackup` seeing every mounted
+  stick as a peer: same library by content fingerprint, in sync by
+  database fingerprint, ordered by the catalog's mtime. Experimental
+  with the backup and restore it is built on; graduate together, after
+  the live checks in `docs/stick-backup-plan.md` ("Stick-to-stick clone").
+
 - **Full Stick Backup and Restore** (added 2026-09-05) — backs a whole
   stick up into one browsable `.zip` on this computer
   (`~/Seabass Backups/<label>.zip`, changeable in App Settings) and keeps
