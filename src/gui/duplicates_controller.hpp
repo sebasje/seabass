@@ -3,21 +3,23 @@
 #include <QAbstractListModel>
 #include <QFutureWatcher>
 #include <QObject>
+#include <QPointer>
 #include <QQmlEngine>
 
+#include <map>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
-#include <memory>
-
-#include "domain/duplicate_cue_consolidation.hpp"
 #include "application/ports/cancellation_token.hpp"
+#include "domain/duplicate_cue_consolidation.hpp"
 #include "gui/qt_progress_reporter.hpp"
-#include "gui/undo_tracking.hpp"
 
 namespace seabass::gui
 {
+
+class LibraryEditSession;
 
 // Read-only Qt list model over the consolidation plans DuplicatesController
 // last computed. Only Unambiguous (fixable) and Conflict (informational)
@@ -37,6 +39,10 @@ public:
         ActionableRole,
         TracksRole,
         WastedBytesRole,
+        // A copy is staged for this group (see DuplicatesController): what
+        // will happen on Save, and from which copy.
+        StagedRole,
+        StagedDescriptionRole,
     };
 
     explicit ConsolidationPlanListModel(QObject *parent = nullptr);
@@ -53,17 +59,18 @@ public:
     // takes forever" report possible in the first place).
     void setPlans(std::vector<domain::ConsolidationPlan> plans);
     const std::vector<domain::ConsolidationPlan> &plans() const { return m_plans; }
-    // Removes one plan without a full rescan -- for DuplicatesController::
-    // applyOne()/copyFromTrack() after a successful write: that group's
-    // cues are now consolidated (Kind would become AlreadyConsistent,
-    // which this model never shows at all -- see runRescanTask's own
-    // filtering), and DuplicateTrackFinder groups by filename/title+
-    // artist+duration only, never cues, so removing it can't change any
-    // other group's own classification.
+    // Removes one plan without a full rescan -- once its cues are on the
+    // stick that group is AlreadyConsistent, which this model never shows
+    // at all (see runRescanTask's own filtering), and DuplicateTrackFinder
+    // groups by filename/title+artist+duration only, never cues, so
+    // removing it can't change any other group's own classification.
     void removePlanAt(int index);
+    void setStaged(int index, bool staged, const QString &description);
+    void clearStaged();
 
 private:
     std::vector<domain::ConsolidationPlan> m_plans;
+    std::vector<QString> m_stagedDescriptions;  // empty = not staged; parallel to m_plans
 };
 
 // Result of a background rescan task -- see DuplicatesController::rescan().
@@ -75,23 +82,10 @@ struct DuplicatesTaskResult
     bool cancelled = false;  // stopped via cancelScan(); nothing else is set
 };
 
-// Result of a background write task -- see DuplicatesController::
-// applyOne()/copyFromTrack()/applyAllUnambiguous()/undoLastOperation().
-// Built entirely on a worker thread, with no access to the controller.
-// Shared by writes and undo: an undo task always returns an empty
-// `backups`, which is exactly what should replace the controller's undo
-// trail either way.
-struct DuplicatesWriteResult
-{
-    QString errorMessage;  // empty on success
-    QString statusMessage;
-    std::vector<UndoableBackup> backups;
-};
-
 // One "copy source's cues onto these targets" operation -- applyOne() and
 // copyFromTrack() each produce exactly one, applyAllUnambiguous() produces
-// one per unambiguous group. Tracks are copied by value so the background
-// write task never touches the GUI-thread model.
+// one per unambiguous group. Tracks are copied by value so the save loop
+// never touches the GUI-thread model.
 struct DuplicatesCopyOp
 {
     domain::Track source;
@@ -100,12 +94,17 @@ struct DuplicatesCopyOp
 
 // Wraps ConsolidateDuplicateCues for QML: scans a library, finds duplicate
 // tracks, and (for Unambiguous groups) can copy cues from the one copy that
-// has them onto the others -- backing up first, mirroring cli/main.cpp's
-// handleDuplicates wiring exactly so GUI and CLI behave identically. The
-// scan itself runs on a background thread (see ScanController for the same
-// reasoning): it can take several seconds for a large library, and a
-// scan that blocks the UI thread never actually gets to paint a progress
-// indicator.
+// has them onto the others -- mirroring cli/main.cpp's handleDuplicates
+// wiring exactly so GUI and CLI behave identically.
+//
+// Edits are staged, not written: applyOne()/copyFromTrack()/
+// applyAllUnambiguous() each stage one CopyCuesChange per group in the
+// library's LibraryEditSession (the first one takes the edit lock), the
+// row shows what will happen, and the page's Save writes them all. A
+// group whose change reached the stick disappears from the list.
+//
+// The scan itself runs on a background thread (see ScanController for
+// the same reasoning): it can take several seconds for a large library.
 class DuplicatesController : public QObject
 {
     Q_OBJECT
@@ -128,7 +127,9 @@ class DuplicatesController : public QObject
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
     Q_PROPERTY(QString statusMessage READ statusMessage NOTIFY statusMessageChanged)
     Q_PROPERTY(bool canUndo READ canUndo NOTIFY canUndoChanged)
+    // Mirrors the session: true while a save is writing to the stick.
     Q_PROPERTY(bool writing READ writing NOTIFY writingChanged)
+    Q_PROPERTY(int stagedCount READ stagedCount NOTIFY plansChanged)
     // Sum, across every duplicate group currently listed (Unambiguous and
     // Conflict alike -- being a duplicate doesn't depend on cue-consolidation
     // status), of every group's file sizes minus its single largest copy:
@@ -143,15 +144,14 @@ public:
     ConsolidationPlanListModel *plansModel() { return &m_model; }
     bool busy() const { return m_busy; }
     QString totalWastedBytesHuman() const;
-    // True only while actually writing to the stick -- unlike busy(),
-    // which is also true during the read-only scan().
-    bool writing() const { return m_writing; }
+    bool writing() const;
     int scanCurrent() const { return m_scanCurrent; }
     int scanTotal() const { return m_scanTotal; }
     QString scanLabel() const { return m_scanLabel; }
     QString errorMessage() const { return m_errorMessage; }
     QString statusMessage() const { return m_statusMessage; }
-    bool canUndo() const { return !m_lastBackups.empty(); }
+    bool canUndo() const;
+    int stagedCount() const { return static_cast<int>(m_stagedByGroup.size()); }
 
     // format is "rekordbox", "engine", or "onelibrary"; path is the
     // corresponding DetectedStick.rekordboxPath / .enginePath (OneLibrary
@@ -163,22 +163,23 @@ public:
     // ScanController::hasOneLibrary().
     Q_INVOKABLE bool hasOneLibrary(const QString &pioneerRoot) const;
 
+    // Stage copying the one cued copy's cues onto the rest of the group.
     Q_INVOKABLE void applyOne(int index);
     Q_INVOKABLE void applyAllUnambiguous();
 
-    // Manual override for a Conflict group: copies sourceTrackId's cues
-    // onto every other track in that same group. Unlike applyOne, this
-    // works regardless of plan kind -- it's the human decision the domain
-    // model defers to when copies disagree (see ConsolidationPlan::Kind::
-    // Conflict's doc comment).
+    // Manual override for a Conflict group: stages copying sourceTrackId's
+    // cues onto every other track in that same group. Unlike applyOne,
+    // this works regardless of plan kind -- it's the human decision the
+    // domain model defers to when copies disagree (see
+    // ConsolidationPlan::Kind::Conflict's doc comment). Staging a second
+    // choice for the same group replaces the first.
     Q_INVOKABLE void copyFromTrack(int index, const QString &sourceTrackId);
+    Q_INVOKABLE void unstage(int index);
 
-    // Reverts every file the last apply*()/copyFromTrack() write touched
-    // back to what it was immediately before, using the backups that write
-    // made. Available only right after a write (canUndo).
+    // Reverts every file the last save touched (the session's undo).
     Q_INVOKABLE void undoLastOperation();
 
-    bool scanCancellable() const { return m_busy && !m_writing; }
+    bool scanCancellable() const { return m_busy && !writing(); }
     Q_INVOKABLE void cancelScan();
 
 signals:
@@ -194,20 +195,27 @@ signals:
 private:
     void rescan();
     void onRescanFinished();
-    void onWriteFinished();
+    void attachSession();
+    void stageCopy(int index, const DuplicatesCopyOp &op);
     void setBusy(bool busy);
-    void setWriting(bool writing);
     void setScanProgress(int current, int total);
     void setScanLabel(const QString &label);
     void setErrorMessage(const QString &message);
     void setStatusMessage(const QString &message);
-    void startApply(std::vector<DuplicatesCopyOp> ops, bool multiGroup);
     std::shared_ptr<QtProgressReporter> makeReporter();
+    static QString groupKeyFor(const domain::ConsolidationPlan &plan);
+    int indexOfGroupKey(const QString &groupKey) const;
 
     ConsolidationPlanListModel m_model;
     QFutureWatcher<DuplicatesTaskResult> m_watcher;
     application::CancellationToken m_scanCancel;  // fresh per rescan()
-    QFutureWatcher<DuplicatesWriteResult> m_writeWatcher;
+    QPointer<LibraryEditSession> m_session;
+    struct StagedInfo
+    {
+        QString changeId;
+        QString description;
+    };
+    std::map<QString, StagedInfo> m_stagedByGroup;  // group key -> what is staged for it
     QString m_format;
     QString m_path;
     bool m_busy = false;
@@ -216,20 +224,6 @@ private:
     QString m_scanLabel;
     QString m_errorMessage;
     QString m_statusMessage;
-    std::vector<UndoableBackup> m_lastBackups;
-    bool m_writing = false;
-    // What onWriteFinished() should do once the write completes. apply*()/
-    // copyFromTrack() only ever write groups already in the model, and
-    // grouping (DuplicateTrackFinder) never depends on cues, so removing
-    // the just-consolidated group(s) locally is always correct --
-    // unlike undoLastOperation(), which restores prior file bytes this
-    // session already discarded the old plan list for, so it keeps
-    // doing a real rescan().
-    enum class PendingWriteKind { ApplyOne, ApplyAllUnambiguous, Undo };
-    PendingWriteKind m_pendingWriteKind = PendingWriteKind::Undo;
-    // Valid only when m_pendingWriteKind is ApplyOne: the row applyOne()/
-    // copyFromTrack() was called with.
-    int m_pendingApplyOneIndex = -1;
 };
 
 }  // namespace seabass::gui

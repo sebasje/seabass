@@ -71,6 +71,17 @@ Page {
         id: duplicatesController
     }
 
+    // Edit mode for this library: session, floating Save, leave guard.
+    EditSessionHost {
+        id: editHost
+        anchors.fill: parent
+        libraryId: typeof EditSessionRegistry !== "undefined"
+            ? EditSessionRegistry.libraryIdForPath(root.hasRekordbox ? root.rekordboxPath : root.enginePath) : ""
+        stickLabel: root.stickLabel
+        rekordboxPath: root.rekordboxPath
+        enginePath: root.enginePath
+    }
+
     Component.onCompleted: duplicatesController.scan(root.format, root.currentPath())
     onFormatChanged: duplicatesController.scan(root.format, root.currentPath())
 
@@ -99,8 +110,8 @@ Page {
                     middleLabel: "Housekeeping"
                     title: "Duplicate Stats & Sync"
                     backEnabled: !duplicatesController.writing
-                    onHomeRequested: root.StackView.view.pop(null)
-                    onBackRequested: root.StackView.view.pop()
+                    onHomeRequested: editHost.requestLeave(() => root.StackView.view.pop(null))
+                    onBackRequested: editHost.requestLeave(() => root.StackView.view.pop())
                 }
                 Item { Layout.fillWidth: true }
                 LibrarySourceToggle {
@@ -131,20 +142,26 @@ Page {
                     text: "(" + duplicatesController.totalWastedBytesHuman + " could be freed if each were on the stick once)"
                     color: Theme.textMuted
                 }
+                Label {
+                    visible: duplicatesController.stagedCount > 0
+                    text: duplicatesController.stagedCount + " staged, not saved yet"
+                    color: Theme.warnText
+                }
                 Item { Layout.fillWidth: true }
                 Button {
-                    text: "Apply All Fixable"
-                    enabled: !duplicatesController.busy
+                    text: "Stage All Fixable"
+                    enabled: !duplicatesController.busy && !duplicatesController.writing
                     ToolTip.visible: hovered
-                    ToolTip.text: "Copy cues onto every unambiguous duplicate in one go; conflicts are left for you to resolve individually"
+                    ToolTip.text: "Stage copying cues onto every unambiguous duplicate; conflicts are left for you to decide per copy. "
+                        + "Nothing is written until you press Save."
                     onClicked: duplicatesController.applyAllUnambiguous()
                 }
                 Button {
-                    text: "Undo"
+                    text: "Undo Last Save"
                     visible: duplicatesController.canUndo
-                    enabled: !duplicatesController.busy
+                    enabled: !duplicatesController.busy && !duplicatesController.writing
                     ToolTip.visible: hovered
-                    ToolTip.text: "Revert the last consolidation: restores every file it touched to what it was before"
+                    ToolTip.text: "Revert the last save: restores every file it touched to what it was before"
                     onClicked: duplicatesController.undoLastOperation()
                 }
             }
@@ -155,11 +172,6 @@ Page {
         anchors.fill: parent
         anchors.margins: 16
         spacing: 8
-
-        StickWriteWarning {
-            visible: duplicatesController.writing
-            text: "Writing cues to the stick. Do not remove it until this finishes."
-        }
 
         Label {
             visible: duplicatesController.errorMessage.length > 0
@@ -200,6 +212,8 @@ Page {
                 required property bool actionable
                 required property var tracks
                 required property string wastedBytesDescription
+                required property bool staged
+                required property string stagedDescription
 
                 property bool expanded: false
 
@@ -231,14 +245,24 @@ Page {
                                     : "These copies disagree, so nothing is copied automatically; decide per-track with the "
                                       + "Copy buttons below.\n\n" + root.conflictDetail(delegateRoot.tracks)
                             }
+                            StatusBadge {
+                                visible: delegateRoot.staged
+                                label: "Staged"
+                                badgeColor: Theme.warnText
+                                tooltipText: delegateRoot.stagedDescription + "\n\nNot on the stick yet: press Save."
+                            }
                             Item { Layout.fillWidth: true }
                             Button {
-                                text: "Copy Cues"
-                                visible: delegateRoot.actionable
-                                enabled: !duplicatesController.busy
+                                text: delegateRoot.staged ? "Unstage" : "Copy Cues"
+                                visible: delegateRoot.actionable || delegateRoot.staged
+                                enabled: !duplicatesController.busy && !duplicatesController.writing
                                 ToolTip.visible: hovered
-                                ToolTip.text: "Copy the one copy's cues onto every other copy of this track"
-                                onClicked: duplicatesController.applyOne(delegateRoot.index)
+                                ToolTip.text: delegateRoot.staged
+                                    ? "Take this group back out of the changes to save"
+                                    : "Stage copying the one copy's cues onto every other copy of this track; Save writes it"
+                                onClicked: delegateRoot.staged
+                                    ? duplicatesController.unstage(delegateRoot.index)
+                                    : duplicatesController.applyOne(delegateRoot.index)
                             }
                             Label {
                                 text: delegateRoot.expanded ? "▾" : "▸"
@@ -292,10 +316,11 @@ Page {
                             track: modelData
                             formatLabelText: root.formatLabel(root.format)
                             showPlaylists: true
-                            actionButtonText: delegateRoot.kind === "conflict" ? "Copy" : ""
+                            actionButtonText: delegateRoot.kind === "conflict" ? "Use These" : ""
                             actionButtonTooltip: delegateRoot.kind === "conflict"
-                                ? "Copy this copy's cue points onto the other copy" : ""
+                                ? "Stage copying this copy's cue points onto the other copies; Save writes it" : ""
                             actionButtonEnabled: modelData.cues.length > 0 && !duplicatesController.busy
+                                && !duplicatesController.writing
                             onActionTriggered: duplicatesController.copyFromTrack(delegateRoot.index, modelData.sourceId)
                             playbackController: root.playbackController
                             playbackPath: root.currentPath()
@@ -332,7 +357,6 @@ Page {
         // the grouping pass that used to leave this stuck at a frozen
         // 100% with no explanation) -- falls back to a generic label only
         // for the brief window before the first phase has reported in.
-        label: duplicatesController.writing ? "Writing cues..."
-            : (duplicatesController.scanLabel.length > 0 ? duplicatesController.scanLabel : "Scanning for duplicates...")
+        label: duplicatesController.scanLabel.length > 0 ? duplicatesController.scanLabel : "Scanning for duplicates..."
     }
 }
