@@ -69,6 +69,19 @@ Page {
         id: addCueController
     }
 
+    // Browse is read-only until a cue is added: the session is opened
+    // here (no lock), the first staged cue takes the lock and enables
+    // the floating Save.
+    EditSessionHost {
+        id: editHost
+        anchors.fill: parent
+        libraryId: typeof EditSessionRegistry !== "undefined"
+            ? EditSessionRegistry.libraryIdForPath(root.rekordboxPath.length > 0 ? root.rekordboxPath : root.enginePath) : ""
+        stickLabel: root.stickLabel
+        rekordboxPath: root.rekordboxPath
+        enginePath: root.enginePath
+    }
+
     property int selectedPlaylistIndex: 0
 
     // Single chokepoint for changing which playlist Browse shows --
@@ -215,8 +228,9 @@ Page {
                 BackBreadcrumb {
                     middleLabel: root.stickLabel
                     title: "Library"
-                    onHomeRequested: root.StackView.view.pop(null)
-                    onBackRequested: root.StackView.view.pop()
+                    backEnabled: !editHost.writing
+                    onHomeRequested: editHost.requestLeave(() => root.StackView.view.pop(null))
+                    onBackRequested: editHost.requestLeave(() => root.StackView.view.pop())
                 }
                 Item { Layout.fillWidth: true }
                 LibrarySourceToggle {
