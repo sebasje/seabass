@@ -10,19 +10,17 @@
 #include <set>
 #include <unordered_map>
 
-#include "application/ports/backup_store.hpp"
 #include "application/ports/cue_writer.hpp"
-#include "application/ports/operation_log.hpp"
 #include "domain/track_matching.hpp"
+#include "gui/edit/edit_session_registry.hpp"
+#include "gui/edit/library_edit_session.hpp"
+#include "gui/edit/pending_change.hpp"
+#include "gui/edit/save_context.hpp"
 #include "gui/library_catalog_cache.hpp"
 #include "gui/onelibrary_cue_writer_adapter.hpp"
 #include "gui/qt_progress_reporter.hpp"
-#include "gui/write_guard.hpp"
-#include "infrastructure/backup/filesystem_backup_store.hpp"
-#include "infrastructure/backup/stick_write_lock.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cue_writer.hpp"
 #include "infrastructure/local/local_cue_store.hpp"
-#include "infrastructure/logging/file_operation_log.hpp"
 #include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 #include "infrastructure/rekordbox/rekordbox_cue_writer.hpp"
@@ -96,6 +94,8 @@ QVariant RestoreCandidateListModel::data(const QModelIndex &index, int role) con
                                              candidate.mergedCues.end());
         return describeCues(added);
     }
+    case StagedRole:
+        return static_cast<size_t>(index.row()) < m_staged.size() && m_staged[static_cast<size_t>(index.row())];
     default:
         return {};
     }
@@ -108,6 +108,7 @@ QHash<int, QByteArray> RestoreCandidateListModel::roleNames() const
         {TitleRole, "title"},
         {ArtistRole, "artist"},
         {DescriptionRole, "description"},
+        {StagedRole, "staged"},
     };
 }
 
@@ -115,7 +116,37 @@ void RestoreCandidateListModel::setCandidates(std::vector<domain::RestoreCandida
 {
     beginResetModel();
     m_candidates = std::move(candidates);
+    m_staged.assign(m_candidates.size(), false);
     endResetModel();
+}
+
+void RestoreCandidateListModel::removeCandidateAt(int index)
+{
+    if (index < 0 || static_cast<size_t>(index) >= m_candidates.size()) {
+        return;
+    }
+    beginRemoveRows(QModelIndex(), index, index);
+    m_candidates.erase(m_candidates.begin() + index);
+    m_staged.erase(m_staged.begin() + index);
+    endRemoveRows();
+}
+
+void RestoreCandidateListModel::setStaged(int index, bool staged)
+{
+    if (index < 0 || static_cast<size_t>(index) >= m_candidates.size()) {
+        return;
+    }
+    m_staged[static_cast<size_t>(index)] = staged;
+    emit dataChanged(this->index(index), this->index(index), {StagedRole});
+}
+
+void RestoreCandidateListModel::clearStaged()
+{
+    if (m_candidates.empty()) {
+        return;
+    }
+    std::fill(m_staged.begin(), m_staged.end(), false);
+    emit dataChanged(index(0), index(static_cast<int>(m_candidates.size()) - 1), {StagedRole});
 }
 
 namespace
@@ -216,188 +247,118 @@ LocalCueTaskResult runAnalyzeSnapshotRestoreTask(qint64 snapshotId, QString form
     return result;
 }
 
-// Runs entirely on a background thread (see LocalCueController::
-// applyRestore()) -- mirrors SyncController::runApplyTask()'s per-format
-// backup/write wiring, scoped to the merge direction (never touches the
-// local database, only the stick).
-LocalCueWriteResult runApplyRestoreTask(QString format, QString path, std::vector<RestoreCandidate> candidates,
-                                         std::shared_ptr<QtProgressReporter> reporter)
+// The writer of one save's merges for one format: the format's cue
+// writer plus, for rekordbox, the best-effort OneLibrary mirror. Created
+// by the first MergeCuesChange that needs it, shared by the rest
+// (SaveContext::shared); the shared database is backed up once here.
+// OneLibrary's adapter is bound to the track it writes, so that format
+// gets one context per change.
+struct LocalCueWriterContext
 {
-    LocalCueWriteResult result;
-    QString refusal = refuseIfDjSoftwareRunning();
-    if (!refusal.isEmpty()) {
-        result.errorMessage = refusal;
-        return result;
-    }
-    try {
-        fs::path stickRoot = fs::path(path.toStdString()).parent_path();
-        infrastructure::backup::StickWriteLock lock((stickRoot / ".seabass-backups" / ".write.lock").string());
-        infrastructure::backup::FilesystemBackupStore backupStore((stickRoot / ".seabass-backups").string());
-        infrastructure::logging::FileOperationLog log((stickRoot / ".seabass.log").string());
-
-        std::unique_ptr<application::CueWriter> writer;
-        std::set<std::string> backedUpFiles;
-        bool writeToOneLibrary = false;
+    LocalCueWriterContext(const QString &format, const QString &path, SaveContext &ctx,
+                          std::unordered_map<std::string, std::string> oneLibraryPaths)
+    {
+        std::string root = path.toStdString();
         if (format == "rekordbox") {
-            writer = std::make_unique<infrastructure::rekordbox::RekordboxCueWriter>(path.toStdString());
-            // rekordbox stores cues per-track (ANLZ files) -- back up each
-            // track's own file as it's written, same as Sync's rekordbox
-            // path.
-            //
-            // Best-effort secondary write target, alongside the primary
-            // export.pdb write below -- see OneLibraryCueWriter's class
-            // comment and docs/onelibrary-format.md. Back it up once
-            // upfront (same pattern as Engine's m.db below), rather than
-            // per-candidate, since it's one shared file.
-            writeToOneLibrary = infrastructure::onelibrary::OneLibraryCueWriter::existsFor(path.toStdString());
-            if (writeToOneLibrary) {
-                const std::string oneLibDbPath =
-                    infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(path.toStdString());
-                if (backedUpFiles.insert(oneLibDbPath).second) {
-                    const auto record = backupStore.backup({oneLibDbPath}, "local-restore");
-                    log.record("local-restore: backed up before restoring cues from local backup -> " + record.path);
-                    result.backups.push_back({QString::fromStdString(fs::path(record.path).parent_path().string()),
-                                               QString::fromStdString(record.id)});
+            writer = std::make_unique<infrastructure::rekordbox::RekordboxCueWriter>(root);
+            // Best-effort secondary write target alongside the primary
+            // rekordbox write -- see OneLibraryCueWriter's class comment
+            // and docs/onelibrary-format.md.
+            if (infrastructure::onelibrary::OneLibraryCueWriter::existsFor(root)) {
+                ctx.backupOnce(infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(root), "local-restore");
+                try {
+                    mirror = std::make_unique<infrastructure::onelibrary::OneLibraryCueWriter>(root);
+                } catch (const std::exception &e) {
+                    ctx.log().record(std::string("local-restore: could not open OneLibrary: ") + e.what());
                 }
             }
         } else if (format == "engine") {
-            writer = std::make_unique<infrastructure::engine::LibdjinteropEngineCueWriter>(path.toStdString());
-            const std::string engineDbFile = (fs::path(path.toStdString()) / "Database2" / "m.db").string();
-            const auto record = backupStore.backup({engineDbFile}, "local-restore");
-            log.record("local-restore: backed up before restoring cues from local backup -> " + record.path);
-            result.backups.push_back({QString::fromStdString(fs::path(record.path).parent_path().string()),
-                                       QString::fromStdString(record.id)});
+            ctx.backupOnce((fs::path(root) / "Database2" / "m.db").string(), "local-restore");
+            writer = std::make_unique<infrastructure::engine::LibdjinteropEngineCueWriter>(root);
         } else {
-            // onelibrary: OneLibraryCueWriter identifies a track by file
-            // path, not sourceId (see its own class comment -- content_id
-            // is a separate id space), so the adapter below builds the
-            // sourceId->filePath map every other candidate loop here
-            // already has on hand, letting the loop below stay identical
-            // for all three formats.
-            std::unordered_map<std::string, std::string> sourceIdToPath;
-            for (const auto &candidate : candidates) {
-                sourceIdToPath[candidate.stickTrack.sourceId] = candidate.stickTrack.filePath;
-            }
-            writer = std::make_unique<OneLibraryCueWriterAdapter>(path.toStdString(), std::move(sourceIdToPath));
-            std::string oneLibDbPath = infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(path.toStdString());
-            auto record = backupStore.backup({oneLibDbPath}, "local-restore");
-            log.record("local-restore: backed up before restoring cues from local backup -> " + record.path);
-            result.backups.push_back({QString::fromStdString(fs::path(record.path).parent_path().string()),
-                                       QString::fromStdString(record.id)});
+            ctx.backupOnce(infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(root), "local-restore");
+            writer = std::make_unique<OneLibraryCueWriterAdapter>(root, std::move(oneLibraryPaths));
         }
-
-        reporter->start("Merging cues", candidates.size());
-        size_t done = 0;
-        int cuesWritten = 0;
-        QStringList oneLibraryWarnings;
-        std::unique_ptr<infrastructure::onelibrary::OneLibraryCueWriter> oneLibWriter;
-        if (writeToOneLibrary) {
-            try {
-                oneLibWriter = std::make_unique<infrastructure::onelibrary::OneLibraryCueWriter>(path.toStdString());
-            } catch (const std::exception &e) {
-                oneLibraryWarnings << QString("could not open OneLibrary: %1").arg(QString::fromStdString(e.what()));
-                oneLibWriter.reset();
-            }
-        }
-        for (const auto &candidate : candidates) {
-            if (format == "rekordbox") {
-                auto analyzePath = infrastructure::rekordbox::findAnlzPathForTrackId(
-                    path.toStdString(), static_cast<uint32_t>(std::stoul(candidate.stickTrack.sourceId)));
-                if (analyzePath) {
-                    std::string extPath = infrastructure::rekordbox::extAnlzPath(path.toStdString(), *analyzePath);
-                    if (backedUpFiles.insert(extPath).second) {
-                        auto record = backupStore.backup({extPath}, "local-restore");
-                        log.record("local-restore: backed up before restoring cues from local backup -> " +
-                                   record.path);
-                        result.backups.push_back({QString::fromStdString(fs::path(record.path).parent_path().string()),
-                                                   QString::fromStdString(record.id)});
-                    }
-                }
-            }
-            // mergedCues is the *complete* cue list to end up with -- the
-            // stick's own cues, untouched, plus whichever of the backup's
-            // cues filled a gap. writeHotCues() replaces the whole set, so
-            // passing anything less would silently drop what's already
-            // there.
-            writer->writeHotCues(candidate.stickTrack.sourceId, candidate.mergedCues);
-            int added = static_cast<int>(candidate.mergedCues.size() - candidate.stickTrack.cues.size());
-            cuesWritten += added;
-            log.record("local-restore: merged " + std::to_string(added) +
-                       " new cue(s) onto track id=" + candidate.stickTrack.sourceId + " (\"" +
-                       candidate.stickTrack.title + "\") from local backup");
-
-            if (oneLibWriter && !candidate.stickTrack.filePath.empty()) {
-                try {
-                    oneLibWriter->writeCuesForPath(candidate.stickTrack.filePath, candidate.mergedCues);
-                    log.record("local-restore: also wrote merged cues into OneLibrary (id=" +
-                               candidate.stickTrack.sourceId + ")");
-                } catch (const std::exception &e) {
-                    oneLibraryWarnings << QString("\"%1\": %2")
-                                              .arg(QString::fromStdString(candidate.stickTrack.title))
-                                              .arg(QString::fromStdString(e.what()));
-                    log.record("local-restore: OneLibrary cue write failed for \"" + candidate.stickTrack.title +
-                               "\": " + e.what());
-                }
-            }
-
-            reporter->tick(++done);
-        }
-        reporter->finish();
-
-        result.statusMessage =
-            QString("Merged cues onto %1 track(s): %2 new cue(s) added").arg(candidates.size()).arg(cuesWritten);
-        if (!oneLibraryWarnings.isEmpty()) {
-            result.statusMessage += QString(" (%1 OneLibrary cue write(s) failed -- the primary write above still "
-                                             "succeeded and was not affected: %2)")
-                                         .arg(oneLibraryWarnings.size())
-                                         .arg(oneLibraryWarnings.join("; "));
-        }
-    } catch (const std::exception &e) {
-        result.errorMessage = QString::fromStdString(e.what());
     }
-    return result;
-}
 
-// Runs entirely on a background thread (see LocalCueController::
-// undoLastOperation()). An empty `backups` result always means "nothing
-// left to undo" -- the caller's undo trail is stale either way.
-LocalCueWriteResult runUndoTask(std::vector<UndoableBackup> backups, std::shared_ptr<QtProgressReporter> reporter)
+    std::unique_ptr<application::CueWriter> writer;
+    std::unique_ptr<infrastructure::onelibrary::OneLibraryCueWriter> mirror;
+};
+
+// One candidate: the backup's missing cues merged onto the stick track.
+// What used to be one iteration of runApplyRestoreTask()'s loop.
+class MergeCuesChange : public PendingChange
 {
-    LocalCueWriteResult result;
-    QString refusal = refuseIfDjSoftwareRunning();
-    if (!refusal.isEmpty()) {
-        result.errorMessage = refusal;
-        return result;
+public:
+    MergeCuesChange(QString format, QString path, RestoreCandidate candidate)
+        : m_format(std::move(format)), m_path(std::move(path)), m_candidate(std::move(candidate))
+    {
     }
-    int restored = 0;
-    try {
-        std::vector<std::string> dirs;
-        for (const auto &backup : backups) {
-            dirs.push_back(backup.backupDir.toStdString());
-        }
-        std::sort(dirs.begin(), dirs.end());
-        dirs.erase(std::unique(dirs.begin(), dirs.end()), dirs.end());
-        std::vector<std::unique_ptr<infrastructure::backup::StickWriteLock>> locks;
-        for (const auto &dir : dirs) {
-            locks.push_back(std::make_unique<infrastructure::backup::StickWriteLock>(dir + "/.write.lock"));
-        }
 
-        reporter->start("Undoing", backups.size());
-        for (auto it = backups.rbegin(); it != backups.rend(); ++it) {
-            infrastructure::backup::FilesystemBackupStore store(it->backupDir.toStdString());
-            if (store.restore(it->id.toStdString())) {
-                restored++;
+    QString id() const override
+    {
+        return "localcue:" + m_format + ":" + QString::fromStdString(m_candidate.stickTrack.sourceId);
+    }
+
+    QString description() const override
+    {
+        int added = static_cast<int>(m_candidate.mergedCues.size() - m_candidate.stickTrack.cues.size());
+        return QStringLiteral("Merge %1 new cue(s) from the local backup onto \"%2\"")
+            .arg(added)
+            .arg(QString::fromStdString(m_candidate.stickTrack.title));
+    }
+
+    QString unit() const override { return QStringLiteral("tracks"); }
+    QStringList formatsTouched() const override { return {m_format}; }
+
+    ChangeOutcome apply(SaveContext &ctx) override
+    {
+        const domain::Track &track = m_candidate.stickTrack;
+        std::string key = "localcue:" + m_format.toStdString();
+        std::unordered_map<std::string, std::string> oneLibraryPaths;
+        if (m_format == "onelibrary") {
+            oneLibraryPaths[track.sourceId] = track.filePath;
+            key += ":" + track.sourceId;
+        }
+        LocalCueWriterContext &writer = ctx.shared<LocalCueWriterContext>(
+            key, [&]() { return std::make_unique<LocalCueWriterContext>(m_format, m_path, ctx, oneLibraryPaths); });
+
+        if (m_format == "rekordbox") {
+            // rekordbox stores cues per track (ANLZ files): back up this
+            // track's own file, same as Sync's rekordbox path.
+            std::string root = m_path.toStdString();
+            auto analyzePath = infrastructure::rekordbox::findAnlzPathForTrackId(
+                root, static_cast<uint32_t>(std::stoul(track.sourceId)));
+            if (analyzePath) {
+                ctx.backupOnce(infrastructure::rekordbox::extAnlzPath(root, *analyzePath), "local-restore");
             }
-            reporter->tick(static_cast<size_t>(restored));
         }
-        reporter->finish();
-        result.statusMessage = QString("Undone -- restored %1 file(s) to their state before the last merge").arg(restored);
-    } catch (const std::exception &e) {
-        result.errorMessage = QString::fromStdString(e.what());
-    }
-    return result;
-}
 
+        // mergedCues is the *complete* cue list to end up with -- the
+        // stick's own cues, untouched, plus whichever of the backup's cues
+        // filled a gap. writeHotCues() replaces the whole set, so passing
+        // anything less would silently drop what's already there.
+        writer.writer->writeHotCues(track.sourceId, m_candidate.mergedCues);
+        int added = static_cast<int>(m_candidate.mergedCues.size() - track.cues.size());
+        ctx.log().record("local-restore: merged " + std::to_string(added) + " new cue(s) onto track id="
+                         + track.sourceId + " (\"" + track.title + "\") from local backup");
+
+        if (writer.mirror && !track.filePath.empty()) {
+            try {
+                writer.mirror->writeCuesForPath(track.filePath, m_candidate.mergedCues);
+                ctx.log().record("local-restore: also wrote merged cues into OneLibrary (id=" + track.sourceId + ")");
+            } catch (const std::exception &e) {
+                ctx.log().record("local-restore: OneLibrary cue write failed for \"" + track.title + "\": " + e.what());
+            }
+        }
+        return ChangeOutcome::success();
+    }
+
+private:
+    QString m_format;
+    QString m_path;
+    RestoreCandidate m_candidate;
+};
 }  // namespace
 
 LocalCueController::LocalCueController(QObject *parent) : QObject(parent)
@@ -406,8 +367,6 @@ LocalCueController::LocalCueController(QObject *parent) : QObject(parent)
             &LocalCueController::onBackupFinished);
     connect(&m_analyzeWatcher, &QFutureWatcher<LocalCueTaskResult>::finished, this,
             &LocalCueController::onAnalyzeFinished);
-    connect(&m_writeWatcher, &QFutureWatcher<LocalCueWriteResult>::finished, this,
-            &LocalCueController::onWriteFinished);
 }
 
 void LocalCueController::backupToComputer(const QString &stickLabel, const QString &description,
@@ -468,6 +427,7 @@ void LocalCueController::analyzeRestore(const QString &format, const QString &pa
     m_analyzeReportsFeedback = reportFeedback;
     m_format = format;
     m_path = path;
+    attachSession();
     setErrorMessage({});
     setStatusMessage({});
     setScanProgress(0, 0);
@@ -493,6 +453,7 @@ void LocalCueController::analyzeSnapshotRestore(qint64 snapshotId, const QString
     m_analyzeReportsFeedback = true;
     m_format = format;
     m_path = path;
+    attachSession();
     setErrorMessage({});
     setStatusMessage({});
     setScanProgress(0, 0);
@@ -593,6 +554,14 @@ void LocalCueController::onAnalyzeFinished()
     m_localTrackCount = result.localTrackCount;
     int candidateCount = static_cast<int>(result.candidates.size());
     m_model.setCandidates(std::move(result.candidates));
+    // Candidates staged before this re-analyze keep their mark if they
+    // are still listed (the change itself lives in the session).
+    for (const auto &[sourceId, changeId] : m_stagedBySourceId) {
+        int index = indexOfSourceId(sourceId);
+        if (index >= 0) {
+            m_model.setStaged(index, true);
+        }
+    }
     emit analysisChanged();
     // Otherwise the only feedback after a real, sometimes multi-second
     // scan (see BusyOverlay's "Analyzing backups...") was the restore
@@ -621,74 +590,147 @@ void LocalCueController::onAnalyzeFinished()
     setBusy(false);
 }
 
-// Phase 2 (the confirmation gate) + phase 3 (apply): backs up the stick's
-// data file, then writes each candidate's cues -- see runApplyRestoreTask()
-// for the actual backup/write logic, run on a background thread.
+bool LocalCueController::writing() const
+{
+    return m_session && m_session->writing();
+}
+
+bool LocalCueController::canUndo() const
+{
+    return m_session && m_session->canUndo();
+}
+
+int LocalCueController::indexOfSourceId(const std::string &sourceId) const
+{
+    const auto &candidates = m_model.candidates();
+    for (size_t i = 0; i < candidates.size(); ++i) {
+        if (candidates[i].stickTrack.sourceId == sourceId) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
+void LocalCueController::attachSession()
+{
+    auto *registry = EditSessionRegistry::instance();
+    LibraryEditSession *session = registry->sessionFor(registry->libraryIdForPath(m_path));
+    if (session != m_session) {
+        if (m_session) {
+            disconnect(m_session, nullptr, this, nullptr);
+        }
+        m_session = session;
+        if (m_session) {
+            connect(m_session, &LibraryEditSession::stateChanged, this, &LocalCueController::writingChanged);
+            connect(m_session, &LibraryEditSession::canUndoChanged, this, &LocalCueController::canUndoChanged);
+            connect(m_session, &LibraryEditSession::changeApplied, this, [this](const QString &changeId) {
+                if (changeId == QStringLiteral("undo:last-save")) {
+                    // Prior file bytes are back; the candidate list is stale.
+                    analyzeRestore(m_format, m_path);
+                    return;
+                }
+                for (auto it = m_stagedBySourceId.begin(); it != m_stagedBySourceId.end(); ++it) {
+                    if (it->second == changeId) {
+                        // Fully merged now: nothing left for the backup to
+                        // offer this track, so the row goes.
+                        int index = indexOfSourceId(it->first);
+                        m_stagedBySourceId.erase(it);
+                        if (index >= 0) {
+                            m_model.removeCandidateAt(index);
+                        }
+                        emit analysisChanged();
+                        break;
+                    }
+                }
+            });
+            connect(m_session, &LibraryEditSession::changesDiscarded, this, [this]() {
+                m_stagedBySourceId.clear();
+                m_model.clearStaged();
+                emit analysisChanged();
+            });
+        }
+    }
+    if (m_session) {
+        if (m_format == "engine") {
+            m_session->setLibraryPaths(QString(), m_path);
+        } else {
+            m_session->setLibraryPaths(m_path, QString());
+        }
+    }
+}
+
+void LocalCueController::stageCandidate(int index)
+{
+    const auto &candidates = m_model.candidates();
+    if (index < 0 || static_cast<size_t>(index) >= candidates.size()) {
+        return;
+    }
+    if (!m_session) {
+        attachSession();
+        if (!m_session) {
+            setErrorMessage("This stick's library could not be identified; nothing was changed.");
+            return;
+        }
+    }
+    const RestoreCandidate &candidate = candidates[static_cast<size_t>(index)];
+    auto change = std::make_unique<MergeCuesChange>(m_format, m_path, candidate);
+    QString changeId = change->id();
+    if (!m_session->stage(std::move(change))) {
+        return;  // the session reported the lock refusal; the page shows it
+    }
+    m_stagedBySourceId[candidate.stickTrack.sourceId] = changeId;
+    m_model.setStaged(index, true);
+    emit analysisChanged();
+}
+
+// Stages every candidate currently proposed; the page's Save writes them.
 void LocalCueController::applyRestore()
 {
     if (m_busy) {
         emit actionFeedback("Still busy with another operation on this stick -- try again once it finishes.", true);
         return;
     }
-    m_pendingWriteKind = PendingWriteKind::Apply;
+    if (writing()) {
+        emit actionFeedback("A save is running -- stage more once it has finished.", true);
+        return;
+    }
     setErrorMessage({});
     setStatusMessage({});
-    setScanProgress(0, 0);
-    setBusy(true);
-    setWriting(true);
-    m_lastBackups.clear();
-    emit canUndoChanged();
-
-    m_writeWatcher.setFuture(
-        QtConcurrent::run(runApplyRestoreTask, m_format, m_path, m_model.candidates(), makeReporter()));
+    int staged = 0;
+    const size_t count = m_model.candidates().size();
+    for (size_t i = 0; i < count; ++i) {
+        if (m_stagedBySourceId.count(m_model.candidates()[i].stickTrack.sourceId)) {
+            continue;
+        }
+        stageCandidate(static_cast<int>(i));
+        staged++;
+        if (m_session && !m_session->lockHeld()) {
+            return;  // refused at the first one; no point trying the rest
+        }
+    }
+    if (staged > 0) {
+        emit actionFeedback(QStringLiteral("Staged merging cues onto %1 track(s). Press Save to write them to the stick.")
+                                .arg(staged),
+                            false);
+    }
 }
 
-// Common completion path for applyRestore()/undoLastOperation() -- they
-// only differ in which background task fed the watcher.
-void LocalCueController::onWriteFinished()
+void LocalCueController::unstage(int index)
 {
-    LocalCueWriteResult result = m_writeWatcher.result();
-    m_lastBackups = std::move(result.backups);
-    emit canUndoChanged();
-
-    if (!result.errorMessage.isEmpty()) {
-        setErrorMessage(result.errorMessage);
-        emit actionFeedback(result.errorMessage, true);
-    } else {
-        setStatusMessage(result.statusMessage);
-        emit actionFeedback(result.statusMessage, false);
+    const auto &candidates = m_model.candidates();
+    if (index < 0 || static_cast<size_t>(index) >= candidates.size()) {
+        return;
     }
-    setBusy(false);
-    setWriting(false);
-
-    // Even the local-update branch below (which skips the immediate
-    // re-scan) still needs this, so a *later* scan (reopening the page,
-    // switching formats and back) can't read stale cached tracks from
-    // before the write within an mtime-granularity window.
-    // runApplyRestoreTask() also best-effort writes cues into
-    // OneLibrary's exportLibrary.db when one exists alongside
-    // export.pdb -- keep its cache entry honest too.
-    LibraryCatalogCache::instance().invalidateWithOneLibraryMirror(m_format.toStdString(), m_path.toStdString());
-
-    if (m_pendingWriteKind == PendingWriteKind::Apply) {
-        // applyRestore() always writes every candidate currently in
-        // m_model, and LocalRestorePlanner::mergeCues() only ever adds
-        // cues the stick is missing -- so once this write succeeds,
-        // every listed candidate is already fully merged and there's
-        // nothing left for this same backup to offer. No re-scan can
-        // find anything new here; just clear the list locally.
-        m_model.setCandidates({});
-        emit analysisChanged();
-    } else {
-        // Undo restores the stick's prior file bytes directly; the
-        // candidate list for "what's missing" was already discarded
-        // locally by the apply that preceded it, so there's nothing to
-        // patch back in without a real re-scan. Silent (reportFeedback
-        // defaults to false): this is an automatic background refresh
-        // following the write above, not something the user clicked --
-        // the actionFeedback just emitted already covers what happened.
-        analyzeRestore(m_format, m_path);
+    auto it = m_stagedBySourceId.find(candidates[static_cast<size_t>(index)].stickTrack.sourceId);
+    if (it == m_stagedBySourceId.end()) {
+        return;
     }
+    if (m_session) {
+        m_session->unstage(it->second);
+    }
+    m_stagedBySourceId.erase(it);
+    m_model.setStaged(index, false);
+    emit analysisChanged();
 }
 
 void LocalCueController::undoLastOperation()
@@ -697,20 +739,13 @@ void LocalCueController::undoLastOperation()
         emit actionFeedback("Still busy with another operation on this stick -- try again once it finishes.", true);
         return;
     }
-    if (m_lastBackups.empty()) {
+    if (!canUndo()) {
         emit actionFeedback("Nothing to undo.", true);
         return;
     }
-    m_pendingWriteKind = PendingWriteKind::Undo;
     setErrorMessage({});
     setStatusMessage({});
-    setScanProgress(0, 0);
-    setBusy(true);
-    setWriting(true);
-
-    // m_lastBackups stays intact (canUndo stays true) until the task
-    // finishes and onWriteFinished() replaces it with the (empty) result.
-    m_writeWatcher.setFuture(QtConcurrent::run(runUndoTask, m_lastBackups, makeReporter()));
+    m_session->undoLastSave();
 }
 
 void LocalCueController::setBusy(bool busy)
@@ -720,15 +755,6 @@ void LocalCueController::setBusy(bool busy)
     }
     m_busy = busy;
     emit busyChanged();
-}
-
-void LocalCueController::setWriting(bool writing)
-{
-    if (m_writing == writing) {
-        return;
-    }
-    m_writing = writing;
-    emit writingChanged();
 }
 
 void LocalCueController::setScanProgress(int current, int total)

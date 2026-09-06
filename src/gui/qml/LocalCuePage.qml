@@ -45,6 +45,17 @@ Page {
         id: localCueController
     }
 
+    // Edit mode for this library: session, floating Save, leave guard.
+    EditSessionHost {
+        id: editHost
+        anchors.fill: parent
+        libraryId: typeof EditSessionRegistry !== "undefined"
+            ? EditSessionRegistry.libraryIdForPath(root.hasRekordbox ? root.rekordboxPath : root.enginePath) : ""
+        stickLabel: root.stickLabel
+        rekordboxPath: root.rekordboxPath
+        enginePath: root.enginePath
+    }
+
     // Silent (reportFeedback defaults to false) -- only for automatic
     // calls (page load, format switch) that the user didn't directly ask
     // for. The "Re-Analyze Latest" button calls analyzeRestore() directly
@@ -105,8 +116,8 @@ Page {
                 middleLabel: "Backups"
                 title: "Local Cue Backup"
                 backEnabled: !localCueController.writing
-                onHomeRequested: root.StackView.view.pop(null)
-                onBackRequested: root.StackView.view.pop()
+                onHomeRequested: editHost.requestLeave(() => root.StackView.view.pop(null))
+                onBackRequested: editHost.requestLeave(() => root.StackView.view.pop())
             }
             Item { Layout.fillWidth: true }
         }
@@ -117,9 +128,9 @@ Page {
         property string sourceDescription: ""
         anchors.centerIn: parent
         modal: true
-        title: "Merge Cues Onto Stick?"
+        title: "Stage merging cues onto the stick?"
         footer: DialogButtonBox {
-            Button { text: "Merge Now"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
+            Button { text: "Stage Merge"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
             Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
         }
         onAccepted: localCueController.applyRestore()
@@ -134,8 +145,8 @@ Page {
                 wrapMode: Text.WordWrap
             }
             Label {
-                text: "The stick is backed up before anything is written; once this finishes, "
-                    + "\"Undo\" reverts every file it touched. Do not remove the stick while it's running."
+                text: "Nothing is written yet: this stages the merges, and Save writes them. The stick is "
+                    + "backed up first; afterwards \"Undo Last Save\" reverts every file it touched."
                 color: Theme.textMuted
                 wrapMode: Text.WordWrap
             }
@@ -168,11 +179,6 @@ Page {
         anchors.fill: parent
         anchors.margins: 16
         spacing: 16
-
-        StickWriteWarning {
-            visible: localCueController.writing
-            text: "Writing cues to the stick. Do not remove it until this finishes."
-        }
 
         // No inline error/status Label here -- the MessagePopup declared above
         // (fired from the same statusMessage/errorMessage changes) is the
@@ -394,10 +400,24 @@ Page {
                             localCueController.analyzeRestore(root.format, root.currentPath(), true);
                         }
                     }
+                    Label {
+                        visible: localCueController.stagedCount > 0
+                        text: localCueController.stagedCount + " staged, not saved yet"
+                        color: Theme.warnText
+                    }
                     Button {
-                        text: "Merge Onto " + restoreListView.count + " Track(s)"
-                        enabled: !localCueController.busy && restoreListView.count > 0
+                        text: "Stage Merge Onto " + restoreListView.count + " Track(s)"
+                        enabled: !localCueController.busy && !localCueController.writing
+                            && restoreListView.count > localCueController.stagedCount
                         onClicked: confirmDialog.open()
+                    }
+                    Button {
+                        text: "Undo Last Save"
+                        visible: localCueController.canUndo
+                        enabled: !localCueController.busy && !localCueController.writing
+                        ToolTip.visible: hovered
+                        ToolTip.text: "Revert the last save: restores every file it touched to what it was before"
+                        onClicked: localCueController.undoLastOperation()
                     }
                 }
 
@@ -411,18 +431,37 @@ Page {
                     spacing: 2
 
                     delegate: ItemDelegate {
+                        id: candidateRow
                         width: ListView.view.width
                         hoverEnabled: true
 
+                        required property int index
                         required property string filename
                         required property string title
                         required property string artist
                         required property string description
+                        required property bool staged
 
-                        contentItem: ColumnLayout {
-                            spacing: 2
-                            Label { text: title.length > 0 ? (title + " - " + artist) : filename; font.bold: true }
-                            Label { text: description + " new cue(s) would be added"; color: Theme.textMuted }
+                        contentItem: RowLayout {
+                            spacing: 8
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 2
+                                Label { text: candidateRow.title.length > 0 ? (candidateRow.title + " - " + candidateRow.artist) : candidateRow.filename; font.bold: true }
+                                Label { text: candidateRow.description + " new cue(s) would be added"; color: Theme.textMuted }
+                            }
+                            StatusBadge {
+                                visible: candidateRow.staged
+                                label: "Staged"
+                                badgeColor: Theme.warnText
+                                tooltipText: "Not on the stick yet: press Save."
+                            }
+                            ToolButton {
+                                visible: candidateRow.staged
+                                text: "Unstage"
+                                enabled: !localCueController.writing
+                                onClicked: localCueController.unstage(candidateRow.index)
+                            }
                         }
                     }
 
@@ -449,7 +488,7 @@ Page {
         busy: localCueController.busy
         current: localCueController.scanCurrent
         total: localCueController.scanTotal
-        label: localCueController.writing ? "Restoring cues..." : "Analyzing backups..."
+        label: "Analyzing backups..."
         cancellable: localCueController.scanCancellable
         onCancelRequested: localCueController.cancelScan()
     }
