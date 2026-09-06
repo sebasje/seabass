@@ -133,6 +133,12 @@ public:
 signals:
     void errorMessageChanged();
     void busyChanged();
+    // A mounted stick disappeared / the exact same stick (StickIdentity::
+    // isSameStick) is back, by library id. identityStrength is
+    // StickIdentity::strengthName() of the match, so the UI can say how
+    // sure "the same stick" is.
+    void stickRemoved(const QString &libraryId, const QString &label);
+    void stickReturned(const QString &libraryId, const QString &identityStrength);
 
 public:
     // Unmounts every stick Seabass mounted itself that is still mounted

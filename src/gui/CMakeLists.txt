@@ -153,11 +153,26 @@ qt_add_qml_module(seabass
         qt_progress_reporter.hpp
         library_catalog_cache.hpp
         library_catalog_cache.cpp
+        edit/pending_change.hpp
+        edit/save_context.hpp
+        edit/save_context.cpp
+        edit/save_loop.hpp
+        edit/save_loop.cpp
+        edit/format_write_session.hpp
+        edit/format_write_session.cpp
+        edit/library_edit_session.hpp
+        edit/library_edit_session.cpp
+        edit/edit_session_registry.hpp
+        edit/edit_session_registry.cpp
         system_font_metrics.hpp
         system_font_metrics.cpp
 )
 
-target_include_directories(seabass PRIVATE ${CMAKE_SOURCE_DIR}/src)
+# edit/ is on the path too because qmltyperegistrar includes every
+# QML_ELEMENT header by bare file name (`__has_include(<x.hpp>)`) and
+# silently skips one it cannot find, which then fails much later as
+# "'X' is not a member of 'seabass::gui'".
+target_include_directories(seabass PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/edit)
 target_link_libraries(seabass PRIVATE
     seabass_core
     Qt6::Core
