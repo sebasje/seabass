@@ -2,6 +2,8 @@
 
 #include <QAbstractListModel>
 #include <QFutureWatcher>
+#include <QSet>
+#include <QStringList>
 #include <QObject>
 #include <QQmlEngine>
 #include <QTimer>
@@ -50,6 +52,7 @@ public:
     Q_INVOKABLE QVariantMap get(int row) const;
 
     void setSticks(std::vector<application::DetectedStick> sticks);
+    const std::vector<application::DetectedStick> &sticks() const { return m_sticks; }
 
 private:
     std::vector<application::DetectedStick> m_sticks;
@@ -59,6 +62,15 @@ private:
 // exposed as `sticks`, and auto-refreshes on udev hotplug events via
 // RemovableMediaMonitor. Source-selection entry point for every other
 // controller.
+//
+// A stick that shows up with a filesystem but no mount point is mounted
+// automatically (at startup and on insertion), so what is on it can be
+// read and shown right away instead of every page saying "not mounted".
+// Every mount Seabass performed itself -- automatic or via the row's
+// mount button -- is remembered and unmounted again when the app quits;
+// a stick the desktop had already mounted is left alone. A stick the
+// user ejected from the list is not re-mounted until it is re-inserted,
+// and one whose mount fails is not retried until then either.
 // Result of a background mount/unmount task -- see MediaController::
 // mountStick()/unmountStick(). Built entirely on a worker thread, no
 // access to the controller itself.
@@ -103,10 +115,18 @@ signals:
     void errorMessageChanged();
     void busyChanged();
 
+public:
+    // Unmounts every stick Seabass mounted itself that is still mounted
+    // (synchronously, best effort). Runs on QCoreApplication::aboutToQuit
+    // and again from the destructor; idempotent.
+    void unmountOwnMounts();
+
 private:
     void setErrorMessage(const QString &message);
-    void startTask(bool mount, const QString &devicePath);
+    void startTask(bool mount, const QString &devicePath, bool automatic);
     void onTaskFinished();
+    void queueAutoMounts();
+    void startNextAutoMount();
 
     DetectedStickListModel m_model;
     std::unique_ptr<application::RemovableMediaMonitor> m_monitor;
@@ -114,7 +134,14 @@ private:
     QString m_errorMessage;
     QFutureWatcher<MediaTaskResult> m_watcher;
     bool m_busy = false;
+    bool m_busyIsMount = false;
+    bool m_busyIsAutomatic = false;
     QString m_busyDevicePath;
+    QSet<QString> m_mountedByUs;      // devicePaths Seabass mounted, to unmount on quit
+    QSet<QString> m_userUnmounted;    // ejected from the list: leave alone until re-inserted
+    QSet<QString> m_autoMountFailed;  // do not retry until re-inserted
+    QStringList m_autoMountQueue;
+    bool m_ownMountsReleased = false;
 };
 
 }  // namespace seabass::gui
