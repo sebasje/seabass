@@ -473,9 +473,21 @@ Page {
                         }
                         ActionCard {
                             cardTitle: "Restore a Backup"
+                            // Visible unconditionally (see below), so its
+                            // wording must not presuppose a backup exists:
+                            // "no-backups" is exactly the state where none
+                            // do, and it is a real, common state for this
+                            // card -- a freshly formatted stick with an
+                            // empty default backup directory reaches it
+                            // every time. The old fallback text, "Put one
+                            // of your stick backups onto this empty
+                            // stick", read as though a backup were known to
+                            // exist and just needed picking, which is what
+                            // was reported as "Seabass offers to restore a
+                            // backup ... but we don't have one".
                             cardSubtitle: delegateRoot.adviceState === "restore"
                                 ? "Restore " + delegateRoot.advice.backupLabel + " onto this empty stick"
-                                : "Put one of your stick backups onto this empty stick"
+                                : "No known stick backups yet -- browse for a backup file to restore"
                             cardIcon: "🗃"
                             experimental: true
                             experimentalFeaturesEnabled: root.appSettingsController.experimentalFeaturesEnabled
