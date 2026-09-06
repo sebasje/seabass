@@ -41,7 +41,24 @@ PosixArchiveFile::PosixArchiveFile(const std::filesystem::path &path, OpenMode m
 {
     DWORD access = mode == OpenMode::ReadOnly ? GENERIC_READ : (GENERIC_READ | GENERIC_WRITE);
     DWORD disposition = mode == OpenMode::ReadOnly ? OPEN_EXISTING : OPEN_ALWAYS;
-    HANDLE h = CreateFileW(path.c_str(), access, FILE_SHARE_READ, nullptr, disposition, FILE_ATTRIBUTE_NORMAL, nullptr);
+    // Share mode has to emulate POSIX open() semantics, which is what
+    // every caller of this class was written against -- a POSIX fd puts
+    // no restriction on anyone else opening, writing, or unlinking the
+    // same file, whereas CreateFileW's default (0) excludes all of that
+    // and FILE_SHARE_READ alone still excludes writers and deleters.
+    // Each omission caused a real, separate Windows-only failure:
+    //
+    //   - without FILE_SHARE_WRITE, a second open for writing fails with
+    //     ERROR_SHARING_VIOLATION (32). BackupStick's cancel/keep/resume
+    //     path hit this and threw ArchiveIoError.
+    //   - without FILE_SHARE_DELETE, fs::remove() on a still-open handle
+    //     silently fails. RestoreStickBackup removes its .seabass-restore-tmp
+    //     file from inside the scope that still holds it open (see
+    //     writeEntry()'s checksum-mismatch branch, which discards the
+    //     error code), so a damaged entry left its temp file behind
+    //     instead of cleaning up.
+    HANDLE h = CreateFileW(path.c_str(), access, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                            disposition, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (h == INVALID_HANDLE_VALUE) {
         throwIo("could not open", path);
     }

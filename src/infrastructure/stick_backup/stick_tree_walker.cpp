@@ -3,9 +3,12 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <memory>
 #include <system_error>
+#include <vector>
 
 #include "infrastructure/engine/engine_library_layout.hpp"
+#include "infrastructure/long_paths.hpp"
 
 namespace seabass::infrastructure::stick_backup
 {
@@ -31,6 +34,14 @@ std::string_view lastComponent(std::string_view relativePath)
     std::size_t slash = relativePath.rfind('/');
     return slash == std::string_view::npos ? relativePath : relativePath.substr(slash + 1);
 }
+
+// One open directory in the depth-first walk, with the relative path that
+// leads to it ("" at the root, otherwise "Contents/Album/").
+struct WalkLevel
+{
+    std::unique_ptr<DirectoryReader> reader;
+    std::string prefix;
+};
 
 }  // namespace
 
@@ -84,18 +95,42 @@ TreeWalk walkStickTree(const fs::path &root, application::CancellationToken canc
     if (rootNormalized.filename().empty()) {
         rootNormalized = rootNormalized.parent_path();
     }
-    fs::recursive_directory_iterator it(rootNormalized, fs::directory_options::skip_permission_denied, ec);
-    if (ec) {
-        walk.skipped.push_back(root.string() + ": " + ec.message());
-        return walk;
-    }
-    std::size_t sinceCancelCheck = 0;
-    for (fs::recursive_directory_iterator end; it != end; it.increment(ec)) {
+    // Depth-first by hand rather than fs::recursive_directory_iterator, so
+    // that every directory is opened through longPathSafe(). On Windows
+    // the recursive iterator cannot descend into a directory whose path is
+    // past MAX_PATH: it reports "No such file or directory" for a
+    // directory that plainly exists, and everything below it is then
+    // silently missing from the backup while the run still reports
+    // Complete, because walk.skipped only becomes a warning and warnings
+    // do not change the outcome status. A long-ish artist/album path on a
+    // stick mounted at a long-ish mount point reaches that depth easily.
+    //
+    // Carrying the relative prefix down as we go also keeps the entry
+    // names clean: lexically_relative() would otherwise have to reconcile
+    // a \\?\ prefix that appears partway down the tree against a root
+    // that does not have one.
+    std::vector<WalkLevel> stack;
+    {
+        auto reader = std::make_unique<DirectoryReader>(rootNormalized, ec);
         if (ec) {
-            walk.skipped.push_back(it->path().string() + ": " + ec.message());
-            ec.clear();
+            walk.skipped.push_back(root.string() + ": " + ec.message());
+            return walk;
+        }
+        stack.push_back({std::move(reader), std::string()});
+    }
+
+    std::size_t sinceCancelCheck = 0;
+    while (!stack.empty()) {
+        fs::path childPath;
+        if (!stack.back().reader->next(childPath, ec)) {
+            if (ec) {
+                walk.skipped.push_back(stack.back().prefix + ": " + ec.message());
+                ec.clear();
+            }
+            stack.pop_back();
             continue;
         }
+        const std::string prefix = stack.back().prefix;
         if (++sinceCancelCheck >= 256) {
             sinceCancelCheck = 0;
             if (cancel.cancelled()) {
@@ -103,30 +138,29 @@ TreeWalk walkStickTree(const fs::path &root, application::CancellationToken canc
                 break;
             }
         }
-        const fs::directory_entry &entry = *it;
-        std::string relative = pathToUtf8(entry.path().lexically_relative(rootNormalized));
-        if (relative.empty() || relative == "." || relative.compare(0, 2, "..") == 0) {
-            walk.skipped.push_back(entry.path().string() + ": could not relativize");
-            continue;
-        }
+
+        // Prefixed for every query: a child of a directory that was still
+        // short enough to reach unprefixed can itself be past MAX_PATH,
+        // and there the unprefixed query fails and a perfectly readable
+        // file gets recorded as unreadable. Single-file operations
+        // (symlink_status, last_write_time, file_size) do honour the
+        // prefix -- it is only directory listing that does not, which is
+        // what DirectoryReader is for.
+        const fs::path full = longPathSafe(childPath);
+        const std::string relative = prefix + pathToUtf8(childPath.filename());
 
         std::error_code statusEc;
-        fs::file_status linkStatus = entry.symlink_status(statusEc);
+        fs::file_status linkStatus = fs::symlink_status(full, statusEc);
         if (statusEc) {
             walk.skipped.push_back(relative + ": " + statusEc.message());
-            it.disable_recursion_pending();
             continue;
         }
         if (fs::is_symlink(linkStatus)) {
             walk.skipped.push_back(relative + ": symbolic link");
-            it.disable_recursion_pending();
             continue;
         }
         const bool isDirectory = fs::is_directory(linkStatus);
         if (isExcludedFromBackup(relative, isDirectory)) {
-            if (isDirectory) {
-                it.disable_recursion_pending();
-            }
             continue;
         }
         if (!isDirectory && !fs::is_regular_file(linkStatus)) {
@@ -135,26 +169,33 @@ TreeWalk walkStickTree(const fs::path &root, application::CancellationToken canc
         }
 
         TreeEntry treeEntry;
-        treeEntry.relativePath = std::move(relative);
+        treeEntry.relativePath = relative;
         treeEntry.isDirectory = isDirectory;
-        fs::file_time_type mtime = entry.last_write_time(statusEc);
+        fs::file_time_type mtime = fs::last_write_time(full, statusEc);
         if (statusEc) {
-            walk.skipped.push_back(treeEntry.relativePath + ": " + statusEc.message());
-            if (isDirectory) {
-                it.disable_recursion_pending();
-            }
+            walk.skipped.push_back(relative + ": " + statusEc.message());
             continue;
         }
         treeEntry.mtimeUnix = toUnixSeconds(mtime);
         if (!isDirectory) {
-            treeEntry.size = entry.file_size(statusEc);
+            treeEntry.size = fs::file_size(full, statusEc);
             if (statusEc) {
-                walk.skipped.push_back(treeEntry.relativePath + ": " + statusEc.message());
+                walk.skipped.push_back(relative + ": " + statusEc.message());
                 continue;
             }
             walk.totalFileBytes += treeEntry.size;
         }
         walk.entries.push_back(std::move(treeEntry));
+
+        if (isDirectory) {
+            std::error_code openEc;
+            auto child = std::make_unique<DirectoryReader>(full, openEc);
+            if (openEc) {
+                walk.skipped.push_back(relative + ": " + openEc.message());
+                continue;
+            }
+            stack.push_back({std::move(child), relative + "/"});
+        }
     }
     std::sort(walk.entries.begin(), walk.entries.end(),
               [](const TreeEntry &a, const TreeEntry &b) { return a.relativePath < b.relativePath; });

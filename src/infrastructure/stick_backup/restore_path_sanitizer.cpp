@@ -115,15 +115,4 @@ std::optional<std::filesystem::path> sanitizeEntryName(std::string_view entryNam
     return result;
 }
 
-std::filesystem::path longPathSafe(const std::filesystem::path &absolute)
-{
-#if defined(_WIN32)
-    std::wstring native = absolute.native();
-    if (native.size() > 240 && native.rfind(L"\\\\?\\", 0) != 0) {
-        return std::filesystem::path(L"\\\\?\\" + std::filesystem::path(native).lexically_normal().native());
-    }
-#endif
-    return absolute;
-}
-
 }  // namespace seabass::infrastructure::stick_backup
