@@ -118,7 +118,23 @@ bool WindowsUsbFormatter::format(const std::string &wholeDiskPath, domain::UsbFi
         // partition style of an already-initialized disk directly and is
         // what actually enforces this feature's "always MBR" promise.
         script << "    Set-Disk -Number " << *diskNumber << " -PartitionStyle MBR\n";
-        script << "    $partition = New-Partition -DiskNumber " << *diskNumber << " -UseMaximumSize\n";
+        // -AssignDriveLetter matters as much as the format itself here.
+        // Without it Windows creates the partition but assigns no drive
+        // letter, so a *successful* format hands the user a stick they
+        // cannot open: it doesn't appear in Explorer, and this app's own
+        // WindowsRemovableMediaLocator can't see it either -- detect()
+        // reports devicePath empty, mounted false, and falls back to the
+        // hardware model ("ASolid USB") instead of the volume label that
+        // was just written. Confirmed on real hardware for both
+        // filesystems; the drive letter had to be assigned by hand
+        // afterwards to make the stick usable again.
+        //
+        // Unlike Linux, there's no separate mount step afterwards that
+        // could recover this (see WindowsRemovableMediaMounter::mount(),
+        // which only confirms a letter Windows already assigned) -- so if
+        // it isn't requested here, nothing else will do it.
+        script << "    $partition = New-Partition -DiskNumber " << *diskNumber
+               << " -UseMaximumSize -AssignDriveLetter\n";
         script << "    Format-Volume -Partition $partition -FileSystem " << fsName << " -NewFileSystemLabel '"
                << escapePowerShellSingleQuoted(volumeLabel) << "' -Confirm:$false | Out-Null\n";
         script << "    Set-Content -Path '" << resultPath << "' -Value 'OK'\n";
