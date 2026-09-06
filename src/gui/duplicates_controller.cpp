@@ -362,12 +362,13 @@ namespace
 
 // Runs entirely on a background thread (see DuplicatesController::
 // rescan()) - no access to the controller itself.
-DuplicatesTaskResult runRescanTask(QString format, QString path, std::shared_ptr<QtProgressReporter> reporter)
+DuplicatesTaskResult runRescanTask(QString format, QString path, std::shared_ptr<QtProgressReporter> reporter,
+                                   application::CancellationToken cancel)
 {
     DuplicatesTaskResult result;
     try {
         std::vector<domain::Track> tracks =
-            LibraryCatalogCache::instance().tracksFor(format.toStdString(), path.toStdString(), *reporter);
+            LibraryCatalogCache::instance().tracksFor(format.toStdString(), path.toStdString(), *reporter, cancel);
 
         // Streaming tracks (Engine/TIDAL) have no real local file.
         // Never propose "syncing" cues onto/from one. See
@@ -397,6 +398,8 @@ DuplicatesTaskResult runRescanTask(QString format, QString path, std::shared_ptr
         // shape of bug confirmed to make Sync's own "scanning" phase
         // take 5+ minutes on a real library).
         result.plans = std::move(actionable);
+    } catch (const application::OperationCancelled &) {
+        result.cancelled = true;
     } catch (const std::exception &e) {
         result.errorMessage = QString::fromStdString(e.what());
     }
@@ -443,7 +446,15 @@ void DuplicatesController::rescan()
     setScanProgress(0, 0);
     setBusy(true);
 
-    m_watcher.setFuture(QtConcurrent::run(runRescanTask, m_format, m_path, makeReporter()));
+    m_scanCancel = application::CancellationToken();
+    m_watcher.setFuture(QtConcurrent::run(runRescanTask, m_format, m_path, makeReporter(), m_scanCancel));
+}
+
+void DuplicatesController::cancelScan()
+{
+    if (scanCancellable()) {
+        m_scanCancel.cancel();
+    }
 }
 
 // See ScanController::scan() for why the reporter is owned by the task
@@ -464,6 +475,11 @@ void DuplicatesController::onRescanFinished()
 {
     DuplicatesTaskResult result = m_watcher.result();
 
+    if (result.cancelled) {
+        setBusy(false);
+        emit scanCancelled();
+        return;
+    }
     if (!result.errorMessage.isEmpty()) {
         setErrorMessage(result.errorMessage);
         setBusy(false);

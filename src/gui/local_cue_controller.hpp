@@ -12,6 +12,7 @@
 #include <memory>
 
 #include "domain/local_restore.hpp"
+#include "application/ports/cancellation_token.hpp"
 #include "gui/qt_progress_reporter.hpp"
 #include "gui/undo_tracking.hpp"
 
@@ -62,6 +63,7 @@ struct LocalCueTaskResult
     int localTrackCount = 0;
     std::vector<domain::RestoreCandidate> candidates;
     QString errorMessage;  // empty on success
+    bool cancelled = false;  // an analyze stopped via cancelScan(); nothing else is set
 };
 
 // Result of a background write task -- see LocalCueController::
@@ -92,6 +94,10 @@ class LocalCueController : public QObject
     QML_ELEMENT
     Q_PROPERTY(seabass::gui::RestoreCandidateListModel *restoreCandidates READ restoreCandidatesModel CONSTANT)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
+    // True while a read-only analyze runs (never during a write or the
+    // local backup): it can be stopped via cancelScan(), after which
+    // scanCancelled() fires.
+    Q_PROPERTY(bool scanCancellable READ scanCancellable NOTIFY busyChanged)
     Q_PROPERTY(int scanCurrent READ scanCurrent NOTIFY scanProgressChanged)
     Q_PROPERTY(int scanTotal READ scanTotal NOTIFY scanProgressChanged)
     Q_PROPERTY(int stickTrackCount READ stickTrackCount NOTIFY analysisChanged)
@@ -172,7 +178,11 @@ public:
     // Available only right after a write (canUndo).
     Q_INVOKABLE void undoLastOperation();
 
+    bool scanCancellable() const { return m_busy && !m_writing && m_analyzeWatcher.isRunning(); }
+    Q_INVOKABLE void cancelScan();
+
 signals:
+    void scanCancelled();
     void busyChanged();
     void scanProgressChanged();
     void analysisChanged();
@@ -204,6 +214,7 @@ private:
     RestoreCandidateListModel m_model;
     QFutureWatcher<LocalCueTaskResult> m_backupWatcher;
     QFutureWatcher<LocalCueTaskResult> m_analyzeWatcher;
+    application::CancellationToken m_scanCancel;  // fresh per analyze
     QFutureWatcher<LocalCueWriteResult> m_writeWatcher;
     QString m_format;
     QString m_path;

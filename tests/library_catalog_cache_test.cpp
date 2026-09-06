@@ -8,6 +8,8 @@
 
 using namespace seabass::gui;
 using namespace std::chrono_literals;
+using seabass::application::CancellationToken;
+using seabass::application::OperationCancelled;
 
 namespace
 {
@@ -27,7 +29,7 @@ int main()
     // is served from the cache -- the scan function runs exactly once.
     {
         std::atomic<int> scanCount{0};
-        auto scanFn = [&](const std::string &, const std::string &, seabass::application::ProgressReporter &) {
+        auto scanFn = [&](const std::string &, const std::string &, seabass::application::ProgressReporter &, CancellationToken) {
             scanCount++;
             return oneTrack("1");
         };
@@ -45,7 +47,7 @@ int main()
     // Case 2: a changed mtime forces a re-scan.
     {
         std::atomic<int> scanCount{0};
-        auto scanFn = [&](const std::string &, const std::string &, seabass::application::ProgressReporter &) {
+        auto scanFn = [&](const std::string &, const std::string &, seabass::application::ProgressReporter &, CancellationToken) {
             scanCount++;
             return oneTrack("1");
         };
@@ -64,7 +66,7 @@ int main()
     // Case 3: invalidate() forces a re-scan even though mtime hasn't moved.
     {
         std::atomic<int> scanCount{0};
-        auto scanFn = [&](const std::string &, const std::string &, seabass::application::ProgressReporter &) {
+        auto scanFn = [&](const std::string &, const std::string &, seabass::application::ProgressReporter &, CancellationToken) {
             scanCount++;
             return oneTrack("1");
         };
@@ -87,7 +89,7 @@ int main()
     // didn't work.
     {
         std::atomic<int> scanCount{0};
-        auto scanFn = [&](const std::string &, const std::string &, seabass::application::ProgressReporter &) {
+        auto scanFn = [&](const std::string &, const std::string &, seabass::application::ProgressReporter &, CancellationToken) {
             scanCount++;
             std::this_thread::sleep_for(100ms);
             return oneTrack("1");
@@ -119,7 +121,7 @@ int main()
     // cached independently.
     {
         std::atomic<int> scanCount{0};
-        auto scanFn = [&](const std::string &format, const std::string &, seabass::application::ProgressReporter &) {
+        auto scanFn = [&](const std::string &format, const std::string &, seabass::application::ProgressReporter &, CancellationToken) {
             scanCount++;
             return oneTrack(format);
         };
@@ -139,7 +141,7 @@ int main()
         std::atomic<int> scanCount{0};
         std::atomic<bool> firstScanStarted{false};
         std::atomic<bool> proceedWithFirstScan{false};
-        auto scanFn = [&](const std::string &, const std::string &, seabass::application::ProgressReporter &) {
+        auto scanFn = [&](const std::string &, const std::string &, seabass::application::ProgressReporter &, CancellationToken) {
             int n = ++scanCount;
             if (n == 1) {
                 firstScanStarted = true;
@@ -178,7 +180,7 @@ int main()
     // "also invalidate onelibrary" for every write.
     {
         std::atomic<int> scanCount{0};
-        auto scanFn = [&](const std::string &, const std::string &, seabass::application::ProgressReporter &) {
+        auto scanFn = [&](const std::string &, const std::string &, seabass::application::ProgressReporter &, CancellationToken) {
             scanCount++;
             return oneTrack("1");
         };
@@ -200,6 +202,68 @@ int main()
         cache.tracksFor("onelibrary", "/stick");
         assert(scanCount == 6);  // engine re-scanned, onelibrary still cached (not a mirror of engine)
         std::cout << "case 7 (invalidateWithOneLibraryMirror only mirrors rekordbox) OK\n";
+    }
+
+    // Case 8: a cancelled scan throws OperationCancelled, caches nothing
+    // (the next call scans from scratch), and a concurrent waiter on the
+    // same key is not handed the cancelled result -- it scans for itself.
+    {
+        std::atomic<int> scanCount{0};
+        std::atomic<bool> firstScanStarted{false};
+        auto scanFn = [&](const std::string &, const std::string &, seabass::application::ProgressReporter &,
+                          CancellationToken cancel) {
+            int n = ++scanCount;
+            if (n == 1) {
+                firstScanStarted = true;
+                while (!cancel.cancelled()) {
+                    std::this_thread::yield();
+                }
+                cancel.throwIfCancelled();
+            }
+            return oneTrack("complete");
+        };
+        auto mtimeFn = [](const std::string &, const std::string &) { return std::chrono::system_clock::time_point{}; };
+        LibraryCatalogCache cache(scanFn, mtimeFn);
+
+        CancellationToken token;
+        bool cancelledSeen = false;
+        std::thread t1([&] {
+            try {
+                cache.tracksFor("rekordbox", "/stick", seabass::application::NullProgressReporter::instance(), token);
+            } catch (const OperationCancelled &) {
+                cancelledSeen = true;
+            }
+        });
+        while (!firstScanStarted.load()) {
+            std::this_thread::yield();
+        }
+        // A second caller arrives while the first is in flight and waits.
+        std::vector<seabass::domain::Track> second;
+        std::thread t2([&] { second = cache.tracksFor("rekordbox", "/stick"); });
+        std::this_thread::sleep_for(50ms);
+        token.cancel();
+        t1.join();
+        t2.join();
+
+        assert(cancelledSeen);
+        assert(scanCount == 2);  // the waiter scanned for itself
+        assert(second.size() == 1 && second[0].sourceId == "complete");
+        // Cached now, from the complete scan only.
+        cache.tracksFor("rekordbox", "/stick");
+        assert(scanCount == 2);
+
+        // An already-cancelled token never even starts the scan.
+        LibraryCatalogCache fresh(scanFn, mtimeFn);
+        CancellationToken dead;
+        dead.cancel();
+        bool threw = false;
+        try {
+            fresh.tracksFor("engine", "/stick", seabass::application::NullProgressReporter::instance(), dead);
+        } catch (const OperationCancelled &) {
+            threw = true;
+        }
+        assert(threw && scanCount == 2);
+        std::cout << "case 8 (a cancelled scan caches nothing and frees its waiters) OK\n";
     }
 
     std::cout << "All library_catalog_cache tests passed.\n";

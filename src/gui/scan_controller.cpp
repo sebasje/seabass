@@ -137,16 +137,16 @@ namespace
 // access to the controller itself, so everything it needs travels in by
 // value and its result travels back out as a plain struct.
 ScanTaskResult runScanTask(QString format, QString path, QString siblingRekordboxPath,
-                            std::shared_ptr<QtProgressReporter> reporter)
+                            std::shared_ptr<QtProgressReporter> reporter, application::CancellationToken cancel)
 {
     ScanTaskResult result;
     try {
         auto &catalogCache = LibraryCatalogCache::instance();
         std::vector<domain::Track> tracks;
         if (format == "rekordbox") {
-            tracks = catalogCache.tracksFor("rekordbox", path.toStdString(), *reporter);
+            tracks = catalogCache.tracksFor("rekordbox", path.toStdString(), *reporter, cancel);
         } else if (format == "engine") {
-            tracks = catalogCache.tracksFor("engine", path.toStdString(), *reporter);
+            tracks = catalogCache.tracksFor("engine", path.toStdString(), *reporter, cancel);
 
             if (!siblingRekordboxPath.isEmpty()) {
                 try {
@@ -157,7 +157,8 @@ ScanTaskResult runScanTask(QString format, QString path, QString siblingRekordbo
                     // through the same cache -- Sync/Stick Statistics may
                     // already have this exact rekordbox catalog cached from
                     // a prior page visit.
-                    auto rbTracks = catalogCache.tracksFor("rekordbox", siblingRekordboxPath.toStdString(), *reporter);
+                    auto rbTracks =
+                        catalogCache.tracksFor("rekordbox", siblingRekordboxPath.toStdString(), *reporter, cancel);
 
                     std::unordered_map<std::string, std::string> artworkByTitleArtist;
                     for (const auto &rbTrack : rbTracks) {
@@ -177,6 +178,8 @@ ScanTaskResult runScanTask(QString format, QString path, QString siblingRekordbo
                             track.artworkPath = it->second;
                         }
                     }
+                } catch (const application::OperationCancelled &) {
+                    throw;  // a cancel is a cancel, even during the nice-to-have part
                 } catch (const std::exception &) {
                     // Borrowing cover art from the sibling library is a
                     // nice-to-have, never let it break browsing Engine
@@ -189,9 +192,11 @@ ScanTaskResult runScanTask(QString format, QString path, QString siblingRekordbo
             // under it), not a separate stored path. OneLibrary is a
             // third view onto that same side of the stick, not an
             // independent catalog with its own DetectedStick field.
-            tracks = catalogCache.tracksFor("onelibrary", path.toStdString(), *reporter);
+            tracks = catalogCache.tracksFor("onelibrary", path.toStdString(), *reporter, cancel);
         }
         result.tracks = std::move(tracks);
+    } catch (const application::OperationCancelled &) {
+        result.cancelled = true;
     } catch (const std::exception &e) {
         result.errorMessage = QString::fromStdString(e.what());
     }
@@ -226,13 +231,26 @@ void ScanController::scan(const QString &format, const QString &path, const QStr
     connect(reporter.get(), &QtProgressReporter::progressed, this,
             [this](int current) { setScanProgress(current, m_scanTotal); });
 
-    m_watcher.setFuture(QtConcurrent::run(runScanTask, format, path, siblingRekordboxPath, reporter));
+    m_scanCancel = application::CancellationToken();
+    m_watcher.setFuture(QtConcurrent::run(runScanTask, format, path, siblingRekordboxPath, reporter, m_scanCancel));
+}
+
+void ScanController::cancelScan()
+{
+    if (m_busy) {
+        m_scanCancel.cancel();
+    }
 }
 
 void ScanController::onScanFinished()
 {
     ScanTaskResult result = m_watcher.result();
 
+    if (result.cancelled) {
+        setBusy(false);
+        emit scanCancelled();
+        return;
+    }
     if (!result.errorMessage.isEmpty()) {
         setErrorMessage(result.errorMessage);
         setBusy(false);

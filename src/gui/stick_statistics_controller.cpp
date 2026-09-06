@@ -113,16 +113,20 @@ QVariantMap toVariant(const infrastructure::benchmark::BenchmarkRecord &r)
 // Best-effort recursive directory size, skipping anything that errors
 // (permission-denied entries, a symlink loop, the stick being unplugged
 // mid-walk) rather than aborting the whole statistics scan over it.
-std::uint64_t directorySizeBytes(const std::string &dir)
+std::uint64_t directorySizeBytes(const std::string &dir, const application::CancellationToken &cancel)
 {
     std::error_code ec;
     if (dir.empty() || !fs::exists(dir, ec) || ec) {
         return 0;
     }
     std::uint64_t total = 0;
+    std::uint64_t entries = 0;
     auto it = fs::recursive_directory_iterator(dir, fs::directory_options::skip_permission_denied, ec);
     auto end = fs::recursive_directory_iterator();
     for (; !ec && it != end; it.increment(ec)) {
+        if ((++entries & 0xFF) == 0) {
+            cancel.throwIfCancelled();  // a walk of a big stick is the slow part of this scan
+        }
         std::error_code fileEc;
         if (it->is_regular_file(fileEc) && !fileEc) {
             auto size = it->file_size(fileEc);
@@ -147,9 +151,11 @@ std::string stickRootFromPaths(const QString &rekordboxPath, const QString &engi
 
 // Runs entirely on a background thread (see
 // StickStatisticsController::scan()) -- no access to the controller.
-StickStatisticsScanResult runScanTask(QString stickLabel, QString rekordboxPath, QString enginePath)
+StickStatisticsScanResult runScanTask(QString stickLabel, QString rekordboxPath, QString enginePath,
+                                      application::CancellationToken cancel)
 {
     StickStatisticsScanResult result;
+    auto &noProgress = application::NullProgressReporter::instance();
     try {
         std::string stickRoot = stickRootFromPaths(rekordboxPath, enginePath);
         auto hwInfo = infrastructure::system::readStickHardwareInfo(stickRoot, stickLabel.toStdString());
@@ -163,7 +169,7 @@ StickStatisticsScanResult runScanTask(QString stickLabel, QString rekordboxPath,
         auto &catalogCache = LibraryCatalogCache::instance();
 
         if (!rekordboxPath.isEmpty()) {
-            auto tracks = catalogCache.tracksFor("rekordbox", rekordboxPath.toStdString());
+            auto tracks = catalogCache.tracksFor("rekordbox", rekordboxPath.toStdString(), noProgress, cancel);
             result.rekordboxStats = toVariant(domain::LibraryStatisticsCalculator::calculate(tracks));
             databaseFiles.push_back(rekordboxPath.toStdString() + "/rekordbox/export.pdb");
             for (auto &t : tracks) {
@@ -173,7 +179,7 @@ StickStatisticsScanResult runScanTask(QString stickLabel, QString rekordboxPath,
             }
         }
         if (!enginePath.isEmpty()) {
-            auto tracks = catalogCache.tracksFor("engine", enginePath.toStdString());
+            auto tracks = catalogCache.tracksFor("engine", enginePath.toStdString(), noProgress, cancel);
             result.engineStats = toVariant(domain::LibraryStatisticsCalculator::calculate(tracks));
             databaseFiles.push_back((fs::path(enginePath.toStdString()) / "Database2" / "m.db").string());
             for (auto &t : tracks) {
@@ -190,7 +196,7 @@ StickStatisticsScanResult runScanTask(QString stickLabel, QString rekordboxPath,
         }
         if (!rekordboxPath.isEmpty() &&
             infrastructure::onelibrary::OneLibraryCueWriter::existsFor(rekordboxPath.toStdString())) {
-            auto tracks = catalogCache.tracksFor("onelibrary", rekordboxPath.toStdString());
+            auto tracks = catalogCache.tracksFor("onelibrary", rekordboxPath.toStdString(), noProgress, cancel);
             result.oneLibraryStats = toVariant(domain::LibraryStatisticsCalculator::calculate(tracks));
             databaseFiles.push_back(infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(rekordboxPath.toStdString()));
             // OneLibrary's own tracks reference the same physical files
@@ -243,10 +249,10 @@ StickStatisticsScanResult runScanTask(QString stickLabel, QString rekordboxPath,
 
         std::uint64_t metadataBytes = 0;
         if (!rekordboxPath.isEmpty()) {
-            metadataBytes += directorySizeBytes(rekordboxPath.toStdString());
+            metadataBytes += directorySizeBytes(rekordboxPath.toStdString(), cancel);
         }
         if (!enginePath.isEmpty()) {
-            metadataBytes += directorySizeBytes(enginePath.toStdString());
+            metadataBytes += directorySizeBytes(enginePath.toStdString(), cancel);
         }
         metadataBytes = metadataBytes > artworkBytes ? metadataBytes - artworkBytes : 0;
 
@@ -274,6 +280,8 @@ StickStatisticsScanResult runScanTask(QString stickLabel, QString rekordboxPath,
         diskUsageMap["freeBytes"] = QVariant::fromValue<qulonglong>(hwInfo.freeBytes);
         diskUsageMap["root"] = toVariant(root);
         result.diskUsage = diskUsageMap;
+    } catch (const application::OperationCancelled &) {
+        result.cancelled = true;
     } catch (const std::exception &e) {
         result.errorMessage = QString::fromStdString(e.what());
     }
@@ -334,13 +342,25 @@ void StickStatisticsController::scan(const QString &stickLabel, const QString &r
     }
     setErrorMessage({});
     setBusy(true);
-    m_watcher.setFuture(QtConcurrent::run(runScanTask, stickLabel, rekordboxPath, enginePath));
+    m_scanCancel = application::CancellationToken();
+    m_watcher.setFuture(QtConcurrent::run(runScanTask, stickLabel, rekordboxPath, enginePath, m_scanCancel));
+}
+
+void StickStatisticsController::cancelScan()
+{
+    if (m_busy) {
+        m_scanCancel.cancel();
+    }
 }
 
 void StickStatisticsController::onScanFinished()
 {
     StickStatisticsScanResult result = m_watcher.result();
     setBusy(false);
+    if (result.cancelled) {
+        emit scanCancelled();
+        return;
+    }
     if (!result.errorMessage.isEmpty()) {
         setErrorMessage(result.errorMessage);
         return;

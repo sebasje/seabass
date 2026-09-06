@@ -247,12 +247,13 @@ namespace
 {
 
 std::vector<domain::Track> scanTracks(const QString &format, const QString &path,
-                                       std::shared_ptr<QtProgressReporter> reporter)
+                                       std::shared_ptr<QtProgressReporter> reporter,
+                                       application::CancellationToken cancel = application::CancellationToken::none())
 {
     // No explicit format check here -- LibraryCatalogCache::tracksFor()
     // already throws for anything unrecognized (see its own realScan()),
     // caught by the same catch (const std::exception &) below either way.
-    return LibraryCatalogCache::instance().tracksFor(format.toStdString(), path.toStdString(), *reporter);
+    return LibraryCatalogCache::instance().tracksFor(format.toStdString(), path.toStdString(), *reporter, cancel);
 }
 
 // This format's own playlist membership tally, unfiltered -- called on
@@ -286,11 +287,12 @@ void tallyPlaylists(const std::vector<domain::Track> &tracks, LibraryConsistency
 // consistency check to just that playlist's tracks, via domain::TrackScope
 // -- same seam SyncController::runAnalyzeTask already uses.
 LibraryConsistencyScanResult runScanTask(QString format, QString path, QString playlistName,
-                                          std::shared_ptr<QtProgressReporter> reporter)
+                                          std::shared_ptr<QtProgressReporter> reporter,
+                                          application::CancellationToken cancel)
 {
     LibraryConsistencyScanResult result;
     try {
-        auto tracks = scanTracks(format, path, reporter);
+        auto tracks = scanTracks(format, path, reporter, cancel);
 
         tallyPlaylists(tracks, result);
 
@@ -325,6 +327,8 @@ LibraryConsistencyScanResult runScanTask(QString format, QString path, QString p
             (exists ? healthy : broken).push_back(std::move(t));
         }
         result.issues = domain::LibraryConsistencyChecker::check(healthy, broken);
+    } catch (const application::OperationCancelled &) {
+        result.cancelled = true;
     } catch (const std::exception &e) {
         result.errorMessage = QString::fromStdString(e.what());
     }
@@ -823,6 +827,7 @@ void LibraryConsistencyController::scan(const QString &rekordboxPath, const QStr
     setStatusMessage({});
     setScanProgress(0, 0);
 
+    m_scanCancel = application::CancellationToken();
     m_pendingScanFormats.clear();
     if (!rekordboxPath.isEmpty()) {
         m_pendingScanFormats.push_back("rekordbox");
@@ -849,13 +854,29 @@ void LibraryConsistencyController::scanNextPendingFormat()
     QString format = m_pendingScanFormats.front();
     m_pendingScanFormats.erase(m_pendingScanFormats.begin());
     setScanningFormat(format);
-    m_watcher.setFuture(
-        QtConcurrent::run(runScanTask, format, pathForFormat(format), m_currentPlaylistName, makeReporter()));
+    m_watcher.setFuture(QtConcurrent::run(runScanTask, format, pathForFormat(format), m_currentPlaylistName,
+                                          makeReporter(), m_scanCancel));
+}
+
+void LibraryConsistencyController::cancelScan()
+{
+    if (scanCancellable()) {
+        m_scanCancel.cancel();
+    }
 }
 
 void LibraryConsistencyController::onScanFinished()
 {
     LibraryConsistencyScanResult result = m_watcher.result();
+    if (result.cancelled) {
+        // Whatever earlier formats contributed stays on screen (it is
+        // complete for those formats); the rest of the queue is dropped.
+        m_pendingScanFormats.clear();
+        setScanningFormat({});
+        setBusy(false);
+        emit scanCancelled();
+        return;
+    }
     if (!result.errorMessage.isEmpty()) {
         setErrorMessage(result.errorMessage);
     } else {

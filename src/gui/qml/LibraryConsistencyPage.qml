@@ -779,6 +779,12 @@ Page {
         }
     }
 
+    // A cancelled scan takes the user back to where they came from.
+    Connections {
+        target: consistencyController
+        function onScanCancelled() { root.StackView.view.pop(); }
+    }
+
     BusyOverlay {
         anchors.fill: parent
         busy: consistencyController.busy
@@ -787,5 +793,7 @@ Page {
         label: consistencyController.writing ? "Repairing..."
             : (consistencyController.scanningFormat.length > 0
                 ? "Scanning " + root.formatLabel(consistencyController.scanningFormat) + "..." : "Scanning...")
+        cancellable: consistencyController.scanCancellable
+        onCancelRequested: consistencyController.cancelScan()
     }
 }

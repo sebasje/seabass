@@ -9,6 +9,7 @@
 
 #include <vector>
 
+#include "application/ports/cancellation_token.hpp"
 #include "domain/track.hpp"
 
 namespace seabass::gui
@@ -73,6 +74,7 @@ struct ScanTaskResult
 {
     std::vector<domain::Track> tracks;
     QString errorMessage;  // empty on success
+    bool cancelled = false;  // stopped via cancelScan(); tracks is empty, errorMessage too
 };
 
 // Wraps ScanLibrary for QML: reads every track (with cues) out of a
@@ -87,6 +89,10 @@ class ScanController : public QObject
     QML_ELEMENT
     Q_PROPERTY(seabass::gui::TrackListModel *tracks READ tracksModel CONSTANT)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
+    // True while a scan is running: it can be stopped at any time via
+    // cancelScan(), after which scanCancelled() fires instead of the
+    // results changing (nothing partial is ever kept or cached).
+    Q_PROPERTY(bool scanCancellable READ scanCancellable NOTIFY busyChanged)
     Q_PROPERTY(int scanCurrent READ scanCurrent NOTIFY scanProgressChanged)
     Q_PROPERTY(int scanTotal READ scanTotal NOTIFY scanProgressChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
@@ -207,11 +213,15 @@ public:
     // purely a display preference.
     Q_INVOKABLE void setHideStreamingTracks(bool hide);
 
+    bool scanCancellable() const { return m_busy; }
+    Q_INVOKABLE void cancelScan();
+
 signals:
     void busyChanged();
     void scanProgressChanged();
     void errorMessageChanged();
     void playlistNamesChanged();
+    void scanCancelled();
 
 private:
     void setBusy(bool busy);
@@ -222,6 +232,7 @@ private:
 
     TrackListModel m_model;
     QFutureWatcher<ScanTaskResult> m_watcher;
+    application::CancellationToken m_scanCancel;  // fresh per scan(), so a stale cancel never hits a new scan
     std::vector<domain::Track> m_allTracks;
     QStringList m_playlistNames;
     QVariantMap m_playlistTrackCounts;

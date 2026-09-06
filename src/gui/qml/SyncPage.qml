@@ -521,11 +521,19 @@ Page {
         }
     }
 
+    // A cancelled scan takes the user back to where they came from.
+    Connections {
+        target: syncController
+        function onScanCancelled() { root.StackView.view.pop(); }
+    }
+
     BusyOverlay {
         anchors.fill: parent
         busy: syncController.busy
         current: syncController.scanCurrent
         total: syncController.scanTotal
         label: syncController.writing ? "Syncing cues..." : "Scanning for sync differences..."
+        cancellable: syncController.scanCancellable
+        onCancelRequested: syncController.cancelScan()
     }
 }

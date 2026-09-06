@@ -314,11 +314,19 @@ Page {
         }
     }
 
+    // A cancelled scan takes the user back to where they came from.
+    Connections {
+        target: duplicatesController
+        function onScanCancelled() { root.StackView.view.pop(); }
+    }
+
     BusyOverlay {
         anchors.fill: parent
         busy: duplicatesController.busy
         current: duplicatesController.scanCurrent
         total: duplicatesController.scanTotal
+        cancellable: duplicatesController.scanCancellable
+        onCancelRequested: duplicatesController.cancelScan()
         // duplicatesController.scanLabel tracks the real current phase
         // ("Scanning rekordbox tracks", then "Finding duplicates..." for
         // the grouping pass that used to leave this stuck at a frozen

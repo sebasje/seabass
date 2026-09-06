@@ -12,6 +12,7 @@
 #include <memory>
 
 #include "domain/duplicate_cue_consolidation.hpp"
+#include "application/ports/cancellation_token.hpp"
 #include "gui/qt_progress_reporter.hpp"
 #include "gui/undo_tracking.hpp"
 
@@ -71,6 +72,7 @@ struct DuplicatesTaskResult
 {
     std::vector<domain::ConsolidationPlan> plans;
     QString errorMessage;  // empty on success
+    bool cancelled = false;  // stopped via cancelScan(); nothing else is set
 };
 
 // Result of a background write task -- see DuplicatesController::
@@ -110,6 +112,9 @@ class DuplicatesController : public QObject
     QML_ELEMENT
     Q_PROPERTY(seabass::gui::ConsolidationPlanListModel *plans READ plansModel CONSTANT)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
+    // True while the read-only rescan runs (never during a write): it can
+    // be stopped via cancelScan(), after which scanCancelled() fires.
+    Q_PROPERTY(bool scanCancellable READ scanCancellable NOTIFY busyChanged)
     Q_PROPERTY(int scanCurrent READ scanCurrent NOTIFY scanProgressChanged)
     Q_PROPERTY(int scanTotal READ scanTotal NOTIFY scanProgressChanged)
     // What's actually happening right now -- e.g. "Scanning rekordbox
@@ -173,7 +178,11 @@ public:
     // made. Available only right after a write (canUndo).
     Q_INVOKABLE void undoLastOperation();
 
+    bool scanCancellable() const { return m_busy && !m_writing; }
+    Q_INVOKABLE void cancelScan();
+
 signals:
+    void scanCancelled();
     void busyChanged();
     void scanProgressChanged();
     void errorMessageChanged();
@@ -197,6 +206,7 @@ private:
 
     ConsolidationPlanListModel m_model;
     QFutureWatcher<DuplicatesTaskResult> m_watcher;
+    application::CancellationToken m_scanCancel;  // fresh per rescan()
     QFutureWatcher<DuplicatesWriteResult> m_writeWatcher;
     QString m_format;
     QString m_path;

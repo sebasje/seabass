@@ -2,9 +2,20 @@
 
 #include <atomic>
 #include <memory>
+#include <stdexcept>
 
 namespace seabass::application
 {
+
+// Thrown by CancellationToken::throwIfCancelled() from deep inside a read
+// (a catalog reader's per-track loop, a directory walk) so the whole
+// operation unwinds at once; a controller catches it at the task boundary
+// and reports "cancelled", never "failed".
+class OperationCancelled : public std::runtime_error
+{
+public:
+    OperationCancelled() : std::runtime_error("operation cancelled") {}
+};
 
 // Cooperative cancellation for long-running use cases (the stick backup
 // reads tens of GB; the user must be able to stop it). Deliberately not a
@@ -27,6 +38,16 @@ public:
 
     void cancel() { m_flag->store(true, std::memory_order_relaxed); }
     bool cancelled() const { return m_flag->load(std::memory_order_relaxed); }
+
+    // For read paths, where there is nothing to keep consistent and
+    // unwinding is the simplest way out. Write paths poll cancelled()
+    // between items instead, so they stop only at a consistent point.
+    void throwIfCancelled() const
+    {
+        if (cancelled()) {
+            throw OperationCancelled();
+        }
+    }
 
 private:
     std::shared_ptr<std::atomic_bool> m_flag;

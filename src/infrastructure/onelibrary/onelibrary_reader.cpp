@@ -197,6 +197,7 @@ std::vector<Track> OneLibraryReader::readAll()
 
         tracks.push_back(std::move(track));
         m_progress->tick(++done);
+        m_cancel.throwIfCancelled();
     }
     m_progress->finish();
 

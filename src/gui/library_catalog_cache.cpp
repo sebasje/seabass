@@ -40,21 +40,24 @@ std::chrono::system_clock::time_point realMtime(const std::string &format, const
 }
 
 std::vector<domain::Track> realScan(const std::string &format, const std::string &path,
-                                     application::ProgressReporter &progress)
+                                     application::ProgressReporter &progress, application::CancellationToken cancel)
 {
     if (format == "rekordbox") {
         infrastructure::rekordbox::KaitaiRekordboxReader reader(path);
         reader.setProgressReporter(progress);
+        reader.setCancellationToken(cancel);
         return application::ScanLibrary(reader).execute();
     }
     if (format == "engine") {
         infrastructure::engine::LibdjinteropEngineReader reader(path);
         reader.setProgressReporter(progress);
+        reader.setCancellationToken(cancel);
         return application::ScanLibrary(reader).execute();
     }
     if (format == "onelibrary") {
         infrastructure::onelibrary::OneLibraryReader reader(path);
         reader.setProgressReporter(progress);
+        reader.setCancellationToken(cancel);
         return application::ScanLibrary(reader).execute();
     }
     throw std::invalid_argument("LibraryCatalogCache: unknown format \"" + format + "\"");
@@ -81,7 +84,8 @@ std::string LibraryCatalogCache::keyFor(const std::string &format, const std::st
 }
 
 std::vector<domain::Track> LibraryCatalogCache::tracksFor(const std::string &format, const std::string &path,
-                                                            application::ProgressReporter &progress)
+                                                            application::ProgressReporter &progress,
+                                                            application::CancellationToken cancel)
 {
     const std::string key = keyFor(format, path);
     const auto currentMtime = m_mtimeFn(format, path);
@@ -118,7 +122,8 @@ std::vector<domain::Track> LibraryCatalogCache::tracksFor(const std::string &for
     std::vector<domain::Track> tracks;
     std::exception_ptr error;
     try {
-        tracks = m_scanFn(format, path, progress);
+        cancel.throwIfCancelled();
+        tracks = m_scanFn(format, path, progress, cancel);
     } catch (...) {
         error = std::current_exception();
     }

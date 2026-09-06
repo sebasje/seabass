@@ -574,9 +574,17 @@ Page {
     // BusyOverlay.qml's own comment on exactly this problem elsewhere).
     // No current/total to report here yet, so this renders as the
     // indeterminate sweep animation rather than a real progress bar.
+    // A cancelled scan takes the user back to where they came from.
+    Connections {
+        target: controller
+        function onScanCancelled() { root.StackView.view.pop(); }
+    }
+
     BusyOverlay {
         anchors.fill: parent
         busy: controller.busy
         label: "Scanning stick statistics..."
+        cancellable: controller.scanCancellable
+        onCancelRequested: controller.cancelScan()
     }
 }

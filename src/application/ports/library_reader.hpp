@@ -2,6 +2,7 @@
 
 #include <vector>
 
+#include "application/ports/cancellation_token.hpp"
 #include "application/ports/progress_reporter.hpp"
 #include "domain/track.hpp"
 
@@ -18,9 +19,13 @@ public:
     virtual std::vector<domain::Track> readAll() = 0;
 
     void setProgressReporter(ProgressReporter &reporter) { m_progress = &reporter; }
+    // Readers check the token once per track, next to their progress
+    // tick, and unwind with OperationCancelled.
+    void setCancellationToken(CancellationToken token) { m_cancel = std::move(token); }
 
 protected:
     ProgressReporter *m_progress = &NullProgressReporter::instance();
+    CancellationToken m_cancel = CancellationToken::none();
 };
 
 }  // namespace seabass::application

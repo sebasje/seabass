@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "domain/duplicate_cleanup.hpp"
+#include "application/ports/cancellation_token.hpp"
 #include "gui/qt_progress_reporter.hpp"
 #include "gui/undo_tracking.hpp"
 #include "infrastructure/cleanup/pending_deletion_manifest.hpp"
@@ -147,6 +148,7 @@ struct CleanupTaskResult
 {
     std::vector<domain::DuplicateCleanupPlan> plans;
     QString errorMessage;
+    bool cancelled = false;  // stopped via cancelScan(); nothing else is set
 };
 
 // Result of a background apply/undo task, see CleanupController::
@@ -187,6 +189,10 @@ class CleanupController : public QObject
     QML_ELEMENT
     Q_PROPERTY(seabass::gui::CleanupPlanListModel *plans READ plansModel CONSTANT)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
+    // True while a read-only rescan or manual-merge plan runs (never
+    // during a write): it can be stopped via cancelScan(), after which
+    // scanCancelled() fires.
+    Q_PROPERTY(bool scanCancellable READ scanCancellable NOTIFY busyChanged)
     Q_PROPERTY(bool writing READ writing NOTIFY writingChanged)
     Q_PROPERTY(int scanCurrent READ scanCurrent NOTIFY scanProgressChanged)
     Q_PROPERTY(int scanTotal READ scanTotal NOTIFY scanProgressChanged)
@@ -285,7 +291,11 @@ public:
     // undo for an actual file deletion.
     Q_INVOKABLE void deleteSelectedPendingFiles();
 
+    bool scanCancellable() const { return m_busy && !m_writing && m_watcher.isRunning(); }
+    Q_INVOKABLE void cancelScan();
+
 signals:
+    void scanCancelled();
     void busyChanged();
     void writingChanged();
     void scanProgressChanged();
@@ -311,6 +321,7 @@ private:
     CleanupPlanListModel m_model;
     PendingDeletionListModel m_pendingModel;
     QFutureWatcher<CleanupTaskResult> m_watcher;
+    application::CancellationToken m_scanCancel;  // fresh per rescan()/planManualMerge()
     QFutureWatcher<CleanupWriteResult> m_writeWatcher;
     QFutureWatcher<PendingDeletionApplyResult> m_pendingWriteWatcher;
     QString m_format;

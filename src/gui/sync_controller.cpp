@@ -250,7 +250,7 @@ std::vector<domain::Track> filterBySearchQuery(const std::vector<domain::Track> 
 }
 
 SyncTaskResult runAnalyzeTask(QString rekordboxPath, QString enginePath, QString playlistName, QString searchQuery,
-                               std::shared_ptr<QtProgressReporter> reporter)
+                               std::shared_ptr<QtProgressReporter> reporter, application::CancellationToken cancel)
 {
     SyncTaskResult result;
     try {
@@ -264,12 +264,12 @@ SyncTaskResult runAnalyzeTask(QString rekordboxPath, QString enginePath, QString
         auto &catalogCache = LibraryCatalogCache::instance();
 
         if (hasRekordbox) {
-            rekordboxTracks = catalogCache.tracksFor("rekordbox", rekordboxPath.toStdString(), *reporter);
+            rekordboxTracks = catalogCache.tracksFor("rekordbox", rekordboxPath.toStdString(), *reporter, cancel);
             rekordboxMtime = fileMtime((fs::path(rekordboxPath.toStdString()) / "rekordbox" / "export.pdb").string());
             hasOneLibrary = infrastructure::onelibrary::OneLibraryCueWriter::existsFor(rekordboxPath.toStdString());
         }
         if (hasEngine) {
-            engineTracks = catalogCache.tracksFor("engine", enginePath.toStdString(), *reporter);
+            engineTracks = catalogCache.tracksFor("engine", enginePath.toStdString(), *reporter, cancel);
             // Streaming tracks (TIDAL) have no real local file. Never
             // sync cues onto/from one. See domain::Track::streamingSource's
             // own doc comment.
@@ -279,7 +279,7 @@ SyncTaskResult runAnalyzeTask(QString rekordboxPath, QString enginePath, QString
             engineMtime = fileMtime((fs::path(enginePath.toStdString()) / "Database2" / "m.db").string());
         }
         if (hasOneLibrary) {
-            oneLibraryTracks = catalogCache.tracksFor("onelibrary", rekordboxPath.toStdString(), *reporter);
+            oneLibraryTracks = catalogCache.tracksFor("onelibrary", rekordboxPath.toStdString(), *reporter, cancel);
             oneLibraryMtime =
                 fileMtime(infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(rekordboxPath.toStdString()));
         }
@@ -343,6 +343,8 @@ SyncTaskResult runAnalyzeTask(QString rekordboxPath, QString enginePath, QString
         // this function combined. QML fetches a waveform on demand
         // instead, only for whichever rows are actually rendered.
         result.plans = std::move(actionable);
+    } catch (const application::OperationCancelled &) {
+        result.cancelled = true;
     } catch (const std::exception &e) {
         result.errorMessage = QString::fromStdString(e.what());
     }
@@ -381,8 +383,16 @@ void SyncController::analyze(const QString &rekordboxPath, const QString &engine
     setScanProgress(0, 0);
     setBusy(true);
 
-    m_watcher.setFuture(
-        QtConcurrent::run(runAnalyzeTask, rekordboxPath, enginePath, playlistName, searchQuery, makeReporter()));
+    m_scanCancel = application::CancellationToken();
+    m_watcher.setFuture(QtConcurrent::run(runAnalyzeTask, rekordboxPath, enginePath, playlistName, searchQuery,
+                                          makeReporter(), m_scanCancel));
+}
+
+void SyncController::cancelScan()
+{
+    if (scanCancellable()) {
+        m_scanCancel.cancel();
+    }
 }
 
 // See ScanController::scan() for why the reporter is owned by the task
@@ -401,6 +411,11 @@ void SyncController::onAnalyzeFinished()
 {
     SyncTaskResult result = m_watcher.result();
 
+    if (result.cancelled) {
+        setBusy(false);
+        emit scanCancelled();
+        return;
+    }
     if (!result.errorMessage.isEmpty()) {
         setErrorMessage(result.errorMessage);
         setBusy(false);
