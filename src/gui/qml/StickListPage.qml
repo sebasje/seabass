@@ -77,6 +77,11 @@ Page {
     // the target drive; both empty means "pick one there". archivePath
     // preselects the backup (the advisor's pick), empty picks the newest.
     signal restoreStickBackupRequested(string mountPoint, string devicePath, string archivePath)
+    // General entry point (Backups block above the stick list): not
+    // tied to any particular stick, so mountPoint/devicePath/archivePath
+    // (or stickLabel/rekordboxPath/enginePath) may all be empty; the
+    // target page picks its own drive/backup/library from within itself.
+    signal localCueRequested(string stickLabel, string rekordboxPath, string enginePath)
     // Copy the library on another mounted stick onto this one -- either a
     // fresh backup stick (targetHasLibrary false) or an update of an older
     // copy (true). The source's catalog paths come from the advisor.
@@ -191,6 +196,47 @@ Page {
             Layout.fillWidth: true
         }
 
+        // Tools that work on this computer's own backup stores, not on
+        // whatever stick happens to be plugged in right now -- pulled out
+        // of the per-stick Backups hub for exactly that reason (see
+        // BackupsHubPage.qml's own comment for what stays there because
+        // it genuinely does need a specific stick). Always here, even
+        // with no stick inserted at all.
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: 8
+
+            Subtitle { text: "Backups"; color: Theme.textMuted }
+
+            GridLayout {
+                Layout.fillWidth: true
+                columns: 2
+                columnSpacing: 12
+                rowSpacing: 12
+
+                ActionCard {
+                    objectName: "generalRestoreCard"
+                    cardTitle: "Restore a Stick Backup"
+                    cardSubtitle: "Put a stick backup from this computer onto any drive"
+                    cardIcon: "🗂"
+                    experimental: true
+                    experimentalFeaturesEnabled: root.appSettingsController.experimentalFeaturesEnabled
+                    // No stick preselected: the page itself lists every
+                    // mounted drive and every backup on disk to choose from.
+                    onClicked: root.restoreStickBackupRequested("", "", "")
+                }
+                ActionCard {
+                    objectName: "generalLocalCueCard"
+                    cardTitle: "Local Cue Backup"
+                    cardSubtitle: "Cue backups kept on this computer, across every stick"
+                    cardIcon: "💿"
+                    deprecated: true
+                    deprecatedNote: "Needs rework"
+                    onClicked: root.localCueRequested("", "", "")
+                }
+            }
+        }
+
         ListView {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -240,6 +286,14 @@ Page {
                     ? advice.cloneSource : null
                 readonly property var updateSource: advice && advice.updateSource && advice.updateSource.kind !== "none"
                     ? advice.updateSource : null
+                // In flight (mount, unmount, or an automatic mount) via this
+                // row's own devicePath -- distinct from mediaController.busy,
+                // which is true for the whole app while ANY stick's task is
+                // running (they're processed one at a time) and used to
+                // disable every OTHER row's button too, making a click on a
+                // stick nothing else was busy with look like it did nothing.
+                readonly property bool thisRowBusy: root.mediaController.busy
+                    && root.mediaController.busyDevicePath === delegateRoot.devicePath
                 function assessBackup() {
                     if (mounted && mountPoint.length > 0) {
                         root.backupAdvisor.assess(label, mountPoint, rekordboxPath, enginePath);
@@ -284,8 +338,14 @@ Page {
                         MouseArea {
                             id: rowMouseArea
                             anchors.fill: parent
-                            enabled: !delegateRoot.mounted && !root.mediaController.busy
-                            hoverEnabled: !delegateRoot.mounted && !root.mediaController.busy
+                            // Not gated on the whole app being busy anymore:
+                            // mountStick() queues behind whatever else is
+                            // running instead of being silently dropped, so
+                            // there's no reason to make this look unusable
+                            // meanwhile -- only this row's own task (if any)
+                            // disables it.
+                            enabled: !delegateRoot.mounted && !delegateRoot.thisRowBusy
+                            hoverEnabled: !delegateRoot.mounted && !delegateRoot.thisRowBusy
                             ToolTip.visible: containsMouse
                             ToolTip.text: "Click to mount " + delegateRoot.label
                             onClicked: root.mediaController.mountStick(delegateRoot.devicePath)
@@ -341,11 +401,9 @@ Page {
                     // anything was happening). While this row's own
                     // operation is in flight, show a spinner in the eject
                     // button's place instead of leaving it looking dead.
-                    readonly property bool thisRowBusy: root.mediaController.busy
-                        && root.mediaController.busyDevicePath === delegateRoot.devicePath
 
                     BusyIndicator {
-                        visible: parent.thisRowBusy
+                        visible: delegateRoot.thisRowBusy
                         running: visible
                         Layout.preferredWidth: Theme.iconSizeLarge
                         Layout.preferredHeight: Theme.iconSizeLarge
@@ -353,8 +411,15 @@ Page {
                     }
 
                     ToolButton {
-                        visible: !parent.thisRowBusy
-                        enabled: !root.mediaController.busy
+                        visible: !delegateRoot.thisRowBusy
+                        // Not `!root.mediaController.busy`: that disabled
+                        // every OTHER row's button too while any one stick's
+                        // task was running (including a background auto-
+                        // mount), which read as "eject does nothing" on a
+                        // stick that was not itself busy at all. A click
+                        // here queues behind whatever else is in flight.
+                        objectName: "ejectButton"
+                        enabled: true
                         text: "⏏"
                         font.family: "Noto Sans Symbols2"
                         font.pointSize: Theme.fontHuge
@@ -547,49 +612,66 @@ Page {
                             enabled: !root.mediaController.busy
                             onClicked: root.formatUsbRequested()
                         }
+                        // "Restore a Backup" and "Create Backup USB Stick" used
+                        // to be two separate cards for the same job (putting
+                        // a library onto an empty stick, whichever copy is
+                        // newer/available) -- merged into one, since an
+                        // empty stick never needs both at once. Prefers a
+                        // peer stick's own live copy (cloneSource) over a
+                        // disk backup when both exist, same priority order
+                        // adviseStickBackup already uses for the update case.
                         ActionCard {
-                            cardTitle: "Restore a Backup"
+                            cardTitle: "Create Backup USB Stick"
                             readOnly: delegateRoot.lockedByOther
                             onReadOnlyClicked: root.explainLock(delegateRoot.libraryId)
-                            cardSubtitle: delegateRoot.adviceState === "restore"
-                                ? "Restore " + delegateRoot.advice.backupLabel + " onto this empty stick"
-                                : "Put one of your stick backups onto this empty stick"
-                            cardIcon: "🗃"
+                            // Visible unconditionally (see below), so its
+                            // wording must not presuppose a backup exists:
+                            // "no-backups" is exactly the state where none
+                            // do, and it is a real, common state for this
+                            // card -- a freshly formatted stick with an
+                            // empty default backup directory reaches it
+                            // every time. The old fallback text, "Restore a
+                            // library onto this USB stick", read as though
+                            // a backup were known to exist and just needed
+                            // picking, which is what was reported as
+                            // "Seabass offers to restore a backup ... but
+                            // we don't have one".
+                            cardSubtitle: delegateRoot.cloneSource !== null ? delegateRoot.cloneSource.detail
+                                : (delegateRoot.adviceState === "restore"
+                                    ? "Restore " + delegateRoot.advice.backupLabel + "'s library onto this stick"
+                                    : "No known stick backups yet -- browse for a backup file to restore")
+                            cardIcon: "⧉"
+                            cardIconFont: "Noto Sans Math"
+                            // Experimental with the stick backup it is built
+                            // on: either a copy of another mounted stick's
+                            // own current library, or an existing backup
+                            // from this computer, written onto this stick.
                             experimental: true
                             experimentalFeaturesEnabled: root.appSettingsController.experimentalFeaturesEnabled
                             // Only for a stick with nothing recognizable on
                             // it: the disaster case is a blank replacement
                             // drive. A stick that already has a library
-                            // restores from its own Backups page instead.
+                            // updates from its own Backups page instead.
                             visible: !delegateRoot.hasKnownLibrary
-                            // Not gated on `mounted`: a stick fresh out of
-                            // Format USB Stick is not remounted, and the
-                            // restore page mounts it itself when handed
-                            // the device path.
-                            enabled: !root.mediaController.busy
-                            onClicked: root.restoreStickBackupRequested(delegateRoot.mountPoint, delegateRoot.devicePath,
-                                delegateRoot.adviceState === "restore" ? delegateRoot.advice.backupPath : "")
-                        }
-                        ActionCard {
-                            cardTitle: "Create Backup USB Stick"
-                            readOnly: delegateRoot.lockedByOther
-                            onReadOnlyClicked: root.explainLock(delegateRoot.libraryId)
-                            cardSubtitle: delegateRoot.cloneSource !== null ? delegateRoot.cloneSource.detail : ""
-                            cardIcon: "⧉"
-                            cardIconFont: "Noto Sans Math"
-                            // Experimental with the stick backup it is built
-                            // on: a backup of the source, then a restore of
-                            // that backup onto this stick.
-                            experimental: true
-                            experimentalFeaturesEnabled: root.appSettingsController.experimentalFeaturesEnabled
-                            // Only for an empty stick next to a stick with a
-                            // library on it; the advisor names the source.
-                            visible: !delegateRoot.hasKnownLibrary && delegateRoot.cloneSource !== null
-                            enabled: !root.mediaController.busy && delegateRoot.mounted
-                                && delegateRoot.cloneSource !== null && delegateRoot.cloneSource.enoughSpace !== false
-                            onClicked: root.cloneStickRequested(delegateRoot.cloneSource.label,
-                                delegateRoot.cloneSource.rekordboxPath, delegateRoot.cloneSource.enginePath,
-                                delegateRoot.mountPoint, delegateRoot.label, false)
+                            // The disk-backup path isn't gated on `mounted`:
+                            // a stick fresh out of Format USB Stick is not
+                            // remounted, and the restore page mounts it
+                            // itself when handed the device path. The clone
+                            // path does need the source stick mounted, which
+                            // cloneSource being non-null already implies
+                            // (peers are only ever mounted sticks).
+                            enabled: !delegateRoot.thisRowBusy && (delegateRoot.cloneSource === null
+                                || (delegateRoot.mounted && delegateRoot.cloneSource.enoughSpace !== false))
+                            onClicked: {
+                                if (delegateRoot.cloneSource !== null) {
+                                    root.cloneStickRequested(delegateRoot.cloneSource.label,
+                                        delegateRoot.cloneSource.rekordboxPath, delegateRoot.cloneSource.enginePath,
+                                        delegateRoot.mountPoint, delegateRoot.label, false);
+                                } else {
+                                    root.restoreStickBackupRequested(delegateRoot.mountPoint, delegateRoot.devicePath,
+                                        delegateRoot.adviceState === "restore" ? delegateRoot.advice.backupPath : "");
+                                }
+                            }
                         }
                     }
                 }

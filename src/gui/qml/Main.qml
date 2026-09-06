@@ -359,6 +359,11 @@ ApplicationWindow {
                 preselectedDevicePath: devicePath,
                 preselectedArchivePath: archivePath,
             })
+            onLocalCueRequested: (stickLabel, rekordboxPath, enginePath) => stackView.push(localCuePageComponent, {
+                stickLabel: stickLabel,
+                rekordboxPath: rekordboxPath,
+                enginePath: enginePath,
+            })
             onCloneStickRequested: (sourceLabel, sourceRekordboxPath, sourceEnginePath, targetMountPoint, targetLabel, targetHasLibrary) => stackView.push(cloneStickPageComponent, {
                 sourceLabel: sourceLabel,
                 sourceRekordboxPath: sourceRekordboxPath,
@@ -510,11 +515,6 @@ ApplicationWindow {
         id: backupsHubPageComponent
         BackupsHubPage {
             appSettingsController: appSettingsCtrl
-            onLocalCueRequested: (stickLabel, rekordboxPath, enginePath) => stackView.push(localCuePageComponent, {
-                stickLabel: stickLabel,
-                rekordboxPath: rekordboxPath,
-                enginePath: enginePath,
-            })
             onManageBackupsRequested: (stickLabel, rekordboxPath, enginePath) => stackView.push(backupsPageComponent, {
                 stickLabel: stickLabel,
                 rekordboxPath: rekordboxPath,

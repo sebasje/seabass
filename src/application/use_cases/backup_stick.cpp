@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <ctime>
 #include <fstream>
+#include <iomanip>
+#include <sstream>
 #include <map>
 #include <set>
 #include <system_error>
@@ -29,6 +31,26 @@ namespace engine = infrastructure::engine;
 
 namespace
 {
+
+// Byte counts in a message a person reads: "26.0 GiB", not 27917287424.
+std::string humanBytes(std::uint64_t bytes)
+{
+    static constexpr const char *Units[] = {"bytes", "KiB", "MiB", "GiB", "TiB"};
+    double value = static_cast<double>(bytes);
+    int unit = 0;
+    while (value >= 1024.0 && unit < 4) {
+        value /= 1024.0;
+        ++unit;
+    }
+    std::ostringstream out;
+    if (unit == 0) {
+        out << bytes << ' ' << Units[0];
+    } else {
+        out << std::fixed << std::setprecision(1) << value << ' ' << Units[unit];
+    }
+    return out.str();
+}
+
 
 std::int64_t nowUnix()
 {
@@ -456,10 +478,18 @@ BackupStickOutcome BackupStick::execute(const BackupStickOptions &options, Progr
         return outcome;
     }
 
+    // Refused before a single byte is written, never half-way through:
+    // a backup that runs for twenty minutes and then fails on space is
+    // worse than one that never starts, and an archive abandoned part
+    // way is exactly the "looks like a backup, isn't one" outcome this
+    // whole feature exists to avoid. Sizes are spelled out the way the
+    // UI shows them so the message says what to actually free up.
     std::uint64_t freeBytes = freeBytesAt(options.archivePath);
-    if (freeBytes < plan.bytesToRead + options.freeSpaceMarginBytes) {
-        outcome.message = "not enough free space for the backup: needs " + std::to_string(plan.bytesToRead + options.freeSpaceMarginBytes)
-                          + " bytes, " + std::to_string(freeBytes) + " available";
+    const std::uint64_t needed = plan.bytesToRead + options.freeSpaceMarginBytes;
+    if (freeBytes < needed) {
+        outcome.message = "not enough free space to back this stick up: needs " + humanBytes(needed) + ", only "
+                          + humanBytes(freeBytes) + " free where the backup goes. Free up "
+                          + humanBytes(needed - freeBytes) + " and try again.";
         return outcome;
     }
 

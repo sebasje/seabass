@@ -14,6 +14,36 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # --- vendored dependencies (git submodules under third_party/) ---
+#
+# .gitmodules itself is intentionally not a tracked file in this repo
+# (see .gitignore and scripts/init-submodules.sh for why: KDE Invent,
+# our canonical host, rejects any pushed commit containing a file
+# literally named .gitmodules). The real submodule config lives in
+# cmake/dependency-submodules.txt instead; this step regenerates the
+# real .gitmodules from it and initializes the submodules below on
+# every configure, so a fresh checkout just works with plain `cmake`.
+find_package(Git QUIET)
+if(GIT_EXECUTABLE)
+    execute_process(
+        COMMAND ${CMAKE_COMMAND} -E copy
+            ${CMAKE_SOURCE_DIR}/cmake/dependency-submodules.txt
+            ${CMAKE_SOURCE_DIR}/.gitmodules
+    )
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} submodule sync --recursive
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} submodule update --init --recursive
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        RESULT_VARIABLE _seabass_submodule_result
+    )
+    if(NOT _seabass_submodule_result EQUAL 0)
+        message(FATAL_ERROR "Failed to initialize git submodules -- see scripts/init-submodules.sh")
+    endif()
+else()
+    message(WARNING "git not found -- skipping automatic submodule init; run scripts/init-submodules.sh manually, or ensure third_party/libdjinterop and third_party/kaitai_struct_cpp_stl_runtime are already populated")
+endif()
 
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)

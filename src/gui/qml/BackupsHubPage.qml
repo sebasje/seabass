@@ -4,14 +4,18 @@ import QtQuick.Layouts
 import SeabassGui
 
 // Fans out the "Backups" top-level card into every backup and restore
-// option this stick has: the full stick backup into one archive on this
-// computer, bringing this stick up to date from a newer copy of its
-// library (another mounted stick, or the disk backup), restoring a stick
-// backup onto it, and the two older stores -- LocalCuePage (cue
-// backup/restore to/from this computer) and BackupsPage (the automatic
-// per-write backups kept on the stick itself), both deprecated pending a
-// rework. Distinct stores, kept as separate sub-pages rather than merged
-// -- only the entry point is shared.
+// option that genuinely needs THIS stick present: the full stick backup
+// into one archive on this computer (reads the stick), bringing it up to
+// date from a newer copy of its library (writes the stick), and
+// BackupsPage (the automatic per-write backups kept on the stick itself
+// under .seabass-backups -- deprecated pending a rework). Restoring a
+// stick backup and LocalCuePage (cue backup/restore to/from this
+// computer) moved to a general block on the Home page instead: neither
+// is actually about this specific stick -- Restore picks its own target
+// drive, and the local cue database spans every stick you've ever backed
+// up -- so requiring a stick already be inserted and scanned just to
+// reach them was the wrong gate. restoreStickBackupRequested stays here,
+// used internally by Update Stick's disk-backup route.
 Page {
     id: root
     required property string stickLabel
@@ -24,7 +28,6 @@ Page {
     property string mountPoint: ""
     property string devicePath: ""
     property var backupAdvisor: null
-    signal localCueRequested(string stickLabel, string rekordboxPath, string enginePath)
     signal manageBackupsRequested(string stickLabel, string rekordboxPath, string enginePath)
     signal fullStickBackupRequested(string stickLabel, string rekordboxPath, string enginePath)
     signal restoreStickBackupRequested(string mountPoint, string devicePath, string archivePath)
@@ -65,8 +68,6 @@ Page {
 
     readonly property bool hasRekordbox: rekordboxPath.length > 0
     readonly property bool hasEngine: enginePath.length > 0
-    readonly property string stickRoot: root.mountPoint.length > 0 ? root.mountPoint
-        : (root.enginePath.length > 0 ? root.enginePath : root.rekordboxPath).replace(/[\/\\][^\/\\]+[\/\\]?$/, "")
     readonly property var advice: root.backupAdvisor !== null && root.mountPoint.length > 0
         ? (root.backupAdvisor.advice[root.mountPoint] || null) : null
     // A newer copy of this stick's library somewhere else -- see
@@ -102,6 +103,7 @@ Page {
         ActionCard {
             readOnly: root.lockedByOther
             onReadOnlyClicked: root.explainLock()
+            objectName: "fullStickBackupCard"
             cardTitle: "Full Stick Backup"
             cardSubtitle: root.advice && root.advice.state === "outdated"
                 ? "Update the full stick backup: " + root.advice.detail
@@ -143,32 +145,6 @@ Page {
                     root.restoreStickBackupRequested(root.mountPoint, root.devicePath, root.updateSource.backupPath);
                 }
             }
-        }
-        ActionCard {
-            readOnly: root.lockedByOther
-            onReadOnlyClicked: root.explainLock()
-            objectName: "restoreCard"
-            cardTitle: "Restore a Stick Backup"
-            cardSubtitle: "Put a stick backup from this computer back onto " + root.stickLabel
-            cardIcon: "🗂"
-            experimental: true
-            experimentalFeaturesEnabled: root.appSettingsController.experimentalFeaturesEnabled
-            enabled: root.hasRekordbox || root.hasEngine
-            // No archive named: the restore page picks this stick's own
-            // backup by label, and lets another be chosen.
-            onClicked: root.restoreStickBackupRequested(root.stickRoot, root.devicePath, "")
-        }
-        ActionCard {
-            readOnly: root.lockedByOther
-            onReadOnlyClicked: root.explainLock()
-            objectName: "localCueCard"
-            cardTitle: "Local Cue Backup"
-            cardSubtitle: "Back up or restore cues on this computer"
-            cardIcon: "💿"
-            deprecated: true
-            deprecatedNote: "Needs rework"
-            enabled: root.hasRekordbox || root.hasEngine
-            onClicked: root.localCueRequested(root.stickLabel, root.rekordboxPath, root.enginePath)
         }
         ActionCard {
             readOnly: root.lockedByOther

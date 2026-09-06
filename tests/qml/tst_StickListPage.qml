@@ -94,6 +94,32 @@ TestCase {
         return found;
     }
 
+    // Same idea as findCard(), for the objectName'd row controls
+    // (eject/mount button) rather than an ActionCard's title.
+    function findRowObject(page, mountPoint, objectName) {
+        var found = null;
+        function walk(item) {
+            if (found !== null) return;
+            if (item.objectName === objectName && delegateMount(item) === mountPoint) {
+                found = item;
+                return;
+            }
+            for (var i = 0; i < item.children.length; ++i) {
+                walk(item.children[i]);
+            }
+        }
+        function delegateMount(item) {
+            var p = item;
+            while (p) {
+                if (p.mountPoint !== undefined && p.hasKnownLibrary !== undefined) return p.mountPoint;
+                p = p.parent;
+            }
+            return "";
+        }
+        walk(page);
+        return found;
+    }
+
     function saveScreenshot(page, name) {
         if (!screenshotDir || screenshotDir.length === 0) return;
         var image = grabImage(page);
@@ -212,6 +238,88 @@ TestCase {
         compare(spy.signalArguments[0][3], "/media/MAIN");
         compare(spy.signalArguments[0][4], "/dev/sdb1");
         saveScreenshot(page, "stick-list-update");
+    }
+
+    function test_emptyStickRestoreFallsBackToDiskBackupWhenNoPeer() {
+        var advice = {};
+        advice["/media/MAIN"] = makeAdvice({state: "restore", backupPath: "/b/OLD.zip", backupLabel: "OLD",
+            detail: "The newest backup can be restored onto this empty stick."});
+        var page = makePage([makeStick({label: "MAIN", hasRekordbox: false, hasEngine: false,
+                                        rekordboxPath: "", enginePath: ""})], advice);
+        var card = findCard(page, "/media/MAIN", "Create Backup USB Stick");
+        verify(card !== null);
+        compare(card.cardSubtitle, "Restore OLD's library onto this stick");
+        var spy = createTemporaryObject(spyComponent, testCase, {target: page, signalName: "restoreStickBackupRequested"});
+        card.clicked();
+        compare(spy.count, 1);
+        compare(spy.signalArguments[0][0], "/media/MAIN");
+        compare(spy.signalArguments[0][2], "/b/OLD.zip");
+    }
+
+    // A stick's own eject/mount button used to go dark while ANY other
+    // stick's task was in flight (mediaController.busy is a single
+    // app-wide flag) -- a click then did nothing, worst right after
+    // auto-mount started running. It only reflects this row's own task
+    // now; a click on it while busy elsewhere just queues.
+    function test_ejectButtonStaysUsableWhileAnotherStickIsBusy() {
+        var sticks = [makeStick({}), makeStick({label: "SPARE", mountPoint: "/media/SPARE", devicePath: "/dev/sdc1"})];
+        var page = makePage(sticks, {}, {mediaController: {sticks: sticks, errorMessage: "", busy: true, busyDevicePath: "/dev/sdc1", calls: [],
+                                    mountStick: function(d) { this.calls.push("mount:" + d); },
+                                    unmountStick: function(d) { this.calls.push("unmount:" + d); }}});
+        var mainButton = findRowObject(page, "/media/MAIN", "ejectButton");
+        verify(mainButton !== null);
+        compare(mainButton.visible, true);
+        compare(mainButton.enabled, true);
+        mainButton.clicked();
+        compare(page.mediaController.calls.indexOf("unmount:/dev/sdb1") >= 0, true);
+    }
+
+    function test_generalBackupsBlockIsAlwaysThereAndRequestsWithNoStick() {
+        var page = makePage([], {});
+        var restoreCard = findChild(page, "generalRestoreCard");
+        var localCueCard = findChild(page, "generalLocalCueCard");
+        verify(restoreCard !== null);
+        verify(localCueCard !== null);
+        compare(localCueCard.deprecated, true);
+
+        var restoreSpy = createTemporaryObject(spyComponent, testCase, {target: page, signalName: "restoreStickBackupRequested"});
+        restoreCard.clicked();
+        compare(restoreSpy.count, 1);
+        compare(restoreSpy.signalArguments[0][0], "");
+
+        var localCueSpy = createTemporaryObject(spyComponent, testCase, {target: page, signalName: "localCueRequested"});
+        localCueCard.clicked();
+        compare(localCueSpy.count, 1);
+        compare(localCueSpy.signalArguments[0][0], "");
+    }
+
+    // The card is visible unconditionally for a blank stick (it is also
+    // how you restore a backup file that never was in the default
+    // directory), so its wording carries the whole burden of being
+    // honest about whether one was actually found. Reported as "Seabass
+    // offers to restore a backup ... but we don't have one": a blank
+    // stick with an empty backup directory used to get the same "Put one
+    // of your stick backups onto this empty stick" text as a stick with
+    // a real match, phrased as though a backup were known to exist.
+    function test_emptyStickWithNoBackupsGetsHonestRestoreCardText() {
+        var empty = makeStick({label: "BLANK", mountPoint: "/media/BLANK", devicePath: "/dev/sdd1",
+                               hasRekordbox: false, hasEngine: false, rekordboxPath: "", enginePath: ""});
+        var advice = {};
+        advice["/media/BLANK"] = makeAdvice({});  // default state: "no-backups"
+        var page = makePage([empty], advice);
+        var card = findCard(page, "/media/BLANK", "Create Backup USB Stick");
+        verify(card !== null);
+        compare(card.visible, true);
+        compare(card.cardSubtitle.toLowerCase().indexOf("one of your"), -1);
+        compare(card.cardSubtitle, "No known stick backups yet -- browse for a backup file to restore");
+
+        var restore = createTemporaryObject(spyComponent, testCase, {target: page, signalName: "restoreStickBackupRequested"});
+        card.clicked();
+        compare(restore.count, 1);
+        compare(restore.signalArguments[0][0], "/media/BLANK");
+        // No specific match: the restore page opens to browse, not to a
+        // preselected archive.
+        compare(restore.signalArguments[0][2], "");
     }
 
     Component {
