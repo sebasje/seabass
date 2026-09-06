@@ -286,6 +286,11 @@ ApplicationWindow {
                 preselectedDevicePath: devicePath,
                 preselectedArchivePath: archivePath,
             })
+            onLocalCueRequested: (stickLabel, rekordboxPath, enginePath) => stackView.push(localCuePageComponent, {
+                stickLabel: stickLabel,
+                rekordboxPath: rekordboxPath,
+                enginePath: enginePath,
+            })
             onCloneStickRequested: (sourceLabel, sourceRekordboxPath, sourceEnginePath, targetMountPoint, targetLabel, targetHasLibrary) => stackView.push(cloneStickPageComponent, {
                 sourceLabel: sourceLabel,
                 sourceRekordboxPath: sourceRekordboxPath,

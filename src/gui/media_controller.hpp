@@ -3,7 +3,7 @@
 #include <QAbstractListModel>
 #include <QFutureWatcher>
 #include <QSet>
-#include <QStringList>
+#include <QVector>
 #include <QObject>
 #include <QQmlEngine>
 #include <QTimer>
@@ -99,7 +99,7 @@ public:
     // Which stick's devicePath mount/unmount is in flight -- lets a row's
     // own delegate show a spinner instead of the eject icon for just the
     // stick actually being acted on, not every row.
-    QString busyDevicePath() const { return m_busyDevicePath; }
+    QString busyDevicePath() const { return m_busyTask.devicePath; }
 
     Q_INVOKABLE void detect();
 
@@ -107,7 +107,14 @@ public:
     // can visibly take a moment -- confirmed by this exact freeze once
     // looking like the app had hung or lost the stick) on a background
     // thread rather than blocking the UI thread the way these used to.
-    // A no-op while another mount/unmount is already in flight.
+    // Queued rather than dropped when another mount/unmount is already
+    // running: a click while the app is busy with a *different* stick
+    // used to be silently ignored (the row's button was disabled system-
+    // wide while anything was in flight, which reads as "does nothing"
+    // -- felt often once auto-mount started running in the background).
+    // A second click on the same stick before its own queued request
+    // has started replaces the first (last click wins); one already
+    // running can't be cancelled, so the new request runs right after it.
     Q_INVOKABLE void mountStick(const QString &devicePath);
     Q_INVOKABLE void unmountStick(const QString &devicePath);
 
@@ -121,12 +128,26 @@ public:
     // and again from the destructor; idempotent.
     void unmountOwnMounts();
 
-private:
+    // One requested mount or unmount, waiting its turn -- see
+    // enqueue()/processQueue(). `automatic` distinguishes a background
+    // auto-mount from a row click only for m_autoMountFailed bookkeeping.
+    struct PendingTask
+    {
+        QString devicePath;
+        bool mount = false;
+        bool automatic = false;
+    };
+
     void setErrorMessage(const QString &message);
-    void startTask(bool mount, const QString &devicePath, bool automatic);
+    // Supersedes any queued task for the same device (last request wins;
+    // one already running is left to finish) and starts it once nothing
+    // else is in flight. `priority`: goes to the front of the queue
+    // (a direct row click) rather than the back (an auto-mount).
+    void enqueue(const QString &devicePath, bool mount, bool automatic, bool priority);
+    void processQueue();
+    void startTask(const PendingTask &task);
     void onTaskFinished();
     void queueAutoMounts();
-    void startNextAutoMount();
 
     DetectedStickListModel m_model;
     std::unique_ptr<application::RemovableMediaMonitor> m_monitor;
@@ -134,13 +155,11 @@ private:
     QString m_errorMessage;
     QFutureWatcher<MediaTaskResult> m_watcher;
     bool m_busy = false;
-    bool m_busyIsMount = false;
-    bool m_busyIsAutomatic = false;
-    QString m_busyDevicePath;
+    PendingTask m_busyTask;
+    QVector<PendingTask> m_taskQueue;
     QSet<QString> m_mountedByUs;      // devicePaths Seabass mounted, to unmount on quit
     QSet<QString> m_userUnmounted;    // ejected from the list: leave alone until re-inserted
     QSet<QString> m_autoMountFailed;  // do not retry until re-inserted
-    QStringList m_autoMountQueue;
     bool m_ownMountsReleased = false;
 };
 
