@@ -83,7 +83,7 @@ SettingsTaskResult runLoadTask(QString pioneerRoot)
 SettingsTaskResult runSetFieldTask(QString pioneerRoot, QString fileName, QString fieldLabel, QString optionName)
 {
     SettingsTaskResult result;
-    QString refusal = refuseIfRekordboxRunning();
+    QString refusal = refuseIfDjSoftwareRunning();
     if (!refusal.isEmpty()) {
         QString ignoredLoadError;
         result.groups = buildGroups(pioneerRoot, &ignoredLoadError);

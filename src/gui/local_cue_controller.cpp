@@ -224,7 +224,7 @@ LocalCueWriteResult runApplyRestoreTask(QString format, QString path, std::vecto
                                          std::shared_ptr<QtProgressReporter> reporter)
 {
     LocalCueWriteResult result;
-    QString refusal = refuseIfRekordboxRunning();
+    QString refusal = refuseIfDjSoftwareRunning();
     if (!refusal.isEmpty()) {
         result.errorMessage = refusal;
         return result;
@@ -364,7 +364,7 @@ LocalCueWriteResult runApplyRestoreTask(QString format, QString path, std::vecto
 LocalCueWriteResult runUndoTask(std::vector<UndoableBackup> backups, std::shared_ptr<QtProgressReporter> reporter)
 {
     LocalCueWriteResult result;
-    QString refusal = refuseIfRekordboxRunning();
+    QString refusal = refuseIfDjSoftwareRunning();
     if (!refusal.isEmpty()) {
         result.errorMessage = refusal;
         return result;

@@ -47,8 +47,15 @@ ApplicationWindow {
         id: appSettingsCtrl
     }
 
-    RekordboxGuardController {
-        id: rekordboxGuardCtrl
+    // One process guard for the whole app: polls for rekordbox / Engine DJ
+    // only while a library is in edit or write mode (see
+    // dj_software_guard_controller.hpp) and raises the modal below.
+    DjSoftwareGuardController {
+        id: djGuardCtrl
+    }
+
+    DjSoftwareRunningDialog {
+        guard: djGuardCtrl
     }
 
     // Pushes the resolved Material colors + the theme toggle into the
@@ -75,18 +82,6 @@ ApplicationWindow {
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
-
-        RekordboxRunningWarning {
-            visible: rekordboxGuardCtrl.conflictingSoftware.length > 0
-            // The default text is rekordbox's (every stick write refuses
-            // on it); Engine DJ only blocks the full-stick backup and
-            // restore, so its banner says just that.
-            text: rekordboxGuardCtrl.rekordboxRunning
-                ? "Rekordbox appears to be running: writes to this stick are refused until it's closed, "
-                  + "to avoid corrupting your library."
-                : rekordboxGuardCtrl.conflictingSoftware + " appears to be running: full stick backups and restores "
-                  + "are refused until it's closed, so the Engine database can't change while Seabass reads or replaces it."
-        }
 
         StackView {
             id: stackView
@@ -474,7 +469,11 @@ ApplicationWindow {
         StickBackupPage {
             appSettingsController: appSettingsCtrl
             controller: StickBackupController {}
-            conflictingSoftware: rekordboxGuardCtrl.conflictingSoftware
+            // This page shows the live "X is running" status itself, so
+            // it keeps the guard polling while it is open.
+            conflictingSoftware: djGuardCtrl.conflictingSoftware
+            Component.onCompleted: djGuardCtrl.addWatcher()
+            Component.onDestruction: djGuardCtrl.removeWatcher()
             onRestoreRequested: (stickLabel, stickRoot, archivePath) => stackView.push(restoreStickBackupPageComponent, {
                 preselectedMountPoint: stickRoot,
                 preselectedArchivePath: archivePath,
@@ -488,7 +487,9 @@ ApplicationWindow {
         CloneStickPage {
             appSettingsController: appSettingsCtrl
             controller: CloneStickController {}
-            conflictingSoftware: rekordboxGuardCtrl.conflictingSoftware
+            conflictingSoftware: djGuardCtrl.conflictingSoftware
+            Component.onCompleted: djGuardCtrl.addWatcher()
+            Component.onDestruction: djGuardCtrl.removeWatcher()
         }
     }
 

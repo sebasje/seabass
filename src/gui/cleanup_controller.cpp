@@ -496,7 +496,7 @@ CleanupWriteResult runApplyTask(QString format, QString path, std::vector<domain
                                  std::shared_ptr<QtProgressReporter> reporter)
 {
     CleanupWriteResult result;
-    QString refusal = refuseIfRekordboxRunning();
+    QString refusal = refuseIfDjSoftwareRunning();
     if (!refusal.isEmpty()) {
         result.errorMessage = refusal;
         return result;
@@ -869,7 +869,7 @@ CleanupWriteResult runApplyTask(QString format, QString path, std::vector<domain
 CleanupWriteResult runUndoTask(std::vector<UndoableBackup> backups, std::shared_ptr<QtProgressReporter> reporter)
 {
     CleanupWriteResult result;
-    QString refusal = refuseIfRekordboxRunning();
+    QString refusal = refuseIfDjSoftwareRunning();
     if (!refusal.isEmpty()) {
         result.errorMessage = refusal;
         return result;
@@ -919,7 +919,7 @@ PendingDeletionApplyResult runDeletePendingTask(QString format, QString path,
                                                  std::shared_ptr<QtProgressReporter> reporter)
 {
     PendingDeletionApplyResult result;
-    QString refusal = refuseIfRekordboxRunning();
+    QString refusal = refuseIfDjSoftwareRunning();
     if (!refusal.isEmpty()) {
         result.errorMessage = refusal;
         return result;

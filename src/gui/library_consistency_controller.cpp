@@ -342,7 +342,7 @@ LibraryConsistencyWriteResult runRepairTask(QString format, QString path,
                                              std::vector<LibraryConsistencyIssue> issues)
 {
     LibraryConsistencyWriteResult result;
-    QString refusal = refuseIfRekordboxRunning();
+    QString refusal = refuseIfDjSoftwareRunning();
     if (!refusal.isEmpty()) {
         result.errorMessage = refusal;
         return result;
@@ -623,7 +623,7 @@ LibraryConsistencyWriteResult runRepairTask(QString format, QString path,
 LibraryConsistencyWriteResult runDeleteOrphanTask(QString path, LibraryConsistencyIssue issue)
 {
     LibraryConsistencyWriteResult result;
-    QString refusal = refuseIfRekordboxRunning();
+    QString refusal = refuseIfDjSoftwareRunning();
     if (!refusal.isEmpty()) {
         result.errorMessage = refusal;
         return result;
@@ -665,7 +665,7 @@ LibraryConsistencyWriteResult runDeleteOrphanTask(QString path, LibraryConsisten
 LibraryConsistencyWriteResult runRemoveJunkCuesTask(QString format, QString path, std::vector<domain::Track> tracks)
 {
     LibraryConsistencyWriteResult result;
-    QString refusal = refuseIfRekordboxRunning();
+    QString refusal = refuseIfDjSoftwareRunning();
     if (!refusal.isEmpty()) {
         result.errorMessage = refusal;
         return result;

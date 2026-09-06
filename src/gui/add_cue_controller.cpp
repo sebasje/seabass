@@ -32,7 +32,7 @@ AddCueResult runAddCueTask(QString format, QString path, QString sourceId, doubl
                             std::shared_ptr<QtProgressReporter> reporter)
 {
     AddCueResult result;
-    QString refusal = refuseIfRekordboxRunning();
+    QString refusal = refuseIfDjSoftwareRunning();
     if (!refusal.isEmpty()) {
         result.errorMessage = refusal;
         return result;

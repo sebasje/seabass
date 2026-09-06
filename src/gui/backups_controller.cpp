@@ -122,7 +122,7 @@ BackupsTaskResult runBackupsTask(BackupsAction action, QString dir, int keepCoun
     BackupsTaskResult result;
     bool mutating = action != BackupsAction::Load;
     if (mutating) {
-        QString refusal = refuseIfRekordboxRunning();
+        QString refusal = refuseIfDjSoftwareRunning();
         if (!refusal.isEmpty()) {
             result.errorMessage = refusal;
             return result;

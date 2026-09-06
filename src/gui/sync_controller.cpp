@@ -593,7 +593,7 @@ SyncWriteResult runApplyTask(QString rekordboxPath, QString enginePath, std::vec
                               std::shared_ptr<QtProgressReporter> reporter)
 {
     SyncWriteResult result;
-    QString refusal = refuseIfRekordboxRunning();
+    QString refusal = refuseIfDjSoftwareRunning();
     if (!refusal.isEmpty()) {
         result.errorMessage = refusal;
         return result;
@@ -790,7 +790,7 @@ SyncWriteResult runApplyTask(QString rekordboxPath, QString enginePath, std::vec
 SyncWriteResult runUndoTask(std::vector<UndoableBackup> backups, std::shared_ptr<QtProgressReporter> reporter)
 {
     SyncWriteResult result;
-    QString refusal = refuseIfRekordboxRunning();
+    QString refusal = refuseIfDjSoftwareRunning();
     if (!refusal.isEmpty()) {
         result.errorMessage = refusal;
         return result;
