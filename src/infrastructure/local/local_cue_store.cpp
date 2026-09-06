@@ -12,6 +12,7 @@
 
 #include "domain/track_matching.hpp"
 #include "infrastructure/compression/zlib_compressor.hpp"
+#include "infrastructure/local/app_data_directory.hpp"
 
 namespace seabass::infrastructure::local
 {
@@ -354,20 +355,7 @@ std::vector<Track> deserializeTracks(const std::string &data, int formatVersion)
 
 std::string LocalCueStore::defaultPath()
 {
-#if defined(_WIN32)
-    // Windows has no XDG_DATA_HOME/HOME -- LOCALAPPDATA is the equivalent
-    // convention for per-user app data that shouldn't roam. Falling
-    // through to USERPROFILE if it's ever unset (Windows always sets it
-    // for real user sessions) rather than crashing.
-    const char *localAppData = std::getenv("LOCALAPPDATA");
-    fs::path dataDir = (localAppData && *localAppData) ? fs::path(localAppData)
-                                                        : fs::path(std::getenv("USERPROFILE")) / "AppData" / "Local";
-#else
-    const char *xdgDataHome = std::getenv("XDG_DATA_HOME");
-    fs::path dataDir = (xdgDataHome && *xdgDataHome) ? fs::path(xdgDataHome)
-                                                      : fs::path(std::getenv("HOME")) / ".local" / "share";
-#endif
-    return (dataDir / "seabass" / "cues.db").string();
+    return (appDataDirectory() / "cues.db").string();
 }
 
 LocalCueStore::LocalCueStore(std::string path)
