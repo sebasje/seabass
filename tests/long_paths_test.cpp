@@ -162,6 +162,33 @@ int main()
         std::cout << "case 3 (walkStickTree reaches a file past MAX_PATH, with nothing skipped) OK\n";
     }
 
+    // ---- directoryTreeSizeBytes counts what is really there ----
+    {
+        fs::path root = freshRoot("size");
+        writeThrough(root / "shallow.bin", std::string(100, 's'));
+        fs::path deep = makeDeepTree(root);
+        writeThrough(deep / "deep.bin", std::string(2000, 'd'));
+        assert((deep / "deep.bin").native().size() > 260);
+
+        // An exact total, not a lower bound. fs::recursive_directory_iterator
+        // gets this wrong in both directions at once on Windows: it misses
+        // deep.bin, and where it wanders into the working directory it can
+        // add sizes of files that are not in this tree at all. Only an
+        // exact figure distinguishes "counted the right files" from
+        // "happened to reach a plausible number".
+        assert(directoryTreeSizeBytes(root) == 2100);
+
+        // A single file answers with its own size, and a path that is not
+        // there answers zero rather than (uintmax_t)-1, which is what
+        // fs::file_size reports on failure and what the old caller added
+        // straight into its running total.
+        assert(directoryTreeSizeBytes(deep / "deep.bin") == 2000);
+        assert(directoryTreeSizeBytes(root / "does-not-exist") == 0);
+
+        removeTreeDeepestFirst(root);
+        std::cout << "case 4 (directoryTreeSizeBytes totals a tree past MAX_PATH exactly) OK\n";
+    }
+
     std::cout << "all cases passed\n";
     return 0;
 }

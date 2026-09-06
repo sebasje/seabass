@@ -813,6 +813,7 @@ target_include_directories(pending_deletion_manifest_test PRIVATE src)
 add_test(NAME pending_deletion_manifest_test COMMAND pending_deletion_manifest_test)
 
 add_executable(pending_deletion_applier_test
+    src/infrastructure/long_paths.cpp
     src/infrastructure/cleanup/pending_deletion_manifest.cpp
     src/infrastructure/cleanup/pending_deletion_applier.cpp
     tests/pending_deletion_applier_test.cpp

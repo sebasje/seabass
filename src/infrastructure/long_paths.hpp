@@ -82,4 +82,21 @@ private:
 // it manages to list.
 std::uintmax_t removeTreeDeepestFirst(const std::filesystem::path &path);
 
+// Total size of every regular file at or under `path`, listing through
+// DirectoryReader for the same reason removeTreeDeepestFirst does:
+// fs::recursive_directory_iterator cannot descend past MAX_PATH, and on
+// Windows it does not even fail there -- it reports success while
+// enumerating the working directory, so a total built from it can count
+// files that are not in the tree at all and miss the ones that are.
+//
+// Unreadable entries contribute zero rather than propagating an error:
+// this is a figure to show a person, and one unreadable file should not
+// discard the rest. Note that fs::file_size reports failure as
+// (uintmax_t)-1, so a caller adding it up without checking turns a single
+// bad file into a nonsense total.
+//
+// Symlinks are neither counted nor followed: a link's target can sit
+// outside the tree being measured.
+std::uintmax_t directoryTreeSizeBytes(const std::filesystem::path &path);
+
 }  // namespace seabass::infrastructure
