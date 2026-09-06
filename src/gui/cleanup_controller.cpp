@@ -12,22 +12,22 @@
 #include <set>
 #include <unordered_map>
 
-#include "application/ports/backup_store.hpp"
 #include "application/ports/cue_writer.hpp"
 #include "application/ports/library_cleanup_writer.hpp"
-#include "application/ports/operation_log.hpp"
 #include "domain/duplicate_cue_consolidation.hpp"
+#include "gui/edit/edit_session_registry.hpp"
+#include "gui/edit/format_write_session.hpp"
+#include "gui/edit/library_edit_session.hpp"
+#include "gui/edit/pending_change.hpp"
+#include "gui/edit/save_context.hpp"
 #include "gui/library_catalog_cache.hpp"
 #include "gui/onelibrary_cue_writer_adapter.hpp"
 #include "gui/qt_progress_reporter.hpp"
 #include "gui/write_guard.hpp"
-#include "infrastructure/backup/filesystem_backup_store.hpp"
 #include "infrastructure/backup/stick_write_lock.hpp"
-#include "infrastructure/bulk_write_strategy.hpp"
 #include "infrastructure/cleanup/pending_deletion_applier.hpp"
 #include "infrastructure/cleanup/pending_deletion_manifest.hpp"
 #include "infrastructure/cleanup/pending_deletion_resolver.hpp"
-#include "infrastructure/durable_file_write.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cleanup_writer.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cue_writer.hpp"
 #include "infrastructure/logging/file_operation_log.hpp"
@@ -36,13 +36,11 @@
 #include "infrastructure/rekordbox/pdb_row_writer.hpp"
 #include "infrastructure/rekordbox/rekordbox_cleanup_writer.hpp"
 #include "infrastructure/rekordbox/rekordbox_cue_writer.hpp"
-#include "infrastructure/scratch_dir_guard.hpp"
 
 namespace seabass::gui
 {
 
 namespace fs = std::filesystem;
-using infrastructure::ScratchDirGuard;
 
 namespace
 {
@@ -143,6 +141,10 @@ QVariant CleanupPlanListModel::data(const QModelIndex &index, int role) const
         return static_cast<int>(plan.mergedCuesForSurvivor.size()) - static_cast<int>(plan.survivor.cues.size());
     case IncludedRole:
         return m_included[realIndex];
+    case StagedRole:
+        return realIndex < m_stagedDescriptions.size() && !m_stagedDescriptions[realIndex].isEmpty();
+    case StagedDescriptionRole:
+        return realIndex < m_stagedDescriptions.size() ? m_stagedDescriptions[realIndex] : QString();
     default:
         return {};
     }
@@ -171,6 +173,8 @@ QHash<int, QByteArray> CleanupPlanListModel::roleNames() const
         {WastedBytesHumanRole, "wastedBytesHuman"},
         {NewCueCountRole, "newCueCount"},
         {IncludedRole, "included"},
+        {StagedRole, "staged"},
+        {StagedDescriptionRole, "stagedDescription"},
     };
 }
 
@@ -179,6 +183,7 @@ void CleanupPlanListModel::setPlans(std::vector<domain::DuplicateCleanupPlan> pl
     beginResetModel();
     m_plans = std::move(plans);
     m_included.assign(m_plans.size(), true);
+    m_stagedDescriptions.assign(m_plans.size(), QString());
     for (size_t i = 0; i < m_plans.size(); ++i) {
         // Groups where quality and length disagree, or where a copy
         // carries real rating/comment/play-count/last-played data that
@@ -258,6 +263,7 @@ void CleanupPlanListModel::removePlansAt(std::vector<int> indices)
         }
         m_plans.erase(m_plans.begin() + idx);
         m_included.erase(m_included.begin() + idx);
+        m_stagedDescriptions.erase(m_stagedDescriptions.begin() + idx);
         if (wasVisible) {
             m_visibleIndices.erase(m_visibleIndices.begin() + visibleRow);
         }
@@ -272,6 +278,35 @@ void CleanupPlanListModel::removePlansAt(std::vector<int> indices)
         if (wasVisible) {
             endRemoveRows();
         }
+    }
+}
+
+int CleanupPlanListModel::rawIndexForRow(int row) const
+{
+    if (row < 0 || static_cast<size_t>(row) >= m_visibleIndices.size()) {
+        return -1;
+    }
+    return static_cast<int>(m_visibleIndices[static_cast<size_t>(row)]);
+}
+
+void CleanupPlanListModel::setStaged(size_t rawIndex, bool staged, const QString &description)
+{
+    if (rawIndex >= m_plans.size()) {
+        return;
+    }
+    m_stagedDescriptions[rawIndex] = staged ? description : QString();
+    auto it = std::find(m_visibleIndices.begin(), m_visibleIndices.end(), rawIndex);
+    if (it != m_visibleIndices.end()) {
+        int row = static_cast<int>(std::distance(m_visibleIndices.begin(), it));
+        emit dataChanged(index(row), index(row), {StagedRole, StagedDescriptionRole});
+    }
+}
+
+void CleanupPlanListModel::clearStaged()
+{
+    std::fill(m_stagedDescriptions.begin(), m_stagedDescriptions.end(), QString());
+    if (!m_visibleIndices.empty()) {
+        emit dataChanged(index(0), index(static_cast<int>(m_visibleIndices.size()) - 1), {StagedRole, StagedDescriptionRole});
     }
 }
 
@@ -398,22 +433,19 @@ namespace
 
 // Mirrors duplicates_controller.cpp's FormatContext, extended with a
 // LibraryCleanupWriter and the extra (not tied to any one track) files
-// that need backing up once per session, rekordbox's export.pdb,
-// touched regardless of which track triggered the write, unlike
-// Engine's m.db which filesToBackUpFor already covers per-track (same
-// file every time, deduped the same way as everywhere else).
+// that need backing up once per save, rekordbox's export.pdb, touched
+// regardless of which track triggered the write, unlike Engine's m.db
+// which filesToBackUpFor already covers per-track (same file every
+// time, deduped by SaveContext::backupOnce()).
 struct FormatContext
 {
     std::unique_ptr<application::CueWriter> cueWriter;
     std::unique_ptr<application::LibraryCleanupWriter> cleanupWriter;
-    std::unique_ptr<application::BackupStore> backupStore;
-    std::unique_ptr<application::OperationLog> log;
     std::function<std::vector<std::string>(const std::string &)> filesToBackUpFor;
     std::vector<std::string> extraFilesToBackUp;
-    std::string pendingDeletionManifestPath;
     // Non-empty only for rekordbox, used to best-effort also write
-    // cues into OneLibrary/exportLibrary.db (see runApplyTask()) if it
-    // exists alongside export.pdb on this stick.
+    // cues into OneLibrary/exportLibrary.db (see CleanupGroupChange) if
+    // it exists alongside export.pdb on this stick.
     std::string pioneerRoot;
 };
 
@@ -424,25 +456,17 @@ struct FormatContext
 //
 // writeRoot: where the format's *shared database* writers (cleanupWriter
 // always; cueWriter too for engine/onelibrary, whose cue writes hit that
-// same shared file) should actually read/write, when the caller has
-// staged it to fast local scratch first (see runApplyTask()'s own
-// comment on why) -- defaults to `path` itself, i.e. write straight to
-// the stick, same as before this parameter existed. rekordbox's
-// cueWriter is deliberately NOT redirected: it writes small per-track
-// .ANLZ files, not the shared export.pdb, so staging buys it nothing
-// (same reasoning as sync_controller.cpp's rekordbox branch).
+// same shared file) should actually read/write, when the save staged it
+// to fast local scratch first (FormatWriteSession) -- defaults to `path`
+// itself, i.e. write straight to the stick. rekordbox's cueWriter is
+// deliberately NOT redirected: it writes small per-track .ANLZ files,
+// not the shared export.pdb, so staging buys it nothing (same reasoning
+// as sync_controller.cpp's rekordbox branch).
 FormatContext makeContext(const QString &format, const QString &path,
-                           const std::unordered_map<std::string, std::string> &oneLibrarySourceIdToPath = {},
-                           std::optional<std::string> writeRoot = std::nullopt)
+                          const std::unordered_map<std::string, std::string> &oneLibrarySourceIdToPath = {},
+                          std::optional<std::string> writeRoot = std::nullopt)
 {
-    fs::path stickRoot = fs::path(path.toStdString()).parent_path();
-
     FormatContext ctx;
-    ctx.backupStore = std::make_unique<infrastructure::backup::FilesystemBackupStore>(
-        (stickRoot / ".seabass-backups").string());
-    ctx.log = std::make_unique<infrastructure::logging::FileOperationLog>((stickRoot / ".seabass.log").string());
-    ctx.pendingDeletionManifestPath = (stickRoot / ".seabass-pending-deletions.jsonl").string();
-
     if (format == "rekordbox") {
         std::string pioneerRoot = path.toStdString();
         ctx.cueWriter = std::make_unique<infrastructure::rekordbox::RekordboxCueWriter>(pioneerRoot);
@@ -484,429 +508,280 @@ FormatContext makeContext(const QString &format, const QString &path,
         ctx.cueWriter =
             std::make_unique<OneLibraryCueWriterAdapter>(effectivePath, oneLibrarySourceIdToPath, realStickRoot);
         ctx.cleanupWriter = std::make_unique<OneLibraryCleanupWriterAdapter>(effectivePath, oneLibrarySourceIdToPath,
-                                                                              realStickRoot);
+                                                                             realStickRoot);
         ctx.extraFilesToBackUp = {infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(pioneerRoot)};
         ctx.filesToBackUpFor = [](const std::string &) -> std::vector<std::string> { return {}; };
     }
     return ctx;
 }
 
-// Runs entirely on a background thread (see CleanupController::apply()).
-CleanupWriteResult runApplyTask(QString format, QString path, std::vector<domain::DuplicateCleanupPlan> includedPlans,
-                                 std::shared_ptr<QtProgressReporter> reporter)
+// The writers of one save's clean-ups for one format (SaveContext::
+// shared): the database backed up once, a scratch copy for a big batch
+// (FormatWriteSession), the format's writers on that write root, and the
+// pending-deletion manifest every removed copy is appended to. OneLibrary's
+// adapters are bound to the tracks they write, so that format gets one
+// context per group.
+struct CleanupWriterContext
 {
-    CleanupWriteResult result;
-    QString refusal = refuseIfDjSoftwareRunning();
-    if (!refusal.isEmpty()) {
-        result.errorMessage = refusal;
-        return result;
+    CleanupWriterContext(const QString &format, const QString &path, int itemCountHint, SaveContext &ctx,
+                         const std::unordered_map<std::string, std::string> &oneLibrarySourceIdToPath)
+        : session(format.toStdString(), path.toStdString(), itemCountHint, "duplicate-file-cleanup", ctx),
+          manifest((fs::path(path.toStdString()).parent_path() / ".seabass-pending-deletions.jsonl").string())
+    {
+        std::optional<std::string> writeRoot;
+        if (session.usesScratch()) {
+            writeRoot = session.writeRoot();
+        }
+        context = makeContext(format, path, oneLibrarySourceIdToPath, writeRoot);
+        for (const auto &f : context.extraFilesToBackUp) {
+            ctx.backupOnce(f, "duplicate-file-cleanup");
+        }
+        effectiveRoot = session.writeRoot();
+        realStickRootForOneLib = fs::path(path.toStdString()).parent_path().string();
+        // Named in every pending-deletion entry, so the review page can
+        // point at the backup that still holds the removed row.
+        dbBackupId = ctx.backupIdOf(session.databaseFile());
     }
-    try {
-        std::string backupDir = (fs::path(path.toStdString()).parent_path() / ".seabass-backups").string();
-        infrastructure::backup::StickWriteLock lock(backupDir + "/.write.lock");
 
+    FormatWriteSession session;
+    infrastructure::cleanup::PendingDeletionManifest manifest;
+    FormatContext context;
+    std::string effectiveRoot;
+    std::string realStickRootForOneLib;
+    std::string dbBackupId;
+};
+
+// One duplicate group cleaned up: the doomed copies' cues merged onto the
+// survivor, its missing bpm/key/artwork filled in, the doomed rows removed
+// (playlists repointed), each doomed file recorded for later deletion.
+// What used to be one iteration of runApplyTask()'s loop.
+class CleanupGroupChange : public PendingChange
+{
+public:
+    CleanupGroupChange(QString format, QString path, domain::DuplicateCleanupPlan plan, int itemCountHint)
+        : m_format(std::move(format)), m_path(std::move(path)), m_plan(std::move(plan)), m_itemCountHint(itemCountHint)
+    {
+    }
+
+    QString id() const override
+    {
+        return "cleanup:" + m_format + ":" + QString::fromStdString(m_plan.survivor.sourceId);
+    }
+
+    QString description() const override
+    {
+        int newCues = static_cast<int>(m_plan.mergedCuesForSurvivor.size()) - static_cast<int>(m_plan.survivor.cues.size());
+        return QStringLiteral("Clean up \"%1\": keep %2, remove %3 cop%4%5")
+            .arg(QString::fromStdString(m_plan.survivor.title), QString::fromStdString(m_plan.survivor.filename))
+            .arg(m_plan.toRemove.size())
+            .arg(m_plan.toRemove.size() == 1 ? "y" : "ies")
+            .arg(newCues > 0 ? QStringLiteral(" (%1 cue(s) preserved)").arg(newCues) : QString());
+    }
+
+    QString unit() const override { return QStringLiteral("groups"); }
+    QStringList formatsTouched() const override { return {m_format}; }
+
+    ChangeOutcome apply(SaveContext &ctx) override
+    {
+        const auto &plan = m_plan;
+        std::string key = "cleanup:" + m_format.toStdString();
         std::unordered_map<std::string, std::string> oneLibrarySourceIdToPath;
-        if (format == "onelibrary") {
-            for (const auto &plan : includedPlans) {
-                oneLibrarySourceIdToPath[plan.survivor.sourceId] = plan.survivor.filePath;
-                for (const auto &doomed : plan.toRemove) {
-                    oneLibrarySourceIdToPath[doomed.sourceId] = doomed.filePath;
+        if (m_format == "onelibrary") {
+            oneLibrarySourceIdToPath[plan.survivor.sourceId] = plan.survivor.filePath;
+            for (const auto &doomed : plan.toRemove) {
+                oneLibrarySourceIdToPath[doomed.sourceId] = doomed.filePath;
+            }
+            key += ":" + plan.survivor.sourceId;
+        }
+        CleanupWriterContext &w = ctx.shared<CleanupWriterContext>(key, [&]() {
+            return std::make_unique<CleanupWriterContext>(m_format, m_path, m_itemCountHint, ctx,
+                                                          oneLibrarySourceIdToPath);
+        });
+        FormatContext &fc = w.context;
+        application::OperationLog &log = ctx.log();
+        const QString &format = m_format;
+
+        for (const auto &f : fc.filesToBackUpFor(plan.survivor.sourceId)) {
+            ctx.backupOnce(f, "duplicate-file-cleanup");
+        }
+
+        // sourceId -> filePath among this group's own tracks -- only
+        // OneLibrary's propagateMissingFieldsForPath() below needs this
+        // (it identifies tracks by path, not sourceId, same reason
+        // OneLibraryCueWriter's class comment gives).
+        auto findTrackFilePath = [&plan](const std::string &sourceId) -> std::string {
+            for (const auto &t : plan.group.tracks) {
+                if (t.sourceId == sourceId) {
+                    return t.filePath;
                 }
             }
-        }
-
-        // Every plan's row removal, plus (for engine/onelibrary only --
-        // rekordbox's cue merges go to small per-track .ANLZ files
-        // instead, see makeContext()'s own comment) its cue-merge and
-        // field-propagation writes, all hit the ONE shared database file
-        // this format uses. With many included plans that means many
-        // full reopen+commit round trips directly against a possibly
-        // slow, removable stick -- exactly the cost
-        // shouldUseWholeFileReplace() exists to avoid, same pattern
-        // already proven by sync_controller.cpp and
-        // library_consistency_controller.cpp's repair task.
-        int rowsToRemove = 0;
-        int cueMergeCount = 0;
-        int fieldPropagationCount = 0;
-        for (const auto &plan : includedPlans) {
-            rowsToRemove += static_cast<int>(plan.toRemove.size());
-            if (plan.mergedCuesForSurvivor.size() > plan.survivor.cues.size()) {
-                cueMergeCount++;
-            }
-            if (plan.bpmForSurvivor || plan.keyForSurvivor || plan.artworkPathForSurvivor) {
-                fieldPropagationCount++;
-            }
-        }
-
-        std::string dbFileReal;
-        int itemCount = 0;
-        std::string scratchSubdir;    // relative dir the db file lives in, e.g. "rekordbox" or "Database2"
-        std::string scratchFilename;  // e.g. "export.pdb", "m.db", "exportLibrary.db"
-        if (format == "rekordbox") {
-            dbFileReal = path.toStdString() + "/rekordbox/export.pdb";
-            itemCount = fieldPropagationCount + rowsToRemove;
-            scratchSubdir = "rekordbox";
-            scratchFilename = "export.pdb";
-        } else if (format == "engine") {
-            dbFileReal = (fs::path(path.toStdString()) / "Database2" / "m.db").string();
-            itemCount = cueMergeCount + fieldPropagationCount + rowsToRemove;
-            scratchSubdir = "Database2";
-            scratchFilename = "m.db";
-        } else {
-            dbFileReal = infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(path.toStdString());
-            itemCount = cueMergeCount + fieldPropagationCount + rowsToRemove;
-            scratchSubdir = "rekordbox";
-            scratchFilename = "exportLibrary.db";
-        }
-
-        std::error_code sizeEc;
-        auto existingBytes = fs::file_size(dbFileReal, sizeEc);
-        infrastructure::BulkWriteStrategyInputs strategyInputs;
-        strategyInputs.itemCount = itemCount;
-        strategyInputs.existingFileBytes = sizeEc ? 0 : existingBytes;
-        bool useWholeFile = !sizeEc && infrastructure::shouldUseWholeFileReplace(strategyInputs) &&
-                             infrastructure::hasRoomForWholeFileReplace(fs::path(dbFileReal).parent_path(), existingBytes);
-
-        std::optional<fs::path> scratchDir;
-        std::optional<ScratchDirGuard> scratchGuard;
-        std::optional<std::string> writeRoot;
-        if (useWholeFile) {
-            scratchDir = fs::temp_directory_path() /
-                         ("seabass-cleanup-scratch-" + format.toStdString() + "-" +
-                          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
-            std::error_code cleanupEc;
-            fs::remove_all(*scratchDir, cleanupEc);
-            fs::create_directories(*scratchDir / scratchSubdir);
-            fs::copy_file(dbFileReal, *scratchDir / scratchSubdir / scratchFilename);
-            scratchGuard.emplace(*scratchDir);
-            writeRoot = scratchDir->string();
-        }
-
-        // Used below by the two ad-hoc field-propagation writers
-        // (rekordbox's PdbRowWriter, onelibrary's OneLibraryCueWriter)
-        // that aren't part of FormatContext -- same redirect-to-scratch
-        // rule as ctx.cleanupWriter/ctx.cueWriter get inside
-        // makeContext().
-        std::string effectiveRoot = writeRoot.value_or(path.toStdString());
-        std::string realStickRootForOneLib = fs::path(path.toStdString()).parent_path().string();
-
-        auto ctx = makeContext(format, path, oneLibrarySourceIdToPath, writeRoot);
-        infrastructure::cleanup::PendingDeletionManifest manifest(ctx.pendingDeletionManifestPath);
-
-        if (scratchDir) {
-            ctx.log->record("cleanup: applying " + std::to_string(itemCount) +
-                             " update(s) to a local scratch copy first (" + scratchFilename + " is " +
-                             std::to_string(existingBytes) + " bytes)");
-        }
-
-        std::set<std::string> backedUpFiles;
-        std::string dbBackupId;
-        auto backupIfNeeded = [&](const std::string &f) {
-            if (f.empty() || backedUpFiles.contains(f)) {
-                return;
-            }
-            auto record = ctx.backupStore->backup({f}, "duplicate-file-cleanup");
-            ctx.log->record("backed up before duplicate file cleanup -> " + record.path);
-            result.backups.push_back({QString::fromStdString(fs::path(record.path).parent_path().string()),
-                                       QString::fromStdString(record.id)});
-            backedUpFiles.insert(f);
-            if (dbBackupId.empty()) {
-                dbBackupId = record.id;
-            }
+            return {};
         };
 
-        for (const auto &f : ctx.extraFilesToBackUp) {
-            backupIfNeeded(f);
-        }
+        if (plan.mergedCuesForSurvivor.size() > plan.survivor.cues.size()) {
+            fc.cueWriter->writeHotCues(plan.survivor.sourceId, plan.mergedCuesForSurvivor);
+            w.session.noteItemApplied();
+            log.record("cleanup: wrote merged cues onto survivor track id=" + plan.survivor.sourceId);
 
-        size_t totalWork = 0;
-        for (const auto &plan : includedPlans) {
-            totalWork += plan.toRemove.size();
-        }
-        reporter->start("Cleaning up duplicates", totalWork);
-        size_t done = 0;
-
-        int groupsProcessed = 0;
-        int filesRemoved = 0;
-        int cuesPreserved = 0;
-        QStringList oneLibraryWarnings;
-        QStringList propagationWarnings;
-
-        for (const auto &plan : includedPlans) {
-            for (const auto &f : ctx.filesToBackUpFor(plan.survivor.sourceId)) {
-                backupIfNeeded(f);
-            }
-
-            // sourceId -> filePath among this group's own tracks -- only
-            // OneLibrary's propagateMissingFieldsForPath() below needs
-            // this (it identifies tracks by path, not sourceId, same
-            // reason OneLibraryCueWriter's class comment gives).
-            auto findTrackFilePath = [&plan](const std::string &sourceId) -> std::string {
-                for (const auto &t : plan.group.tracks) {
-                    if (t.sourceId == sourceId) {
-                        return t.filePath;
-                    }
-                }
-                return {};
-            };
-
-            if (plan.mergedCuesForSurvivor.size() > plan.survivor.cues.size()) {
-                ctx.cueWriter->writeHotCues(plan.survivor.sourceId, plan.mergedCuesForSurvivor);
-                cuesPreserved += static_cast<int>(plan.mergedCuesForSurvivor.size() - plan.survivor.cues.size());
-                ctx.log->record("cleanup: wrote merged cues onto survivor track id=" + plan.survivor.sourceId);
-
-                // Best-effort secondary write, alongside the primary
-                // export.pdb write above, never fatal to this
-                // operation, and never rolls back the export.pdb write
-                // that already succeeded. See OneLibraryCueWriter's own
-                // class comment and docs/onelibrary-format.md.
-                if (!ctx.pioneerRoot.empty() && !plan.survivor.filePath.empty() &&
-                    infrastructure::onelibrary::OneLibraryCueWriter::existsFor(ctx.pioneerRoot)) {
-                    try {
-                        infrastructure::onelibrary::OneLibraryCueWriter oneLibWriter(ctx.pioneerRoot);
-                        oneLibWriter.writeCuesForPath(plan.survivor.filePath, plan.mergedCuesForSurvivor);
-                        ctx.log->record("cleanup: also wrote merged cues onto survivor into OneLibrary (id=" +
-                                         plan.survivor.sourceId + ")");
-                    } catch (const std::exception &e) {
-                        QString warning = QString("OneLibrary cue write failed for \"%1\": %2")
-                                               .arg(QString::fromStdString(plan.survivor.title))
-                                               .arg(QString::fromStdString(e.what()));
-                        oneLibraryWarnings << warning;
-                        ctx.log->record("cleanup: " + warning.toStdString());
-                    }
+            // Best-effort secondary write, alongside the primary write
+            // above, never fatal to this operation. See OneLibraryCueWriter's
+            // own class comment and docs/onelibrary-format.md.
+            if (!fc.pioneerRoot.empty() && !plan.survivor.filePath.empty()
+                && infrastructure::onelibrary::OneLibraryCueWriter::existsFor(fc.pioneerRoot)) {
+                try {
+                    infrastructure::onelibrary::OneLibraryCueWriter oneLibWriter(fc.pioneerRoot);
+                    oneLibWriter.writeCuesForPath(plan.survivor.filePath, plan.mergedCuesForSurvivor);
+                    log.record("cleanup: also wrote merged cues onto survivor into OneLibrary (id="
+                               + plan.survivor.sourceId + ")");
+                } catch (const std::exception &e) {
+                    log.record("cleanup: OneLibrary cue write failed for \"" + plan.survivor.title + "\": " + e.what());
                 }
             }
+        }
 
-            // Fills in the survivor's missing bpm/key/artwork from
-            // whichever other copy in the group has each (see
-            // domain::DuplicateCleanupPlan's own comment on why this is
-            // a per-field "fill a gap", not a merge -- each field may
-            // have come from a different donor track). Primary-format
-            // writes here are treated exactly like the merged-cues write
-            // above: NOT best-effort, a failure aborts the whole
-            // operation (caught by this function's own outer try). Only
-            // the OneLibrary *mirror* of a rekordbox write, below, is
-            // best-effort, same as the merged-cues mirror.
-            if (plan.bpmForSurvivor || plan.keyForSurvivor || plan.artworkPathForSurvivor) {
-                if (format == "rekordbox") {
-                    std::string pdbPath = effectiveRoot + "/rekordbox/export.pdb";
-                    infrastructure::rekordbox::PdbRowWriter fieldWriter(pdbPath);
-                    uint32_t survivorId = static_cast<uint32_t>(std::stoul(plan.survivor.sourceId));
-                    if (plan.keyForSurvivor) {
-                        fieldWriter.copyTrackFieldsIfMissing(
-                            static_cast<uint32_t>(std::stoul(plan.keyDonorSourceId)), survivorId, true, false, false);
+        // Fills in the survivor's missing bpm/key/artwork from whichever
+        // other copy in the group has each (see domain::DuplicateCleanupPlan's
+        // own comment on why this is a per-field "fill a gap", not a merge).
+        // Primary-format writes here are NOT best-effort: a failure fails
+        // this change. Only the OneLibrary *mirror* of a rekordbox write,
+        // below, is best-effort, same as the merged-cues mirror.
+        if (plan.bpmForSurvivor || plan.keyForSurvivor || plan.artworkPathForSurvivor) {
+            if (format == "rekordbox") {
+                std::string pdbPath = w.effectiveRoot + "/rekordbox/export.pdb";
+                infrastructure::rekordbox::PdbRowWriter fieldWriter(pdbPath);
+                uint32_t survivorId = static_cast<uint32_t>(std::stoul(plan.survivor.sourceId));
+                if (plan.keyForSurvivor) {
+                    fieldWriter.copyTrackFieldsIfMissing(
+                        static_cast<uint32_t>(std::stoul(plan.keyDonorSourceId)), survivorId, true, false, false);
+                }
+                if (plan.bpmForSurvivor) {
+                    fieldWriter.copyTrackFieldsIfMissing(
+                        static_cast<uint32_t>(std::stoul(plan.bpmDonorSourceId)), survivorId, false, true, false);
+                }
+                if (plan.artworkPathForSurvivor) {
+                    fieldWriter.copyTrackFieldsIfMissing(
+                        static_cast<uint32_t>(std::stoul(plan.artworkDonorSourceId)), survivorId, false, false, true);
+                }
+                if (!fieldWriter.commit()) {
+                    return ChangeOutcome::failure("failed to write " + QString::fromStdString(pdbPath));
+                }
+                w.session.noteItemApplied();
+                log.record("cleanup: propagated missing bpm/key/artwork onto survivor track id=" + plan.survivor.sourceId);
+            } else if (format == "engine") {
+                // Artwork is deliberately not offered here -- Engine track
+                // artwork isn't writable through libdjinterop today, see
+                // propagateMissingFields()'s own doc comment. cueWriter is
+                // always this concrete type for format == "engine".
+                auto *engineCueWriter =
+                    static_cast<infrastructure::engine::LibdjinteropEngineCueWriter *>(fc.cueWriter.get());
+                engineCueWriter->propagateMissingFields(plan.survivor.sourceId, plan.bpmForSurvivor, plan.keyForSurvivor);
+                w.session.noteItemApplied();
+                log.record("cleanup: propagated missing bpm/key onto survivor track id=" + plan.survivor.sourceId);
+            } else if (format == "onelibrary") {
+                infrastructure::onelibrary::OneLibraryCueWriter fieldWriter(w.effectiveRoot, w.realStickRootForOneLib);
+                if (plan.keyForSurvivor) {
+                    std::string donorPath = findTrackFilePath(plan.keyDonorSourceId);
+                    if (!donorPath.empty() && !plan.survivor.filePath.empty()) {
+                        fieldWriter.propagateMissingFieldsForPath(donorPath, plan.survivor.filePath, false, true, false);
                     }
-                    if (plan.bpmForSurvivor) {
-                        fieldWriter.copyTrackFieldsIfMissing(
-                            static_cast<uint32_t>(std::stoul(plan.bpmDonorSourceId)), survivorId, false, true, false);
+                }
+                if (plan.bpmForSurvivor) {
+                    std::string donorPath = findTrackFilePath(plan.bpmDonorSourceId);
+                    if (!donorPath.empty() && !plan.survivor.filePath.empty()) {
+                        fieldWriter.propagateMissingFieldsForPath(donorPath, plan.survivor.filePath, true, false, false);
                     }
-                    if (plan.artworkPathForSurvivor) {
-                        fieldWriter.copyTrackFieldsIfMissing(
-                            static_cast<uint32_t>(std::stoul(plan.artworkDonorSourceId)), survivorId, false, false,
-                            true);
+                }
+                if (plan.artworkPathForSurvivor) {
+                    std::string donorPath = findTrackFilePath(plan.artworkDonorSourceId);
+                    if (!donorPath.empty() && !plan.survivor.filePath.empty()) {
+                        fieldWriter.propagateMissingFieldsForPath(donorPath, plan.survivor.filePath, false, false, true);
                     }
-                    if (!fieldWriter.commit()) {
-                        throw std::runtime_error("failed to write " + pdbPath);
-                    }
-                    ctx.log->record("cleanup: propagated missing bpm/key/artwork onto survivor track id=" +
-                                     plan.survivor.sourceId);
-                } else if (format == "engine") {
-                    // Artwork is deliberately not offered here -- Engine
-                    // track artwork isn't writable through libdjinterop
-                    // today, see propagateMissingFields()'s own doc
-                    // comment. ctx.cueWriter is always this concrete type
-                    // for format == "engine" (see makeContext()).
-                    auto *engineCueWriter =
-                        static_cast<infrastructure::engine::LibdjinteropEngineCueWriter *>(ctx.cueWriter.get());
-                    engineCueWriter->propagateMissingFields(plan.survivor.sourceId, plan.bpmForSurvivor,
-                                                              plan.keyForSurvivor);
-                    ctx.log->record("cleanup: propagated missing bpm/key onto survivor track id=" +
-                                     plan.survivor.sourceId);
-                } else if (format == "onelibrary") {
-                    infrastructure::onelibrary::OneLibraryCueWriter fieldWriter(effectiveRoot, realStickRootForOneLib);
+                }
+                w.session.noteItemApplied();
+                log.record("cleanup: propagated missing bpm/key/artwork onto survivor track id=" + plan.survivor.sourceId);
+            }
+
+            // Best-effort mirror onto OneLibrary too -- only reachable when
+            // this format is rekordbox (format == "onelibrary" already wrote
+            // OneLibrary directly above, as the primary write).
+            if (format == "rekordbox" && !fc.pioneerRoot.empty() && !plan.survivor.filePath.empty()
+                && infrastructure::onelibrary::OneLibraryCueWriter::existsFor(fc.pioneerRoot)) {
+                try {
+                    infrastructure::onelibrary::OneLibraryCueWriter oneLibFieldWriter(fc.pioneerRoot);
                     if (plan.keyForSurvivor) {
                         std::string donorPath = findTrackFilePath(plan.keyDonorSourceId);
-                        if (!donorPath.empty() && !plan.survivor.filePath.empty()) {
-                            fieldWriter.propagateMissingFieldsForPath(donorPath, plan.survivor.filePath, false, true,
-                                                                       false);
+                        if (!donorPath.empty()) {
+                            oneLibFieldWriter.propagateMissingFieldsForPath(donorPath, plan.survivor.filePath, false,
+                                                                            true, false);
                         }
                     }
                     if (plan.bpmForSurvivor) {
                         std::string donorPath = findTrackFilePath(plan.bpmDonorSourceId);
-                        if (!donorPath.empty() && !plan.survivor.filePath.empty()) {
-                            fieldWriter.propagateMissingFieldsForPath(donorPath, plan.survivor.filePath, true, false,
-                                                                       false);
+                        if (!donorPath.empty()) {
+                            oneLibFieldWriter.propagateMissingFieldsForPath(donorPath, plan.survivor.filePath, true,
+                                                                            false, false);
                         }
                     }
                     if (plan.artworkPathForSurvivor) {
                         std::string donorPath = findTrackFilePath(plan.artworkDonorSourceId);
-                        if (!donorPath.empty() && !plan.survivor.filePath.empty()) {
-                            fieldWriter.propagateMissingFieldsForPath(donorPath, plan.survivor.filePath, false, false,
-                                                                       true);
+                        if (!donorPath.empty()) {
+                            oneLibFieldWriter.propagateMissingFieldsForPath(donorPath, plan.survivor.filePath, false,
+                                                                            false, true);
                         }
                     }
-                    ctx.log->record("cleanup: propagated missing bpm/key/artwork onto survivor track id=" +
-                                     plan.survivor.sourceId);
+                    log.record("cleanup: also propagated missing bpm/key/artwork into OneLibrary (id="
+                               + plan.survivor.sourceId + ")");
+                } catch (const std::exception &e) {
+                    log.record("cleanup: OneLibrary field propagation failed for \"" + plan.survivor.title
+                               + "\": " + e.what());
                 }
+            }
+        }
 
-                // Best-effort mirror onto OneLibrary too, same reasoning
-                // and structure as the merged-cues mirror write above --
-                // only reachable when this run's primary format is
-                // rekordbox (format == "onelibrary" already wrote
-                // OneLibrary directly above, as the primary write).
-                if (format == "rekordbox" && !ctx.pioneerRoot.empty() && !plan.survivor.filePath.empty() &&
-                    infrastructure::onelibrary::OneLibraryCueWriter::existsFor(ctx.pioneerRoot)) {
-                    try {
-                        infrastructure::onelibrary::OneLibraryCueWriter oneLibFieldWriter(ctx.pioneerRoot);
-                        if (plan.keyForSurvivor) {
-                            std::string donorPath = findTrackFilePath(plan.keyDonorSourceId);
-                            if (!donorPath.empty()) {
-                                oneLibFieldWriter.propagateMissingFieldsForPath(donorPath, plan.survivor.filePath,
-                                                                                 false, true, false);
-                            }
-                        }
-                        if (plan.bpmForSurvivor) {
-                            std::string donorPath = findTrackFilePath(plan.bpmDonorSourceId);
-                            if (!donorPath.empty()) {
-                                oneLibFieldWriter.propagateMissingFieldsForPath(donorPath, plan.survivor.filePath,
-                                                                                 true, false, false);
-                            }
-                        }
-                        if (plan.artworkPathForSurvivor) {
-                            std::string donorPath = findTrackFilePath(plan.artworkDonorSourceId);
-                            if (!donorPath.empty()) {
-                                oneLibFieldWriter.propagateMissingFieldsForPath(donorPath, plan.survivor.filePath,
-                                                                                 false, false, true);
-                            }
-                        }
-                        ctx.log->record("cleanup: also propagated missing bpm/key/artwork into OneLibrary (id=" +
-                                         plan.survivor.sourceId + ")");
-                    } catch (const std::exception &e) {
-                        QString warning = QString("OneLibrary field propagation failed for \"%1\": %2")
-                                               .arg(QString::fromStdString(plan.survivor.title))
-                                               .arg(QString::fromStdString(e.what()));
-                        propagationWarnings << warning;
-                        ctx.log->record("cleanup: " + warning.toStdString());
-                    }
+        for (const auto &doomed : plan.toRemove) {
+            fc.cleanupWriter->removeTrackReplacingWith(doomed.sourceId, plan.survivor.sourceId);
+            w.session.noteItemApplied();
+            log.record("cleanup: removed duplicate track id=" + doomed.sourceId + " (\"" + doomed.title
+                       + "\"), replaced by survivor id=" + plan.survivor.sourceId);
+
+            // Best-effort OneLibrary mirror. Without this, the doomed
+            // track's own OneLibrary row is left pointing at a file this
+            // change is about to schedule for deletion, becoming an orphan
+            // (this is exactly how real orphaned rows were found on
+            // production data, see docs/onelibrary-format.md).
+            if (!fc.pioneerRoot.empty() && !doomed.filePath.empty() && !plan.survivor.filePath.empty()
+                && infrastructure::onelibrary::OneLibraryCueWriter::existsFor(fc.pioneerRoot)) {
+                try {
+                    infrastructure::onelibrary::OneLibraryCueWriter oneLibWriter(fc.pioneerRoot);
+                    // Reassigns the doomed row's OneLibrary playlist
+                    // memberships onto the survivor instead of dropping
+                    // them -- see removeTrackByPathReplacingWith()'s comment.
+                    oneLibWriter.removeTrackByPathReplacingWith(doomed.filePath, plan.survivor.filePath);
+                    log.record("cleanup: also removed OneLibrary row for id=" + doomed.sourceId);
+                } catch (const std::exception &e) {
+                    log.record("cleanup: OneLibrary row removal failed for \"" + doomed.title + "\": " + e.what());
                 }
             }
 
-            for (const auto &doomed : plan.toRemove) {
-                ctx.cleanupWriter->removeTrackReplacingWith(doomed.sourceId, plan.survivor.sourceId);
-                ctx.log->record("cleanup: removed duplicate track id=" + doomed.sourceId + " (\"" + doomed.title +
-                                 "\"), replaced by survivor id=" + plan.survivor.sourceId);
-
-                // Best-effort OneLibrary mirror. Without this, the
-                // doomed track's own OneLibrary row is left pointing at a
-                // file this loop is about to delete, becoming an orphan
-                // (this is exactly how real orphaned rows were found on
-                // production data, see docs/onelibrary-format.md).
-                // Never fatal to the primary write above.
-                if (!ctx.pioneerRoot.empty() && !doomed.filePath.empty() && !plan.survivor.filePath.empty() &&
-                    infrastructure::onelibrary::OneLibraryCueWriter::existsFor(ctx.pioneerRoot)) {
-                    try {
-                        infrastructure::onelibrary::OneLibraryCueWriter oneLibWriter(ctx.pioneerRoot);
-                        // Reassigns the doomed row's OneLibrary playlist
-                        // memberships onto the survivor instead of
-                        // dropping them -- see OneLibraryCueWriter::
-                        // removeTrackByPathReplacingWith()'s own comment.
-                        oneLibWriter.removeTrackByPathReplacingWith(doomed.filePath, plan.survivor.filePath);
-                        ctx.log->record("cleanup: also removed OneLibrary row for id=" + doomed.sourceId);
-                    } catch (const std::exception &e) {
-                        QString warning = QString("OneLibrary row removal failed for \"%1\": %2")
-                                               .arg(QString::fromStdString(doomed.title))
-                                               .arg(QString::fromStdString(e.what()));
-                        oneLibraryWarnings << warning;
-                        ctx.log->record("cleanup: " + warning.toStdString());
-                    }
-                }
-
-                infrastructure::cleanup::PendingDeletion pending;
-                pending.format = format.toStdString();
-                pending.filePath = doomed.filePath;
-                pending.title = doomed.title;
-                pending.artist = doomed.artist;
-                pending.backupId = dbBackupId;
-                manifest.append(pending);
-
-                filesRemoved++;
-                done++;
-                reporter->tick(done);
-            }
-            groupsProcessed++;
+            // On-stick state, appended per doomed copy: whatever this save
+            // gets through has its manifest line, cancelled or not.
+            infrastructure::cleanup::PendingDeletion pending;
+            pending.format = format.toStdString();
+            pending.filePath = doomed.filePath;
+            pending.title = doomed.title;
+            pending.artist = doomed.artist;
+            pending.backupId = w.dbBackupId;
+            w.manifest.append(pending);
         }
-        reporter->finish();
-
-        if (scratchDir && !infrastructure::copyFileDurablyAtomic((*scratchDir / scratchSubdir / scratchFilename).string(),
-                                                                   dbFileReal)) {
-            throw std::runtime_error("cleanup: failed to commit the scratch-built library back onto the stick");
-        }
-
-        result.statusMessage = QString("Cleaned up %1 duplicate group(s): removed %2 duplicate track(s) from the "
-                                        "library, preserved %3 cue(s) onto the surviving copy. The %2 removed "
-                                        "audio file(s) are listed for deletion but haven't been deleted yet.")
-                                    .arg(groupsProcessed)
-                                    .arg(filesRemoved)
-                                    .arg(cuesPreserved);
-        if (!oneLibraryWarnings.isEmpty()) {
-            result.statusMessage += QString(" (%1 OneLibrary cue write(s) failed. The primary library write "
-                                             "above still succeeded and was not affected: %2)")
-                                         .arg(oneLibraryWarnings.size())
-                                         .arg(oneLibraryWarnings.join("; "));
-        }
-        if (!propagationWarnings.isEmpty()) {
-            result.statusMessage += QString(" (%1 OneLibrary bpm/key/artwork mirror write(s) failed. The primary "
-                                             "library write above still succeeded and was not affected: %2)")
-                                         .arg(propagationWarnings.size())
-                                         .arg(propagationWarnings.join("; "));
-        }
-    } catch (const std::exception &e) {
-        result.errorMessage = QString::fromStdString(e.what());
+        return ChangeOutcome::success();
     }
-    return result;
-}
 
-CleanupWriteResult runUndoTask(std::vector<UndoableBackup> backups, std::shared_ptr<QtProgressReporter> reporter)
-{
-    CleanupWriteResult result;
-    QString refusal = refuseIfDjSoftwareRunning();
-    if (!refusal.isEmpty()) {
-        result.errorMessage = refusal;
-        return result;
-    }
-    int restored = 0;
-    try {
-        std::vector<std::string> dirs;
-        for (const auto &backup : backups) {
-            dirs.push_back(backup.backupDir.toStdString());
-        }
-        std::sort(dirs.begin(), dirs.end());
-        dirs.erase(std::unique(dirs.begin(), dirs.end()), dirs.end());
-        std::vector<std::unique_ptr<infrastructure::backup::StickWriteLock>> locks;
-        for (const auto &dir : dirs) {
-            locks.push_back(std::make_unique<infrastructure::backup::StickWriteLock>(dir + "/.write.lock"));
-        }
-
-        reporter->start("Undoing", backups.size());
-        for (auto it = backups.rbegin(); it != backups.rend(); ++it) {
-            infrastructure::backup::FilesystemBackupStore store(it->backupDir.toStdString());
-            if (store.restore(it->id.toStdString())) {
-                restored++;
-            }
-            reporter->tick(static_cast<size_t>(restored));
-        }
-        reporter->finish();
-        result.statusMessage = QString("Undone - restored %1 file(s) to their state before the last cleanup. "
-                                        "Removed library entries and the pending-deletions list are not reverted "
-                                        "by this. They reflect what was written to the backups, not what's on "
-                                        "disk after restoring.")
-                                    .arg(restored);
-    } catch (const std::exception &e) {
-        result.errorMessage = QString::fromStdString(e.what());
-    }
-    return result;
-}
-
+private:
+    QString m_format;
+    QString m_path;
+    domain::DuplicateCleanupPlan m_plan;
+    int m_itemCountHint;
+};
 // Runs entirely on a background thread (see CleanupController::
 // deleteSelectedPendingFiles()). Re-scans the library fresh, never
 // trusts the manifest alone, see resolvePendingDeletions()'s own doc
@@ -1065,7 +940,6 @@ CleanupTaskResult runManualMergeTask(QString format, QString path, QString sourc
 CleanupController::CleanupController(QObject *parent) : QObject(parent)
 {
     connect(&m_watcher, &QFutureWatcher<CleanupTaskResult>::finished, this, &CleanupController::onRescanFinished);
-    connect(&m_writeWatcher, &QFutureWatcher<CleanupWriteResult>::finished, this, &CleanupController::onWriteFinished);
     connect(&m_pendingWriteWatcher, &QFutureWatcher<PendingDeletionApplyResult>::finished, this,
             &CleanupController::onDeletePendingFinished);
 }
@@ -1083,6 +957,7 @@ void CleanupController::scan(const QString &format, const QString &path)
 {
     m_format = format;
     m_path = path;
+    attachSession();
     rescan();
 }
 
@@ -1095,6 +970,7 @@ void CleanupController::loadPendingDeletionsOnly(const QString &format, const QS
 {
     m_format = format;
     m_path = path;
+    attachSession();
     refreshPendingDeletions();
 }
 
@@ -1106,6 +982,7 @@ void CleanupController::planManualMerge(const QString &format, const QString &pa
     }
     m_format = format;
     m_path = path;
+    attachSession();
     setErrorMessage({});
     // Also cleared here (unlike rescan(), which never needs to): a
     // second merge in the same page session must not have the previous
@@ -1183,98 +1060,195 @@ void CleanupController::onRescanFinished()
     }
 
     m_model.setPlans(std::move(result.plans));
+    // Groups staged before this rescan keep their mark if they are still
+    // listed (the change itself lives in the session).
+    for (const auto &[survivorId, info] : m_stagedBySurvivor) {
+        int index = indexOfSurvivor(survivorId);
+        if (index >= 0) {
+            m_model.setStaged(static_cast<size_t>(index), true, info.description);
+        }
+    }
     setBusy(false);
     emit plansChanged();
     emit includedChanged();
     refreshPendingDeletions();
 }
 
+bool CleanupController::writing() const
+{
+    return m_writing || (m_session && m_session->writing());
+}
+
+bool CleanupController::canUndo() const
+{
+    return m_session && m_session->canUndo();
+}
+
+int CleanupController::indexOfSurvivor(const std::string &survivorSourceId) const
+{
+    const auto &plans = m_model.plans();
+    for (size_t i = 0; i < plans.size(); ++i) {
+        if (plans[i].survivor.sourceId == survivorSourceId) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
+void CleanupController::attachSession()
+{
+    auto *registry = EditSessionRegistry::instance();
+    LibraryEditSession *session = registry->sessionFor(registry->libraryIdForPath(m_path));
+    if (session != m_session) {
+        if (m_session) {
+            disconnect(m_session, nullptr, this, nullptr);
+        }
+        m_session = session;
+        if (m_session) {
+            connect(m_session, &LibraryEditSession::stateChanged, this, &CleanupController::writingChanged);
+            connect(m_session, &LibraryEditSession::canUndoChanged, this, &CleanupController::canUndoChanged);
+            connect(m_session, &LibraryEditSession::changeApplied, this, [this](const QString &changeId) {
+                if (changeId == QStringLiteral("undo:last-save")) {
+                    rescan();  // prior file bytes are back; the plan list is stale
+                    return;
+                }
+                for (auto it = m_stagedBySurvivor.begin(); it != m_stagedBySurvivor.end(); ++it) {
+                    if (it->second.changeId == changeId) {
+                        // That group is merged and gone. DuplicateTrackFinder
+                        // groups by filename/title+artist+duration only, never
+                        // cues or row existence, so removing it can't change
+                        // any other group's own classification.
+                        int index = indexOfSurvivor(it->first);
+                        m_stagedBySurvivor.erase(it);
+                        if (index >= 0) {
+                            m_model.removePlansAt({index});
+                        }
+                        emit plansChanged();
+                        emit includedChanged();
+                        // The doomed copies were appended to the pending-
+                        // deletion manifest as a real side effect.
+                        refreshPendingDeletions();
+                        break;
+                    }
+                }
+            });
+            connect(m_session, &LibraryEditSession::changesDiscarded, this, [this]() {
+                m_stagedBySurvivor.clear();
+                m_model.clearStaged();
+                emit plansChanged();
+                emit includedChanged();
+            });
+        }
+    }
+    if (m_session) {
+        if (m_format == "engine") {
+            m_session->setLibraryPaths(QString(), m_path);
+        } else {
+            m_session->setLibraryPaths(m_path, QString());
+        }
+    }
+}
+
+// How many database writes this save may make (drives the scratch-copy
+// decision): every listed plan's row removals, cue merges and field
+// propagations, the most that could be staged. Same tally the old
+// all-in-one task used, over every plan rather than the included ones.
+int CleanupController::cleanupItemCountHint() const
+{
+    int count = 0;
+    for (const auto &plan : m_model.plans()) {
+        count += static_cast<int>(plan.toRemove.size());
+        if (plan.mergedCuesForSurvivor.size() > plan.survivor.cues.size()) {
+            count++;
+        }
+        if (plan.bpmForSurvivor || plan.keyForSurvivor || plan.artworkPathForSurvivor) {
+            count++;
+        }
+    }
+    return count;
+}
+
+void CleanupController::stagePlan(size_t rawIndex)
+{
+    const auto &plans = m_model.plans();
+    if (rawIndex >= plans.size()) {
+        return;
+    }
+    if (!m_session) {
+        attachSession();
+        if (!m_session) {
+            setErrorMessage("This stick's library could not be identified; nothing was changed.");
+            return;
+        }
+    }
+    if (writing()) {
+        setErrorMessage("A write is running -- stage more once it has finished.");
+        return;
+    }
+    const auto &plan = plans[rawIndex];
+    auto change = std::make_unique<CleanupGroupChange>(m_format, m_path, plan, cleanupItemCountHint());
+    QString changeId = change->id();
+    QString description = change->description();
+    if (!m_session->stage(std::move(change))) {
+        return;  // the session reported the lock refusal; the page shows it
+    }
+    m_stagedBySurvivor[plan.survivor.sourceId] = {changeId, description};
+    m_model.setStaged(rawIndex, true, description);
+    emit plansChanged();
+}
+
+// Stages every currently-included group; the page's Save writes them.
+// Does NOT delete any audio file, see the class comment.
 void CleanupController::apply()
 {
     if (m_busy) {
         return;
     }
-    std::vector<domain::DuplicateCleanupPlan> includedPlans;
-    m_pendingAppliedIndices.clear();
-    const auto &plans = m_model.plans();
-    for (size_t i = 0; i < plans.size(); ++i) {
-        if (m_model.included(i)) {
-            includedPlans.push_back(plans[i]);
-            m_pendingAppliedIndices.push_back(static_cast<int>(i));
-        }
-    }
-    if (includedPlans.empty()) {
-        return;
-    }
-
-    m_pendingWriteKind = PendingWriteKind::Apply;
     setErrorMessage({});
     setStatusMessage({});
-    setScanProgress(0, 0);
-    setBusy(true);
-    setWriting(true);
-    m_lastBackups.clear();
-    emit canUndoChanged();
-
-    m_writeWatcher.setFuture(QtConcurrent::run(runApplyTask, m_format, m_path, std::move(includedPlans), makeReporter()));
+    int staged = 0;
+    const size_t count = m_model.plans().size();
+    for (size_t i = 0; i < count; ++i) {
+        if (!m_model.included(i) || m_stagedBySurvivor.count(m_model.plans()[i].survivor.sourceId)) {
+            continue;
+        }
+        stagePlan(i);
+        staged++;
+        if (m_session && !m_session->lockHeld()) {
+            return;  // refused at the first one; no point trying the rest
+        }
+    }
+    if (staged > 0) {
+        setStatusMessage(QStringLiteral("Staged %1 group(s). Press Save to clean them up on the stick.").arg(staged));
+    }
 }
 
-void CleanupController::onWriteFinished()
+void CleanupController::unstage(int row)
 {
-    CleanupWriteResult result = m_writeWatcher.result();
-    m_lastBackups = std::move(result.backups);
-    emit canUndoChanged();
-
-    if (!result.errorMessage.isEmpty()) {
-        setErrorMessage(result.errorMessage);
-    } else {
-        setStatusMessage(result.statusMessage);
+    int rawIndex = m_model.rawIndexForRow(row);
+    if (rawIndex < 0) {
+        return;
     }
-    setBusy(false);
-    setWriting(false);
-
-    // Even the local-update branch below (which skips the immediate
-    // rescan) still needs this, so a *later* rescan (reopening the
-    // page, switching formats and back) can't read stale cached tracks
-    // from before the write within an mtime-granularity window. A
-    // rekordbox apply also mirrors best-effort into OneLibrary (see
-    // runApplyTask's own comment), so that cache entry needs
-    // invalidating too even though it's never part of *this* model.
-    LibraryCatalogCache::instance().invalidateWithOneLibraryMirror(m_format.toStdString(), m_path.toStdString());
-
-    if (m_pendingWriteKind == PendingWriteKind::Apply) {
-        // apply() only ever writes groups already in m_model, and
-        // DuplicateTrackFinder groups by filename/title+artist/duration
-        // only -- never cues or row existence -- so removing the
-        // just-applied groups can't change any other group's own
-        // classification. Nothing a full rescan could reveal here.
-        m_model.removePlansAt(std::move(m_pendingAppliedIndices));
-        m_pendingAppliedIndices.clear();
-        emit plansChanged();
-        emit includedChanged();
-        // apply() appends the doomed tracks to PendingDeletionManifest
-        // as a real side effect (see the class's own doc comment) --
-        // cheap (a small JSONL file plus a stat() per entry), unlike
-        // the rescan() this branch is deliberately skipping.
-        refreshPendingDeletions();
-    } else {
-        rescan();
+    auto it = m_stagedBySurvivor.find(m_model.plans()[static_cast<size_t>(rawIndex)].survivor.sourceId);
+    if (it == m_stagedBySurvivor.end()) {
+        return;
     }
+    if (m_session) {
+        m_session->unstage(it->second.changeId);
+    }
+    m_stagedBySurvivor.erase(it);
+    m_model.setStaged(static_cast<size_t>(rawIndex), false, QString());
+    emit plansChanged();
 }
 
 void CleanupController::undoLastOperation()
 {
-    if (m_busy || m_lastBackups.empty()) {
+    if (m_busy || !m_session) {
         return;
     }
-    m_pendingWriteKind = PendingWriteKind::Undo;
     setErrorMessage({});
     setStatusMessage({});
-    setScanProgress(0, 0);
-    setBusy(true);
-    setWriting(true);
-
-    m_writeWatcher.setFuture(QtConcurrent::run(runUndoTask, m_lastBackups, makeReporter()));
+    m_session->undoLastSave();
 }
 
 void CleanupController::refreshPendingDeletions()

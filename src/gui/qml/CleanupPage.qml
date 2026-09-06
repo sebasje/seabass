@@ -29,6 +29,17 @@ Page {
         id: cleanupController
     }
 
+    // Edit mode for this library: session, floating Save, leave guard.
+    EditSessionHost {
+        id: editHost
+        anchors.fill: parent
+        libraryId: typeof EditSessionRegistry !== "undefined"
+            ? EditSessionRegistry.libraryIdForPath(root.rekordboxPath.length > 0 ? root.rekordboxPath : root.enginePath) : ""
+        stickLabel: root.stickLabel
+        rekordboxPath: root.rekordboxPath
+        enginePath: root.enginePath
+    }
+
     Component.onCompleted: cleanupController.scan(root.format, root.currentPath())
     onFormatChanged: cleanupController.scan(root.format, root.currentPath())
 
@@ -63,8 +74,8 @@ Page {
                     middleLabel: "Housekeeping"
                     title: "Clean Up Duplicates"
                     backEnabled: !cleanupController.writing
-                    onHomeRequested: root.StackView.view.pop(null)
-                    onBackRequested: root.StackView.view.pop()
+                    onHomeRequested: editHost.requestLeave(() => root.StackView.view.pop(null))
+                    onBackRequested: editHost.requestLeave(() => root.StackView.view.pop())
                 }
                 Item { Layout.fillWidth: true }
                 LibrarySourceToggle {
@@ -96,6 +107,11 @@ Page {
                 }
                 Item { Layout.fillWidth: true }
                 Label {
+                    visible: cleanupController.stagedCount > 0
+                    text: cleanupController.stagedCount + " staged, not saved yet"
+                    color: Theme.warnText
+                }
+                Label {
                     visible: cleanupController.includedCount > 0
                     text: cleanupController.includedCount + " group(s) selected"
                     color: Theme.textMuted
@@ -121,16 +137,18 @@ Page {
                     onClicked: cleanupController.setAllIncluded(false)
                 }
                 Button {
-                    text: "Clean Up Selected"
-                    enabled: !cleanupController.busy && cleanupController.includedCount > 0
+                    text: "Stage Selected"
+                    enabled: !cleanupController.busy && !cleanupController.writing && cleanupController.includedCount > 0
+                    ToolTip.visible: hovered
+                    ToolTip.text: "Stage cleaning up every checked group; Save writes them"
                     onClicked: confirmCleanupDialog.open()
                 }
                 Button {
-                    text: "Undo"
+                    text: "Undo Last Save"
                     visible: cleanupController.canUndo
-                    enabled: !cleanupController.busy
+                    enabled: !cleanupController.busy && !cleanupController.writing
                     ToolTip.visible: hovered
-                    ToolTip.text: "Revert the last cleanup: restores every file it touched to what it was before"
+                    ToolTip.text: "Revert the last save: restores every file it touched to what it was before"
                     onClicked: cleanupController.undoLastOperation()
                 }
             }
@@ -170,9 +188,9 @@ Page {
         anchors.centerIn: parent
         modal: true
         width: 480
-        title: "Clean Up " + cleanupController.includedCount + " Duplicate Group(s)?"
+        title: "Stage cleaning up " + cleanupController.includedCount + " duplicate group(s)?"
         footer: DialogButtonBox {
-            Button { text: "Clean Up"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
+            Button { text: "Stage Clean-Up"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
             Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
         }
         onAccepted: cleanupController.apply()
@@ -185,7 +203,7 @@ Page {
                 + "playlist it belonged to is updated to reference the surviving copy instead.\n\n"
                 + "This does NOT delete the removed copies' audio files. Their library entries are removed "
                 + "and they're recorded for you to review and delete separately.\n\n"
-                + "Everything touched is backed up first and can be undone."
+                + "Nothing is written until you press Save. Everything touched is backed up first and can be undone."
         }
     }
 
@@ -195,7 +213,7 @@ Page {
         spacing: 8
 
         StickWriteWarning {
-            visible: cleanupController.writing
+            visible: false
             text: "Cleaning up duplicates. Do not remove the stick until this finishes."
         }
 
@@ -239,6 +257,8 @@ Page {
                 required property string wastedBytesHuman
                 required property int newCueCount
                 required property bool included
+                required property bool staged
+                required property string stagedDescription
 
                 property bool expanded: false
 
@@ -253,9 +273,23 @@ Page {
                             Layout.fillWidth: true
                             CheckBox {
                                 checked: delegateRoot.included
+                                enabled: !delegateRoot.staged
                                 onToggled: cleanupController.setIncluded(delegateRoot.index, checked)
                                 ToolTip.visible: hovered
-                                ToolTip.text: "Include this group in the next cleanup"
+                                ToolTip.text: delegateRoot.staged ? "Staged; unstage it first to change the selection"
+                                    : "Include this group when staging"
+                            }
+                            StatusBadge {
+                                visible: delegateRoot.staged
+                                label: "Staged"
+                                badgeColor: Theme.warnText
+                                tooltipText: delegateRoot.stagedDescription + "\n\nNot on the stick yet: press Save."
+                            }
+                            ToolButton {
+                                visible: delegateRoot.staged
+                                text: "Unstage"
+                                enabled: !cleanupController.writing
+                                onClicked: cleanupController.unstage(delegateRoot.index)
                             }
                             Label {
                                 text: "Keeps: " + delegateRoot.survivor.title + " - " + delegateRoot.survivor.artist
@@ -393,7 +427,7 @@ Page {
         busy: cleanupController.busy
         current: cleanupController.scanCurrent
         total: cleanupController.scanTotal
-        label: cleanupController.writing ? "Cleaning up duplicates..." : "Scanning for duplicates..."
+        label: "Scanning for duplicates..."
         cancellable: cleanupController.scanCancellable
         onCancelRequested: cleanupController.cancelScan()
     }

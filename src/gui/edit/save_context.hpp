@@ -59,6 +59,9 @@ public:
     // Backs `file` up under `label` unless this save already did; records
     // the backup for undo. Returns true when a backup was made now.
     bool backupOnce(const std::string &file, const std::string &label);
+    // The id of the backup this save made for `file` (empty if none yet),
+    // for records that want to name it (the pending-deletion manifest).
+    std::string backupIdOf(const std::string &file) const;
 
     template <class T>
     T &shared(const std::string &key, const std::function<std::unique_ptr<T>()> &make)
@@ -86,7 +89,7 @@ private:
     QString m_enginePath;
     std::unique_ptr<application::OperationLog> m_log;
     std::unique_ptr<application::BackupStore> m_backupStore;
-    std::set<std::string> m_backedUp;
+    std::map<std::string, std::string> m_backedUp;  // file -> backup id
     std::vector<UndoableBackup> m_backups;
     std::map<std::string, std::shared_ptr<void>> m_shared;
     std::vector<std::function<void(bool)>> m_finishHooks;

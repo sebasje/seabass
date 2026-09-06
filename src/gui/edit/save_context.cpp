@@ -71,8 +71,14 @@ bool SaveContext::backupOnce(const std::string &file, const std::string &label)
     log().record(label + ": backed up " + fs::path(file).filename().string() + " -> " + record.path);
     m_backups.push_back({QString::fromStdString(fs::path(record.path).parent_path().string()),
                          QString::fromStdString(record.id)});
-    m_backedUp.insert(file);
+    m_backedUp[file] = record.id;
     return true;
+}
+
+std::string SaveContext::backupIdOf(const std::string &file) const
+{
+    auto it = m_backedUp.find(file);
+    return it == m_backedUp.end() ? std::string() : it->second;
 }
 
 void SaveContext::onFinish(std::function<void(bool)> hook)

@@ -3,21 +3,24 @@
 #include <QAbstractListModel>
 #include <QFutureWatcher>
 #include <QObject>
+#include <QPointer>
 #include <QQmlEngine>
 
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
 
-#include "domain/duplicate_cleanup.hpp"
 #include "application/ports/cancellation_token.hpp"
+#include "domain/duplicate_cleanup.hpp"
 #include "gui/qt_progress_reporter.hpp"
-#include "gui/undo_tracking.hpp"
 #include "infrastructure/cleanup/pending_deletion_manifest.hpp"
 
 namespace seabass::gui
 {
+
+class LibraryEditSession;
 
 // Read-only Qt list model over the cleanup plans CleanupController last
 // computed. Only groups DuplicateCleanupPlanner found something
@@ -38,6 +41,9 @@ public:
         NewCueCountRole,
         IncludedRole,
         HasUnpreservableDataAtRiskRole,
+        // This group's clean-up is staged in the edit session.
+        StagedRole,
+        StagedDescriptionRole,
     };
 
     explicit CleanupPlanListModel(QObject *parent = nullptr);
@@ -76,8 +82,14 @@ public:
     // Empty query shows everything.
     void setFilter(const QString &query);
 
+    // The plans() index behind a visible row, -1 when out of range.
+    int rawIndexForRow(int row) const;
+    void setStaged(size_t rawIndex, bool staged, const QString &description);
+    void clearStaged();
+
 private:
     std::vector<domain::DuplicateCleanupPlan> m_plans;
+    std::vector<QString> m_stagedDescriptions;  // empty = not staged; parallel to m_plans
     // Parallel to m_plans, default true unless the plan differs (see
     // DuplicateCleanupPlan::differs' own doc comment for why that
     // defaults to excluded).
@@ -151,18 +163,8 @@ struct CleanupTaskResult
     bool cancelled = false;  // stopped via cancelScan(); nothing else is set
 };
 
-// Result of a background apply/undo task, see CleanupController::
-// apply()/undoLastOperation().
-struct CleanupWriteResult
-{
-    QString errorMessage;
-    QString statusMessage;
-    std::vector<UndoableBackup> backups;
-};
-
 // Result of a background pending-deletion apply task, see
-// CleanupController::deleteSelectedPendingFiles(). Unlike
-// CleanupWriteResult there's nothing here to undo (a deleted audio file
+// CleanupController::deleteSelectedPendingFiles(). There's nothing here to undo (a deleted audio file
 // is gone, the DB edit that orphaned it was already backed up
 // separately, back when it was first removed from the library), so
 // there's no UndoableBackup list.
@@ -183,6 +185,12 @@ struct PendingDeletionApplyResult
 // stops at removing their library entries and appending them to
 // PendingDeletionManifest, so the actual (irreversible, cross-format)
 // file deletion stays a distinct, separately-reviewed step.
+//
+// Clean-ups are staged, not written: apply() stages one CleanupGroupChange
+// per included group in the library's LibraryEditSession (the first one
+// takes the edit lock), rows show it, and the page's Save writes them; a
+// group whose change reached the stick disappears. deleteSelectedPendingFiles()
+// stays a direct write (it deletes files, there is nothing to stage).
 class CleanupController : public QObject
 {
     Q_OBJECT
@@ -194,6 +202,7 @@ class CleanupController : public QObject
     // scanCancelled() fires.
     Q_PROPERTY(bool scanCancellable READ scanCancellable NOTIFY busyChanged)
     Q_PROPERTY(bool writing READ writing NOTIFY writingChanged)
+    Q_PROPERTY(int stagedCount READ stagedCount NOTIFY plansChanged)
     Q_PROPERTY(int scanCurrent READ scanCurrent NOTIFY scanProgressChanged)
     Q_PROPERTY(int scanTotal READ scanTotal NOTIFY scanProgressChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
@@ -211,12 +220,13 @@ public:
 
     CleanupPlanListModel *plansModel() { return &m_model; }
     bool busy() const { return m_busy; }
-    bool writing() const { return m_writing; }
+    bool writing() const;
+    int stagedCount() const { return static_cast<int>(m_stagedBySurvivor.size()); }
     int scanCurrent() const { return m_scanCurrent; }
     int scanTotal() const { return m_scanTotal; }
     QString errorMessage() const { return m_errorMessage; }
     QString statusMessage() const { return m_statusMessage; }
-    bool canUndo() const { return !m_lastBackups.empty(); }
+    bool canUndo() const;
     QString totalWastedBytesHuman() const;
     int includedCount() const { return m_model.includedCount(); }
     PendingDeletionListModel *pendingDeletionsModel() { return &m_pendingModel; }
@@ -252,14 +262,14 @@ public:
     // included group regardless of the current search text.
     Q_INVOKABLE void search(const QString &query);
 
-    // Removes every doomed track in every currently-included group:
-    // merges cues onto the survivor, fixes up playlist membership on
-    // both formats, backs up first. Does NOT delete any audio file,
-    // see the class comment.
+    // Stages cleaning up every currently-included group: cues merged onto
+    // the survivor, playlist membership fixed up on both formats, backed
+    // up first. Does NOT delete any audio file, see the class comment.
     Q_INVOKABLE void apply();
+    // row is the visible row (the delegate index).
+    Q_INVOKABLE void unstage(int row);
 
-    // Reverts every file the last apply() touched back to what it was
-    // immediately before. Available only right after a write (canUndo).
+    // Reverts every file the last save touched (the session's undo).
     Q_INVOKABLE void undoLastOperation();
 
     // Re-reads this format's pending-deletion entries from
@@ -291,7 +301,7 @@ public:
     // undo for an actual file deletion.
     Q_INVOKABLE void deleteSelectedPendingFiles();
 
-    bool scanCancellable() const { return m_busy && !m_writing && m_watcher.isRunning(); }
+    bool scanCancellable() const { return m_busy && !writing() && m_watcher.isRunning(); }
     Q_INVOKABLE void cancelScan();
 
 signals:
@@ -309,8 +319,11 @@ signals:
 private:
     void rescan();
     void onRescanFinished();
-    void onWriteFinished();
     void onDeletePendingFinished();
+    void attachSession();
+    void stagePlan(size_t rawIndex);
+    int cleanupItemCountHint() const;
+    int indexOfSurvivor(const std::string &survivorSourceId) const;
     void setBusy(bool busy);
     void setWriting(bool writing);
     void setScanProgress(int current, int total);
@@ -322,7 +335,13 @@ private:
     PendingDeletionListModel m_pendingModel;
     QFutureWatcher<CleanupTaskResult> m_watcher;
     application::CancellationToken m_scanCancel;  // fresh per rescan()/planManualMerge()
-    QFutureWatcher<CleanupWriteResult> m_writeWatcher;
+    QPointer<LibraryEditSession> m_session;
+    struct StagedInfo
+    {
+        QString changeId;
+        QString description;
+    };
+    std::map<std::string, StagedInfo> m_stagedBySurvivor;  // survivor sourceId -> what is staged
     QFutureWatcher<PendingDeletionApplyResult> m_pendingWriteWatcher;
     QString m_format;
     QString m_path;
@@ -332,21 +351,6 @@ private:
     int m_scanTotal = 0;
     QString m_errorMessage;
     QString m_statusMessage;
-    std::vector<UndoableBackup> m_lastBackups;
-    // What onWriteFinished() should do once the write completes. apply()
-    // only ever writes groups already in the model, and grouping
-    // (DuplicateTrackFinder) never depends on cues or row existence, so
-    // removing the just-applied groups locally is always correct --
-    // unlike undoLastOperation(), which restores prior file bytes this
-    // session already discarded the old plan list for, so it keeps
-    // doing a real rescan().
-    enum class PendingWriteKind { Apply, Undo };
-    PendingWriteKind m_pendingWriteKind = PendingWriteKind::Undo;
-    // Valid only when m_pendingWriteKind is Apply: the m_model indices
-    // apply() captured at call time (the same ones used to build the
-    // write task's includedPlans), removed locally via
-    // CleanupPlanListModel::removePlansAt() once the write succeeds.
-    std::vector<int> m_pendingAppliedIndices;
 };
 
 }  // namespace seabass::gui
