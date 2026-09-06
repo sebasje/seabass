@@ -10,6 +10,7 @@
 
 #include "application/ports/removable_media_monitor.hpp"
 #include "gui/qt_progress_reporter.hpp"
+#include "gui/edit/direct_write_hold.hpp"
 
 namespace seabass::gui
 {
@@ -70,6 +71,7 @@ public:
     // filesystem is "fat32" or "exfat", matching recommendedFilesystem()'s
     // own return values.
     Q_INVOKABLE void format(const QString &wholeDiskPath, const QString &filesystem, const QString &volumeLabel);
+    Q_INVOKABLE void retryLockedAction() { m_writeHold.retryLockedAction(); }
 
 signals:
     void disksChanged();
@@ -77,6 +79,9 @@ signals:
     void errorMessageChanged();
     void statusMessageChanged();
     void actionFeedback(const QString &message, bool isError);
+    // Another instance is editing the library on that drive; nothing
+    // was started.
+    void lockRefused(const QVariantMap &holder, const QString &libraryId);
 
 private:
     void onFormatFinished();
@@ -89,6 +94,7 @@ private:
     std::unique_ptr<application::RemovableMediaMonitor> m_monitor;
     QTimer m_debounceTimer;
     QVariantList m_disks;
+    DirectWriteHold m_writeHold;
     bool m_busy = false;
     QString m_errorMessage;
     QString m_statusMessage;

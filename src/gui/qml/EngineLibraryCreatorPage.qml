@@ -54,7 +54,33 @@ Page {
             Button { text: "Create"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
             Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
         }
-        onAccepted: controller.create(root.rekordboxPath, root.schemaGeneration)
+        onAccepted: controller.create(root.rekordboxPath, root.schemaGeneration, root.stickLabel)
+    }
+
+    // Write mode: the lock refusal and the summary. OK on the summary
+    // goes back after a cancelled run (nothing was created) and stays
+    // after a completed one.
+    LockedLibraryDialog {
+        id: lockedDialog
+        objectName: "lockedDialog"
+        onRemoveLockRequested: {
+            EditSessionRegistry.removeLock(controller.libraryId);
+            controller.create(root.rekordboxPath, root.schemaGeneration, root.stickLabel);
+        }
+    }
+    OperationSummaryDialog {
+        id: summaryDialog
+        objectName: "summaryDialog"
+        onAccepted: {
+            if (summaryDialog.cancelled) {
+                root.StackView.view.pop();
+            }
+        }
+    }
+    Connections {
+        target: controller
+        function onLockRefused(holder) { lockedDialog.openFor(controller.libraryId, holder); }
+        function onWriteFinished(summary) { summaryDialog.show(summary); }
 
         ColumnLayout {
             width: parent.width
@@ -179,6 +205,9 @@ Page {
         busy: controller.busy
         current: controller.scanCurrent
         total: controller.scanTotal
-        label: controller.currentPhase.length > 0 ? controller.currentPhase + "..." : "Working..."
+        label: (controller.currentPhase.length > 0 ? controller.currentPhase + "..." : "Working...")
+            + (controller.currentPhase === "Copying to stick" ? " Do not remove your USB stick." : "")
+        cancellable: controller.cancellable
+        onCancelRequested: controller.cancelWrite()
     }
 }

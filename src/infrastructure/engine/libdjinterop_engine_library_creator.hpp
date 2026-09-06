@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 
+#include "application/ports/cancellation_token.hpp"
 #include "application/ports/progress_reporter.hpp"
 #include "domain/track.hpp"
 
@@ -28,6 +29,8 @@ struct EngineLibraryCreationResult
     int tracksCreated = 0;
     int tracksSkipped = 0;  // e.g. no resolved local file to reference
     int cuesCopied = 0;
+    int tracksTotal = 0;       // what was asked for, created or not
+    bool cancelled = false;    // stopped via the token; nothing was written to `directory`
     std::string errorMessage;  // empty on success
 };
 
@@ -76,11 +79,18 @@ public:
     // real size takes long enough that silently doing nothing visible looks
     // indistinguishable from a genuine hang. Defaults to NullProgressReporter
     // for callers (tests) that don't care.
+    //
+    // cancel: checked between two tracks of the first phase only. A
+    // cancel there throws the scratch build away and returns with
+    // `cancelled` set and nothing created at `directory`; the second
+    // phase is one copy and runs to its end once started.
     static EngineLibraryCreationResult create(const std::string &directory,
                                                const std::vector<domain::Track> &tracks,
                                                EngineSchemaGeneration schemaGeneration,
                                                application::ProgressReporter &reporter =
-                                                   application::NullProgressReporter::instance());
+                                                   application::NullProgressReporter::instance(),
+                                               const application::CancellationToken &cancel =
+                                                   application::CancellationToken::none());
 };
 
 }  // namespace seabass::infrastructure::engine

@@ -74,6 +74,33 @@ Page {
             Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
         }
         onAccepted: cleanupController.deleteSelectedPendingFiles()
+    }
+
+    // Write mode: the lock refusal, the summary (OK goes back after a
+    // cancelled run, stays after a completed one).
+    LockedLibraryDialog {
+        id: lockedDialog
+        objectName: "lockedDialog"
+        onRemoveLockRequested: {
+            EditSessionRegistry.removeLock(lockedDialog.libraryId);
+            cleanupController.deleteSelectedPendingFiles();
+        }
+    }
+    OperationSummaryDialog {
+        id: summaryDialog
+        objectName: "summaryDialog"
+        onAccepted: {
+            if (summaryDialog.cancelled) {
+                root.StackView.view.pop();
+            }
+        }
+    }
+    Connections {
+        target: cleanupController
+        function onLockRefused(holder) {
+            lockedDialog.openFor(EditSessionRegistry.libraryIdForPath(root.hasEngine ? root.enginePath : root.rekordboxPath), holder);
+        }
+        function onPendingDeletionsWriteFinished(summary) { summaryDialog.show(summary); }
 
         Label {
             width: parent.width
@@ -91,11 +118,6 @@ Page {
         anchors.fill: parent
         anchors.margins: 16
         spacing: 8
-
-        StickWriteWarning {
-            visible: cleanupController.writing
-            text: "Deleting orphaned files. Do not remove the stick until this finishes."
-        }
 
         Label {
             visible: cleanupController.errorMessage.length > 0
@@ -214,6 +236,8 @@ Page {
         busy: cleanupController.busy
         current: cleanupController.scanCurrent
         total: cleanupController.scanTotal
-        label: cleanupController.writing ? "Deleting files..." : "Loading..."
+        label: cleanupController.writing ? "Deleting files. Do not remove your USB stick." : "Loading..."
+        cancellable: cleanupController.writeCancellable
+        onCancelRequested: cleanupController.cancelWrite()
     }
 }

@@ -9,6 +9,7 @@
 #include <filesystem>
 
 #include "gui/stick_backup_paths.hpp"
+#include "gui/edit/edit_session_registry.hpp"
 #include "gui/write_guard.hpp"
 #include "infrastructure/engine/engine_restore_check.hpp"
 #include "infrastructure/media/media_factory.hpp"
@@ -338,6 +339,16 @@ void RestoreStickBackupController::restore(const QString &targetRoot, bool exact
         emit actionFeedback(QStringLiteral("Still busy. Try again once the current operation finishes."), true);
         return;
     }
+    // Two libraries are involved: the target stick's (overwritten) and,
+    // when the archive is of a library another instance may be editing
+    // right now, that one's.
+    const QString targetId = EditSessionRegistry::instance()->libraryIdForPath(targetRoot);
+    const QString archiveId = m_archiveInfo.value("identifier").toString();
+    if (auto holder = m_writeHold.acquire({targetId, archiveId}, QString(),
+                                          [this, targetRoot, exact] { restore(targetRoot, exact); })) {
+        emit lockRefused(*holder, m_writeHold.refusedLibraryId());
+        return;
+    }
     setErrorMessage({});
     setStatusMessage({});
     m_result.clear();
@@ -408,6 +419,7 @@ void RestoreStickBackupController::clearResult()
 void RestoreStickBackupController::onRestoreFinished()
 {
     std::shared_ptr<RestoreResult> result = m_restoreWatcher.result();
+    m_writeHold.release();
     m_restoring = false;
     emit busyChanged();
     if (!result) {

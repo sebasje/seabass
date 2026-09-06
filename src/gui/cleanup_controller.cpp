@@ -791,7 +791,8 @@ private:
 // untouched on disk and in the manifest either way.
 PendingDeletionApplyResult runDeletePendingTask(QString format, QString path,
                                                  std::vector<infrastructure::cleanup::PendingDeletion> selected,
-                                                 std::shared_ptr<QtProgressReporter> reporter)
+                                                 std::shared_ptr<QtProgressReporter> reporter,
+                                                 application::CancellationToken cancel)
 {
     PendingDeletionApplyResult result;
     QString refusal = refuseIfDjSoftwareRunning();
@@ -810,12 +811,17 @@ PendingDeletionApplyResult runDeletePendingTask(QString format, QString path,
             LibraryCatalogCache::instance().tracksFor(format.toStdString(), path.toStdString(), *reporter);
 
         auto resolution = infrastructure::cleanup::resolvePendingDeletions(selected, tracks);
+        result.total = static_cast<int>(resolution.safeToDelete.size());
 
         // The actual deletion (the one place in the app that
         // permanently destroys real audio file content) lives in
         // infrastructure/cleanup/pending_deletion_applier.cpp, Qt-free
         // and unit-tested there -- this just logs/formats its result.
-        auto outcomes = infrastructure::cleanup::applyPendingDeletions(resolution.safeToDelete, manifest);
+        reporter->start("Deleting files", resolution.safeToDelete.size());
+        auto outcomes = infrastructure::cleanup::applyPendingDeletions(
+            resolution.safeToDelete, manifest, cancel, [&reporter](size_t done) { reporter->tick(done); });
+        reporter->finish();
+        result.cancelled = cancel.cancelled() && outcomes.size() < resolution.safeToDelete.size();
 
         int deleted = 0;
         int failed = 0;
@@ -840,6 +846,7 @@ PendingDeletionApplyResult runDeletePendingTask(QString format, QString path,
             }
         }
 
+        result.deleted = deleted;
         QStringList parts;
         parts << QString("deleted %1 file(s) from disk").arg(deleted);
         if (!resolution.stillReferenced.empty()) {
@@ -1318,19 +1325,43 @@ void CleanupController::deleteSelectedPendingFiles()
         return;
     }
 
+    // A direct write on the library: same lock the staged edits take,
+    // held for exactly this run.
+    auto *registry = EditSessionRegistry::instance();
+    const QString libraryId = registry->libraryIdForPath(m_path);
+    if (!registry->tryEnterDirectWrite(libraryId, QString())) {
+        emit lockRefused(registry->lockHolder(libraryId));
+        return;
+    }
+    m_holdsDirectWrite = true;
+
     setErrorMessage({});
     setStatusMessage({});
     setScanProgress(0, 0);
+    m_pendingDeleteCancel = application::CancellationToken();
     setBusy(true);
     setWriting(true);
 
-    m_pendingWriteWatcher.setFuture(
-        QtConcurrent::run(runDeletePendingTask, m_format, m_path, std::move(selected), makeReporter()));
+    m_pendingWriteWatcher.setFuture(QtConcurrent::run(runDeletePendingTask, m_format, m_path, std::move(selected),
+                                                      makeReporter(), m_pendingDeleteCancel));
+}
+
+void CleanupController::cancelWrite()
+{
+    if (!writeCancellable()) {
+        return;
+    }
+    m_pendingDeleteCancel.cancel();
+    emit writingChanged();  // writeCancellable flipped
 }
 
 void CleanupController::onDeletePendingFinished()
 {
     PendingDeletionApplyResult result = m_pendingWriteWatcher.result();
+    if (m_holdsDirectWrite) {
+        m_holdsDirectWrite = false;
+        EditSessionRegistry::instance()->leaveDirectWrite(EditSessionRegistry::instance()->libraryIdForPath(m_path));
+    }
 
     if (!result.errorMessage.isEmpty()) {
         setErrorMessage(result.errorMessage);
@@ -1340,6 +1371,14 @@ void CleanupController::onDeletePendingFinished()
     setBusy(false);
     setWriting(false);
     refreshPendingDeletions();
+    emit pendingDeletionsWriteFinished(QVariantMap{
+        {"written", result.deleted},
+        {"total", result.total},
+        {"unit", QStringLiteral("files")},
+        {"verb", QStringLiteral("deleted")},
+        {"cancelled", result.cancelled},
+        {"error", result.errorMessage},
+    });
 }
 
 void CleanupController::setBusy(bool busy)

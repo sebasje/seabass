@@ -60,10 +60,23 @@ Page {
     }
 
     MessagePopup { id: messagePopup }
+    // Another instance is editing one of the libraries this operation
+    // would write; "Remove Lock" re-runs the refused action.
+    LockedLibraryDialog {
+        id: lockedDialog
+        objectName: "lockedDialog"
+        onRemoveLockRequested: {
+            EditSessionRegistry.removeLock(lockedDialog.libraryId);
+            root.controller.retryLockedAction();
+        }
+    }
     Connections {
         // A plain JS stand-in (tests) has no signals and is not a QObject.
         target: ("objectName" in root.controller) ? root.controller : null
         ignoreUnknownSignals: true
+        function onLockRefused(holder, libraryId) {
+            lockedDialog.openFor(libraryId, holder);
+        }
         function onActionFeedback(message, isError) {
             messagePopup.show(message, isError ? Theme.danger : Theme.good);
         }

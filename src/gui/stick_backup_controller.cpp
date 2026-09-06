@@ -15,6 +15,7 @@
 #include <chrono>
 #include <filesystem>
 
+#include "gui/edit/edit_session_registry.hpp"
 #include "gui/write_guard.hpp"
 #include "infrastructure/benchmark/stick_benchmark_history.hpp"
 #include "infrastructure/stick_backup/archive_compactor.hpp"
@@ -254,10 +255,23 @@ void StickBackupController::applyProgress(const BackupProgress &progress)
                         static_cast<qlonglong>(progress.bytesTotal));
 }
 
+bool StickBackupController::enterDirectWrite(std::function<void()> retry)
+{
+    const QString libraryId = EditSessionRegistry::instance()->libraryIdForPath(m_stickRoot);
+    if (auto holder = m_writeHold.acquire({libraryId}, m_stickLabel, std::move(retry))) {
+        emit lockRefused(*holder, m_writeHold.refusedLibraryId());
+        return false;
+    }
+    return true;
+}
+
 void StickBackupController::backUp()
 {
     if (busy() || m_pending || m_stickRoot.isEmpty()) {
         emit actionFeedback(QStringLiteral("Still busy -- try again once the current operation finishes."), true);
+        return;
+    }
+    if (!enterDirectWrite([this] { backUp(); })) {
         return;
     }
     setErrorMessage({});
@@ -317,6 +331,9 @@ void StickBackupController::keepPartial()
     if (!m_pending || busy()) {
         return;
     }
+    if (!enterDirectWrite([this] { keepPartial(); })) {
+        return;
+    }
     setActivity(QStringLiteral("decide"));
     application::PendingBackup *pending = m_pending.get();
     m_runWatcher.setFuture(QtConcurrent::run([pending]() {
@@ -330,6 +347,9 @@ void StickBackupController::keepPartial()
 void StickBackupController::discardPartial()
 {
     if (!m_pending || busy()) {
+        return;
+    }
+    if (!enterDirectWrite([this] { discardPartial(); })) {
         return;
     }
     setActivity(QStringLiteral("decide"));
@@ -398,6 +418,9 @@ QVariantMap StickBackupController::compactionPreflight()
 void StickBackupController::compact()
 {
     if (busy() || m_pending) {
+        return;
+    }
+    if (!enterDirectWrite([this] { compact(); })) {
         return;
     }
     setErrorMessage({});
@@ -491,6 +514,7 @@ void StickBackupController::finishOutcome(const BackupStickOutcome &outcome)
 void StickBackupController::onRunFinished()
 {
     std::shared_ptr<RunResult> result = m_runWatcher.result();
+    m_writeHold.release();
     setActivity({});
     if (!result) {
         return;

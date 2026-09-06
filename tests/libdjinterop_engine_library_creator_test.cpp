@@ -4,6 +4,25 @@
 
 #include "application/use_cases/scan_library.hpp"
 #include "infrastructure/engine/libdjinterop_engine_library_creator.hpp"
+
+namespace
+{
+
+// Presses Cancel after the first track of the build phase.
+class CancelOnFirstTick : public seabass::application::ProgressReporter
+{
+public:
+    explicit CancelOnFirstTick(seabass::application::CancellationToken token) : m_token(std::move(token)) {}
+    void start(const std::string &, size_t) override {}
+    void tick(size_t) override { m_token.cancel(); }
+    void finish() override {}
+    void warn(const std::string &) override {}
+
+private:
+    seabass::application::CancellationToken m_token;
+};
+
+}  // namespace
 #include "infrastructure/engine/libdjinterop_engine_reader.hpp"
 
 using namespace seabass::infrastructure::engine;
@@ -108,5 +127,26 @@ int main()
 
     fs::remove_all(root);
     std::cout << "All libdjinterop_engine_library_creator tests passed.\n";
+    // Cancel between two tracks: nothing at all lands on the target
+    // (the scratch build is thrown away), and the result says so.
+    {
+        fs::path cancelledPath = root / "cancelled" / "Engine Library";
+        fs::create_directories(cancelledPath.parent_path());
+        std::vector<Track> tracks = {
+            makeTrack("r1", "Song One", "Artist One", (root / "song1.mp3").string()),
+            makeTrack("r2", "Song Two", "Artist Two", (root / "song2.mp3").string(), 140.0, "Gbm", 200.0),
+        };
+        seabass::application::CancellationToken cancel;
+        CancelOnFirstTick reporter(cancel);
+        auto result = EngineLibraryCreator::create(cancelledPath.string(), tracks, EngineSchemaGeneration::V2,
+                                                   reporter, cancel);
+        assert(result.cancelled);
+        assert(result.errorMessage.empty());
+        assert(result.tracksTotal == 2);
+        assert(result.tracksCreated == 1);
+        assert(!fs::exists(cancelledPath));
+        std::cout << "case (cancelled build: nothing created on the target) OK\n";
+    }
+
     return 0;
 }

@@ -11,6 +11,7 @@
 
 #include "application/ports/cancellation_token.hpp"
 #include "application/use_cases/clone_stick.hpp"
+#include "gui/edit/direct_write_hold.hpp"
 
 namespace seabass::gui
 {
@@ -102,6 +103,7 @@ public:
     Q_INVOKABLE void refresh();
     Q_INVOKABLE void start(bool exact);
     Q_INVOKABLE void cancel();
+    Q_INVOKABLE void retryLockedAction() { m_writeHold.retryLockedAction(); }
     // Drops the last run's report and messages (the page's "Start Over").
     Q_INVOKABLE void clearResult();
 
@@ -111,6 +113,9 @@ signals:
     void busyChanged();
     void progressChanged();
     void resultChanged();
+    // Another instance is editing the source or the target stick's
+    // library; nothing was started.
+    void lockRefused(const QVariantMap &holder, const QString &libraryId);
     void errorMessageChanged();
     void statusMessageChanged();
     void actionFeedback(const QString &message, bool isError);
@@ -133,6 +138,7 @@ private:
     QString m_sourceEnginePath;
     QString m_targetLabel;
     QString m_targetRoot;
+    DirectWriteHold m_writeHold;
     QString m_archivePath;
     QVariantMap m_preview;
     QString m_blockedBy;

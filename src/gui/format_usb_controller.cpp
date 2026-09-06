@@ -5,6 +5,7 @@
 #include "application/ports/progress_reporter.hpp"
 #include "application/use_cases/format_usb_stick.hpp"
 #include "domain/usb_filesystem.hpp"
+#include "gui/edit/edit_session_registry.hpp"
 #include "gui/write_guard.hpp"
 #include "infrastructure/media/media_factory.hpp"
 
@@ -41,6 +42,9 @@ QVariantMap diskToVariant(const DetectedStick &disk)
     map["mounted"] = disk.mounted;
     map["hasNoFilesystem"] = disk.hasNoFilesystem;
     map["hasDjLibrary"] = disk.rekordboxPath.has_value() || disk.enginePath.has_value();
+    // The library another instance may be editing right now (see
+    // format()); empty for an unlabelled or blank drive.
+    map["libraryId"] = QString::fromStdString(disk.identity.libraryId());
     QVariantList rootEntries;
     for (const auto &entry : disk.rootEntries) {
         rootEntries.push_back(QString::fromStdString(entry));
@@ -154,6 +158,23 @@ void FormatUsbController::format(const QString &wholeDiskPath, const QString &fi
     if (m_busy) {
         return;
     }
+    // Formatting is one udisks/Format-Volume call and cannot be cancelled;
+    // what the edit lock adds is the refusal while another instance is
+    // editing the library on this very drive.
+    QString libraryId;
+    for (const QVariant &entry : m_disks) {
+        const QVariantMap disk = entry.toMap();
+        if (disk.value("wholeDiskPath").toString() == wholeDiskPath) {
+            libraryId = disk.value("libraryId").toString();
+            break;
+        }
+    }
+    if (auto holder = m_writeHold.acquire({libraryId}, volumeLabel, [this, wholeDiskPath, filesystem, volumeLabel] {
+            format(wholeDiskPath, filesystem, volumeLabel);
+        })) {
+        emit lockRefused(*holder, m_writeHold.refusedLibraryId());
+        return;
+    }
     setErrorMessage({});
     setStatusMessage({});
     setBusy(true);
@@ -165,6 +186,7 @@ void FormatUsbController::format(const QString &wholeDiskPath, const QString &fi
 void FormatUsbController::onFormatFinished()
 {
     FormatUsbTaskResult result = m_watcher.result();
+    m_writeHold.release();
     setBusy(false);
     if (!result.errorMessage.isEmpty()) {
         setErrorMessage(result.errorMessage);
