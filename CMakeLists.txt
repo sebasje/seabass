@@ -171,6 +171,7 @@ add_library(seabass_core STATIC
     src/infrastructure/stick_backup/archive_journal.cpp
     src/infrastructure/stick_backup/archive_updater.cpp
     src/infrastructure/stick_backup/archive_recovery.cpp
+    src/infrastructure/long_paths.cpp
     src/infrastructure/stick_backup/stick_tree_walker.cpp
     src/infrastructure/stick_backup/stat_diff.cpp
     src/infrastructure/stick_backup/sqlite_db_set.cpp
@@ -717,6 +718,7 @@ target_link_libraries(pdb_row_writer_string_test PRIVATE rekordbox_format ZLIB::
 add_test(NAME pdb_row_writer_string_test COMMAND pdb_row_writer_string_test)
 
 add_executable(rekordbox_library_anonymizer_test
+    src/infrastructure/long_paths.cpp
     src/infrastructure/durable_file_write.cpp
     src/infrastructure/rekordbox/pdb_row_writer.cpp
     src/infrastructure/rekordbox/pdb_lookup.cpp
@@ -804,6 +806,7 @@ target_link_libraries(libdjinterop_engine_anonymizer_test PRIVATE DjInterop)
 add_test(NAME libdjinterop_engine_anonymizer_test COMMAND libdjinterop_engine_anonymizer_test)
 
 add_executable(anonymize_library_test
+    src/infrastructure/long_paths.cpp
     src/application/use_cases/anonymize_library.cpp
     src/application/ports/progress_reporter.cpp
     src/infrastructure/durable_file_write.cpp
@@ -836,6 +839,7 @@ target_include_directories(pending_deletion_manifest_test PRIVATE src)
 add_test(NAME pending_deletion_manifest_test COMMAND pending_deletion_manifest_test)
 
 add_executable(pending_deletion_applier_test
+    src/infrastructure/long_paths.cpp
     src/infrastructure/cleanup/pending_deletion_manifest.cpp
     src/infrastructure/cleanup/pending_deletion_applier.cpp
     tests/pending_deletion_applier_test.cpp
@@ -921,6 +925,7 @@ add_test(NAME backup_archive_truncation_fuzz_test COMMAND backup_archive_truncat
 
 set(SEABASS_STICK_BACKUP_STICK_SOURCES
     ${SEABASS_STICK_BACKUP_UPDATE_SOURCES}
+    src/infrastructure/long_paths.cpp
     src/infrastructure/stick_backup/stick_tree_walker.cpp
     src/infrastructure/stick_backup/stat_diff.cpp
     src/infrastructure/stick_backup/sqlite_db_set.cpp
@@ -928,6 +933,7 @@ set(SEABASS_STICK_BACKUP_STICK_SOURCES
 )
 
 add_executable(library_catalog_mtime_test
+    src/infrastructure/long_paths.cpp
     src/infrastructure/stick_backup/stick_tree_walker.cpp
     src/infrastructure/stick_backup/library_catalog_mtime.cpp
     tests/library_catalog_mtime_test.cpp
@@ -935,9 +941,20 @@ add_executable(library_catalog_mtime_test
 target_include_directories(library_catalog_mtime_test PRIVATE src)
 add_test(NAME library_catalog_mtime_test COMMAND library_catalog_mtime_test)
 
+add_executable(long_paths_test
+    src/infrastructure/long_paths.cpp
+    src/infrastructure/hashing/sha256.cpp
+    src/infrastructure/stick_backup/backup_manifest.cpp
+    src/infrastructure/stick_backup/stick_tree_walker.cpp
+    tests/long_paths_test.cpp
+)
+target_include_directories(long_paths_test PRIVATE src)
+add_test(NAME long_paths_test COMMAND long_paths_test)
+
 add_executable(stat_diff_test
     src/infrastructure/hashing/sha256.cpp
     src/infrastructure/stick_backup/backup_manifest.cpp
+    src/infrastructure/long_paths.cpp
     src/infrastructure/stick_backup/stick_tree_walker.cpp
     src/infrastructure/stick_backup/stat_diff.cpp
     tests/stat_diff_test.cpp

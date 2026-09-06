@@ -6,11 +6,13 @@
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <span>
 #include <string>
 
 #include "application/use_cases/backup_stick.hpp"
 #include "application/use_cases/compact_stick_backup.hpp"
 #include "application/use_cases/restore_stick_backup.hpp"
+#include "infrastructure/long_paths.hpp"
 #include "infrastructure/stick_backup/posix_archive_file.hpp"
 #include "infrastructure/stick_backup/restore_path_sanitizer.hpp"
 #include "infrastructure/stick_backup/stick_tree_walker.hpp"
@@ -22,11 +24,32 @@
 using namespace seabass::application;
 using namespace seabass::infrastructure::stick_backup;
 using seabass::infrastructure::hashing::Sha256;
+using seabass::infrastructure::removeTreeDeepestFirst;
 namespace fs = std::filesystem;
 using namespace seabass::test_fixture;
 
 namespace
 {
+
+// Reads and writes through PosixArchiveFile so the >MAX_PATH cases work on
+// Windows: std::fstream takes the path as given and has no way to reach a
+// path that needs the \\?\ prefix.
+void writeLongPathFile(const fs::path &p, const std::string &content)
+{
+    PosixArchiveFile f(longPathSafe(p), PosixArchiveFile::OpenMode::ReadWrite);
+    f.truncate(0);
+    f.append(std::span<const std::byte>(reinterpret_cast<const std::byte *>(content.data()), content.size()));
+}
+
+std::string readLongPathFile(const fs::path &p)
+{
+    PosixArchiveFile f(longPathSafe(p), PosixArchiveFile::OpenMode::ReadOnly);
+    std::string out(f.size(), '\0');
+    if (f.size() > 0) {
+        f.readAt(0, std::span<std::byte>(reinterpret_cast<std::byte *>(out.data()), out.size()));
+    }
+    return out;
+}
 
 std::size_t tempFilesUnder(const fs::path &root)
 {
@@ -289,6 +312,83 @@ int main()
         assert(RestoreStickBackup::execute(f.restore).status == RestoreSummary::Status::Restored);
         assert(snapshot(f.target) == snapshot(f.stick));
         std::cout << "case 9 (restore from a compacted archive) OK\n";
+    }
+
+    // ---- A destination past Windows' MAX_PATH ----
+    {
+        // Five 40-character segments put the destination near 300
+        // characters, past Windows' 260-character MAX_PATH, while every
+        // individual component stays well under NAME_MAX so the same tree
+        // is legal on Linux -- there this case simply exercises long names.
+        //
+        // Built as an archive rather than by backing up a real tree,
+        // because walkStickTree cannot descend past MAX_PATH on Windows in
+        // the first place, and this case is about the restore side.
+        //
+        // The stale temp file is what an interrupted restore leaves behind.
+        // writeEntry used to remove it through the unprefixed path, which
+        // on Windows fails past MAX_PATH *and reports success* in its
+        // error_code, and then opened the survivor without truncating: the
+        // entry was appended after the stale bytes, and because the CRC,
+        // the SHA-256 and the byte count are all taken from the archive
+        // stream rather than from the file on disk, every check passed and
+        // the restore reported Restored. The assertion that catches it is
+        // the byte comparison, not the status.
+        //
+        // Deliberately not a Fixture: Fixture's constructor and destructor
+        // both call fs::remove_all, which never returns on a tree of this
+        // shape, so a single interrupted run would leave a directory that
+        // hangs every later run of this whole file. This case owns its
+        // root and clears it deepest-first at both ends instead.
+        const fs::path root = fs::temp_directory_path() / "seabass_backup_restore_test_longpath";
+        const fs::path archive = root / "Seabass Backups" / "STICK.zip";
+        const fs::path target = fs::absolute(root / "target");
+        removeTreeDeepestFirst(root);
+        fs::create_directories(target);
+
+        std::string deep = "Contents";
+        for (char c = 'a'; c < 'f'; ++c) {
+            deep += "/" + std::string(40, c);
+        }
+        const std::string entryName = deep + "/track.mp3";
+        const std::string content = pseudoRandom(4096, 11);
+
+        fs::create_directories(archive.parent_path());
+        {
+            PosixArchiveFile file(archive, PosixArchiveFile::OpenMode::ReadWrite);
+            Zip64Writer writer(file, {});
+            BackupManifest manifest;
+            manifest.stickLabel = "LONG";
+            manifest.createdAtUnix = 1'757'000'000;
+            seabass::infrastructure::hashing::Sha256Digest sha;
+            CentralEntry e = writer.addFileFromMemory(entryName, 1'700'000'000, zip::bytesOf(content), &sha);
+            manifest.rows.push_back({ManifestRow::Kind::File, entryName, e.size, e.mtimeUnix, sha, "", e.crc32});
+            writer.finish(manifest.serialize(), std::string(ManifestEntryName), manifest.createdAtUnix);
+            file.barrier();
+        }
+
+        const fs::path destination = target / fs::path(entryName);
+        assert(destination.native().size() > 260);
+        std::error_code ec;
+        fs::create_directories(longPathSafe(destination.parent_path()), ec);
+        assert(!ec);
+
+        fs::path temp = destination;
+        temp += std::string(".seabass-restore-tmp");
+        const std::string stale(777, 'X');
+        writeLongPathFile(temp, stale);
+        assert(readLongPathFile(temp) == stale);
+
+        RestoreOptions restore;
+        restore.archivePath = archive;
+        restore.targetRoot = target;
+        RestoreSummary summary = RestoreStickBackup::execute(restore);
+        assert(summary.status == RestoreSummary::Status::Restored);
+        assert(summary.filesWritten == 1 && summary.writeErrors.empty());
+        assert(readLongPathFile(destination) == content);
+        assert(!fs::exists(longPathSafe(temp)));
+        std::cout << "case 10 (destination past MAX_PATH: a leftover temp is replaced, not appended to) OK\n";
+        removeTreeDeepestFirst(root);
     }
 
     std::cout << "all cases passed\n";

@@ -221,10 +221,26 @@ std::string writeEntry(const Zip64Reader &reader, const PlannedEntry &planned, c
     fs::path temp = destination;
     temp += std::string(TempSuffix);
     std::error_code ec;
-    fs::remove(temp, ec);
+    fs::remove(longPathSafe(temp), ec);
     try {
         {
             PosixArchiveFile out(longPathSafe(temp), PosixArchiveFile::OpenMode::ReadWrite);
+            // The temp file belongs to this function alone and must start
+            // empty, but ReadWrite opens without truncating (OPEN_ALWAYS /
+            // O_CREAT, which ArchiveUpdater depends on to resume an existing
+            // archive). Truncating here is what makes the entry correct,
+            // rather than the remove above having worked -- and that remove
+            // cannot be relied on: on Windows a destination past MAX_PATH
+            // makes the unprefixed fs::remove fail while *reporting success*
+            // in its error_code, so a leftover temp survives and append()
+            // starts at its end, writing the entry after the stale bytes.
+            //
+            // Nothing downstream would catch that. The CRC, the SHA-256 and
+            // the byte count are all computed over the bytes read out of the
+            // archive, never over the file on disk, so all three still match,
+            // the corrupt file is renamed into place, and the restore reports
+            // Restored with no warning at all.
+            out.truncate(0);
             std::uint32_t crc = 0;
             infrastructure::hashing::Sha256 hasher;
             std::uint64_t written = 0;
@@ -242,7 +258,7 @@ std::string writeEntry(const Zip64Reader &reader, const PlannedEntry &planned, c
                 },
                 chunkSize);
             if (crc != entry.crc32 || written != entry.size || hasher.finish() != row->sha256) {
-                fs::remove(temp, ec);
+                fs::remove(longPathSafe(temp), ec);
                 return "backup data for " + entry.name + " is damaged (checksum mismatch); not restored";
             }
             out.barrier();
@@ -250,11 +266,11 @@ std::string writeEntry(const Zip64Reader &reader, const PlannedEntry &planned, c
         fs::last_write_time(longPathSafe(temp), fromUnixSeconds(entry.mtimeUnix), ec);
         fs::rename(longPathSafe(temp), longPathSafe(destination), ec);
         if (ec) {
-            fs::remove(temp, ec);
+            fs::remove(longPathSafe(temp), ec);
             return "could not place " + entry.name + ": " + ec.message();
         }
     } catch (const std::exception &e) {
-        fs::remove(temp, ec);
+        fs::remove(longPathSafe(temp), ec);
         return "could not write " + entry.name + ": " + e.what();
     }
     return {};

@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "infrastructure/anonymization_placeholder.hpp"
+#include "infrastructure/long_paths.hpp"
 #include "infrastructure/rekordbox/anlz_file.hpp"
 #include "infrastructure/rekordbox/big_endian.hpp"
 #include "infrastructure/rekordbox/generated/rekordbox_anlz.h"
@@ -393,8 +394,11 @@ RekordboxAnonymizationResult anonymizeRekordboxLibrary(const std::string &source
                 continue;
             }
             fs::path anlzDir = fs::path(datAnlzPath(destinationRoot, t.analyzePath)).parent_path();
-            std::error_code removeEc;
-            fs::remove_all(anlzDir, removeEc);
+            // Not fs::remove_all: this path comes from the library's own
+            // analysis paths under a caller-supplied root, so it can be
+            // past MAX_PATH, where remove_all spins forever instead of
+            // failing. See infrastructure/long_paths.hpp.
+            removeTreeDeepestFirst(anlzDir);
         }
 
         reporter.finish();

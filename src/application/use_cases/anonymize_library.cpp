@@ -6,6 +6,7 @@
 #include <system_error>
 
 #include "infrastructure/engine/libdjinterop_engine_anonymizer.hpp"
+#include "infrastructure/long_paths.hpp"
 #include "infrastructure/rekordbox/rekordbox_library_anonymizer.hpp"
 #include "infrastructure/zip_archive_writer.hpp"
 
@@ -37,22 +38,6 @@ std::string hostOsName()
 #endif
 }
 
-std::uintmax_t directorySizeBytes(const fs::path &dir)
-{
-    std::uintmax_t total = 0;
-    std::error_code ec;
-    if (!fs::exists(dir, ec)) {
-        return 0;
-    }
-    for (auto it = fs::recursive_directory_iterator(dir, ec); !ec && it != fs::recursive_directory_iterator();
-         it.increment(ec)) {
-        std::error_code fileEc;
-        if (it->is_regular_file(fileEc)) {
-            total += it->file_size(fileEc);
-        }
-    }
-    return total;
-}
 
 // Blended, catalog-specific compression ratios measured with `gzip -9`
 // against real rekordbox/Engine library files (see the plan this
@@ -187,8 +172,8 @@ AnonymizationSummary AnonymizeLibrary::execute(const std::optional<std::string> 
         summary.engineError = result.errorMessage;
     }
 
-    std::uintmax_t rekordboxBytes = directorySizeBytes(fs::path(outputDir) / "rekordbox");
-    std::uintmax_t engineBytes = directorySizeBytes(fs::path(outputDir) / "engine");
+    std::uintmax_t rekordboxBytes = infrastructure::directoryTreeSizeBytes(fs::path(outputDir) / "rekordbox");
+    std::uintmax_t engineBytes = infrastructure::directoryTreeSizeBytes(fs::path(outputDir) / "engine");
     summary.outputSizeBytes = rekordboxBytes + engineBytes;
     summary.estimatedZippedBytes = estimateZippedBytes(rekordboxBytes, engineBytes);
 
@@ -223,7 +208,11 @@ AnonymizationSummary AnonymizeLibrary::execute(const std::optional<std::string> 
     std::error_code sizeEc;
     summary.finalZipBytes = fs::file_size(zipPath, sizeEc);
 
-    fs::remove_all(outputDir);
+    // Not fs::remove_all: outputDir mirrors a real rekordbox/Engine
+    // library, so it can hold a path past MAX_PATH, and remove_all never
+    // returns on one -- it spins instead of reporting that it is stuck.
+    // See infrastructure/long_paths.hpp.
+    infrastructure::removeTreeDeepestFirst(outputDir);
 
     return summary;
 }
