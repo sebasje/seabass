@@ -58,6 +58,81 @@ ApplicationWindow {
         guard: djGuardCtrl
     }
 
+    // ---- Edit mode, window-level pieces (see docs/edit-mode-and-cancel.md) ----
+
+    // Quitting with staged changes: save them or throw them away first.
+    // While a save runs the window never closes; a cancelled save shows
+    // what landed and then quits (the rest is dropped on purpose).
+    property bool quitting: false
+    onClosing: (close) => {
+        if (window.quitting) {
+            return;
+        }
+        if (EditSessionRegistry.anyWriting) {
+            close.accepted = false;
+            return;
+        }
+        if (EditSessionRegistry.anyDirty) {
+            close.accepted = false;
+            quitDialog.open();
+        }
+    }
+    function quitNow() {
+        window.quitting = true;
+        window.close();
+    }
+
+    UnsavedChangesDialog {
+        id: quitDialog
+        objectName: "quitDialog"
+        title: "Unsaved changes"
+        message: "You have made changes to your library that are not saved to the USB stick yet."
+        saveText: "Save"
+        discardText: "Discard Changes"
+        onSaveRequested: {
+            EditSessionRegistry.quitAfterSave = true;
+            EditSessionRegistry.saveAll();
+        }
+        onDiscardRequested: {
+            EditSessionRegistry.discardAll();
+            window.quitNow();
+        }
+    }
+
+    OperationSummaryDialog {
+        id: quitSummaryDialog
+        objectName: "quitSummaryDialog"
+        onAccepted: {
+            EditSessionRegistry.quitAfterSave = false;
+            EditSessionRegistry.discardAll();
+            window.quitNow();
+        }
+    }
+
+    Connections {
+        target: EditSessionRegistry
+        function onSaveFinished(libraryId, summary) {
+            if (EditSessionRegistry.quitAfterSave && !EditSessionRegistry.anyWriting) {
+                quitSummaryDialog.show(summary);
+            }
+        }
+    }
+
+    // The stick a library is being edited on was pulled: global, so it
+    // shows whatever page is up.
+    StickRemovedDialog {
+        session: EditSessionRegistry.stickRemovedSession
+        onDiscardRequested: {
+            var removed = EditSessionRegistry.stickRemovedSession;
+            if (removed) {
+                removed.discard();
+            }
+            EditSessionRegistry.acknowledgeStickReturned();
+            stackView.pop(null);
+        }
+        onUnderstood: EditSessionRegistry.acknowledgeStickReturned()
+    }
+
     // Pushes the resolved Material colors + the theme toggle into the
     // Theme singleton. A pure-QML singleton has no place in the visual
     // tree of its own, so it can't read the Material attached properties
@@ -215,7 +290,10 @@ ApplicationWindow {
         function onTrackChanged() { window.updateWatermark(); }
     }
 
-    Component.onCompleted: window.updateWatermark()
+    Component.onCompleted: {
+        EditSessionRegistry.mediaController = mediaCtrl;
+        window.updateWatermark();
+    }
 
     // Shared by the stick list and every stick's Backups page: what each
     // mounted stick's backup situation is, gathered once per stick.

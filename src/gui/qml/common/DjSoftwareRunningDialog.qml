@@ -40,6 +40,7 @@ Dialog {
 
         Label {
             objectName: "messageLabel"
+            color: Theme.text
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
             text: dialog.guard.conflictingSoftware + " is running. Please close it until your changes have been "

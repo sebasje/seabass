@@ -382,6 +382,13 @@ if(Qt6_FOUND)
                 src/gui/qml/common/ActionCard.qml
                 src/gui/qml/common/BusyOverlay.qml
                 src/gui/qml/common/DjSoftwareRunningDialog.qml
+                src/gui/qml/common/SaveOverlayButton.qml
+                src/gui/qml/common/UnsavedChangesDialog.qml
+                src/gui/qml/common/WriteProgressDialog.qml
+                src/gui/qml/common/OperationSummaryDialog.qml
+                src/gui/qml/common/LockedLibraryDialog.qml
+                src/gui/qml/common/StickRemovedDialog.qml
+                src/gui/qml/common/EditSessionHost.qml
                 src/gui/qml/UsbStickIcon.qml
                 src/gui/qml/StickListPage.qml
                 src/gui/qml/BackupsHubPage.qml

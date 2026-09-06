@@ -55,6 +55,13 @@ qt_add_qml_module(seabass
         qml/common/TransferResultFrame.qml
         qml/common/PageScrollView.qml
         qml/common/DjSoftwareRunningDialog.qml
+        qml/common/SaveOverlayButton.qml
+        qml/common/UnsavedChangesDialog.qml
+        qml/common/WriteProgressDialog.qml
+        qml/common/OperationSummaryDialog.qml
+        qml/common/LockedLibraryDialog.qml
+        qml/common/StickRemovedDialog.qml
+        qml/common/EditSessionHost.qml
         qml/Theme.qml
         qml/FormatLabels.qml
         qml/CamelotWheelPosition.qml
