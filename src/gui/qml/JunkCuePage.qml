@@ -28,6 +28,17 @@ Page {
         id: consistencyController
     }
 
+    // Edit mode for this library: session, floating Save, leave guard.
+    EditSessionHost {
+        id: editHost
+        anchors.fill: parent
+        libraryId: typeof EditSessionRegistry !== "undefined"
+            ? EditSessionRegistry.libraryIdForPath(root.rekordboxPath.length > 0 ? root.rekordboxPath : root.enginePath) : ""
+        stickLabel: root.stickLabel
+        rekordboxPath: root.rekordboxPath
+        enginePath: root.enginePath
+    }
+
     // "" scopes the scan to the whole library (every catalog present),
     // same empty-means-all convention every other picker in this app
     // uses (see SyncPage.qml's own selectedPlaylistName).
@@ -65,8 +76,8 @@ Page {
                 middleLabel: "Housekeeping"
                 title: "Clean Up Stray Cues"
                 backEnabled: !consistencyController.writing
-                onHomeRequested: root.StackView.view.pop(null)
-                onBackRequested: root.StackView.view.pop()
+                onHomeRequested: editHost.requestLeave(() => root.StackView.view.pop(null))
+                onBackRequested: editHost.requestLeave(() => root.StackView.view.pop())
             }
             Item { Layout.fillWidth: true }
             Label {
@@ -116,7 +127,7 @@ Page {
         width: 420
         title: "Remove This Cue?"
         footer: DialogButtonBox {
-            Button { text: "Remove"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
+            Button { text: "Stage Removal"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
             Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
         }
         onAccepted: if (pendingIndex >= 0) consistencyController.removeJunkCue(pendingIndex)
@@ -124,7 +135,7 @@ Page {
         Label {
             width: parent.width
             wrapMode: Text.WordWrap
-            text: "Removes this memory cue sitting at 0:00 from the track. Backed up first."
+            text: "Stages removing this memory cue sitting at 0:00 from the track; Save writes it. Backed up first."
         }
     }
 
@@ -135,7 +146,7 @@ Page {
         width: 460
         title: "Remove All " + junkCueListView.count + " Memory Cue(s) at 0:00?"
         footer: DialogButtonBox {
-            Button { text: "Remove All"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
+            Button { text: "Stage Removal"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
             Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
         }
         onAccepted: consistencyController.removeAllJunkCues()
@@ -176,11 +187,6 @@ Page {
         anchors.margins: 16
         spacing: 8
 
-        StickWriteWarning {
-            visible: consistencyController.writing
-            text: "Removing stray cues. Do not remove the stick until this finishes."
-        }
-
         Label {
             visible: consistencyController.errorMessage.length > 0
             text: consistencyController.errorMessage
@@ -216,8 +222,8 @@ Page {
                 }
                 Item { Layout.fillWidth: true }
                 Button {
-                    text: "Remove All"
-                    enabled: !consistencyController.busy
+                    text: "Stage Removing All"
+                    enabled: !consistencyController.busy && !consistencyController.writing
                     onClicked: confirmRemoveAllJunkCuesDialog.open()
                 }
                 Button {
@@ -248,6 +254,7 @@ Page {
                 required property string format
                 required property string title
                 required property string artist
+                required property bool staged
 
                 contentItem: RowLayout {
                     spacing: 8
@@ -271,12 +278,22 @@ Page {
                             color: Theme.textMuted
                         }
                     }
+                    StatusBadge {
+                        visible: junkDelegate.staged
+                        label: "Staged"
+                        badgeColor: Theme.warnText
+                        tooltipText: "Not on the stick yet: press Save."
+                    }
                     Button {
-                        text: "Remove"
-                        enabled: !consistencyController.busy
+                        text: junkDelegate.staged ? "Unstage" : "Remove"
+                        enabled: !consistencyController.busy && !consistencyController.writing
                         onClicked: {
-                            confirmRemoveJunkCueDialog.pendingIndex = junkDelegate.index;
-                            confirmRemoveJunkCueDialog.open();
+                            if (junkDelegate.staged) {
+                                consistencyController.unstageJunkCue(junkDelegate.index);
+                            } else {
+                                confirmRemoveJunkCueDialog.pendingIndex = junkDelegate.index;
+                                confirmRemoveJunkCueDialog.open();
+                            }
                         }
                     }
                     Button {

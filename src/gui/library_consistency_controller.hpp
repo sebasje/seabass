@@ -3,21 +3,25 @@
 #include <QAbstractListModel>
 #include <QFutureWatcher>
 #include <QObject>
+#include <QPointer>
 #include <QQmlEngine>
 #include <QStringList>
 #include <QVariantMap>
 
+#include <map>
 #include <memory>
 #include <utility>
 #include <vector>
 
+#include "application/ports/cancellation_token.hpp"
 #include "domain/junk_cue.hpp"
 #include "domain/library_consistency.hpp"
-#include "application/ports/cancellation_token.hpp"
 #include "gui/qt_progress_reporter.hpp"
 
 namespace seabass::gui
 {
+
+class LibraryEditSession;
 
 // Read-only Qt list model over the LibraryConsistencyIssues
 // LibraryConsistencyController last computed, across every present
@@ -35,6 +39,9 @@ public:
         SurvivorRole,  // {sourceId, title, artist, filePath}, or an empty map when there's no survivor
         BrokenTracksRole,  // QVariantList of {sourceId, title, artist, filePath}
         CueMergeNeededRole,
+        // This issue's repair/deletion is staged in the edit session.
+        StagedRole,
+        StagedDescriptionRole,
     };
 
     explicit LibraryConsistencyIssueListModel(QObject *parent = nullptr);
@@ -55,9 +62,12 @@ public:
     // full clear()+appendIssues() rescan would.
     void removeIssueAt(int index);
     const std::vector<domain::LibraryConsistencyIssue> &issues() const { return m_issues; }
+    void setStaged(int index, bool staged, const QString &description);
+    void clearStaged();
 
 private:
     std::vector<domain::LibraryConsistencyIssue> m_issues;
+    std::vector<QString> m_stagedDescriptions;  // empty = not staged; parallel to m_issues
 };
 
 // Read-only Qt list model over the JunkCueIssues LibraryConsistencyController
@@ -82,6 +92,7 @@ public:
         // TrackWaveformCard needs, for the memory-cue section to show one
         // instead of a bare title/artist line.
         TrackRole,
+        StagedRole,  // this cue's removal is staged in the edit session
     };
 
     explicit JunkCueIssueListModel(QObject *parent = nullptr);
@@ -96,9 +107,12 @@ public:
     // this in the current view," not a persisted dismissal.
     void removeAt(int index);
     const std::vector<domain::JunkCueIssue> &issues() const { return m_issues; }
+    void setStaged(int index, bool staged);
+    void clearStaged();
 
 private:
     std::vector<domain::JunkCueIssue> m_issues;
+    std::vector<bool> m_staged;  // parallel to m_issues
 };
 
 // Result of a background scan task for one format, see
@@ -122,13 +136,6 @@ struct LibraryConsistencyScanResult
     bool cancelled = false;  // stopped via cancelScan(); nothing else is set
 };
 
-// Result of a background repair/delete task.
-struct LibraryConsistencyWriteResult
-{
-    QString errorMessage;
-    QString statusMessage;
-};
-
 // Finds catalog rows whose backing audio file is missing and, where a
 // healthy same-catalog duplicate exists, repairs them: merges any cues
 // the broken row(s) have onto the survivor (if it doesn't already have
@@ -143,12 +150,13 @@ struct LibraryConsistencyWriteResult
 // deleteOrphan() dispatch to the right writer per issue rather than
 // assuming one format for the whole list.
 //
-// Like CleanupController::apply(), repairs act on the issues already in
-// the model, not a fresh re-scan, the per-writer staleness guard
-// (RekordboxCueWriter/OneLibraryCueWriter etc., each constructed fresh
-// right before its own write) is what catches "the stick changed
-// underneath us," matching this codebase's established convention for a
-// batch apply.
+// Repairs and removals are staged, not written: each button stages one
+// PendingChange per issue/cue in the library's LibraryEditSession (the
+// first one takes the edit lock), rows show it, and the page's Save
+// writes them; a row whose change reached the stick disappears. The
+// per-writer staleness guard (RekordboxCueWriter/OneLibraryCueWriter
+// etc., each constructed fresh at save time) is what catches "the stick
+// changed underneath us."
 //
 // A row with no healthy survivor anywhere (Kind::Missing) is never
 // auto-repaired. There's nothing to consolidate onto. OneLibrary rows
@@ -172,7 +180,10 @@ class LibraryConsistencyController : public QObject
     // be stopped via cancelScan(), which also drops the formats still
     // queued, after which scanCancelled() fires.
     Q_PROPERTY(bool scanCancellable READ scanCancellable NOTIFY busyChanged)
+    // Mirrors the session: true while a save is writing to the stick.
     Q_PROPERTY(bool writing READ writing NOTIFY writingChanged)
+    Q_PROPERTY(bool canUndo READ canUndo NOTIFY canUndoChanged)
+    Q_PROPERTY(int stagedCount READ stagedCount NOTIFY issuesChanged)
     Q_PROPERTY(int scanCurrent READ scanCurrent NOTIFY scanProgressChanged)
     Q_PROPERTY(int scanTotal READ scanTotal NOTIFY scanProgressChanged)
     Q_PROPERTY(QString scanningFormat READ scanningFormat NOTIFY scanningFormatChanged)
@@ -194,7 +205,9 @@ public:
     LibraryConsistencyIssueListModel *issuesModel() { return &m_model; }
     JunkCueIssueListModel *junkCuesModel() { return &m_junkCueModel; }
     bool busy() const { return m_busy; }
-    bool writing() const { return m_writing; }
+    bool writing() const;
+    bool canUndo() const;
+    int stagedCount() const { return static_cast<int>(m_stagedIssues.size() + m_stagedJunk.size()); }
     int scanCurrent() const { return m_scanCurrent; }
     int scanTotal() const { return m_scanTotal; }
     // "rekordbox"/"engine"/"onelibrary" while that format's scan is
@@ -224,34 +237,33 @@ public:
     Q_INVOKABLE void scan(const QString &rekordboxPath, const QString &enginePath,
                            const QString &playlistName = QString());
 
-    // Repairs every currently-Repairable issue across every format:
-    // writes merged cues onto each survivor where needed, then removes
-    // every broken row. Never touches Conflict/Missing issues.
+    // Stages repairing every currently-Repairable issue across every
+    // format: merged cues onto each survivor where needed, then the
+    // broken rows removed. Never touches Conflict/Missing issues.
     Q_INVOKABLE void repairAll();
-
-    // Same as repairAll(), scoped to the single issue at index, lets
-    // one row be repaired on its own without waiting on every other
-    // format's batch.
+    // Same, scoped to the single issue at index.
     Q_INVOKABLE void repairOne(int index);
-
-    // Deletes a single Missing issue's broken row(s), OneLibrary only
-    // (see class comment). No-op for a rekordbox/Engine issue.
+    // Stages deleting a single Missing issue's broken row(s), OneLibrary
+    // only (see class comment). No-op for a rekordbox/Engine issue.
     Q_INVOKABLE void deleteOrphan(int index);
+    Q_INVOKABLE void unstageIssue(int index);
 
-    // Rewrites the track's full cue list with the offending 0:00 memory
-    // cue (and any other memory cue also sitting at 0, if somehow more
-    // than one) removed, same "pass the complete replacement set"
+    // Stages rewriting the track's full cue list with the offending 0:00
+    // memory cue (and any other memory cue also sitting at 0, if somehow
+    // more than one) removed, same "pass the complete replacement set"
     // contract as CueWriter::writeHotCues() everywhere else.
     Q_INVOKABLE void removeJunkCue(int index);
-    // Same as removeJunkCue(), for every currently-listed junk-cue issue
-    // across every format at once, one real write per format (chained
-    // the same way repairAll() chains m_pendingRepairs).
     Q_INVOKABLE void removeAllJunkCues();
+    Q_INVOKABLE void unstageJunkCue(int index);
     // Local-only dismiss, no write, see JunkCueIssueListModel::removeAt().
+    // Unstages the row first if it was staged.
     Q_INVOKABLE void ignoreJunkCue(int index);
     Q_INVOKABLE void ignoreAllJunkCues();
 
-    bool scanCancellable() const { return m_busy && !m_writing; }
+    // Reverts every file the last save touched (the session's undo).
+    Q_INVOKABLE void undoLastOperation();
+
+    bool scanCancellable() const { return m_busy && !writing(); }
     Q_INVOKABLE void cancelScan();
 
 signals:
@@ -263,14 +275,20 @@ signals:
     void errorMessageChanged();
     void statusMessageChanged();
     void issuesChanged();
+    void canUndoChanged();
 
 private:
     void onScanFinished();
-    void onWriteFinished();
     void scanNextPendingFormat();
     void setBusy(bool busy);
-    void setWriting(bool writing);
     void setScanProgress(int current, int total);
+    void attachSession();
+    bool ensureSessionForStaging();
+    int repairItemCountHint(const QString &format) const;
+    void stageIssue(int index);
+    void stageJunkCue(int index);
+    int indexOfIssueKey(const QString &issueKey) const;
+    int indexOfJunkKey(const QString &junkKey) const;
     void setScanningFormat(const QString &format);
     void setErrorMessage(const QString &message);
     void setStatusMessage(const QString &message);
@@ -288,7 +306,17 @@ private:
     JunkCueIssueListModel m_junkCueModel;
     QFutureWatcher<LibraryConsistencyScanResult> m_watcher;
     application::CancellationToken m_scanCancel;  // fresh per scan(), shared by its per-format tasks
-    QFutureWatcher<LibraryConsistencyWriteResult> m_writeWatcher;
+    QPointer<LibraryEditSession> m_session;
+    struct StagedInfo
+    {
+        QString changeId;
+        QString description;
+    };
+    std::map<QString, StagedInfo> m_stagedIssues;  // issue key -> what is staged for it
+    std::map<QString, QString> m_stagedJunk;    // junk key -> change id
+    // A rekordbox repair's OneLibrary mirror can stale another listed
+    // issue: re-scan once the save that applied one has finished.
+    bool m_rescanAfterSave = false;
     QString m_rekordboxPath;
     QString m_enginePath;
     // The playlistName scan() was last called with -- so the automatic
@@ -299,43 +327,7 @@ private:
     QStringList m_playlistNames;
     QVariantMap m_playlistTrackCounts;
     std::vector<QString> m_pendingScanFormats;
-    // Each pending repair-batch entry is one format's worth of
-    // currently-Repairable issues, consumed one format at a time the
-    // same way m_pendingScanFormats drives the scan sequence. Empty for
-    // a repairOne()/deleteOrphan() single-item write, whose completion
-    // handler tells apart from a batch by this being empty.
-    std::vector<std::pair<QString, std::vector<domain::LibraryConsistencyIssue>>> m_pendingRepairs;
-    // Same idea, for removeAllJunkCues(): one format's worth of tracks
-    // to strip the 0:00 memory cue from, consumed the same way.
-    std::vector<std::pair<QString, std::vector<domain::Track>>> m_pendingJunkCueRemovals;
-    // What onWriteFinished() should do once every pending format's write
-    // is done, set by whichever public write method just kicked things
-    // off. A junk-cue removal can't change file existence or which
-    // track matches which (that's all LibraryConsistencyChecker looks
-    // at), so it never needs the full re-scan repairAll()/repairOne()/
-    // deleteOrphan() still trigger -- those really can change what
-    // other issues exist (removing a broken row, merging cues onto a
-    // survivor). See onWriteFinished()'s own comment for the local-
-    // update each junk-cue-removal kind performs instead of scanning.
-    enum class PendingWriteKind { Repair, RemoveOneJunkCue, RemoveAllJunkCues };
-    PendingWriteKind m_pendingWriteKind = PendingWriteKind::Repair;
-    // Valid only when m_pendingWriteKind is RemoveOneJunkCue: the row
-    // removeJunkCue() was called with, applied to m_junkCueModel once
-    // the write actually succeeds rather than optimistically before.
-    int m_pendingJunkCueRemovalIndex = -1;
-    // Valid only when m_pendingWriteKind is Repair: the m_model row
-    // indices repairAll()/repairOne()/deleteOrphan() captured at call
-    // time, removed locally via removeIssueAt() once every pending
-    // format's task in the batch succeeds -- unless
-    // m_pendingRepairTouchedRekordbox, in which case a real scan()
-    // runs instead (see onWriteFinished()'s own comment: a rekordbox
-    // repair's best-effort OneLibrary mirror write can silently stale
-    // an already-listed OneLibrary issue, something only a fresh
-    // LibraryConsistencyChecker::check() run could catch).
-    std::vector<int> m_pendingRepairedIndices;
-    bool m_pendingRepairTouchedRekordbox = false;
     bool m_busy = false;
-    bool m_writing = false;
     int m_scanCurrent = 0;
     int m_scanTotal = 0;
     QString m_scanningFormat;

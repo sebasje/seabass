@@ -12,28 +12,25 @@
 
 #include "domain/junk_cue.hpp"
 #include "domain/track_scope.hpp"
+#include "gui/edit/edit_session_registry.hpp"
+#include "gui/edit/format_write_session.hpp"
+#include "gui/edit/library_edit_session.hpp"
+#include "gui/edit/pending_change.hpp"
+#include "gui/edit/save_context.hpp"
 #include "gui/library_catalog_cache.hpp"
 #include "gui/local_file_url.hpp"
-#include "gui/write_guard.hpp"
-#include "infrastructure/backup/filesystem_backup_store.hpp"
-#include "infrastructure/backup/stick_write_lock.hpp"
-#include "infrastructure/bulk_write_strategy.hpp"
-#include "infrastructure/durable_file_write.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cleanup_writer.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cue_writer.hpp"
-#include "infrastructure/logging/file_operation_log.hpp"
 #include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 #include "infrastructure/rekordbox/rekordbox_cleanup_writer.hpp"
 #include "infrastructure/rekordbox/rekordbox_cue_writer.hpp"
-#include "infrastructure/scratch_dir_guard.hpp"
 
 namespace seabass::gui
 {
 
 namespace fs = std::filesystem;
 using domain::LibraryConsistencyIssue;
-using infrastructure::ScratchDirGuard;
 
 namespace
 {
@@ -129,6 +126,12 @@ QVariant LibraryConsistencyIssueListModel::data(const QModelIndex &index, int ro
     }
     case CueMergeNeededRole:
         return !issue.survivorCues.empty();
+    case StagedRole:
+        return static_cast<size_t>(index.row()) < m_stagedDescriptions.size()
+            && !m_stagedDescriptions[static_cast<size_t>(index.row())].isEmpty();
+    case StagedDescriptionRole:
+        return static_cast<size_t>(index.row()) < m_stagedDescriptions.size()
+            ? m_stagedDescriptions[static_cast<size_t>(index.row())] : QString();
     default:
         return {};
     }
@@ -142,6 +145,8 @@ QHash<int, QByteArray> LibraryConsistencyIssueListModel::roleNames() const
         {SurvivorRole, "survivor"},
         {BrokenTracksRole, "brokenTracks"},
         {CueMergeNeededRole, "cueMergeNeeded"},
+        {StagedRole, "staged"},
+        {StagedDescriptionRole, "stagedDescription"},
     };
 }
 
@@ -149,6 +154,7 @@ void LibraryConsistencyIssueListModel::clear()
 {
     beginResetModel();
     m_issues.clear();
+    m_stagedDescriptions.clear();
     endResetModel();
 }
 
@@ -160,6 +166,7 @@ void LibraryConsistencyIssueListModel::appendIssues(std::vector<domain::LibraryC
     int first = static_cast<int>(m_issues.size());
     int last = first + static_cast<int>(issues.size()) - 1;
     beginInsertRows(QModelIndex(), first, last);
+    m_stagedDescriptions.resize(m_issues.size() + issues.size());
     m_issues.insert(m_issues.end(), std::make_move_iterator(issues.begin()), std::make_move_iterator(issues.end()));
     endInsertRows();
 }
@@ -171,7 +178,26 @@ void LibraryConsistencyIssueListModel::removeIssueAt(int index)
     }
     beginRemoveRows(QModelIndex(), index, index);
     m_issues.erase(m_issues.begin() + index);
+    m_stagedDescriptions.erase(m_stagedDescriptions.begin() + index);
     endRemoveRows();
+}
+
+void LibraryConsistencyIssueListModel::setStaged(int index, bool staged, const QString &description)
+{
+    if (index < 0 || static_cast<size_t>(index) >= m_issues.size()) {
+        return;
+    }
+    m_stagedDescriptions[static_cast<size_t>(index)] = staged ? description : QString();
+    emit dataChanged(this->index(index), this->index(index), {StagedRole, StagedDescriptionRole});
+}
+
+void LibraryConsistencyIssueListModel::clearStaged()
+{
+    if (m_issues.empty()) {
+        return;
+    }
+    std::fill(m_stagedDescriptions.begin(), m_stagedDescriptions.end(), QString());
+    emit dataChanged(index(0), index(static_cast<int>(m_issues.size()) - 1), {StagedRole, StagedDescriptionRole});
 }
 
 JunkCueIssueListModel::JunkCueIssueListModel(QObject *parent) : QAbstractListModel(parent) {}
@@ -199,6 +225,8 @@ QVariant JunkCueIssueListModel::data(const QModelIndex &index, int role) const
         return QString::fromStdString(issue.track.artist);
     case TrackRole:
         return brokenTrackToMap(issue.track);
+    case StagedRole:
+        return static_cast<size_t>(index.row()) < m_staged.size() && m_staged[static_cast<size_t>(index.row())];
     default:
         return {};
     }
@@ -211,6 +239,7 @@ QHash<int, QByteArray> JunkCueIssueListModel::roleNames() const
         {TitleRole, "title"},
         {ArtistRole, "artist"},
         {TrackRole, "track"},
+        {StagedRole, "staged"},
     };
 }
 
@@ -218,6 +247,7 @@ void JunkCueIssueListModel::clear()
 {
     beginResetModel();
     m_issues.clear();
+    m_staged.clear();
     endResetModel();
 }
 
@@ -229,6 +259,7 @@ void JunkCueIssueListModel::appendIssues(std::vector<domain::JunkCueIssue> issue
     int first = static_cast<int>(m_issues.size());
     int last = first + static_cast<int>(issues.size()) - 1;
     beginInsertRows(QModelIndex(), first, last);
+    m_staged.resize(m_issues.size() + issues.size(), false);
     m_issues.insert(m_issues.end(), std::make_move_iterator(issues.begin()), std::make_move_iterator(issues.end()));
     endInsertRows();
 }
@@ -240,7 +271,26 @@ void JunkCueIssueListModel::removeAt(int index)
     }
     beginRemoveRows(QModelIndex(), index, index);
     m_issues.erase(m_issues.begin() + index);
+    m_staged.erase(m_staged.begin() + index);
     endRemoveRows();
+}
+
+void JunkCueIssueListModel::setStaged(int index, bool staged)
+{
+    if (index < 0 || static_cast<size_t>(index) >= m_issues.size()) {
+        return;
+    }
+    m_staged[static_cast<size_t>(index)] = staged;
+    emit dataChanged(this->index(index), this->index(index), {StagedRole});
+}
+
+void JunkCueIssueListModel::clearStaged()
+{
+    if (m_issues.empty()) {
+        return;
+    }
+    std::fill(m_staged.begin(), m_staged.end(), false);
+    emit dataChanged(index(0), index(static_cast<int>(m_issues.size()) - 1), {StagedRole});
 }
 
 namespace
@@ -335,445 +385,310 @@ LibraryConsistencyScanResult runScanTask(QString format, QString path, QString p
     return result;
 }
 
-// Runs entirely on a background thread (see LibraryConsistencyController::
-// repairNextPendingFormat()), repairs every given issue, all from the
-// same single format/path.
-LibraryConsistencyWriteResult runRepairTask(QString format, QString path,
-                                             std::vector<LibraryConsistencyIssue> issues)
+// An issue's identity across rescans: its format, survivor and broken
+// row ids. Also the staged change's key.
+QString issueKeyFor(const LibraryConsistencyIssue &issue)
 {
-    LibraryConsistencyWriteResult result;
-    QString refusal = refuseIfDjSoftwareRunning();
-    if (!refusal.isEmpty()) {
-        result.errorMessage = refusal;
-        return result;
+    QStringList ids;
+    if (issue.survivor) {
+        ids << QString::fromStdString(issue.survivor->sourceId);
     }
-    try {
-        fs::path stickRoot = fs::path(path.toStdString()).parent_path();
-        infrastructure::backup::StickWriteLock lock((stickRoot / ".seabass-backups" / ".write.lock").string());
-        infrastructure::backup::FilesystemBackupStore backupStore((stickRoot / ".seabass-backups").string());
-        infrastructure::logging::FileOperationLog log((stickRoot / ".seabass.log").string());
+    for (const auto &broken : issue.brokenGroup) {
+        ids << QString::fromStdString(broken.sourceId);
+    }
+    return issueFormat(issue) + ":" + ids.join('+');
+}
 
-        int cuesMerged = 0;
-        int rowsRemoved = 0;
+QString junkKeyFor(const domain::Track &track)
+{
+    return QString::fromStdString(track.format) + ":" + QString::fromStdString(track.sourceId);
+}
 
+std::vector<domain::CuePoint> cuesWithoutJunk(const domain::Track &track)
+{
+    std::vector<domain::CuePoint> remainingCues;
+    for (const auto &c : track.cues) {
+        if (!(c.kind == domain::CuePoint::Kind::Memory && c.positionMs == 0.0)) {
+            remainingCues.push_back(c);
+        }
+    }
+    return remainingCues;
+}
+
+// The writers of one save's repairs for one format (SaveContext::shared):
+// the format's cue writer and cleanup writer on the FormatWriteSession's
+// write root (a scratch copy for a big batch), plus, for rekordbox, the
+// best-effort OneLibrary mirror. rekordbox's cue merges go to small
+// per-track .ANLZ files (backed up per item by the change); only its row
+// removals touch export.pdb.
+struct RepairWriterContext
+{
+    RepairWriterContext(const QString &format, const QString &path, int itemCountHint, SaveContext &ctx)
+        : session(format.toStdString(), path.toStdString(), itemCountHint, "consistency-repair", ctx)
+    {
+        std::string root = path.toStdString();
         if (format == "rekordbox") {
-            std::string pioneerRoot = path.toStdString();
-            infrastructure::rekordbox::RekordboxCueWriter cueWriter(pioneerRoot);
-            bool hasOneLib = infrastructure::onelibrary::OneLibraryCueWriter::existsFor(pioneerRoot);
-
-            std::string pdbPath = pioneerRoot + "/rekordbox/export.pdb";
-            auto record = backupStore.backup({pdbPath}, "consistency-repair");
-            log.record("consistency: backed up export.pdb -> " + record.path);
-            std::set<std::string> backedUpAnlz;
-
-            // Only row removal below touches export.pdb (a single shared
-            // file) -- cue merges go through RekordboxCueWriter into
-            // small per-track .ANLZ files instead, already cheap enough
-            // not to need staging (see rekordbox_cue_writer.cpp's own
-            // comment on the same tradeoff for the PCOB gap). So the
-            // item count driving the staging decision is rows-to-remove
-            // only, same shape as sync_controller.cpp's engine/
-            // onelibrary branches.
-            int rowsToRemove = 0;
-            for (const auto &issue : issues) {
-                if (issue.survivor) {
-                    rowsToRemove += static_cast<int>(issue.brokenGroup.size());
-                }
-            }
-            std::error_code sizeEc;
-            auto existingBytes = fs::file_size(pdbPath, sizeEc);
-            infrastructure::BulkWriteStrategyInputs strategyInputs;
-            strategyInputs.itemCount = rowsToRemove;
-            strategyInputs.existingFileBytes = sizeEc ? 0 : existingBytes;
-            bool useWholeFile = !sizeEc && infrastructure::shouldUseWholeFileReplace(strategyInputs) &&
-                                 infrastructure::hasRoomForWholeFileReplace(fs::path(pdbPath).parent_path(), existingBytes);
-
-            std::optional<fs::path> scratchDir;
-            std::optional<ScratchDirGuard> scratchGuard;
-            std::string cleanupRoot = pioneerRoot;
-            if (useWholeFile) {
-                scratchDir = fs::temp_directory_path() /
-                             ("seabass-repair-scratch-rekordbox-" +
-                              std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
-                std::error_code cleanupEc;
-                fs::remove_all(*scratchDir, cleanupEc);
-                fs::create_directories(*scratchDir / "rekordbox");
-                fs::copy_file(pdbPath, *scratchDir / "rekordbox" / "export.pdb");
-                scratchGuard.emplace(*scratchDir);
-                cleanupRoot = scratchDir->string();
-                log.record("consistency: removing " + std::to_string(rowsToRemove) +
-                           " row(s) against a local scratch copy first (export.pdb is " +
-                           std::to_string(existingBytes) + " bytes)");
-            }
-            infrastructure::rekordbox::RekordboxCleanupWriter cleanupWriter(cleanupRoot);
-
-            for (const auto &issue : issues) {
-                if (!issue.survivor) {
-                    continue;
-                }
-                const auto &survivor = *issue.survivor;
-                if (!issue.survivorCues.empty()) {
-                    auto analyzePath = infrastructure::rekordbox::findAnlzPathForTrackId(
-                        pioneerRoot, static_cast<uint32_t>(std::stoul(survivor.sourceId)));
-                    if (analyzePath) {
-                        std::string extPath = infrastructure::rekordbox::extAnlzPath(pioneerRoot, *analyzePath);
-                        if (backedUpAnlz.insert(extPath).second) {
-                            auto anlzRecord = backupStore.backup({extPath}, "consistency-repair");
-                            log.record("consistency: backed up -> " + anlzRecord.path);
-                        }
-                    }
-                    cueWriter.writeHotCues(survivor.sourceId, issue.survivorCues);
-                    cuesMerged += static_cast<int>(issue.survivorCues.size());
-                    log.record("consistency: merged cues onto survivor id=" + survivor.sourceId);
-
-                    // Best-effort mirror, same convention as Clean Up's
-                    // own survivor-cue mirror block.
-                    if (hasOneLib && !survivor.filePath.empty()) {
-                        try {
-                            infrastructure::onelibrary::OneLibraryCueWriter oneLibWriter(pioneerRoot);
-                            oneLibWriter.writeCuesForPath(survivor.filePath, issue.survivorCues);
-                        } catch (const std::exception &e) {
-                            log.record(std::string("consistency: OneLibrary cue mirror failed: ") + e.what());
-                        }
-                    }
-                }
-                for (const auto &broken : issue.brokenGroup) {
-                    cleanupWriter.removeTrackReplacingWith(broken.sourceId, survivor.sourceId);
-                    log.record("consistency: removed broken row id=" + broken.sourceId + " (\"" + broken.title +
-                                "\"), replaced by survivor id=" + survivor.sourceId);
-                    rowsRemoved++;
-
-                    if (hasOneLib && !broken.filePath.empty() && !survivor.filePath.empty()) {
-                        try {
-                            infrastructure::onelibrary::OneLibraryCueWriter oneLibWriter(pioneerRoot);
-                            // Reassigns playlist membership onto the
-                            // survivor instead of dropping it -- see
-                            // OneLibraryCueWriter::
-                            // removeTrackByPathReplacingWith()'s own
-                            // comment.
-                            oneLibWriter.removeTrackByPathReplacingWith(broken.filePath, survivor.filePath);
-                        } catch (const std::exception &e) {
-                            log.record(std::string("consistency: OneLibrary row removal failed: ") + e.what());
-                        }
-                    }
-                }
-            }
-
-            if (scratchDir && !infrastructure::copyFileDurablyAtomic(
-                                   (*scratchDir / "rekordbox" / "export.pdb").string(), pdbPath)) {
-                throw std::runtime_error(
-                    "consistency: failed to commit the scratch-repaired export.pdb back onto the stick");
-            }
+            rekordboxCues = std::make_unique<infrastructure::rekordbox::RekordboxCueWriter>(root);
+            rekordboxCleanup = std::make_unique<infrastructure::rekordbox::RekordboxCleanupWriter>(session.writeRoot());
+            hasOneLibrary = infrastructure::onelibrary::OneLibraryCueWriter::existsFor(root);
         } else if (format == "engine") {
-            std::string engineLibraryPath = path.toStdString();
-            std::string engineDbFile = (fs::path(engineLibraryPath) / "Database2" / "m.db").string();
-            auto record = backupStore.backup({engineDbFile}, "consistency-repair");
-            log.record("consistency: backed up m.db -> " + record.path);
-
-            // Both cue merges and row removal hit the same shared m.db
-            // here (unlike rekordbox above, where cue merges go to
-            // small per-track files instead) -- so every write in this
-            // branch counts toward the staging decision.
-            int engineWriteCount = 0;
-            for (const auto &issue : issues) {
-                if (!issue.survivor) {
-                    continue;
-                }
-                if (!issue.survivorCues.empty()) {
-                    engineWriteCount++;
-                }
-                engineWriteCount += static_cast<int>(issue.brokenGroup.size());
-            }
-            std::error_code sizeEc;
-            auto existingBytes = fs::file_size(engineDbFile, sizeEc);
-            infrastructure::BulkWriteStrategyInputs strategyInputs;
-            strategyInputs.itemCount = engineWriteCount;
-            strategyInputs.existingFileBytes = sizeEc ? 0 : existingBytes;
-            bool useWholeFile =
-                !sizeEc && infrastructure::shouldUseWholeFileReplace(strategyInputs) &&
-                infrastructure::hasRoomForWholeFileReplace(fs::path(engineDbFile).parent_path(), existingBytes);
-
-            std::optional<fs::path> scratchDir;
-            std::optional<ScratchDirGuard> scratchGuard;
-            std::string writeTargetPath = engineLibraryPath;
-            if (useWholeFile) {
-                scratchDir = fs::temp_directory_path() /
-                             ("seabass-repair-scratch-engine-" +
-                              std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
-                std::error_code cleanupEc;
-                fs::remove_all(*scratchDir, cleanupEc);
-                fs::create_directories(*scratchDir / "Database2");
-                fs::copy_file(engineDbFile, *scratchDir / "Database2" / "m.db");
-                scratchGuard.emplace(*scratchDir);
-                writeTargetPath = scratchDir->string();
-                log.record("consistency: applying " + std::to_string(engineWriteCount) +
-                           " engine update(s) to a local scratch copy first (m.db is " +
-                           std::to_string(existingBytes) + " bytes)");
-            }
-
-            infrastructure::engine::LibdjinteropEngineCueWriter cueWriter(writeTargetPath);
-            infrastructure::engine::LibdjinteropEngineCleanupWriter cleanupWriter(writeTargetPath);
-
-            for (const auto &issue : issues) {
-                if (!issue.survivor) {
-                    continue;
-                }
-                const auto &survivor = *issue.survivor;
-                if (!issue.survivorCues.empty()) {
-                    cueWriter.writeHotCues(survivor.sourceId, issue.survivorCues);
-                    cuesMerged += static_cast<int>(issue.survivorCues.size());
-                    log.record("consistency: merged cues onto survivor id=" + survivor.sourceId);
-                }
-                for (const auto &broken : issue.brokenGroup) {
-                    cleanupWriter.removeTrackReplacingWith(broken.sourceId, survivor.sourceId);
-                    log.record("consistency: removed broken row id=" + broken.sourceId + " (\"" + broken.title +
-                                "\"), replaced by survivor id=" + survivor.sourceId);
-                    rowsRemoved++;
-                }
-            }
-
-            if (scratchDir && !infrastructure::copyFileDurablyAtomic(
-                                   (*scratchDir / "Database2" / "m.db").string(), engineDbFile)) {
-                throw std::runtime_error(
-                    "consistency: failed to commit the scratch-repaired engine library back onto the stick");
-            }
-        } else if (format == "onelibrary") {
-            std::string pioneerRoot = path.toStdString();
-            std::string dbFile = infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(pioneerRoot);
-            auto record = backupStore.backup({dbFile}, "consistency-repair");
-            log.record("consistency: backed up exportLibrary.db -> " + record.path);
-
-            int oneLibWriteCount = 0;
-            for (const auto &issue : issues) {
-                if (!issue.survivor) {
-                    continue;
-                }
-                if (!issue.survivorCues.empty()) {
-                    oneLibWriteCount++;
-                }
-                oneLibWriteCount += static_cast<int>(issue.brokenGroup.size());
-            }
-            std::error_code sizeEc;
-            auto existingBytes = fs::file_size(dbFile, sizeEc);
-            infrastructure::BulkWriteStrategyInputs strategyInputs;
-            strategyInputs.itemCount = oneLibWriteCount;
-            strategyInputs.existingFileBytes = sizeEc ? 0 : existingBytes;
-            bool useWholeFile = !sizeEc && infrastructure::shouldUseWholeFileReplace(strategyInputs) &&
-                                 infrastructure::hasRoomForWholeFileReplace(fs::path(dbFile).parent_path(), existingBytes);
-
-            std::optional<fs::path> scratchDir;
-            std::optional<ScratchDirGuard> scratchGuard;
-            std::string writeTargetRoot = pioneerRoot;
-            if (useWholeFile) {
-                scratchDir = fs::temp_directory_path() /
-                             ("seabass-repair-scratch-onelibrary-" +
-                              std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
-                std::error_code cleanupEc;
-                fs::remove_all(*scratchDir, cleanupEc);
-                fs::create_directories(*scratchDir / "rekordbox");
-                fs::copy_file(dbFile, *scratchDir / "rekordbox" / "exportLibrary.db");
-                scratchGuard.emplace(*scratchDir);
-                writeTargetRoot = scratchDir->string();
-                log.record("consistency: applying " + std::to_string(oneLibWriteCount) +
-                           " OneLibrary update(s) to a local scratch copy first (exportLibrary.db is " +
-                           std::to_string(existingBytes) + " bytes)");
-            }
-
-            infrastructure::onelibrary::OneLibraryCueWriter writer(writeTargetRoot,
-                                                                    fs::path(pioneerRoot).parent_path().string());
-            for (const auto &issue : issues) {
-                if (!issue.survivor) {
-                    continue;
-                }
-                const auto &survivor = *issue.survivor;
-                if (!issue.survivorCues.empty()) {
-                    writer.writeCuesForPath(survivor.filePath, issue.survivorCues);
-                    cuesMerged += static_cast<int>(issue.survivorCues.size());
-                    log.record("consistency: merged cues onto survivor \"" + survivor.title + "\"");
-                }
-                for (const auto &broken : issue.brokenGroup) {
-                    writer.removeTrackByPathReplacingWith(broken.filePath, survivor.filePath);
-                    log.record("consistency: removed broken row \"" + broken.title + "\"");
-                    rowsRemoved++;
-                }
-            }
-
-            if (scratchDir && !infrastructure::copyFileDurablyAtomic(
-                                   (*scratchDir / "rekordbox" / "exportLibrary.db").string(), dbFile)) {
-                throw std::runtime_error(
-                    "consistency: failed to commit the scratch-repaired OneLibrary database back onto the stick");
-            }
+            engineCues = std::make_unique<infrastructure::engine::LibdjinteropEngineCueWriter>(session.writeRoot());
+            engineCleanup =
+                std::make_unique<infrastructure::engine::LibdjinteropEngineCleanupWriter>(session.writeRoot());
         } else {
-            result.errorMessage = "Unknown library format: " + format;
-            return result;
+            oneLibrary = std::make_unique<infrastructure::onelibrary::OneLibraryCueWriter>(
+                session.writeRoot(), fs::path(root).parent_path().string());
         }
-
-        result.statusMessage =
-            QString("Repaired %1 row(s)%2.")
-                .arg(rowsRemoved)
-                .arg(cuesMerged > 0 ? QString(", merged %1 cue(s) onto survivor(s)").arg(cuesMerged) : QString());
-    } catch (const std::exception &e) {
-        result.errorMessage = QString::fromStdString(e.what());
     }
-    return result;
-}
 
-// Runs entirely on a background thread (see LibraryConsistencyController::
-// deleteOrphan()). OneLibrary only, see class comment.
-LibraryConsistencyWriteResult runDeleteOrphanTask(QString path, LibraryConsistencyIssue issue)
+    FormatWriteSession session;
+    std::unique_ptr<infrastructure::rekordbox::RekordboxCueWriter> rekordboxCues;
+    std::unique_ptr<infrastructure::rekordbox::RekordboxCleanupWriter> rekordboxCleanup;
+    std::unique_ptr<infrastructure::engine::LibdjinteropEngineCueWriter> engineCues;
+    std::unique_ptr<infrastructure::engine::LibdjinteropEngineCleanupWriter> engineCleanup;
+    std::unique_ptr<infrastructure::onelibrary::OneLibraryCueWriter> oneLibrary;
+    bool hasOneLibrary = false;
+};
+
+// One Repairable issue: merge any cues the broken row(s) have onto the
+// survivor, then remove the broken row(s). What used to be one iteration
+// of runRepairTask()'s per-format loops.
+class RepairIssueChange : public PendingChange
 {
-    LibraryConsistencyWriteResult result;
-    QString refusal = refuseIfDjSoftwareRunning();
-    if (!refusal.isEmpty()) {
-        result.errorMessage = refusal;
-        return result;
+public:
+    RepairIssueChange(QString path, LibraryConsistencyIssue issue, int itemCountHint)
+        : m_path(std::move(path)), m_issue(std::move(issue)), m_itemCountHint(itemCountHint)
+    {
     }
-    try {
-        fs::path stickRoot = fs::path(path.toStdString()).parent_path();
-        infrastructure::backup::StickWriteLock lock((stickRoot / ".seabass-backups" / ".write.lock").string());
-        infrastructure::backup::FilesystemBackupStore backupStore((stickRoot / ".seabass-backups").string());
-        infrastructure::logging::FileOperationLog log((stickRoot / ".seabass.log").string());
 
-        std::string pioneerRoot = path.toStdString();
-        std::string dbFile = infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(pioneerRoot);
-        auto record = backupStore.backup({dbFile}, "consistency-delete-orphan");
-        log.record("consistency: backed up exportLibrary.db -> " + record.path);
+    QString id() const override { return "repair:" + issueKeyFor(m_issue); }
 
-        infrastructure::onelibrary::OneLibraryCueWriter writer(pioneerRoot);
-        int removed = 0;
-        for (const auto &broken : issue.brokenGroup) {
-            writer.removeTrackByPath(broken.filePath);
-            log.record("consistency: deleted orphaned OneLibrary row \"" + broken.title + "\"");
-            removed++;
+    QString description() const override
+    {
+        QString survivor = m_issue.survivor ? QString::fromStdString(m_issue.survivor->title) : QString("?");
+        QString what = m_issue.survivorCues.empty()
+            ? QString()
+            : QStringLiteral("merge %1 cue(s) onto it, ").arg(m_issue.survivorCues.size());
+        return QStringLiteral("Repair \"%1\" (%2): %3remove %4 broken row(s)")
+            .arg(survivor, issueFormat(m_issue), what)
+            .arg(m_issue.brokenGroup.size());
+    }
+
+    QString unit() const override { return QStringLiteral("rows"); }
+    QStringList formatsTouched() const override { return {issueFormat(m_issue)}; }
+
+    ChangeOutcome apply(SaveContext &ctx) override
+    {
+        if (!m_issue.survivor) {
+            return ChangeOutcome::failure("This row has no survivor to repair onto.");
         }
-        result.statusMessage = QString("Deleted %1 orphaned row(s).").arg(removed);
-    } catch (const std::exception &e) {
-        result.errorMessage = QString::fromStdString(e.what());
-    }
-    return result;
-}
-
-// Runs entirely on a background thread (see LibraryConsistencyController::
-// removeJunkCue()/removeAllJunkCues()). Rewrites each given track's full
-// cue list with its offending 0:00 memory cue(s) removed, mirroring the
-// survivor-cue write in runRepairTask() above: the same per-format
-// writer, the same backup-first/write-lock/log conventions, and the same
-// OneLibrary best-effort mirror when the row is rekordbox. One backup
-// covers the whole batch (tagged "(bulk)" in its comment when there's
-// more than one track), same as runRepairTask()'s single backup-then-
-// loop-writes shape.
-LibraryConsistencyWriteResult runRemoveJunkCuesTask(QString format, QString path, std::vector<domain::Track> tracks)
-{
-    LibraryConsistencyWriteResult result;
-    QString refusal = refuseIfDjSoftwareRunning();
-    if (!refusal.isEmpty()) {
-        result.errorMessage = refusal;
-        return result;
-    }
-    if (tracks.empty()) {
-        return result;
-    }
-    try {
-        fs::path stickRoot = fs::path(path.toStdString()).parent_path();
-        infrastructure::backup::StickWriteLock lock((stickRoot / ".seabass-backups" / ".write.lock").string());
-        infrastructure::backup::FilesystemBackupStore backupStore((stickRoot / ".seabass-backups").string());
-        infrastructure::logging::FileOperationLog log((stickRoot / ".seabass.log").string());
-
-        std::string backupComment = tracks.size() > 1 ? "junk-cue-cleanup (bulk)" : "junk-cue-cleanup";
-        int removed = 0;
-
-        auto cuesWithoutJunk = [](const domain::Track &track) {
-            std::vector<domain::CuePoint> remainingCues;
-            for (const auto &c : track.cues) {
-                if (!(c.kind == domain::CuePoint::Kind::Memory && c.positionMs == 0.0)) {
-                    remainingCues.push_back(c);
-                }
-            }
-            return remainingCues;
-        };
+        const QString format = issueFormat(m_issue);
+        const auto &survivor = *m_issue.survivor;
+        std::string root = m_path.toStdString();
+        RepairWriterContext &w = ctx.shared<RepairWriterContext>(
+            "repair:" + format.toStdString(),
+            [&]() { return std::make_unique<RepairWriterContext>(format, m_path, m_itemCountHint, ctx); });
 
         if (format == "rekordbox") {
-            std::string pioneerRoot = path.toStdString();
-            auto record = backupStore.backup({pioneerRoot + "/rekordbox/export.pdb"}, backupComment);
-            log.record("junk-cue: backed up export.pdb -> " + record.path);
-            std::set<std::string> backedUpAnlz;
-            bool hasOneLib = infrastructure::onelibrary::OneLibraryCueWriter::existsFor(pioneerRoot);
-            infrastructure::rekordbox::RekordboxCueWriter writer(pioneerRoot);
-
-            for (const auto &track : tracks) {
+            if (!m_issue.survivorCues.empty()) {
                 auto analyzePath = infrastructure::rekordbox::findAnlzPathForTrackId(
-                    pioneerRoot, static_cast<uint32_t>(std::stoul(track.sourceId)));
+                    root, static_cast<uint32_t>(std::stoul(survivor.sourceId)));
                 if (analyzePath) {
-                    std::string extPath = infrastructure::rekordbox::extAnlzPath(pioneerRoot, *analyzePath);
-                    if (backedUpAnlz.insert(extPath).second) {
-                        auto anlzRecord = backupStore.backup({extPath}, backupComment);
-                        log.record("junk-cue: backed up -> " + anlzRecord.path);
+                    ctx.backupOnce(infrastructure::rekordbox::extAnlzPath(root, *analyzePath), "consistency-repair");
+                }
+                w.rekordboxCues->writeHotCues(survivor.sourceId, m_issue.survivorCues);
+                ctx.log().record("consistency: merged cues onto survivor id=" + survivor.sourceId);
+                // Best-effort mirror, same convention as Clean Up's own
+                // survivor-cue mirror block.
+                if (w.hasOneLibrary && !survivor.filePath.empty()) {
+                    try {
+                        infrastructure::onelibrary::OneLibraryCueWriter oneLibWriter(root);
+                        oneLibWriter.writeCuesForPath(survivor.filePath, m_issue.survivorCues);
+                    } catch (const std::exception &e) {
+                        ctx.log().record(std::string("consistency: OneLibrary cue mirror failed: ") + e.what());
                     }
                 }
-                auto remainingCues = cuesWithoutJunk(track);
-                writer.writeHotCues(track.sourceId, remainingCues);
-                log.record("junk-cue: removed 0:00 memory cue from \"" + track.title + "\" (id=" + track.sourceId +
-                            ")");
-                removed++;
-
-                if (hasOneLib && !track.filePath.empty()) {
+            }
+            for (const auto &broken : m_issue.brokenGroup) {
+                w.rekordboxCleanup->removeTrackReplacingWith(broken.sourceId, survivor.sourceId);
+                w.session.noteItemApplied();
+                ctx.log().record("consistency: removed broken row id=" + broken.sourceId + " (\"" + broken.title
+                                 + "\"), replaced by survivor id=" + survivor.sourceId);
+                if (w.hasOneLibrary && !broken.filePath.empty() && !survivor.filePath.empty()) {
                     try {
-                        infrastructure::onelibrary::OneLibraryCueWriter oneLibWriter(pioneerRoot);
-                        oneLibWriter.writeCuesForPath(track.filePath, remainingCues);
+                        infrastructure::onelibrary::OneLibraryCueWriter oneLibWriter(root);
+                        // Reassigns playlist membership onto the survivor
+                        // instead of dropping it -- see OneLibraryCueWriter::
+                        // removeTrackByPathReplacingWith()'s own comment.
+                        oneLibWriter.removeTrackByPathReplacingWith(broken.filePath, survivor.filePath);
                     } catch (const std::exception &e) {
-                        log.record(std::string("junk-cue: OneLibrary cue mirror failed: ") + e.what());
+                        ctx.log().record(std::string("consistency: OneLibrary row removal failed: ") + e.what());
                     }
                 }
             }
         } else if (format == "engine") {
-            std::string engineLibraryPath = path.toStdString();
-            std::string engineDbFile = (fs::path(engineLibraryPath) / "Database2" / "m.db").string();
-            auto record = backupStore.backup({engineDbFile}, backupComment);
-            log.record("junk-cue: backed up m.db -> " + record.path);
-            infrastructure::engine::LibdjinteropEngineCueWriter writer(engineLibraryPath);
-
-            for (const auto &track : tracks) {
-                auto remainingCues = cuesWithoutJunk(track);
-                writer.writeHotCues(track.sourceId, remainingCues);
-                log.record("junk-cue: removed 0:00 memory cue from \"" + track.title + "\" (id=" + track.sourceId +
-                            ")");
-                removed++;
+            if (!m_issue.survivorCues.empty()) {
+                w.engineCues->writeHotCues(survivor.sourceId, m_issue.survivorCues);
+                w.session.noteItemApplied();
+                ctx.log().record("consistency: merged cues onto survivor id=" + survivor.sourceId);
+            }
+            for (const auto &broken : m_issue.brokenGroup) {
+                w.engineCleanup->removeTrackReplacingWith(broken.sourceId, survivor.sourceId);
+                w.session.noteItemApplied();
+                ctx.log().record("consistency: removed broken row id=" + broken.sourceId + " (\"" + broken.title
+                                 + "\"), replaced by survivor id=" + survivor.sourceId);
             }
         } else if (format == "onelibrary") {
-            std::string pioneerRoot = path.toStdString();
-            std::string dbFile = infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(pioneerRoot);
-            auto record = backupStore.backup({dbFile}, backupComment);
-            log.record("junk-cue: backed up exportLibrary.db -> " + record.path);
-            infrastructure::onelibrary::OneLibraryCueWriter writer(pioneerRoot);
-
-            for (const auto &track : tracks) {
-                auto remainingCues = cuesWithoutJunk(track);
-                writer.writeCuesForPath(track.filePath, remainingCues);
-                log.record("junk-cue: removed 0:00 memory cue from \"" + track.title + "\"");
-                removed++;
+            if (!m_issue.survivorCues.empty()) {
+                w.oneLibrary->writeCuesForPath(survivor.filePath, m_issue.survivorCues);
+                w.session.noteItemApplied();
+                ctx.log().record("consistency: merged cues onto survivor \"" + survivor.title + "\"");
+            }
+            for (const auto &broken : m_issue.brokenGroup) {
+                w.oneLibrary->removeTrackByPathReplacingWith(broken.filePath, survivor.filePath);
+                w.session.noteItemApplied();
+                ctx.log().record("consistency: removed broken row \"" + broken.title + "\"");
             }
         } else {
-            result.errorMessage = "Unknown library format: " + format;
-            return result;
+            return ChangeOutcome::failure("Unknown library format: " + format);
         }
-
-        result.statusMessage = removed == 1
-            ? QString("Removed the 0:00 memory cue from \"%1\".").arg(QString::fromStdString(tracks.front().title))
-            : QString("Removed %1 memory cue(s) at 0:00.").arg(removed);
-    } catch (const std::exception &e) {
-        result.errorMessage = QString::fromStdString(e.what());
+        return ChangeOutcome::success();
     }
-    return result;
-}
 
+private:
+    QString m_path;
+    LibraryConsistencyIssue m_issue;
+    int m_itemCountHint;
+};
+
+// One Missing issue's orphaned OneLibrary row(s) deleted outright
+// (OneLibrary only, see the controller's class comment).
+class DeleteOrphanChange : public PendingChange
+{
+public:
+    DeleteOrphanChange(QString path, LibraryConsistencyIssue issue) : m_path(std::move(path)), m_issue(std::move(issue))
+    {
+    }
+
+    QString id() const override { return "orphan:" + issueKeyFor(m_issue); }
+    QString description() const override
+    {
+        QString title = m_issue.brokenGroup.empty() ? QString("?") : QString::fromStdString(m_issue.brokenGroup.front().title);
+        return QStringLiteral("Delete %1 orphaned OneLibrary row(s) (\"%2\")").arg(m_issue.brokenGroup.size()).arg(title);
+    }
+    QString unit() const override { return QStringLiteral("rows"); }
+    QStringList formatsTouched() const override { return {"onelibrary"}; }
+
+    ChangeOutcome apply(SaveContext &ctx) override
+    {
+        std::string root = m_path.toStdString();
+        struct Writer
+        {
+            explicit Writer(const std::string &pioneerRoot) : writer(pioneerRoot) {}
+            infrastructure::onelibrary::OneLibraryCueWriter writer;
+        };
+        Writer &w = ctx.shared<Writer>("orphan:onelibrary", [&]() {
+            ctx.backupOnce(infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(root), "consistency-delete-orphan");
+            return std::make_unique<Writer>(root);
+        });
+        for (const auto &broken : m_issue.brokenGroup) {
+            w.writer.removeTrackByPath(broken.filePath);
+            ctx.log().record("consistency: deleted orphaned OneLibrary row \"" + broken.title + "\"");
+        }
+        return ChangeOutcome::success();
+    }
+
+private:
+    QString m_path;
+    LibraryConsistencyIssue m_issue;
+};
+
+// The writer of one save's stray-cue removals for one format.
+struct JunkCueWriterContext
+{
+    JunkCueWriterContext(const QString &format, const QString &path, SaveContext &ctx)
+    {
+        std::string root = path.toStdString();
+        if (format == "rekordbox") {
+            ctx.backupOnce(root + "/rekordbox/export.pdb", "junk-cue-cleanup");
+            rekordbox = std::make_unique<infrastructure::rekordbox::RekordboxCueWriter>(root);
+            hasOneLibrary = infrastructure::onelibrary::OneLibraryCueWriter::existsFor(root);
+        } else if (format == "engine") {
+            ctx.backupOnce((fs::path(root) / "Database2" / "m.db").string(), "junk-cue-cleanup");
+            engine = std::make_unique<infrastructure::engine::LibdjinteropEngineCueWriter>(root);
+        } else {
+            ctx.backupOnce(infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(root), "junk-cue-cleanup");
+            oneLibrary = std::make_unique<infrastructure::onelibrary::OneLibraryCueWriter>(root);
+        }
+    }
+
+    std::unique_ptr<infrastructure::rekordbox::RekordboxCueWriter> rekordbox;
+    std::unique_ptr<infrastructure::engine::LibdjinteropEngineCueWriter> engine;
+    std::unique_ptr<infrastructure::onelibrary::OneLibraryCueWriter> oneLibrary;
+    bool hasOneLibrary = false;
+};
+
+// One track's 0:00 memory cue removed: the full cue list rewritten
+// without it, same "pass the complete replacement set" contract as
+// CueWriter::writeHotCues() everywhere else.
+class RemoveJunkCueChange : public PendingChange
+{
+public:
+    RemoveJunkCueChange(QString path, domain::Track track) : m_path(std::move(path)), m_track(std::move(track)) {}
+
+    QString id() const override { return "junk:" + junkKeyFor(m_track); }
+    QString description() const override
+    {
+        return QStringLiteral("Remove the 0:00 memory cue from \"%1\"").arg(QString::fromStdString(m_track.title));
+    }
+    QString unit() const override { return QStringLiteral("cues"); }
+    QStringList formatsTouched() const override { return {QString::fromStdString(m_track.format)}; }
+
+    ChangeOutcome apply(SaveContext &ctx) override
+    {
+        const QString format = QString::fromStdString(m_track.format);
+        std::string root = m_path.toStdString();
+        JunkCueWriterContext &w = ctx.shared<JunkCueWriterContext>(
+            "junk:" + m_track.format, [&]() { return std::make_unique<JunkCueWriterContext>(format, m_path, ctx); });
+        auto remainingCues = cuesWithoutJunk(m_track);
+
+        if (format == "rekordbox") {
+            auto analyzePath = infrastructure::rekordbox::findAnlzPathForTrackId(
+                root, static_cast<uint32_t>(std::stoul(m_track.sourceId)));
+            if (analyzePath) {
+                ctx.backupOnce(infrastructure::rekordbox::extAnlzPath(root, *analyzePath), "junk-cue-cleanup");
+            }
+            w.rekordbox->writeHotCues(m_track.sourceId, remainingCues);
+            if (w.hasOneLibrary && !m_track.filePath.empty()) {
+                try {
+                    infrastructure::onelibrary::OneLibraryCueWriter oneLibWriter(root);
+                    oneLibWriter.writeCuesForPath(m_track.filePath, remainingCues);
+                } catch (const std::exception &e) {
+                    ctx.log().record(std::string("junk-cue: OneLibrary cue mirror failed: ") + e.what());
+                }
+            }
+        } else if (format == "engine") {
+            w.engine->writeHotCues(m_track.sourceId, remainingCues);
+        } else if (format == "onelibrary") {
+            w.oneLibrary->writeCuesForPath(m_track.filePath, remainingCues);
+        } else {
+            return ChangeOutcome::failure("Unknown library format: " + format);
+        }
+        ctx.log().record("junk-cue: removed 0:00 memory cue from \"" + m_track.title + "\" (id=" + m_track.sourceId
+                         + ")");
+        return ChangeOutcome::success();
+    }
+
+private:
+    QString m_path;
+    domain::Track m_track;
+};
 }  // namespace
 
 LibraryConsistencyController::LibraryConsistencyController(QObject *parent) : QObject(parent)
 {
     connect(&m_watcher, &QFutureWatcher<LibraryConsistencyScanResult>::finished, this,
             &LibraryConsistencyController::onScanFinished);
-    connect(&m_writeWatcher, &QFutureWatcher<LibraryConsistencyWriteResult>::finished, this,
-            &LibraryConsistencyController::onWriteFinished);
 }
 
 std::shared_ptr<QtProgressReporter> LibraryConsistencyController::makeReporter()
@@ -828,6 +743,7 @@ void LibraryConsistencyController::scan(const QString &rekordboxPath, const QStr
     setScanProgress(0, 0);
 
     m_scanCancel = application::CancellationToken();
+    attachSession();
     m_pendingScanFormats.clear();
     if (!rekordboxPath.isEmpty()) {
         m_pendingScanFormats.push_back("rekordbox");
@@ -882,6 +798,20 @@ void LibraryConsistencyController::onScanFinished()
     } else {
         m_model.appendIssues(std::move(result.issues));
         m_junkCueModel.appendIssues(std::move(result.junkCues));
+        // Rows staged before this rescan keep their mark if they are
+        // still listed (the change itself lives in the session).
+        for (const auto &[key, info] : m_stagedIssues) {
+            int index = indexOfIssueKey(key);
+            if (index >= 0) {
+                m_model.setStaged(index, true, info.description);
+            }
+        }
+        for (const auto &[key, changeId] : m_stagedJunk) {
+            int index = indexOfJunkKey(key);
+            if (index >= 0) {
+                m_junkCueModel.setStaged(index, true);
+            }
+        }
         mergePlaylistSummary(result.playlistNames, result.playlistTrackCounts);
         emit issuesChanged();
     }
@@ -917,47 +847,197 @@ int LibraryConsistencyController::repairableCount() const
     return n;
 }
 
+bool LibraryConsistencyController::writing() const
+{
+    return m_session && m_session->writing();
+}
+
+bool LibraryConsistencyController::canUndo() const
+{
+    return m_session && m_session->canUndo();
+}
+
+int LibraryConsistencyController::indexOfIssueKey(const QString &issueKey) const
+{
+    const auto &issues = m_model.issues();
+    for (size_t i = 0; i < issues.size(); ++i) {
+        if (issueKeyFor(issues[i]) == issueKey) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
+int LibraryConsistencyController::indexOfJunkKey(const QString &junkKey) const
+{
+    const auto &issues = m_junkCueModel.issues();
+    for (size_t i = 0; i < issues.size(); ++i) {
+        if (junkKeyFor(issues[i].track) == junkKey) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
+void LibraryConsistencyController::attachSession()
+{
+    auto *registry = EditSessionRegistry::instance();
+    const QString &any = m_rekordboxPath.isEmpty() ? m_enginePath : m_rekordboxPath;
+    LibraryEditSession *session = registry->sessionFor(registry->libraryIdForPath(any));
+    if (session != m_session) {
+        if (m_session) {
+            disconnect(m_session, nullptr, this, nullptr);
+        }
+        m_session = session;
+        if (m_session) {
+            connect(m_session, &LibraryEditSession::stateChanged, this, &LibraryConsistencyController::writingChanged);
+            connect(m_session, &LibraryEditSession::canUndoChanged, this,
+                    &LibraryConsistencyController::canUndoChanged);
+            connect(m_session, &LibraryEditSession::changeApplied, this, [this](const QString &changeId) {
+                if (changeId == QStringLiteral("undo:last-save")) {
+                    scan(m_rekordboxPath, m_enginePath, m_currentPlaylistName);
+                    return;
+                }
+                for (auto it = m_stagedIssues.begin(); it != m_stagedIssues.end(); ++it) {
+                    if (it->second.changeId == changeId) {
+                        // A rekordbox repair mirrors its cue merge/row
+                        // removal into OneLibrary best-effort, which can
+                        // silently stale an already-listed OneLibrary
+                        // issue in ways only a fresh check across every
+                        // format could catch: re-scan once the save is
+                        // done (see saveFinished below).
+                        if (changeId.startsWith(QStringLiteral("repair:rekordbox:"))) {
+                            m_rescanAfterSave = true;
+                        }
+                        int index = indexOfIssueKey(it->first);
+                        m_stagedIssues.erase(it);
+                        if (index >= 0) {
+                            m_model.removeIssueAt(index);
+                        }
+                        emit issuesChanged();
+                        return;
+                    }
+                }
+                for (auto it = m_stagedJunk.begin(); it != m_stagedJunk.end(); ++it) {
+                    if (it->second == changeId) {
+                        // Removing a memory cue at 0:00 can't change file
+                        // existence or which broken row matches which
+                        // survivor, so the row just goes (a re-scan after
+                        // every removal was the entire cost of "removing
+                        // stray cues is slow").
+                        int index = indexOfJunkKey(it->first);
+                        m_stagedJunk.erase(it);
+                        if (index >= 0) {
+                            m_junkCueModel.removeAt(index);
+                        }
+                        emit issuesChanged();
+                        return;
+                    }
+                }
+            });
+            connect(m_session, &LibraryEditSession::saveFinished, this, [this](const QVariantMap &) {
+                if (m_rescanAfterSave) {
+                    m_rescanAfterSave = false;
+                    scan(m_rekordboxPath, m_enginePath, m_currentPlaylistName);
+                }
+            });
+            connect(m_session, &LibraryEditSession::changesDiscarded, this, [this]() {
+                m_stagedIssues.clear();
+                m_stagedJunk.clear();
+                m_model.clearStaged();
+                m_junkCueModel.clearStaged();
+                emit issuesChanged();
+            });
+        }
+    }
+    if (m_session) {
+        m_session->setLibraryPaths(m_rekordboxPath, m_enginePath);
+    }
+}
+
+bool LibraryConsistencyController::ensureSessionForStaging()
+{
+    if (!m_session) {
+        attachSession();
+        if (!m_session) {
+            setErrorMessage("This stick's library could not be identified; nothing was changed.");
+            return false;
+        }
+    }
+    if (m_session->writing()) {
+        setErrorMessage("A save is running -- stage more once it has finished.");
+        return false;
+    }
+    return true;
+}
+
+// How many database writes this save may make against `format`'s
+// catalog (drives the scratch-copy decision): every listed Repairable
+// issue of that format, the most that could be staged.
+int LibraryConsistencyController::repairItemCountHint(const QString &format) const
+{
+    int count = 0;
+    for (const auto &issue : m_model.issues()) {
+        if (issue.kind == LibraryConsistencyIssue::Kind::Repairable && issueFormat(issue) == format) {
+            count += static_cast<int>(issue.brokenGroup.size()) + (issue.survivorCues.empty() ? 0 : 1);
+        }
+    }
+    return count;
+}
+
+void LibraryConsistencyController::stageIssue(int index)
+{
+    const auto &issues = m_model.issues();
+    if (index < 0 || static_cast<size_t>(index) >= issues.size()) {
+        return;
+    }
+    const auto &issue = issues[static_cast<size_t>(index)];
+    QString format = issueFormat(issue);
+    std::unique_ptr<PendingChange> change;
+    if (issue.kind == LibraryConsistencyIssue::Kind::Repairable) {
+        change = std::make_unique<RepairIssueChange>(pathForFormat(format), issue, repairItemCountHint(format));
+    } else if (issue.kind == LibraryConsistencyIssue::Kind::Missing && format == "onelibrary") {
+        change = std::make_unique<DeleteOrphanChange>(m_rekordboxPath, issue);
+    } else {
+        return;
+    }
+    if (!ensureSessionForStaging()) {
+        return;
+    }
+    QString key = issueKeyFor(issue);
+    QString changeId = change->id();
+    QString description = change->description();
+    if (!m_session->stage(std::move(change))) {
+        return;  // the session reported the lock refusal; the page shows it
+    }
+    m_stagedIssues[key] = {changeId, description};
+    m_model.setStaged(index, true, description);
+    emit issuesChanged();
+}
+
 void LibraryConsistencyController::repairAll()
 {
     if (m_busy) {
         return;
     }
-    std::map<QString, std::vector<LibraryConsistencyIssue>> byFormat;
-    m_pendingRepairedIndices.clear();
-    m_pendingRepairTouchedRekordbox = false;
-    const auto &issues = m_model.issues();
-    for (size_t i = 0; i < issues.size(); ++i) {
-        const auto &issue = issues[i];
-        if (issue.kind == LibraryConsistencyIssue::Kind::Repairable) {
-            QString format = issueFormat(issue);
-            byFormat[format].push_back(issue);
-            m_pendingRepairedIndices.push_back(static_cast<int>(i));
-            if (format == "rekordbox") {
-                m_pendingRepairTouchedRekordbox = true;
-            }
-        }
-    }
-    if (byFormat.empty()) {
-        return;
-    }
-
-    m_pendingRepairs.clear();
-    for (auto &[format, issuesForFormat] : byFormat) {
-        m_pendingRepairs.emplace_back(format, std::move(issuesForFormat));
-    }
-
-    m_pendingWriteKind = PendingWriteKind::Repair;
     setErrorMessage({});
     setStatusMessage({});
-    setBusy(true);
-    setWriting(true);
-
-    // Kick off the first format's repair; onWriteFinished() pops and
-    // starts the rest of m_pendingRepairs as each one completes.
-    QString format = m_pendingRepairs.front().first;
-    auto pendingIssues = std::move(m_pendingRepairs.front().second);
-    m_pendingRepairs.erase(m_pendingRepairs.begin());
-    m_writeWatcher.setFuture(QtConcurrent::run(runRepairTask, format, pathForFormat(format), pendingIssues));
+    int staged = 0;
+    const size_t count = m_model.issues().size();
+    for (size_t i = 0; i < count; ++i) {
+        const auto &issue = m_model.issues()[i];
+        if (issue.kind != LibraryConsistencyIssue::Kind::Repairable || m_stagedIssues.count(issueKeyFor(issue))) {
+            continue;
+        }
+        stageIssue(static_cast<int>(i));
+        staged++;
+        if (m_session && !m_session->lockHeld()) {
+            return;  // refused at the first one; no point trying the rest
+        }
+    }
+    if (staged > 0) {
+        setStatusMessage(QStringLiteral("Staged %1 repair(s). Press Save to write them to the stick.").arg(staged));
+    }
 }
 
 void LibraryConsistencyController::repairOne(int index)
@@ -965,32 +1045,9 @@ void LibraryConsistencyController::repairOne(int index)
     if (m_busy) {
         return;
     }
-    const auto &issues = m_model.issues();
-    if (index < 0 || static_cast<size_t>(index) >= issues.size()) {
-        return;
-    }
-    const auto &issue = issues[static_cast<size_t>(index)];
-    if (issue.kind != LibraryConsistencyIssue::Kind::Repairable) {
-        return;
-    }
-    QString format = issueFormat(issue);
-
-    m_pendingRepairs.clear();
-    m_pendingRepairs.emplace_back(format, std::vector<LibraryConsistencyIssue>{issue});
-    m_pendingRepairedIndices = {index};
-    m_pendingRepairTouchedRekordbox = (format == "rekordbox");
-
-    m_pendingWriteKind = PendingWriteKind::Repair;
     setErrorMessage({});
     setStatusMessage({});
-    setBusy(true);
-    setWriting(true);
-    // Repairing one item just means the pending-repair batch has exactly
-    // one (format, [issue]) entry, reuse the exact same chain as
-    // repairAll() rather than a parallel single-item write path.
-    auto pendingIssues = std::move(m_pendingRepairs.front().second);
-    m_pendingRepairs.erase(m_pendingRepairs.begin());
-    m_writeWatcher.setFuture(QtConcurrent::run(runRepairTask, format, pathForFormat(format), pendingIssues));
+    stageIssue(index);
 }
 
 void LibraryConsistencyController::deleteOrphan(int index)
@@ -998,24 +1055,48 @@ void LibraryConsistencyController::deleteOrphan(int index)
     if (m_busy) {
         return;
     }
+    setErrorMessage({});
+    setStatusMessage({});
+    stageIssue(index);
+}
+
+void LibraryConsistencyController::unstageIssue(int index)
+{
     const auto &issues = m_model.issues();
     if (index < 0 || static_cast<size_t>(index) >= issues.size()) {
         return;
     }
-    const auto &issue = issues[static_cast<size_t>(index)];
-    if (issue.kind != LibraryConsistencyIssue::Kind::Missing || issueFormat(issue) != "onelibrary") {
+    auto it = m_stagedIssues.find(issueKeyFor(issues[static_cast<size_t>(index)]));
+    if (it == m_stagedIssues.end()) {
         return;
     }
-    LibraryConsistencyIssue issueCopy = issue;
+    if (m_session) {
+        m_session->unstage(it->second.changeId);
+    }
+    m_stagedIssues.erase(it);
+    m_model.setStaged(index, false, QString());
+    emit issuesChanged();
+}
 
-    m_pendingWriteKind = PendingWriteKind::Repair;
-    m_pendingRepairedIndices = {index};
-    m_pendingRepairTouchedRekordbox = false;  // deleteOrphan is OneLibrary-only, see the check above
-    setErrorMessage({});
-    setStatusMessage({});
-    setBusy(true);
-    setWriting(true);
-    m_writeWatcher.setFuture(QtConcurrent::run(runDeleteOrphanTask, m_rekordboxPath, std::move(issueCopy)));
+void LibraryConsistencyController::stageJunkCue(int index)
+{
+    const auto &issues = m_junkCueModel.issues();
+    if (index < 0 || static_cast<size_t>(index) >= issues.size()) {
+        return;
+    }
+    const domain::Track &track = issues[static_cast<size_t>(index)].track;
+    if (!ensureSessionForStaging()) {
+        return;
+    }
+    auto change = std::make_unique<RemoveJunkCueChange>(pathForFormat(QString::fromStdString(track.format)), track);
+    QString key = junkKeyFor(track);
+    QString changeId = change->id();
+    if (!m_session->stage(std::move(change))) {
+        return;
+    }
+    m_stagedJunk[key] = changeId;
+    m_junkCueModel.setStaged(index, true);
+    emit issuesChanged();
 }
 
 void LibraryConsistencyController::removeJunkCue(int index)
@@ -1023,21 +1104,9 @@ void LibraryConsistencyController::removeJunkCue(int index)
     if (m_busy) {
         return;
     }
-    const auto &issues = m_junkCueModel.issues();
-    if (index < 0 || static_cast<size_t>(index) >= issues.size()) {
-        return;
-    }
-    domain::Track track = issues[static_cast<size_t>(index)].track;
-    QString format = QString::fromStdString(track.format);
-
-    m_pendingWriteKind = PendingWriteKind::RemoveOneJunkCue;
-    m_pendingJunkCueRemovalIndex = index;
     setErrorMessage({});
     setStatusMessage({});
-    setBusy(true);
-    setWriting(true);
-    m_writeWatcher.setFuture(QtConcurrent::run(runRemoveJunkCuesTask, format, pathForFormat(format),
-                                                std::vector<domain::Track>{std::move(track)}));
+    stageJunkCue(index);
 }
 
 void LibraryConsistencyController::removeAllJunkCues()
@@ -1045,123 +1114,66 @@ void LibraryConsistencyController::removeAllJunkCues()
     if (m_busy) {
         return;
     }
-    std::map<QString, std::vector<domain::Track>> byFormat;
-    for (const auto &issue : m_junkCueModel.issues()) {
-        byFormat[QString::fromStdString(issue.track.format)].push_back(issue.track);
-    }
-    if (byFormat.empty()) {
-        return;
-    }
-
-    m_pendingJunkCueRemovals.clear();
-    for (auto &[format, tracks] : byFormat) {
-        m_pendingJunkCueRemovals.emplace_back(format, std::move(tracks));
-    }
-
-    m_pendingWriteKind = PendingWriteKind::RemoveAllJunkCues;
     setErrorMessage({});
     setStatusMessage({});
-    setBusy(true);
-    setWriting(true);
+    int staged = 0;
+    const size_t count = m_junkCueModel.issues().size();
+    for (size_t i = 0; i < count; ++i) {
+        if (m_stagedJunk.count(junkKeyFor(m_junkCueModel.issues()[i].track))) {
+            continue;
+        }
+        stageJunkCue(static_cast<int>(i));
+        staged++;
+        if (m_session && !m_session->lockHeld()) {
+            return;
+        }
+    }
+    if (staged > 0) {
+        setStatusMessage(
+            QStringLiteral("Staged removing %1 stray cue(s). Press Save to write it to the stick.").arg(staged));
+    }
+}
 
-    // Kick off the first format's removal batch; onWriteFinished() pops
-    // and starts the rest of m_pendingJunkCueRemovals as each completes,
-    // same chaining shape as repairAll()/m_pendingRepairs.
-    QString format = m_pendingJunkCueRemovals.front().first;
-    auto tracks = std::move(m_pendingJunkCueRemovals.front().second);
-    m_pendingJunkCueRemovals.erase(m_pendingJunkCueRemovals.begin());
-    m_writeWatcher.setFuture(QtConcurrent::run(runRemoveJunkCuesTask, format, pathForFormat(format), tracks));
+void LibraryConsistencyController::unstageJunkCue(int index)
+{
+    const auto &issues = m_junkCueModel.issues();
+    if (index < 0 || static_cast<size_t>(index) >= issues.size()) {
+        return;
+    }
+    auto it = m_stagedJunk.find(junkKeyFor(issues[static_cast<size_t>(index)].track));
+    if (it == m_stagedJunk.end()) {
+        return;
+    }
+    if (m_session) {
+        m_session->unstage(it->second);
+    }
+    m_stagedJunk.erase(it);
+    m_junkCueModel.setStaged(index, false);
+    emit issuesChanged();
 }
 
 void LibraryConsistencyController::ignoreJunkCue(int index)
 {
+    unstageJunkCue(index);  // a dismissed row must not be written after all
     m_junkCueModel.removeAt(index);
 }
 
 void LibraryConsistencyController::ignoreAllJunkCues()
 {
+    for (int i = static_cast<int>(m_junkCueModel.issues().size()) - 1; i >= 0; --i) {
+        unstageJunkCue(i);
+    }
     m_junkCueModel.clear();
 }
 
-void LibraryConsistencyController::onWriteFinished()
+void LibraryConsistencyController::undoLastOperation()
 {
-    LibraryConsistencyWriteResult result = m_writeWatcher.result();
-    if (!result.errorMessage.isEmpty()) {
-        setErrorMessage(result.errorMessage);
-    } else if (!result.statusMessage.isEmpty()) {
-        setStatusMessage(result.statusMessage);
-    }
-
-    if (!m_pendingRepairs.empty()) {
-        QString format = m_pendingRepairs.front().first;
-        auto pendingIssues = std::move(m_pendingRepairs.front().second);
-        m_pendingRepairs.erase(m_pendingRepairs.begin());
-        m_writeWatcher.setFuture(QtConcurrent::run(runRepairTask, format, pathForFormat(format), pendingIssues));
+    if (m_busy || !m_session) {
         return;
     }
-    if (!m_pendingJunkCueRemovals.empty()) {
-        QString format = m_pendingJunkCueRemovals.front().first;
-        auto tracks = std::move(m_pendingJunkCueRemovals.front().second);
-        m_pendingJunkCueRemovals.erase(m_pendingJunkCueRemovals.begin());
-        m_writeWatcher.setFuture(QtConcurrent::run(runRemoveJunkCuesTask, format, pathForFormat(format), tracks));
-        return;
-    }
-
-    setBusy(false);
-    setWriting(false);
-
-    // A write may have touched any/all of the three catalogs -- rather
-    // than plumbing through exactly which one(s) a given batch actually
-    // wrote to, just invalidate all three; even the local-update
-    // branches below that skip the immediate re-scan still need this,
-    // so a *later* scan (switching playlists, reopening the page) can't
-    // read stale cached tracks from before the write within the same
-    // mtime-granularity window. Same convention as SyncController::
-    // onWriteFinished().
-    auto &catalogCache = LibraryCatalogCache::instance();
-    catalogCache.invalidate("rekordbox", m_rekordboxPath.toStdString());
-    catalogCache.invalidate("engine", m_enginePath.toStdString());
-    catalogCache.invalidate("onelibrary", m_rekordboxPath.toStdString());
-
-    if (m_pendingWriteKind == PendingWriteKind::RemoveOneJunkCue) {
-        // Removing a memory cue at 0:00 can't change file existence or
-        // which broken row matches which survivor -- the only two
-        // things LibraryConsistencyChecker actually looks at -- so
-        // there's nothing a full re-scan of the whole catalog from
-        // removable media could reveal here. Traced with gdb: a re-scan
-        // after every single removal was the entire cost of "removing
-        // stray cues is slow" (confirmed via repeated stack sampling
-        // during a real removal -- 100% of the sampled time was inside
-        // runScanTask/KaitaiRekordboxReader::readAll, never inside the
-        // write itself). Just drop the row locally instead, same as the
-        // no-write Ignore path already does.
-        m_junkCueModel.removeAt(m_pendingJunkCueRemovalIndex);
-        m_pendingJunkCueRemovalIndex = -1;
-    } else if (m_pendingWriteKind == PendingWriteKind::RemoveAllJunkCues) {
-        m_junkCueModel.clear();
-    } else if (m_pendingRepairTouchedRekordbox) {
-        // A rekordbox repair mirrors its cue merge/row removal into
-        // OneLibrary best-effort (see runRepairTask's "rekordbox"
-        // branch), and m_model combines every format's issues into one
-        // list -- that mirror write can silently stale an already-
-        // listed OneLibrary issue in ways only a fresh
-        // LibraryConsistencyChecker::check() run across every format
-        // could catch. Re-scan for real here, staying scoped to
-        // whatever playlist was selected rather than reverting to "All
-        // tracks". Every other repair/delete has no such cross-catalog
-        // side effect (verified: DuplicateTrackFinder groups by
-        // filename/title+artist+duration only, never cues or row
-        // existence, so repairing one group can't reclassify another)
-        // and is handled by the local removal below instead.
-        scan(m_rekordboxPath, m_enginePath, m_currentPlaylistName);
-    } else {
-        std::sort(m_pendingRepairedIndices.rbegin(), m_pendingRepairedIndices.rend());
-        for (int idx : m_pendingRepairedIndices) {
-            m_model.removeIssueAt(idx);
-        }
-        m_pendingRepairedIndices.clear();
-        emit issuesChanged();  // repairableCount reads m_model.issues()
-    }
+    setErrorMessage({});
+    setStatusMessage({});
+    m_session->undoLastSave();
 }
 
 void LibraryConsistencyController::setBusy(bool busy)
@@ -1171,15 +1183,6 @@ void LibraryConsistencyController::setBusy(bool busy)
     }
     m_busy = busy;
     emit busyChanged();
-}
-
-void LibraryConsistencyController::setWriting(bool writing)
-{
-    if (m_writing == writing) {
-        return;
-    }
-    m_writing = writing;
-    emit writingChanged();
 }
 
 void LibraryConsistencyController::setScanProgress(int current, int total)

@@ -19,6 +19,17 @@ Page {
     LibraryConsistencyController {
         id: consistencyController
     }
+
+    // Edit mode for this library: session, floating Save, leave guard.
+    EditSessionHost {
+        id: editHost
+        anchors.fill: parent
+        libraryId: typeof EditSessionRegistry !== "undefined"
+            ? EditSessionRegistry.libraryIdForPath(root.rekordboxPath.length > 0 ? root.rekordboxPath : root.enginePath) : ""
+        stickLabel: root.stickLabel
+        rekordboxPath: root.rekordboxPath
+        enginePath: root.enginePath
+    }
     // Backs "Resolve..." on a Conflict row: reuses the exact same manual
     // two-track-merge feature Browse Library's own "Merge with..."
     // picker uses. A Conflict issue already names both tracks (the
@@ -73,8 +84,8 @@ Page {
                 middleLabel: root.stickLabel
                 title: "Library Health"
                 backEnabled: !consistencyController.writing
-                onHomeRequested: root.StackView.view.pop(null)
-                onBackRequested: root.StackView.view.pop()
+                onHomeRequested: editHost.requestLeave(() => root.StackView.view.pop(null))
+                onBackRequested: editHost.requestLeave(() => root.StackView.view.pop())
             }
             Item { Layout.fillWidth: true }
             RowLayout {
@@ -96,9 +107,9 @@ Page {
         anchors.centerIn: parent
         modal: true
         width: 460
-        title: "Repair " + consistencyController.repairableCount + " Row(s)?"
+        title: "Stage repairing " + consistencyController.repairableCount + " row(s)?"
         footer: DialogButtonBox {
-            Button { text: "Repair"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
+            Button { text: "Stage Repairs"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
             Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
         }
         onAccepted: consistencyController.repairAll()
@@ -107,7 +118,8 @@ Page {
             width: parent.width
             wrapMode: Text.WordWrap
             text: "Merges any cues these rows have onto their already-valid survivor (only where the "
-                + "survivor doesn't already have them), then removes the broken row. Backed up first."
+                + "survivor doesn't already have them), then removes the broken row. Nothing is written until "
+                + "you press Save; everything is backed up first."
         }
     }
 
@@ -117,9 +129,9 @@ Page {
         anchors.centerIn: parent
         modal: true
         width: 460
-        title: "Repair This Row?"
+        title: "Stage repairing this row?"
         footer: DialogButtonBox {
-            Button { text: "Repair"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
+            Button { text: "Stage Repair"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
             Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
         }
         onAccepted: if (pendingIndex >= 0) consistencyController.repairOne(pendingIndex)
@@ -138,9 +150,9 @@ Page {
         anchors.centerIn: parent
         modal: true
         width: 460
-        title: "Delete Orphaned Entry?"
+        title: "Stage deleting this orphaned entry?"
         footer: DialogButtonBox {
-            Button { text: "Delete"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
+            Button { text: "Stage Deletion"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
             Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
         }
         onAccepted: if (pendingIndex >= 0) consistencyController.deleteOrphan(pendingIndex)
@@ -160,9 +172,9 @@ Page {
         anchors.centerIn: parent
         modal: true
         width: 420
-        title: "Remove This Cue?"
+        title: "Stage removing this cue?"
         footer: DialogButtonBox {
-            Button { text: "Remove"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
+            Button { text: "Stage Removal"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
             Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
         }
         onAccepted: if (pendingIndex >= 0) consistencyController.removeJunkCue(pendingIndex)
@@ -179,9 +191,9 @@ Page {
         anchors.centerIn: parent
         modal: true
         width: 460
-        title: "Remove All " + junkCueRepeater.count + " Memory Cue(s) at 0:00?"
+        title: "Stage removing all " + junkCueRepeater.count + " memory cue(s) at 0:00?"
         footer: DialogButtonBox {
-            Button { text: "Remove All"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
+            Button { text: "Stage Removal"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
             Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
         }
         onAccepted: consistencyController.removeAllJunkCues()
@@ -189,10 +201,9 @@ Page {
         Label {
             width: parent.width
             wrapMode: Text.WordWrap
-            text: "This permanently removes every memory cue at 0:00 currently listed, across every "
-                + "catalog on this stick, this is a real write, not just dismissing them from view. "
-                + "Everything is backed up first, but make sure this is really what you want before "
-                + "continuing."
+            text: "This stages removing every memory cue at 0:00 currently listed, across every catalog on "
+                + "this stick -- once you press Save that is a real write, not just dismissing them from view. "
+                + "Everything is backed up first, but make sure this is really what you want."
             color: Theme.conflictText
         }
     }
@@ -348,11 +359,6 @@ Page {
         anchors.margins: 16
         spacing: 8
 
-        StickWriteWarning {
-            visible: consistencyController.writing
-            text: "Repairing library rows. Do not remove the stick until this finishes."
-        }
-
         Label {
             visible: consistencyController.errorMessage.length > 0
             text: consistencyController.errorMessage
@@ -375,9 +381,20 @@ Page {
                 text: "I found " + issueListView.count + " row(s) with a missing file, across every catalog on this stick"
             }
             Item { Layout.fillWidth: true }
+            Label {
+                visible: consistencyController.stagedCount > 0
+                text: consistencyController.stagedCount + " staged, not saved yet"
+                color: Theme.warnText
+            }
             Button {
-                text: "Repair All Safe Rows"
-                enabled: !consistencyController.busy && consistencyController.repairableCount > 0
+                text: "Undo Last Save"
+                visible: consistencyController.canUndo
+                enabled: !consistencyController.busy && !consistencyController.writing
+                onClicked: consistencyController.undoLastOperation()
+            }
+            Button {
+                text: "Stage All Safe Repairs"
+                enabled: !consistencyController.busy && !consistencyController.writing && consistencyController.repairableCount > 0
                 ToolTip.visible: hovered
                 ToolTip.text: "Automatically repair every row whose broken copy exactly matches an existing survivor -- conflicts and missing-everywhere rows are left for manual review"
                 onClicked: confirmRepairAllDialog.open()
@@ -421,6 +438,8 @@ Page {
                 required property var survivor
                 required property var brokenTracks
                 required property bool cueMergeNeeded
+                required property bool staged
+                required property string stagedDescription
 
                 property bool expanded: false
 
@@ -537,10 +556,22 @@ Page {
                             elide: Text.ElideRight
                             Layout.fillWidth: true
                         }
+                        StatusBadge {
+                            visible: issueDelegate.staged
+                            label: "Staged"
+                            badgeColor: Theme.warnText
+                            tooltipText: issueDelegate.stagedDescription + "\n\nNot on the stick yet: press Save."
+                        }
                         Button {
-                            visible: issueDelegate.kind === "repairable"
+                            visible: issueDelegate.staged
+                            text: "Unstage"
+                            enabled: !consistencyController.busy && !consistencyController.writing
+                            onClicked: consistencyController.unstageIssue(issueDelegate.index)
+                        }
+                        Button {
+                            visible: issueDelegate.kind === "repairable" && !issueDelegate.staged
                             text: "Repair"
-                            enabled: !consistencyController.busy
+                            enabled: !consistencyController.busy && !consistencyController.writing
                             onClicked: {
                                 confirmRepairOneDialog.pendingIndex = issueDelegate.index;
                                 confirmRepairOneDialog.open();
@@ -559,9 +590,9 @@ Page {
                                 issueDelegate.brokenTracks[0])
                         }
                         Button {
-                            visible: issueDelegate.kind === "missing" && issueDelegate.format === "onelibrary"
+                            visible: issueDelegate.kind === "missing" && issueDelegate.format === "onelibrary" && !issueDelegate.staged
                             text: "Delete Orphaned Entry"
-                            enabled: !consistencyController.busy
+                            enabled: !consistencyController.busy && !consistencyController.writing
                             onClicked: {
                                 confirmDeleteOrphanDialog.pendingIndex = issueDelegate.index;
                                 confirmDeleteOrphanDialog.open();
@@ -731,6 +762,7 @@ Page {
 
                         required property int index
                         required property var track
+                        required property bool staged
 
                         TrackWaveformCard {
                             Layout.fillWidth: true
@@ -743,12 +775,18 @@ Page {
                             // WaveformView's own doc comment on this
                             // property.
                             highlightCuePositionMs: 0
-                            actionButtonText: "Remove"
-                            actionButtonTooltip: "Permanently remove this memory cue at 0:00 from the track. Backed up first."
-                            actionButtonEnabled: !consistencyController.busy
+                            actionButtonText: junkDelegate.staged ? "Unstage" : "Remove"
+                            actionButtonTooltip: junkDelegate.staged
+                                ? "Staged for removal, not on the stick yet: press Save. Click to take it back out."
+                                : "Stage removing this memory cue at 0:00 from the track; Save writes it. Backed up first."
+                            actionButtonEnabled: !consistencyController.busy && !consistencyController.writing
                             onActionTriggered: {
-                                confirmRemoveJunkCueDialog.pendingIndex = junkDelegate.index;
-                                confirmRemoveJunkCueDialog.open();
+                                if (junkDelegate.staged) {
+                                    consistencyController.unstageJunkCue(junkDelegate.index);
+                                } else {
+                                    confirmRemoveJunkCueDialog.pendingIndex = junkDelegate.index;
+                                    confirmRemoveJunkCueDialog.open();
+                                }
                             }
                             playbackController: root.playbackController
                             playbackPath: root.pathForFormat(junkDelegate.track.side)
@@ -790,8 +828,7 @@ Page {
         busy: consistencyController.busy
         current: consistencyController.scanCurrent
         total: consistencyController.scanTotal
-        label: consistencyController.writing ? "Repairing..."
-            : (consistencyController.scanningFormat.length > 0
+        label: (consistencyController.scanningFormat.length > 0
                 ? "Scanning " + root.formatLabel(consistencyController.scanningFormat) + "..." : "Scanning...")
         cancellable: consistencyController.scanCancellable
         onCancelRequested: consistencyController.cancelScan()
