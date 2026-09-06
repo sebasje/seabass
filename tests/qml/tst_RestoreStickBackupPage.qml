@@ -91,6 +91,15 @@ TestCase {
 
     // The first *usable* drive is preselected, not merely the first one:
     // an unmounted or unformatted drive cannot receive a restore.
+    function test_screenshots() {
+        if (!screenshotDir || screenshotDir.length === 0) return;
+        grabImage(makePage([makeDisk({})], {})).save(screenshotDir + "/restore-page.png");
+        grabImage(makePage([makeDisk({})], {busy: true, restoring: true, phase: "writing", filesDone: 3, filesTotal: 14,
+                                            bytesDone: 1024 * 1024 * 1024, bytesTotal: 4 * 1024 * 1024 * 1024,
+                                            bytesPerSecond: 30 * 1024 * 1024, etaSeconds: 95,
+                                            currentFile: "Contents/Artist - Title.mp3"})).save(screenshotDir + "/restore-page-progress.png");
+    }
+
     function test_preselectsFirstUsableDriveAndAnalyzesIt() {
         var unmounted = makeDisk({label: "OLD", mountPoint: "", mounted: false, usable: false});
         var blank = makeDisk({label: "NEW", mountPoint: "", hasNoFilesystem: true, usable: false});
