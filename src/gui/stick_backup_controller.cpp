@@ -1,7 +1,8 @@
 #include "stick_backup_controller.hpp"
 
 #include "domain/library_fingerprint.hpp"
-#include "gui/library_catalog_cache.hpp"
+#include "gui/library_fingerprint_reader.hpp"
+#include "gui/stick_backup_paths.hpp"
 
 #include <QDateTime>
 #include <QDesktopServices>
@@ -57,21 +58,6 @@ QString phaseName(BackupProgress::Phase phase)
     return {};
 }
 
-// A label the archive file can be named after: the stick label with the
-// characters no filesystem accepts replaced, never empty.
-QString archiveFileName(const QString &stickLabel)
-{
-    QString name = stickLabel.trimmed();
-    for (QChar &c : name) {
-        if (QStringLiteral("/\\:*?\"<>|").contains(c) || c.unicode() < 0x20) {
-            c = QLatin1Char('_');
-        }
-    }
-    if (name.isEmpty() || name == QStringLiteral(".") || name == QStringLiteral("..")) {
-        name = QStringLiteral("stick");
-    }
-    return name + QStringLiteral(".zip");
-}
 
 }  // namespace
 
@@ -117,7 +103,7 @@ void StickBackupController::configure(const QString &stickLabel, const QString &
     m_rekordboxPath = rekordboxPath;
     m_enginePath = enginePath;
     m_stickRoot = QString::fromStdString(fs::path(anyPath.toStdString()).parent_path().string());
-    m_archivePath = QDir(backupDirectory).filePath(archiveFileName(stickLabel));
+    m_archivePath = archivePathForLabel(backupDirectory, stickLabel);
     emit configuredChanged();
     refresh();
 }
@@ -313,21 +299,8 @@ void StickBackupController::backUp()
         // the stick list can later tell "this backup is of that library"
         // regardless of which stick (or format) it ends up on. Read-only,
         // and a failure here just leaves the previous fingerprint in place.
-        std::vector<domain::Track> tracks;
-        bool anyRead = false;
-        for (const auto &[format, path] : {std::pair{"rekordbox", rekordboxPath}, std::pair{"engine", enginePath}}) {
-            if (path.isEmpty()) {
-                continue;
-            }
-            try {
-                std::vector<domain::Track> read = LibraryCatalogCache::instance().tracksFor(format, path.toStdString());
-                tracks.insert(tracks.end(), read.begin(), read.end());
-                anyRead = true;
-            } catch (const std::exception &) {
-            }
-        }
-        if (anyRead) {
-            options.libraryFingerprint = domain::fingerprintLibrary(tracks).serialize();
+        if (const auto fingerprint = readLibraryFingerprint(rekordboxPath, enginePath)) {
+            options.libraryFingerprint = fingerprint->serialize();
         }
         result->backup = std::make_shared<BackupStickOutcome>(BackupStick::execute(options));
         return result;
