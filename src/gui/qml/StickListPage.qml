@@ -14,6 +14,10 @@ Page {
     required property var mediaController
     required property var playbackController
     required property var appSettingsController
+    required property var backupAdvisor
+
+    // Coming back from a backup or restore: the advice is stale.
+    StackView.onActivated: root.backupAdvisor.reassessAll()
     signal browseRequested(string stickLabel, string rekordboxPath, string enginePath)
     // Deduplication and Backups are hub pages now (see
     // DuplicatesHubPage.qml / BackupsHubPage.qml), each fanning out to two
@@ -32,10 +36,12 @@ Page {
     signal appSettingsRequested()
     signal backupsHubRequested(string stickLabel, string rekordboxPath, string enginePath)
     signal aboutRequested()
+    signal donationRequested()
     signal formatUsbRequested()
     // mountPoint (or, for a not-yet-mounted stick, devicePath) preselects
-    // the target drive; both empty means "pick one there".
-    signal restoreStickBackupRequested(string mountPoint, string devicePath)
+    // the target drive; both empty means "pick one there". archivePath
+    // preselects the backup (the advisor's pick), empty picks the newest.
+    signal restoreStickBackupRequested(string mountPoint, string devicePath, string archivePath)
 
     // A subtle brand watermark in the corner of the very first page shown --
     // same "Seabass / DJ USB Stick Management" text as AboutPage.qml, just
@@ -75,33 +81,46 @@ Page {
             }
             Item { Layout.fillWidth: true }
             ToolButton {
-                // Top-level, not tucked into a per-stick card: the drive
-                // a backup gets restored onto is often a blank
-                // replacement the per-stick grid never shows. Experimental,
-                // see docs/experimental-features.md. (Format USB Stick
-                // itself lives as a card further down the page, not a
-                // top-level button here -- see that card's own comment.)
-                visible: root.appSettingsController.experimentalFeaturesEnabled
-                text: "🗃"
-                font.pointSize: Theme.fontLarge
-                ToolTip.visible: hovered
-                ToolTip.text: "Restore a Stick Backup (experimental)"
-                onClicked: root.restoreStickBackupRequested("", "")
-            }
-            ToolButton {
-                text: "ⓘ"
+                // Plain "ℹ️"/"⚙️" (with the emoji variation selector) render
+                // in the system's color emoji font instead of a flat
+                // monochrome glyph -- same full-color look as the
+                // ActionCard icons further down the page, not a
+                // font.family override forcing the outline symbol style
+                // the way this used to.
+                text: "ℹ️"
                 font.pointSize: Theme.fontLarge
                 ToolTip.visible: hovered
                 ToolTip.text: "About Seabass"
                 onClicked: root.aboutRequested()
             }
             ToolButton {
-                text: "⚙"
-                font.family: "Noto Sans Symbols"
+                text: "⚙️"
                 font.pointSize: Theme.fontLarge
                 ToolTip.visible: hovered
-                ToolTip.text: "App Settings"
+                ToolTip.text: "Preferences"
                 onClicked: root.appSettingsRequested()
+            }
+            ToolButton {
+                id: donateButton
+                text: "❤️"
+                font.pointSize: Theme.fontLarge
+                ToolTip.visible: hovered
+                ToolTip.text: "Support Seabass"
+                onClicked: root.donationRequested()
+
+                // A slight, infrequent "beat" -- once every 5 seconds,
+                // not continuous -- so it reads as a subtle living
+                // detail rather than a distracting animated icon. Drives
+                // scale directly rather than through a Behavior, which
+                // would otherwise re-trigger on every intermediate value
+                // this same animation produces.
+                SequentialAnimation {
+                    running: true
+                    loops: Animation.Infinite
+                    NumberAnimation { target: donateButton; property: "scale"; to: 1.25; duration: 120; easing.type: Easing.OutQuad }
+                    NumberAnimation { target: donateButton; property: "scale"; to: 1.0; duration: 160; easing.type: Easing.InQuad }
+                    PauseAnimation { duration: 4720 }
+                }
             }
         }
 
@@ -146,6 +165,17 @@ Page {
                 required property string enginePath
                 required property bool isSdCard
                 readonly property bool hasKnownLibrary: hasRekordbox || hasEngine
+                // What the backup advisor found for this stick (see
+                // BackupAdvisorController); null until it has looked.
+                readonly property var advice: root.backupAdvisor.advice[mountPoint] || null
+                readonly property string adviceState: advice ? advice.state : ""
+                function assessBackup() {
+                    if (mounted && mountPoint.length > 0) {
+                        root.backupAdvisor.assess(label, mountPoint, rekordboxPath, enginePath);
+                    }
+                }
+                Component.onCompleted: assessBackup()
+                onMountedChanged: assessBackup()
 
                 ColumnLayout {
                     id: contentColumn
@@ -293,7 +323,10 @@ Page {
                     wrapMode: Text.WordWrap
                     color: Theme.textMuted
                     text: delegateRoot.mounted
-                        ? "No DeviceLibrary or Engine library detected on this stick. Restore a backup onto it, or format it."
+                        ? "No DeviceLibrary or Engine library detected on this stick. "
+                          + (delegateRoot.adviceState === "restore"
+                             ? delegateRoot.advice.detail + " (" + delegateRoot.advice.backupLabel + ")"
+                             : "Restore a backup onto it, or format it.")
                         : "Click to mount, then Seabass will show what's available here."
                 }
 
@@ -379,7 +412,18 @@ Page {
                         }
                         ActionCard {
                             cardTitle: "Backups"
-                            cardSubtitle: "Local cue backup/restore and automatic write backups"
+                            // The advisor's verdict on the full stick backup
+                            // leads when it has one; the generic line otherwise.
+                            cardSubtitle: {
+                                switch (delegateRoot.adviceState) {
+                                case "outdated": return "Update the full stick backup: " + delegateRoot.advice.detail;
+                                case "current": return "Full stick backup is up to date";
+                                case "back-up-new":
+                                case "no-backups": return "No full stick backup of this library yet";
+                                case "different-library": return delegateRoot.advice.detail + " Back it up as new.";
+                                default: return "Local cue backup/restore and automatic write backups";
+                                }
+                            }
                             cardIcon: "🗄"
                             visible: delegateRoot.hasKnownLibrary
                             enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
@@ -414,7 +458,9 @@ Page {
                         }
                         ActionCard {
                             cardTitle: "Restore a Backup"
-                            cardSubtitle: "Put one of your stick backups onto this empty stick"
+                            cardSubtitle: delegateRoot.adviceState === "restore"
+                                ? "Restore " + delegateRoot.advice.backupLabel + " onto this empty stick"
+                                : "Put one of your stick backups onto this empty stick"
                             cardIcon: "🗃"
                             experimental: true
                             experimentalFeaturesEnabled: root.appSettingsController.experimentalFeaturesEnabled
@@ -428,7 +474,8 @@ Page {
                             // restore page mounts it itself when handed
                             // the device path.
                             enabled: !root.mediaController.busy
-                            onClicked: root.restoreStickBackupRequested(delegateRoot.mountPoint, delegateRoot.devicePath)
+                            onClicked: root.restoreStickBackupRequested(delegateRoot.mountPoint, delegateRoot.devicePath,
+                                delegateRoot.adviceState === "restore" ? delegateRoot.advice.backupPath : "")
                         }
                     }
                 }

@@ -1,5 +1,8 @@
 #include "stick_backup_controller.hpp"
 
+#include "domain/library_fingerprint.hpp"
+#include "gui/library_catalog_cache.hpp"
+
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QDir>
@@ -111,6 +114,8 @@ void StickBackupController::configure(const QString &stickLabel, const QString &
 {
     QString anyPath = enginePath.isEmpty() ? rekordboxPath : enginePath;
     m_stickLabel = stickLabel;
+    m_rekordboxPath = rekordboxPath;
+    m_enginePath = enginePath;
     m_stickRoot = QString::fromStdString(fs::path(anyPath.toStdString()).parent_path().string());
     m_archivePath = QDir(backupDirectory).filePath(archiveFileName(stickLabel));
     emit configuredChanged();
@@ -295,12 +300,34 @@ void StickBackupController::backUp()
             },
             Qt::QueuedConnection);
     };
-    m_runWatcher.setFuture(QtConcurrent::run([options]() {
+    const QString rekordboxPath = m_rekordboxPath;
+    const QString enginePath = m_enginePath;
+    m_runWatcher.setFuture(QtConcurrent::run([options, rekordboxPath, enginePath]() mutable {
         auto result = std::make_shared<RunResult>();
         result->activity = QStringLiteral("backup");
         result->refusal = refuseIfDjSoftwareRunning();
         if (!result->refusal.isEmpty()) {
             return result;
+        }
+        // The library's content identity goes into the manifest header so
+        // the stick list can later tell "this backup is of that library"
+        // regardless of which stick (or format) it ends up on. Read-only,
+        // and a failure here just leaves the previous fingerprint in place.
+        std::vector<domain::Track> tracks;
+        bool anyRead = false;
+        for (const auto &[format, path] : {std::pair{"rekordbox", rekordboxPath}, std::pair{"engine", enginePath}}) {
+            if (path.isEmpty()) {
+                continue;
+            }
+            try {
+                std::vector<domain::Track> read = LibraryCatalogCache::instance().tracksFor(format, path.toStdString());
+                tracks.insert(tracks.end(), read.begin(), read.end());
+                anyRead = true;
+            } catch (const std::exception &) {
+            }
+        }
+        if (anyRead) {
+            options.libraryFingerprint = domain::fingerprintLibrary(tracks).serialize();
         }
         result->backup = std::make_shared<BackupStickOutcome>(BackupStick::execute(options));
         return result;

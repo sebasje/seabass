@@ -22,6 +22,7 @@ AppSettingsController::AppSettingsController(QObject *parent)
     if (m_stickBackupDirectory.isEmpty()) {
         m_stickBackupDirectory = defaultStickBackupDirectory();
     }
+    m_lastBrowsePlaylistName = m_settings.value("lastBrowsePlaylistName", "").toString();
 #ifdef SEABASS_EXPERIMENTAL_BUILD
     m_experimentalFeaturesEnabled = m_settings.value("experimentalFeaturesEnabled", false).toBool();
 #endif
@@ -76,6 +77,16 @@ void AppSettingsController::setStickBackupDirectory(const QString &value)
     m_stickBackupDirectory = effective;
     m_settings.setValue("stickBackupDirectory", effective);
     emit stickBackupDirectoryChanged();
+}
+
+void AppSettingsController::setLastBrowsePlaylistName(const QString &value)
+{
+    if (m_lastBrowsePlaylistName == value) {
+        return;
+    }
+    m_lastBrowsePlaylistName = value;
+    m_settings.setValue("lastBrowsePlaylistName", value);
+    emit lastBrowsePlaylistNameChanged();
 }
 
 #ifdef SEABASS_EXPERIMENTAL_BUILD

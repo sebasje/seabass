@@ -132,7 +132,7 @@ Page {
                     text: "Engine OS can also link tracks to a streaming service (e.g. TIDAL) instead of a "
                         + "local file. Seabass shows these (badged with the service name) for visibility, "
                         + "but never plays, merges, syncs, or cleans them up. It only ever operates on "
-                        + "files actually present on the stick. Settings has an option to hide them from "
+                        + "files actually present on the stick. Preferences has an option to hide them from "
                         + "Browse Library entirely instead."
                     wrapMode: Text.WordWrap
                     font.pointSize: Theme.baseFontPointSize

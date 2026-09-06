@@ -123,6 +123,8 @@ std::string BackupManifest::serialize() const
     out += toString(status);
     out += '\t';
     out += std::to_string(createdAtUnix);
+    out += '\t';
+    out += escapeManifestField(libraryFingerprint);
     out += '\n';
 
     for (const ManifestRow &row : rows) {
@@ -198,7 +200,8 @@ std::optional<BackupManifest> BackupManifest::parse(std::string_view text, std::
         std::vector<std::string_view> fields = splitTabs(line);
 
         if (!headerSeen) {
-            if (fields.size() != 6 || fields[0] != Magic) {
+            // 6 fields: written before the library fingerprint existed.
+            if ((fields.size() != 6 && fields.size() != 7) || fields[0] != Magic) {
                 fail(error, "manifest header is not a seabass stick manifest");
                 return std::nullopt;
             }
@@ -219,6 +222,14 @@ std::optional<BackupManifest> BackupManifest::parse(std::string_view text, std::
             manifest.stickLabel = *label;
             manifest.status = *status;
             manifest.createdAtUnix = createdAt;
+            if (fields.size() == 7) {
+                auto fingerprint = unescapeManifestField(fields[6]);
+                if (!fingerprint) {
+                    fail(error, "manifest header fingerprint malformed");
+                    return std::nullopt;
+                }
+                manifest.libraryFingerprint = *fingerprint;
+            }
             headerSeen = true;
             continue;
         }

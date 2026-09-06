@@ -85,6 +85,11 @@ struct StickBackupDescription
     std::int64_t createdAtUnix = 0;
     std::size_t entries = 0;      // files + directories in the backup
     std::uint64_t archiveBytes = 0;  // size of the .zip on disk
+    std::string libraryFingerprint;  // domain::LibraryFingerprint::serialize(), empty for older backups
+    // Archive-relative path of each captured database's main file and the
+    // DbSetFingerprint hex it had: the exact "has the library changed
+    // since" test against the same database on a stick.
+    std::vector<std::pair<std::string, std::string>> databaseFingerprints;
 };
 
 struct RestoreSummary

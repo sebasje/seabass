@@ -469,6 +469,9 @@ BackupStickOutcome BackupStick::execute(const BackupStickOptions &options, Progr
     BackupManifest &manifest = impl->manifest;
     manifest.stickIdentifier = options.stickIdentifier;
     manifest.stickLabel = options.stickLabel;
+    manifest.libraryFingerprint = options.libraryFingerprint.empty() && opened.manifest
+                                      ? opened.manifest->libraryFingerprint
+                                      : options.libraryFingerprint;
     for (const TreeEntry *entry : plan.carried) {
         auto found = opened.entriesByName.find(entryNameFor(*entry));
         auto row = opened.rowsByPath.find(entry->relativePath);
