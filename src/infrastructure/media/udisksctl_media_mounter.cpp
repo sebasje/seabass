@@ -35,4 +35,12 @@ bool UdisksctlMediaMounter::unmount(const std::string &devicePath, std::string &
     return true;
 }
 
+bool UdisksctlMediaMounter::release(const std::string &devicePath, std::string &errorMessage)
+{
+    // udisksctl's "unmount" already just releases the filesystem -- unlike
+    // Windows, there's no separate physical-eject step folded into it, so
+    // this is the same operation as unmount() above.
+    return unmount(devicePath, errorMessage);
+}
+
 }  // namespace seabass::infrastructure::media

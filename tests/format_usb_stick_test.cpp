@@ -20,17 +20,22 @@ public:
 class FakeMounter : public RemovableMediaMounter
 {
 public:
-    std::vector<std::string> unmountedPaths;
-    bool unmountShouldFail = false;
+    std::vector<std::string> releasedPaths;
+    bool releaseShouldFail = false;
 
     std::optional<std::string> mount(const std::string &, std::string &) override { return std::nullopt; }
-    bool unmount(const std::string &devicePath, std::string &errorMessage) override
+    bool unmount(const std::string &, std::string &) override
     {
-        if (unmountShouldFail) {
-            errorMessage = "fake unmount failure";
+        assert(false && "FormatUsbStick must use release(), not unmount() -- unmount() ejects on Windows");
+        return false;
+    }
+    bool release(const std::string &devicePath, std::string &errorMessage) override
+    {
+        if (releaseShouldFail) {
+            errorMessage = "fake release failure";
             return false;
         }
-        unmountedPaths.push_back(devicePath);
+        releasedPaths.push_back(devicePath);
         return true;
     }
 };
@@ -136,13 +141,13 @@ int main()
         bool ok =
             useCase.execute("/dev/sdb", UsbFilesystem::ExFat, "LABEL", error, NullProgressReporter::instance());
         assert(ok);
-        assert(mounter.unmountedPaths.size() == 1);
-        assert(mounter.unmountedPaths[0] == "/dev/sdb1");
+        assert(mounter.releasedPaths.size() == 1);
+        assert(mounter.releasedPaths[0] == "/dev/sdb1");
         assert(formatter.formatCalled);
-        std::cout << "case 3 (unmounts before formatting) OK\n";
+        std::cout << "case 3 (releases before formatting) OK\n";
     }
 
-    // A failed unmount stops the whole operation before formatting is
+    // A failed release stops the whole operation before formatting is
     // ever attempted.
     {
         FakeLocator locator;
@@ -152,7 +157,7 @@ int main()
         partition.mounted = true;
         locator.disks = {disk, partition};
         FakeMounter mounter;
-        mounter.unmountShouldFail = true;
+        mounter.releaseShouldFail = true;
         FakeFormatter formatter;
         FormatUsbStick useCase(locator, mounter, formatter);
 
@@ -161,7 +166,7 @@ int main()
             useCase.execute("/dev/sdb", UsbFilesystem::Fat32, "LABEL", error, NullProgressReporter::instance());
         assert(!ok);
         assert(!formatter.formatCalled);
-        std::cout << "case 4 (unmount failure refuses formatting) OK\n";
+        std::cout << "case 4 (release failure refuses formatting) OK\n";
     }
 
     // A successful run passes the exact args through to the formatter.

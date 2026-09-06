@@ -59,17 +59,21 @@ public:
             return false;
         }
 
-        // Unmount every currently-mounted partition on this disk before
+        // Release every currently-mounted partition on this disk before
         // touching anything -- a formatter that tries to repartition a
         // disk with a mounted partition on it will, at best, fail
-        // cleanly and, at worst, behave unpredictably.
+        // cleanly and, at worst, behave unpredictably. Deliberately
+        // release(), not unmount(): this use case keeps operating on the
+        // same disk immediately afterwards, and unmount() on Windows
+        // physically ejects the media, which leaves it without a usable
+        // volume until reinserted -- see the port's comment.
         for (const auto &disk : disks) {
             if (disk.wholeDiskPath != wholeDiskPath || !disk.mounted || disk.devicePath.empty()) {
                 continue;
             }
-            std::string unmountError;
-            if (!m_mounter.unmount(disk.devicePath, unmountError)) {
-                errorMessage = "Couldn't unmount " + disk.devicePath + " first: " + unmountError;
+            std::string releaseError;
+            if (!m_mounter.release(disk.devicePath, releaseError)) {
+                errorMessage = "Couldn't unmount " + disk.devicePath + " first: " + releaseError;
                 return false;
             }
         }
