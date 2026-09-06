@@ -41,6 +41,9 @@ class EditSessionRegistry : public QObject
     Q_PROPERTY(QObject *mediaController READ mediaController WRITE setMediaController NOTIFY mediaControllerChanged)
     Q_PROPERTY(seabass::gui::LibraryEditSession *stickRemovedSession READ stickRemovedSession NOTIFY
                    stickRemovedSessionChanged)
+    // Set by the window while it is saving in order to quit: the page's
+    // own summary dialog stays quiet and the window shows one instead.
+    Q_PROPERTY(bool quitAfterSave READ quitAfterSave WRITE setQuitAfterSave NOTIFY quitAfterSaveChanged)
 
 public:
     static EditSessionRegistry *instance();
@@ -57,6 +60,8 @@ public:
     QObject *mediaController() const;
     void setMediaController(QObject *controller);
     LibraryEditSession *stickRemovedSession() const { return m_stickRemovedSession; }
+    bool quitAfterSave() const { return m_quitAfterSave; }
+    void setQuitAfterSave(bool value);
 
     // A page opens its session for its lifetime (refcounted); no lock is
     // taken here -- that happens at the first staged change.
@@ -107,6 +112,9 @@ signals:
     void sessionsChanged();
     void mediaControllerChanged();
     void stickRemovedSessionChanged();
+    void quitAfterSaveChanged();
+    // Forwarded from every session, for the window's quit flow.
+    void saveFinished(const QString &libraryId, const QVariantMap &summary);
 
 private:
     EditSessionRegistry();
@@ -124,6 +132,7 @@ private:
     QPointer<MediaController> m_mediaController;
     QPointer<LibraryEditSession> m_stickRemovedSession;
     QTimer m_heartbeat;
+    bool m_quitAfterSave = false;
 };
 
 }  // namespace seabass::gui

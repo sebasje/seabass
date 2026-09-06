@@ -151,6 +151,8 @@ LibraryEditSession *EditSessionRegistry::ensureSession(const QString &libraryId,
     QQmlEngine::setObjectOwnership(session, QQmlEngine::CppOwnership);
     connect(session, &LibraryEditSession::stateChanged, this, &EditSessionRegistry::stateChanged);
     connect(session, &LibraryEditSession::pendingChanged, this, &EditSessionRegistry::stateChanged);
+    connect(session, &LibraryEditSession::saveFinished, this,
+            [this, libraryId](const QVariantMap &summary) { emit saveFinished(libraryId, summary); });
     m_sessions.emplace(libraryId, session);
     emit sessionsChanged();
     return session;
@@ -384,6 +386,15 @@ void EditSessionRegistry::onStickReturned(const QString &libraryId, const QStrin
         return;
     }
     session->setStickPresent(true, identityStrength);
+}
+
+void EditSessionRegistry::setQuitAfterSave(bool value)
+{
+    if (m_quitAfterSave == value) {
+        return;
+    }
+    m_quitAfterSave = value;
+    emit quitAfterSaveChanged();
 }
 
 void EditSessionRegistry::acknowledgeStickReturned()
