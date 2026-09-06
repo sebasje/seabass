@@ -92,8 +92,8 @@ StickBackupController::~StickBackupController()
     // A pending decision that never got made is left to journal recovery
     // (= discard) on the next open; nothing to do here but let it go.
     m_cancel.cancel();
-    m_runWatcher.waitForFinished();
-    m_previewWatcher.waitForFinished();
+    awaitQuietly(m_runWatcher);
+    awaitQuietly(m_previewWatcher);
 }
 
 void StickBackupController::configure(const QString &stickLabel, const QString &rekordboxPath, const QString &enginePath,

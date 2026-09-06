@@ -271,7 +271,7 @@ void MediaController::unmountOwnMounts()
     }
     m_ownMountsReleased = true;
     m_taskQueue.clear();
-    m_watcher.waitForFinished();
+    awaitQuietly(m_watcher);
     if (m_mountedByUs.isEmpty()) {
         return;
     }

@@ -104,8 +104,8 @@ CloneStickController::CloneStickController(QObject *parent) : QObject(parent)
 CloneStickController::~CloneStickController()
 {
     m_cancel.cancel();
-    m_runWatcher.waitForFinished();
-    m_previewWatcher.waitForFinished();
+    awaitQuietly(m_runWatcher);
+    awaitQuietly(m_previewWatcher);
 }
 
 void CloneStickController::configure(const QString &sourceLabel, const QString &sourceRekordboxPath,

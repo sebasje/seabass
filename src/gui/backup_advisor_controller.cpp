@@ -46,7 +46,7 @@ BackupAdvisorController::BackupAdvisorController(QObject *parent) : QObject(pare
 
 BackupAdvisorController::~BackupAdvisorController()
 {
-    m_watcher.waitForFinished();
+    awaitQuietly(m_watcher);
 }
 
 void BackupAdvisorController::setBackupDirectory(const QString &directory)

@@ -40,4 +40,22 @@ auto takeResult(Watcher &watcher, QString *error = nullptr) -> decltype(watcher.
     return {};
 }
 
+// Waits for a watcher's task to finish, swallowing an exception it
+// stored. Destructors call this: QFutureWatcher::waitForFinished()
+// rethrows a stored exception exactly like result() does, and a
+// destructor is noexcept, so leaving a page while its background task
+// had thrown called std::terminate straight from the unwinder (a real
+// crash: closing the Full Stick Backup page after its preview threw).
+// There is nowhere left to report an error to at this point -- the
+// controller is going away and its page with it -- so the exception is
+// deliberately dropped rather than surfaced.
+template <typename Watcher>
+void awaitQuietly(Watcher &watcher) noexcept
+{
+    try {
+        watcher.waitForFinished();
+    } catch (...) {
+    }
+}
+
 }  // namespace seabass::gui

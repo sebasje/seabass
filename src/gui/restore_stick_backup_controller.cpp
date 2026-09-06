@@ -106,10 +106,10 @@ RestoreStickBackupController::RestoreStickBackupController(QObject *parent) : QO
 RestoreStickBackupController::~RestoreStickBackupController()
 {
     m_cancel.cancel();
-    m_restoreWatcher.waitForFinished();
-    m_analyzeWatcher.waitForFinished();
-    m_listWatcher.waitForFinished();
-    m_mountWatcher.waitForFinished();
+    awaitQuietly(m_restoreWatcher);
+    awaitQuietly(m_analyzeWatcher);
+    awaitQuietly(m_listWatcher);
+    awaitQuietly(m_mountWatcher);
 }
 
 void RestoreStickBackupController::refresh()
