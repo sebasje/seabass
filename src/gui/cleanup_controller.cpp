@@ -981,12 +981,13 @@ PendingDeletionApplyResult runDeletePendingTask(QString format, QString path,
     return result;
 }
 
-CleanupTaskResult runRescanTask(QString format, QString path, std::shared_ptr<QtProgressReporter> reporter)
+CleanupTaskResult runRescanTask(QString format, QString path, std::shared_ptr<QtProgressReporter> reporter,
+                                application::CancellationToken cancel)
 {
     CleanupTaskResult result;
     try {
         std::vector<domain::Track> tracks =
-            LibraryCatalogCache::instance().tracksFor(format.toStdString(), path.toStdString(), *reporter);
+            LibraryCatalogCache::instance().tracksFor(format.toStdString(), path.toStdString(), *reporter, cancel);
 
         // Streaming tracks (Engine/TIDAL) have no real local file.
         // Never let duplicate detection consider one, whether as
@@ -1004,6 +1005,8 @@ CleanupTaskResult runRescanTask(QString format, QString path, std::shared_ptr<Qt
             }
         }
         result.plans = std::move(plans);
+    } catch (const application::OperationCancelled &) {
+        result.cancelled = true;
     } catch (const std::exception &e) {
         result.errorMessage = QString::fromStdString(e.what());
     }
@@ -1018,12 +1021,13 @@ CleanupTaskResult runRescanTask(QString format, QString path, std::shared_ptr<Qt
 // same "never trust stale data right before a mutating decision" stance
 // every other write path in this codebase already takes.
 CleanupTaskResult runManualMergeTask(QString format, QString path, QString sourceIdA, QString sourceIdB,
-                                      std::shared_ptr<QtProgressReporter> reporter)
+                                      std::shared_ptr<QtProgressReporter> reporter,
+                                      application::CancellationToken cancel)
 {
     CleanupTaskResult result;
     try {
         std::vector<domain::Track> tracks =
-            LibraryCatalogCache::instance().tracksFor(format.toStdString(), path.toStdString(), *reporter);
+            LibraryCatalogCache::instance().tracksFor(format.toStdString(), path.toStdString(), *reporter, cancel);
 
         std::string idA = sourceIdA.toStdString();
         std::string idB = sourceIdB.toStdString();
@@ -1048,6 +1052,8 @@ CleanupTaskResult runManualMergeTask(QString format, QString path, QString sourc
         domain::DuplicateGroup group;
         group.tracks = {*trackA, *trackB};
         result.plans = {domain::DuplicateCleanupPlanner::plan(group)};
+    } catch (const application::OperationCancelled &) {
+        result.cancelled = true;
     } catch (const std::exception &e) {
         result.errorMessage = QString::fromStdString(e.what());
     }
@@ -1109,7 +1115,9 @@ void CleanupController::planManualMerge(const QString &format, const QString &pa
     setScanProgress(0, 0);
     setBusy(true);
 
-    m_watcher.setFuture(QtConcurrent::run(runManualMergeTask, format, path, sourceIdA, sourceIdB, makeReporter()));
+    m_scanCancel = application::CancellationToken();
+    m_watcher.setFuture(
+        QtConcurrent::run(runManualMergeTask, format, path, sourceIdA, sourceIdB, makeReporter(), m_scanCancel));
 }
 
 void CleanupController::rescan()
@@ -1121,7 +1129,15 @@ void CleanupController::rescan()
     setScanProgress(0, 0);
     setBusy(true);
 
-    m_watcher.setFuture(QtConcurrent::run(runRescanTask, m_format, m_path, makeReporter()));
+    m_scanCancel = application::CancellationToken();
+    m_watcher.setFuture(QtConcurrent::run(runRescanTask, m_format, m_path, makeReporter(), m_scanCancel));
+}
+
+void CleanupController::cancelScan()
+{
+    if (scanCancellable()) {
+        m_scanCancel.cancel();
+    }
 }
 
 void CleanupController::setIncluded(int index, bool included)
@@ -1155,6 +1171,11 @@ void CleanupController::onRescanFinished()
 {
     CleanupTaskResult result = m_watcher.result();
 
+    if (result.cancelled) {
+        setBusy(false);
+        emit scanCancelled();
+        return;
+    }
     if (!result.errorMessage.isEmpty()) {
         setErrorMessage(result.errorMessage);
         setBusy(false);

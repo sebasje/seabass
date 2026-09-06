@@ -21,6 +21,12 @@ Item {
     property int current: 0
     property int total: 0
     property string label: "Working..."
+    // A read-only scan can be stopped at any time (nothing to keep
+    // consistent); the page then pops back to where the user came from.
+    // Off for writes -- those are cancelled from WriteProgressDialog,
+    // which stops at the next consistent point instead.
+    property bool cancellable: false
+    signal cancelRequested()
 
     visible: root.busy
     z: 1000
@@ -155,6 +161,14 @@ Item {
             text: root.etaText
             color: Theme.textMuted
             font.pointSize: Theme.fontSmall
+        }
+        Button {
+            objectName: "cancelButton"
+            Layout.alignment: Qt.AlignHCenter
+            Layout.topMargin: 8
+            visible: root.cancellable
+            text: "Cancel"
+            onClicked: root.cancelRequested()
         }
     }
 }

@@ -962,11 +962,20 @@ Page {
         } // SplitView
     }
 
+    // A cancelled scan takes the user back to where they came from; the
+    // next visit scans from scratch (nothing partial is ever kept).
+    Connections {
+        target: scanController
+        function onScanCancelled() { root.StackView.view.pop(); }
+    }
+
     BusyOverlay {
         anchors.fill: parent
         busy: scanController.busy
         current: scanController.scanCurrent
         total: scanController.scanTotal
         label: "Scanning library..."
+        cancellable: scanController.scanCancellable
+        onCancelRequested: scanController.cancelScan()
     }
 }

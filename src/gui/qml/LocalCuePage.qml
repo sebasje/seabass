@@ -438,11 +438,19 @@ Page {
         }
     }
 
+    // A cancelled analyze takes the user back to where they came from.
+    Connections {
+        target: localCueController
+        function onScanCancelled() { root.StackView.view.pop(); }
+    }
+
     BusyOverlay {
         anchors.fill: parent
         busy: localCueController.busy
         current: localCueController.scanCurrent
         total: localCueController.scanTotal
         label: localCueController.writing ? "Restoring cues..." : "Analyzing backups..."
+        cancellable: localCueController.scanCancellable
+        onCancelRequested: localCueController.cancelScan()
     }
 }

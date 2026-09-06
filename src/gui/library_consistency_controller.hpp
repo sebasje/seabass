@@ -13,6 +13,7 @@
 
 #include "domain/junk_cue.hpp"
 #include "domain/library_consistency.hpp"
+#include "application/ports/cancellation_token.hpp"
 #include "gui/qt_progress_reporter.hpp"
 
 namespace seabass::gui
@@ -118,6 +119,7 @@ struct LibraryConsistencyScanResult
     QStringList playlistNames;
     QVariantMap playlistTrackCounts;
     QString errorMessage;
+    bool cancelled = false;  // stopped via cancelScan(); nothing else is set
 };
 
 // Result of a background repair/delete task.
@@ -166,6 +168,10 @@ class LibraryConsistencyController : public QObject
     Q_PROPERTY(seabass::gui::LibraryConsistencyIssueListModel *issues READ issuesModel CONSTANT)
     Q_PROPERTY(seabass::gui::JunkCueIssueListModel *junkCues READ junkCuesModel CONSTANT)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
+    // True while the read-only scan runs (never during a write): it can
+    // be stopped via cancelScan(), which also drops the formats still
+    // queued, after which scanCancelled() fires.
+    Q_PROPERTY(bool scanCancellable READ scanCancellable NOTIFY busyChanged)
     Q_PROPERTY(bool writing READ writing NOTIFY writingChanged)
     Q_PROPERTY(int scanCurrent READ scanCurrent NOTIFY scanProgressChanged)
     Q_PROPERTY(int scanTotal READ scanTotal NOTIFY scanProgressChanged)
@@ -245,7 +251,11 @@ public:
     Q_INVOKABLE void ignoreJunkCue(int index);
     Q_INVOKABLE void ignoreAllJunkCues();
 
+    bool scanCancellable() const { return m_busy && !m_writing; }
+    Q_INVOKABLE void cancelScan();
+
 signals:
+    void scanCancelled();
     void busyChanged();
     void writingChanged();
     void scanProgressChanged();
@@ -277,6 +287,7 @@ private:
     LibraryConsistencyIssueListModel m_model;
     JunkCueIssueListModel m_junkCueModel;
     QFutureWatcher<LibraryConsistencyScanResult> m_watcher;
+    application::CancellationToken m_scanCancel;  // fresh per scan(), shared by its per-format tasks
     QFutureWatcher<LibraryConsistencyWriteResult> m_writeWatcher;
     QString m_rekordboxPath;
     QString m_enginePath;

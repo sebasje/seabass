@@ -352,6 +352,7 @@ std::vector<domain::Track> KaitaiRekordboxReader::readAll()
                     tracks.push_back(std::move(track));
 
                     m_progress->tick(++processed);
+                    m_cancel.throwIfCancelled();
                 }
             }
         });

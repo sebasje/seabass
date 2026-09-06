@@ -16,6 +16,7 @@
 #include "domain/cross_source_sync_conflict.hpp"
 #include "domain/sync_planning.hpp"
 #include "domain/track_scope.hpp"
+#include "application/ports/cancellation_token.hpp"
 #include "gui/qt_progress_reporter.hpp"
 #include "gui/undo_tracking.hpp"
 
@@ -98,6 +99,7 @@ struct SyncTaskResult
     QStringList playlistNames;
     QVariantMap playlistTrackCounts;
     QString errorMessage;  // empty on success
+    bool cancelled = false;  // stopped via cancelScan(); nothing else is set
 };
 
 // Result of a background write task, see SyncController::apply()/
@@ -132,6 +134,9 @@ class SyncController : public QObject
     QML_ELEMENT
     Q_PROPERTY(seabass::gui::SyncPlanListModel *plans READ plansModel CONSTANT)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
+    // True while the read-only analyze() runs (never during a write): it
+    // can be stopped via cancelScan(), after which scanCancelled() fires.
+    Q_PROPERTY(bool scanCancellable READ scanCancellable NOTIFY busyChanged)
     Q_PROPERTY(int scanCurrent READ scanCurrent NOTIFY scanProgressChanged)
     Q_PROPERTY(int scanTotal READ scanTotal NOTIFY scanProgressChanged)
     Q_PROPERTY(int rekordboxTrackCount READ rekordboxTrackCount NOTIFY analysisChanged)
@@ -227,7 +232,11 @@ public:
     // cuesFromB when false.
     Q_INVOKABLE void resolveConflict(int index, bool useSourceA);
 
+    bool scanCancellable() const { return m_busy && !m_writing; }
+    Q_INVOKABLE void cancelScan();
+
 signals:
+    void scanCancelled();
     void busyChanged();
     void scanProgressChanged();
     void analysisChanged();
@@ -252,6 +261,7 @@ private:
 
     SyncPlanListModel m_model;
     QFutureWatcher<SyncTaskResult> m_watcher;
+    application::CancellationToken m_scanCancel;  // fresh per analyze()
     QFutureWatcher<SyncWriteResult> m_writeWatcher;
     QString m_rekordboxPath;
     QString m_enginePath;

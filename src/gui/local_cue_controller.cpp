@@ -55,9 +55,10 @@ QString describeCues(const std::vector<domain::CuePoint> &cues)
 // currentPath()), same convention LibraryCatalogCache's own callers
 // elsewhere already use.
 std::vector<domain::Track> scanStick(const QString &format, const QString &path,
-                                      std::shared_ptr<QtProgressReporter> reporter)
+                                      std::shared_ptr<QtProgressReporter> reporter,
+                                      application::CancellationToken cancel = application::CancellationToken::none())
 {
-    return LibraryCatalogCache::instance().tracksFor(format.toStdString(), path.toStdString(), *reporter);
+    return LibraryCatalogCache::instance().tracksFor(format.toStdString(), path.toStdString(), *reporter, cancel);
 }
 
 }  // namespace
@@ -170,11 +171,12 @@ LocalCueTaskResult runBackupTask(QString stickLabel, QString description, QStrin
     return result;
 }
 
-LocalCueTaskResult runAnalyzeRestoreTask(QString format, QString path, std::shared_ptr<QtProgressReporter> reporter)
+LocalCueTaskResult runAnalyzeRestoreTask(QString format, QString path, std::shared_ptr<QtProgressReporter> reporter,
+                                         application::CancellationToken cancel)
 {
     LocalCueTaskResult result;
     try {
-        auto stickTracks = scanStick(format, path, reporter);
+        auto stickTracks = scanStick(format, path, reporter, cancel);
 
         infrastructure::local::LocalCueStore store;
         auto localTracks = store.readAll();
@@ -183,6 +185,8 @@ LocalCueTaskResult runAnalyzeRestoreTask(QString format, QString path, std::shar
         result.candidates = domain::LocalRestorePlanner::plan(matches);
         result.stickTrackCount = static_cast<int>(stickTracks.size());
         result.localTrackCount = static_cast<int>(localTracks.size());
+    } catch (const application::OperationCancelled &) {
+        result.cancelled = true;
     } catch (const std::exception &e) {
         result.errorMessage = QString::fromStdString(e.what());
     }
@@ -190,11 +194,12 @@ LocalCueTaskResult runAnalyzeRestoreTask(QString format, QString path, std::shar
 }
 
 LocalCueTaskResult runAnalyzeSnapshotRestoreTask(qint64 snapshotId, QString format, QString path,
-                                                  std::shared_ptr<QtProgressReporter> reporter)
+                                                  std::shared_ptr<QtProgressReporter> reporter,
+                                                  application::CancellationToken cancel)
 {
     LocalCueTaskResult result;
     try {
-        auto stickTracks = scanStick(format, path, reporter);
+        auto stickTracks = scanStick(format, path, reporter, cancel);
 
         infrastructure::local::LocalCueStore store;
         auto snapshotTracks = store.readSnapshot(snapshotId);
@@ -203,6 +208,8 @@ LocalCueTaskResult runAnalyzeSnapshotRestoreTask(qint64 snapshotId, QString form
         result.candidates = domain::LocalRestorePlanner::plan(matches);
         result.stickTrackCount = static_cast<int>(stickTracks.size());
         result.localTrackCount = static_cast<int>(snapshotTracks.size());
+    } catch (const application::OperationCancelled &) {
+        result.cancelled = true;
     } catch (const std::exception &e) {
         result.errorMessage = QString::fromStdString(e.what());
     }
@@ -466,7 +473,15 @@ void LocalCueController::analyzeRestore(const QString &format, const QString &pa
     setScanProgress(0, 0);
     setBusy(true);
 
-    m_analyzeWatcher.setFuture(QtConcurrent::run(runAnalyzeRestoreTask, format, path, makeReporter()));
+    m_scanCancel = application::CancellationToken();
+    m_analyzeWatcher.setFuture(QtConcurrent::run(runAnalyzeRestoreTask, format, path, makeReporter(), m_scanCancel));
+}
+
+void LocalCueController::cancelScan()
+{
+    if (scanCancellable()) {
+        m_scanCancel.cancel();
+    }
 }
 
 void LocalCueController::analyzeSnapshotRestore(qint64 snapshotId, const QString &format, const QString &path)
@@ -483,8 +498,9 @@ void LocalCueController::analyzeSnapshotRestore(qint64 snapshotId, const QString
     setScanProgress(0, 0);
     setBusy(true);
 
+    m_scanCancel = application::CancellationToken();
     m_analyzeWatcher.setFuture(
-        QtConcurrent::run(runAnalyzeSnapshotRestoreTask, snapshotId, format, path, makeReporter()));
+        QtConcurrent::run(runAnalyzeSnapshotRestoreTask, snapshotId, format, path, makeReporter(), m_scanCancel));
 }
 
 // See ScanController::scan() for why the reporter is owned by the task
@@ -559,6 +575,11 @@ void LocalCueController::onAnalyzeFinished()
     bool reportFeedback = m_analyzeReportsFeedback;
     m_analyzeReportsFeedback = false;
 
+    if (result.cancelled) {
+        setBusy(false);
+        emit scanCancelled();
+        return;
+    }
     if (!result.errorMessage.isEmpty()) {
         setErrorMessage(result.errorMessage);
         if (reportFeedback) {

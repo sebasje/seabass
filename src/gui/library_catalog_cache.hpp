@@ -9,6 +9,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "application/ports/cancellation_token.hpp"
 #include "application/ports/progress_reporter.hpp"
 #include "domain/track.hpp"
 
@@ -50,7 +51,8 @@ class LibraryCatalogCache
 {
 public:
     using ScanFn = std::function<std::vector<domain::Track>(const std::string &format, const std::string &path,
-                                                              application::ProgressReporter &progress)>;
+                                                              application::ProgressReporter &progress,
+                                                              application::CancellationToken cancel)>;
     using MtimeFn =
         std::function<std::chrono::system_clock::time_point(const std::string &format, const std::string &path)>;
 
@@ -71,9 +73,16 @@ public:
     // timestamps.
     LibraryCatalogCache(ScanFn scanFn, MtimeFn mtimeFn);
 
+    // cancel: checked per track by the reader on a cache miss (a hit
+    // returns at once). A cancelled scan throws application::
+    // OperationCancelled and caches nothing -- the next call scans from
+    // scratch, never serving a truncated list. Other callers waiting on
+    // the same key are woken and scan for themselves.
     std::vector<domain::Track> tracksFor(const std::string &format, const std::string &path,
                                           application::ProgressReporter &progress =
-                                              application::NullProgressReporter::instance());
+                                              application::NullProgressReporter::instance(),
+                                          application::CancellationToken cancel =
+                                              application::CancellationToken::none());
 
     // Call after writing to this catalog (Sync's apply()/applyOne(), Clean
     // Up writes, ...) so the next tracksFor() re-scans unconditionally

@@ -6,6 +6,8 @@
 #include <QVariantList>
 #include <QVariantMap>
 
+#include "application/ports/cancellation_token.hpp"
+
 namespace seabass::gui
 {
 
@@ -21,6 +23,7 @@ struct StickStatisticsScanResult
     QVariantMap diskUsage;         // {totalBytes, usedBytes, freeBytes, root: {label, sizeBytes, children:[...]}}
     QVariantMap benchmarkSamples;  // {databaseFiles: [...], audioFiles: [...]}, fed to runBenchmark() later
     QString errorMessage;
+    bool cancelled = false;  // stopped via cancelScan(); nothing else is set
 };
 
 // Read-only: this page never writes anything to the stick, so unlike
@@ -38,6 +41,9 @@ class StickStatisticsController : public QObject
     Q_OBJECT
     QML_ELEMENT
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
+    // True while the scan runs: it can be stopped via cancelScan(), after
+    // which scanCancelled() fires instead of resultsChanged().
+    Q_PROPERTY(bool scanCancellable READ scanCancellable NOTIFY busyChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
     Q_PROPERTY(QVariantMap filesystemInfo READ filesystemInfo NOTIFY resultsChanged)
     Q_PROPERTY(QVariantMap rekordboxStats READ rekordboxStats NOTIFY resultsChanged)
@@ -71,7 +77,11 @@ public:
     // this stick. A no-op if scan() hasn't completed successfully yet.
     Q_INVOKABLE void runBenchmark();
 
+    bool scanCancellable() const { return m_busy; }
+    Q_INVOKABLE void cancelScan();
+
 signals:
+    void scanCancelled();
     void busyChanged();
     void errorMessageChanged();
     void resultsChanged();
@@ -89,6 +99,7 @@ private:
     void loadBenchmarkHistory();
 
     QFutureWatcher<StickStatisticsScanResult> m_watcher;
+    application::CancellationToken m_scanCancel;  // fresh per scan()
     QFutureWatcher<QVariantMap> m_benchmarkWatcher;
 
     bool m_busy = false;
