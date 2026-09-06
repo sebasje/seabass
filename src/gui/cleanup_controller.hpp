@@ -172,6 +172,9 @@ struct PendingDeletionApplyResult
 {
     QString errorMessage;
     QString statusMessage;
+    int deleted = 0;  // gone from disk (or found already gone)
+    int total = 0;    // files the fresh scan confirmed safe to delete
+    bool cancelled = false;
 };
 
 // Wraps DuplicateCleanupPlanner + both formats' LibraryCleanupWriter
@@ -202,6 +205,9 @@ class CleanupController : public QObject
     // scanCancelled() fires.
     Q_PROPERTY(bool scanCancellable READ scanCancellable NOTIFY busyChanged)
     Q_PROPERTY(bool writing READ writing NOTIFY writingChanged)
+    // A pending-file deletion is running and can still be stopped
+    // between two files (see cancelWrite()).
+    Q_PROPERTY(bool writeCancellable READ writeCancellable NOTIFY writingChanged)
     Q_PROPERTY(int stagedCount READ stagedCount NOTIFY plansChanged)
     Q_PROPERTY(int scanCurrent READ scanCurrent NOTIFY scanProgressChanged)
     Q_PROPERTY(int scanTotal READ scanTotal NOTIFY scanProgressChanged)
@@ -300,6 +306,10 @@ public:
     // alone is never trusted. Irreversible: unlike apply(), there is no
     // undo for an actual file deletion.
     Q_INVOKABLE void deleteSelectedPendingFiles();
+    // Stops deleteSelectedPendingFiles() after the file being deleted
+    // right now; pendingDeletionsWriteFinished() then says how many went.
+    Q_INVOKABLE void cancelWrite();
+    bool writeCancellable() const { return m_writing && !m_pendingDeleteCancel.cancelled(); }
 
     bool scanCancellable() const { return m_busy && !writing() && m_watcher.isRunning(); }
     Q_INVOKABLE void cancelScan();
@@ -315,6 +325,11 @@ signals:
     void plansChanged();
     void includedChanged();
     void pendingDeletionsChanged();
+    // After deleteSelectedPendingFiles(): {written, total, unit, verb,
+    // cancelled, error}, the OperationSummaryDialog shape.
+    void pendingDeletionsWriteFinished(const QVariantMap &summary);
+    // Another instance is editing this library; no file was deleted.
+    void lockRefused(const QVariantMap &holder);
 
 private:
     void rescan();
@@ -335,6 +350,8 @@ private:
     PendingDeletionListModel m_pendingModel;
     QFutureWatcher<CleanupTaskResult> m_watcher;
     application::CancellationToken m_scanCancel;  // fresh per rescan()/planManualMerge()
+    application::CancellationToken m_pendingDeleteCancel;  // fresh per deleteSelectedPendingFiles()
+    bool m_holdsDirectWrite = false;
     QPointer<LibraryEditSession> m_session;
     struct StagedInfo
     {

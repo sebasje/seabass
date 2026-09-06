@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <filesystem>
 
+#include "gui/edit/edit_session_registry.hpp"
 #include "gui/write_guard.hpp"
 #include "infrastructure/backup/filesystem_backup_store.hpp"
 #include "infrastructure/backup/stick_write_lock.hpp"
@@ -116,10 +117,12 @@ namespace
 // Runs entirely on a background thread (see BackupsController::startTask())
 // -- no access to the controller itself. Every action re-lists the
 // directory afterward so the caller always gets a fresh, consistent view.
-BackupsTaskResult runBackupsTask(BackupsAction action, QString dir, int keepCount, QString id,
-                                  QString description)
+BackupsTaskResult runBackupsTask(BackupsAction action, QString dir, int keepCount, QString id, QString description,
+                                  application::CancellationToken cancel,
+                                  std::shared_ptr<QtProgressReporter> reporter)
 {
     BackupsTaskResult result;
+    result.unit = QStringLiteral("backups");
     bool mutating = action != BackupsAction::Load;
     if (mutating) {
         QString refusal = refuseIfDjSoftwareRunning();
@@ -137,7 +140,32 @@ BackupsTaskResult runBackupsTask(BackupsAction action, QString dir, int keepCoun
         infrastructure::backup::FilesystemBackupStore store(dir.toStdString());
         switch (action) {
         case BackupsAction::Clean: {
-            auto freed = store.prune(static_cast<size_t>(keepCount));
+            // One backup per step rather than BackupStore::prune(): a
+            // cancel between two steps leaves every backup either whole
+            // or gone, and the summary can say exactly how many went.
+            auto records = store.list();  // oldest first (see list())
+            size_t toRemove = records.size() > static_cast<size_t>(keepCount)
+                                  ? records.size() - static_cast<size_t>(keepCount)
+                                  : 0;
+            result.showSummary = true;
+            result.verb = QStringLiteral("deleted");
+            result.total = static_cast<int>(toRemove);
+            reporter->start("Deleting old backups", toRemove);
+            std::uint64_t freed = 0;
+            for (size_t i = 0; i < toRemove; ++i) {
+                if (cancel.cancelled()) {
+                    result.cancelled = true;
+                    break;
+                }
+                if (!store.remove(records[i].id)) {
+                    result.errorMessage = QString("Could not delete backup %1.").arg(QString::fromStdString(records[i].id));
+                    break;
+                }
+                freed += records[i].sizeBytes;
+                result.written++;
+                reporter->tick(i + 1);
+            }
+            reporter->finish();
             result.statusMessage =
                 QString("Freed %1 (kept up to %2 most recent backup(s))").arg(humanSize(freed)).arg(keepCount);
             break;
@@ -146,14 +174,23 @@ BackupsTaskResult runBackupsTask(BackupsAction action, QString dir, int keepCoun
             store.setDescription(id.toStdString(), description.toStdString());
             break;
         case BackupsAction::Restore:
+            result.showSummary = true;
+            result.verb = QStringLiteral("restored");
+            result.total = 1;
             if (store.restore(id.toStdString())) {
+                result.written = 1;
                 result.statusMessage = "Restored -- the files that were overwritten have their own new backup.";
             } else {
                 result.errorMessage = "Could not restore -- this backup predates restore support or its files are gone.";
             }
             break;
         case BackupsAction::Delete:
-            if (!store.remove(id.toStdString())) {
+            result.showSummary = true;
+            result.verb = QStringLiteral("deleted");
+            result.total = 1;
+            if (store.remove(id.toStdString())) {
+                result.written = 1;
+            } else {
                 result.errorMessage = "Could not delete that backup.";
             }
             break;
@@ -182,13 +219,25 @@ BackupsController::BackupsController(QObject *parent) : QObject(parent)
     connect(&m_watcher, &QFutureWatcher<BackupsTaskResult>::finished, this, &BackupsController::onTaskFinished);
 }
 
-void BackupsController::load(const QString &rekordboxPath, const QString &enginePath)
+std::shared_ptr<QtProgressReporter> BackupsController::makeReporter()
+{
+    auto reporter = std::make_shared<QtProgressReporter>();
+    connect(reporter.get(), &QtProgressReporter::started, this,
+            [this](const QString &, int total) { setWriteProgress(0, total); });
+    connect(reporter.get(), &QtProgressReporter::progressed, this,
+            [this](int current) { setWriteProgress(current, m_writeTotal); });
+    return reporter;
+}
+
+void BackupsController::load(const QString &rekordboxPath, const QString &enginePath, const QString &stickLabel)
 {
     if (m_busy) {
         return;
     }
     m_rekordboxPath = rekordboxPath;
     m_enginePath = enginePath;
+    m_stickLabel = stickLabel;
+    m_libraryId = EditSessionRegistry::instance()->libraryIdForPath(enginePath.isEmpty() ? rekordboxPath : enginePath);
     startTask(BackupsAction::Load, 0, {}, {});
 }
 
@@ -224,18 +273,45 @@ void BackupsController::deleteBackup(const QString &id)
     startTask(BackupsAction::Delete, 0, id, {});
 }
 
+void BackupsController::cancelWrite()
+{
+    if (!writeCancellable()) {
+        return;
+    }
+    m_cancel.cancel();
+    emit busyChanged();  // writeCancellable flipped
+}
+
 void BackupsController::startTask(BackupsAction action, int keepCount, const QString &id, const QString &description)
 {
+    bool mutating = action != BackupsAction::Load;
+    if (mutating) {
+        auto *registry = EditSessionRegistry::instance();
+        if (!registry->tryEnterDirectWrite(m_libraryId, m_stickLabel)) {
+            emit lockRefused(registry->lockHolder(m_libraryId));
+            return;
+        }
+        m_holdsDirectWrite = true;
+    }
     setErrorMessage({});
     setStatusMessage({});
+    m_writing = mutating;
+    m_cancellable = action == BackupsAction::Clean;
+    m_cancel = application::CancellationToken();
+    setWriteProgress(0, 0);
     setBusy(true);
     std::string dir = backupDirFor(m_rekordboxPath, m_enginePath);
-    m_watcher.setFuture(QtConcurrent::run(runBackupsTask, action, QString::fromStdString(dir), keepCount, id, description));
+    m_watcher.setFuture(QtConcurrent::run(runBackupsTask, action, QString::fromStdString(dir), keepCount, id, description,
+                                          m_cancel, makeReporter()));
 }
 
 void BackupsController::onTaskFinished()
 {
     BackupsTaskResult result = m_watcher.result();
+    if (m_holdsDirectWrite) {
+        m_holdsDirectWrite = false;
+        EditSessionRegistry::instance()->leaveDirectWrite(m_libraryId);
+    }
     m_backupDir = result.backupDir;
     m_totalSizeHuman = result.totalSizeHuman;
     m_model.setRecords(std::move(result.records));
@@ -246,7 +322,18 @@ void BackupsController::onTaskFinished()
         setStatusMessage(result.statusMessage);
     }
     emit backupsChanged();
+    m_writing = false;
     setBusy(false);
+    if (result.showSummary) {
+        emit writeFinished(QVariantMap{
+            {"written", result.written},
+            {"total", result.total},
+            {"unit", result.unit},
+            {"verb", result.verb},
+            {"cancelled", result.cancelled},
+            {"error", result.errorMessage},
+        });
+    }
 }
 
 void BackupsController::setBusy(bool busy)
@@ -256,6 +343,16 @@ void BackupsController::setBusy(bool busy)
     }
     m_busy = busy;
     emit busyChanged();
+}
+
+void BackupsController::setWriteProgress(int current, int total)
+{
+    if (m_writeCurrent == current && m_writeTotal == total) {
+        return;
+    }
+    m_writeCurrent = current;
+    m_writeTotal = total;
+    emit writeProgressChanged();
 }
 
 void BackupsController::setErrorMessage(const QString &message)

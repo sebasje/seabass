@@ -101,9 +101,11 @@ using infrastructure::ScratchDirGuard;
 EngineLibraryCreationResult EngineLibraryCreator::create(const std::string &directory,
                                                            const std::vector<domain::Track> &tracks,
                                                            EngineSchemaGeneration schemaGeneration,
-                                                           application::ProgressReporter &reporter)
+                                                           application::ProgressReporter &reporter,
+                                                           const application::CancellationToken &cancel)
 {
     EngineLibraryCreationResult result;
+    result.tracksTotal = static_cast<int>(tracks.size());
 
     if (djinterop::engine::database_exists(directory)) {
         result.errorMessage = "An Engine Library already exists at " + directory + " -- refusing to overwrite it.";
@@ -140,6 +142,13 @@ EngineLibraryCreationResult EngineLibraryCreator::create(const std::string &dire
             size_t processed = 0;
 
             for (const auto &track : tracks) {
+                if (cancel.cancelled()) {
+                    // The scratch copy dies with scratchGuard; the stick
+                    // has not been touched yet.
+                    result.cancelled = true;
+                    reporter.finish();
+                    return result;
+                }
                 // Streaming tracks have no local file by design (see
                 // Track::streamingSource's own doc comment) and rows with no
                 // resolved file path can't be referenced from a fresh

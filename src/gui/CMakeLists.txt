@@ -171,6 +171,8 @@ qt_add_qml_module(seabass
         edit/library_edit_session.cpp
         edit/edit_session_registry.hpp
         edit/edit_session_registry.cpp
+        edit/direct_write_hold.hpp
+        edit/direct_write_hold.cpp
         system_font_metrics.hpp
         system_font_metrics.cpp
 )

@@ -13,6 +13,7 @@
 
 #include "application/ports/cancellation_token.hpp"
 #include "application/use_cases/restore_stick_backup.hpp"
+#include "gui/edit/direct_write_hold.hpp"
 
 namespace seabass::gui
 {
@@ -90,6 +91,7 @@ public:
     Q_INVOKABLE void analyze(const QString &targetRoot);
     Q_INVOKABLE void restore(const QString &targetRoot, bool exact);
     Q_INVOKABLE void cancel();
+    Q_INVOKABLE void retryLockedAction() { m_writeHold.retryLockedAction(); }
     // Drops the last restore's report and messages (the page's "Start Over").
     Q_INVOKABLE void clearResult();
     // Full path of the archive a stick with this label would have in the
@@ -111,6 +113,9 @@ signals:
     void knownBackupsChanged();
     void driveMounted(const QString &mountPoint);
     void archiveInfoChanged();
+    // Another instance is editing the target stick's library, or the
+    // library the archive came from; nothing was started.
+    void lockRefused(const QVariantMap &holder, const QString &libraryId);
     void previewChanged();
     void busyChanged();
     void progressChanged();
@@ -140,6 +145,7 @@ private:
     QVariantMap m_result;
     QVariantList m_knownBackups;
     bool m_restoring = false;
+    DirectWriteHold m_writeHold;
     bool m_analyzing = false;
     bool m_mounting = false;
     QString m_phase;

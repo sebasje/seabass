@@ -7,11 +7,13 @@
 #include <QString>
 #include <QVariantMap>
 
+#include <functional>
 #include <memory>
 
 #include "application/ports/cancellation_token.hpp"
 #include "application/use_cases/backup_stick.hpp"
 #include "application/use_cases/compact_stick_backup.hpp"
+#include "gui/edit/direct_write_hold.hpp"
 
 namespace seabass::gui
 {
@@ -93,6 +95,8 @@ public:
     Q_INVOKABLE void refresh();
     Q_INVOKABLE void backUp();
     Q_INVOKABLE void cancel();
+    // Re-runs the action lockRefused() stopped, after "Remove Lock".
+    Q_INVOKABLE void retryLockedAction() { m_writeHold.retryLockedAction(); }
     Q_INVOKABLE void keepPartial();
     Q_INVOKABLE void discardPartial();
     Q_INVOKABLE void verify();
@@ -113,8 +117,16 @@ signals:
     // Fires on every outcome (see LocalCueController for why a signal
     // rather than a diffed property).
     void actionFeedback(const QString &message, bool isError);
+    // Another instance is editing this stick's library (its archive on
+    // disk is part of it); nothing was started. retryLockedAction()
+    // re-runs the refused action after "Remove Lock".
+    void lockRefused(const QVariantMap &holder, const QString &libraryId);
 
 private:
+    // Takes this stick's edit lock for a run; emits lockRefused() and
+    // returns false when another instance holds it.
+    bool enterDirectWrite(std::function<void()> retry);
+
     struct PreviewResult;
     struct RunResult;
 
@@ -132,6 +144,7 @@ private:
     QString m_stickLabel;
     QString m_stickRoot;
     QString m_archivePath;
+    DirectWriteHold m_writeHold;
     QString m_stickIdentifier;
     QString m_rekordboxPath;
     QString m_enginePath;

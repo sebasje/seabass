@@ -11,12 +11,20 @@ namespace seabass::infrastructure::cleanup
 namespace fs = std::filesystem;
 
 std::vector<PendingDeletionOutcome> applyPendingDeletions(const std::vector<PendingDeletion> &safeToDelete,
-                                                            PendingDeletionManifest &manifest)
+                                                            PendingDeletionManifest &manifest,
+                                                            const application::CancellationToken &cancel,
+                                                            const std::function<void(size_t)> &onFileProcessed)
 {
     std::vector<PendingDeletionOutcome> outcomes;
     std::set<std::string> processed;
 
     for (const auto &entry : safeToDelete) {
+        // Between two files, never inside one: a file is either still
+        // there or gone, and the manifest below only ever forgets the
+        // ones that are gone.
+        if (cancel.cancelled()) {
+            break;
+        }
         PendingDeletionOutcome outcome;
         outcome.entry = entry;
 
@@ -41,6 +49,9 @@ std::vector<PendingDeletionOutcome> applyPendingDeletions(const std::vector<Pend
             outcome.failureReason = ec ? ec.message() : "the file could not be removed";
         }
         outcomes.push_back(std::move(outcome));
+        if (onFileProcessed) {
+            onFileProcessed(outcomes.size());
+        }
     }
 
     manifest.removeProcessed(processed);

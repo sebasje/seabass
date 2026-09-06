@@ -1,8 +1,11 @@
 #pragma once
 
+#include <functional>
 #include <set>
 #include <string>
 #include <vector>
+
+#include "application/ports/cancellation_token.hpp"
 
 #include "infrastructure/cleanup/pending_deletion_manifest.hpp"
 
@@ -31,7 +34,15 @@ struct PendingDeletionOutcome
 // then clears every successfully-processed entry from `manifest` in one
 // rewrite. Entries that fail to delete stay in the manifest so a later
 // pass can retry them.
-std::vector<PendingDeletionOutcome> applyPendingDeletions(const std::vector<PendingDeletion> &safeToDelete,
-                                                            PendingDeletionManifest &manifest);
+//
+// `cancel` is checked before every file: once it fires, the remaining
+// entries are neither deleted nor cleared from the manifest, and the
+// returned outcomes hold only the files reached (the caller reads the
+// token to tell a cancelled run from a short one). `onFileProcessed`
+// (optional) is called after each file with the running count.
+std::vector<PendingDeletionOutcome> applyPendingDeletions(
+    const std::vector<PendingDeletion> &safeToDelete, PendingDeletionManifest &manifest,
+    const application::CancellationToken &cancel = application::CancellationToken::none(),
+    const std::function<void(size_t done)> &onFileProcessed = {});
 
 }  // namespace seabass::infrastructure::cleanup

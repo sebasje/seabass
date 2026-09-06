@@ -9,7 +9,8 @@ import SeabassGui
 // to where the user came from).
 //
 // summary: {written, total, unit, cancelled, error} plus an optional
-// verb ("written" by default; "deleted" for a prune).
+// verb ("written" by default; "deleted" for a prune) and an optional
+// detail line that replaces the default cancel explanation.
 Dialog {
     id: dialog
     property var summary: ({})
@@ -20,6 +21,7 @@ Dialog {
     readonly property string verb: dialog.summary.verb !== undefined ? dialog.summary.verb : "written"
     readonly property bool cancelled: dialog.summary.cancelled === true
     readonly property string error: dialog.summary.error !== undefined ? dialog.summary.error : ""
+    readonly property string detail: dialog.summary.detail !== undefined ? dialog.summary.detail : ""
 
     function show(newSummary) {
         dialog.summary = newSummary;
@@ -63,6 +65,7 @@ Dialog {
             visible: text.length > 0
             color: dialog.error.length > 0 ? Theme.danger : Theme.textMuted
             text: dialog.error.length > 0 ? "Then: " + dialog.error
+                : dialog.detail.length > 0 ? dialog.detail
                 : dialog.cancelled ? "Stopped at your request. Everything up to here is complete; the rest was not touched."
                 : ""
         }

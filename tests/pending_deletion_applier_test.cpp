@@ -254,6 +254,38 @@ int main()
         std::cout << "case 5 (mixed batch: only processed entries cleared, others left in the manifest) OK\n";
     }
 
+    // Cancel between two files: the first is gone and cleared from the
+    // manifest, the second is untouched on disk AND still listed, so a
+    // later pass picks it up again.
+    {
+        fs::remove(manifestPath);
+        fs::path first = root / "cancel_first.mp3";
+        fs::path second = root / "cancel_second.mp3";
+        touch(first);
+        touch(second);
+
+        PendingDeletionManifest manifest(manifestPath.string());
+        manifest.append(makeEntry(first.string()));
+        manifest.append(makeEntry(second.string()));
+
+        seabass::application::CancellationToken cancel;
+        size_t reported = 0;
+        auto outcomes = applyPendingDeletions(manifest.list(), manifest, cancel, [&](size_t done) {
+            reported = done;
+            cancel.cancel();  // the user pressed Cancel while the first file was being deleted
+        });
+
+        assert(outcomes.size() == 1);
+        assert(reported == 1);
+        assert(outcomes[0].status == PendingDeletionOutcome::Status::Deleted);
+        assert(!fs::exists(first));
+        assert(fs::exists(second));
+        auto remaining = manifest.list();
+        assert(remaining.size() == 1);
+        assert(remaining[0].filePath == second.string());
+        std::cout << "case 6 (cancel between files: the rest stays on disk and in the manifest) OK\n";
+    }
+
     std::cout << "all cases passed\n";
     return 0;
 }

@@ -6,6 +6,7 @@
 
 #include <memory>
 
+#include "application/ports/cancellation_token.hpp"
 #include "gui/qt_progress_reporter.hpp"
 
 namespace seabass::gui
@@ -19,6 +20,8 @@ struct EngineLibraryCreationTaskResult
     int tracksCreated = 0;
     int tracksSkipped = 0;
     int cuesCopied = 0;
+    int tracksTotal = 0;
+    bool cancelled = false;  // nothing was created on the stick
     QString errorMessage;  // empty on success
 };
 
@@ -36,6 +39,11 @@ class EngineLibraryCreatorController : public QObject
     Q_OBJECT
     QML_ELEMENT
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
+    // True while a cancel would still leave the stick untouched (the
+    // scan and the scratch build); false once the copy to the stick has
+    // started.
+    Q_PROPERTY(bool cancellable READ cancellable NOTIFY cancellableChanged)
+    Q_PROPERTY(QString libraryId READ libraryId NOTIFY busyChanged)
     Q_PROPERTY(int scanCurrent READ scanCurrent NOTIFY scanProgressChanged)
     Q_PROPERTY(int scanTotal READ scanTotal NOTIFY scanProgressChanged)
     // "Scanning rekordbox" while reading, then "Creating Engine Library"
@@ -51,6 +59,8 @@ public:
     explicit EngineLibraryCreatorController(QObject *parent = nullptr);
 
     bool busy() const { return m_busy; }
+    bool cancellable() const;
+    QString libraryId() const { return m_libraryId; }
     int scanCurrent() const { return m_scanCurrent; }
     int scanTotal() const { return m_scanTotal; }
     QString currentPhase() const { return m_currentPhase; }
@@ -63,10 +73,20 @@ public:
     // 2=V3 -- see infrastructure::engine::EngineSchemaGeneration; exposed
     // as a plain int since QML enums would need their own registration
     // for a value used nowhere else in this app.
-    Q_INVOKABLE void create(const QString &rekordboxPath, int schemaGeneration);
+    // stickLabel only names this instance in the lock cookie other
+    // instances see.
+    Q_INVOKABLE void create(const QString &rekordboxPath, int schemaGeneration, const QString &stickLabel = {});
+    // Stops the build before the next track; nothing is left on the stick.
+    Q_INVOKABLE void cancelWrite();
 
 signals:
     void busyChanged();
+    void cancellableChanged();
+    // {written, total, unit, verb, cancelled, error, detail}, the
+    // OperationSummaryDialog shape.
+    void writeFinished(const QVariantMap &summary);
+    // Another instance is editing this library; nothing was created.
+    void lockRefused(const QVariantMap &holder);
     void scanProgressChanged();
     void currentPhaseChanged();
     void errorMessageChanged();
@@ -83,6 +103,9 @@ private:
 
     QFutureWatcher<EngineLibraryCreationTaskResult> m_watcher;
     bool m_busy = false;
+    bool m_holdsDirectWrite = false;
+    QString m_libraryId;
+    application::CancellationToken m_cancel;
     int m_scanCurrent = 0;
     int m_scanTotal = 0;
     // Scan, then create, then copy-to-stick share one continuous bar

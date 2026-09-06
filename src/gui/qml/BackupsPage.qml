@@ -13,7 +13,15 @@ Page {
         id: backupsController
     }
 
-    Component.onCompleted: backupsController.load(root.rekordboxPath, root.enginePath)
+    Component.onCompleted: backupsController.load(root.rekordboxPath, root.enginePath, root.stickLabel)
+
+    // The mutating action the user last asked for, re-run after "Remove
+    // Lock" in the locked-library dialog.
+    property var pendingAction: null
+    function runWrite(action) {
+        root.pendingAction = action;
+        action();
+    }
 
     readonly property var reasonNames: ({
         "duplicate-cue-consolidation": "Duplicate cue consolidation",
@@ -108,7 +116,7 @@ Page {
             Button { text: "Clean Up"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
             Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
         }
-        onAccepted: backupsController.clean(keepSpinBox.value)
+        onAccepted: root.runWrite(() => backupsController.clean(keepSpinBox.value))
 
         Label {
             text: "This permanently deletes the " + Math.max(0, backupsListView.count - keepSpinBox.value)
@@ -128,7 +136,10 @@ Page {
             Button { text: "Restore"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
             Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
         }
-        onAccepted: backupsController.restoreBackup(targetId)
+        onAccepted: {
+            const id = targetId;
+            root.runWrite(() => backupsController.restoreBackup(id));
+        }
 
         Label {
             text: "This overwrites the current files on the stick with this backup's copies.\n"
@@ -147,7 +158,10 @@ Page {
             Button { text: "Delete"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
             Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
         }
-        onAccepted: backupsController.deleteBackup(targetId)
+        onAccepted: {
+            const id = targetId;
+            root.runWrite(() => backupsController.deleteBackup(id));
+        }
 
         Label {
             text: "This permanently deletes this one backup copy. It never touches the stick's live data."
@@ -289,5 +303,44 @@ Page {
                 color: Theme.textMuted
             }
         }
+    }
+
+    // Write mode for the direct writes on this page: lock refusal, the
+    // cancellable progress of a Clean Up, and the summary afterwards. OK
+    // on the summary stays here after a completed action (the list is
+    // fresh) and goes back after a cancelled one.
+    LockedLibraryDialog {
+        id: lockedDialog
+        objectName: "lockedDialog"
+        onRemoveLockRequested: {
+            EditSessionRegistry.removeLock(backupsController.libraryId);
+            if (root.pendingAction) {
+                root.pendingAction();
+            }
+        }
+    }
+    OperationSummaryDialog {
+        id: summaryDialog
+        objectName: "summaryDialog"
+        onAccepted: {
+            if (summaryDialog.cancelled) {
+                root.StackView.view.pop();
+            }
+        }
+    }
+    Connections {
+        target: backupsController
+        function onLockRefused(holder) { lockedDialog.openFor(backupsController.libraryId, holder); }
+        function onWriteFinished(summary) { summaryDialog.show(summary); }
+    }
+    BusyOverlay {
+        anchors.fill: parent
+        busy: backupsController.writing
+        cancellable: backupsController.writeCancellable
+        current: backupsController.writeCurrent
+        total: backupsController.writeTotal
+        label: backupsController.writeTotal > 0 ? "Deleting old backups. Do not remove your USB stick."
+            : "Writing to the stick. Do not remove your USB stick."
+        onCancelRequested: backupsController.cancelWrite()
     }
 }

@@ -8,6 +8,7 @@
 
 #include "gui/library_fingerprint_reader.hpp"
 #include "gui/stick_backup_paths.hpp"
+#include "gui/edit/edit_session_registry.hpp"
 #include "gui/write_guard.hpp"
 #include "infrastructure/engine/engine_restore_check.hpp"
 #include "infrastructure/system/rekordbox_process_detector.hpp"
@@ -258,6 +259,14 @@ void CloneStickController::start(bool exact)
         emit actionFeedback(QStringLiteral("Still busy. Try again once the current operation finishes."), true);
         return;
     }
+    // The source's archive on disk is updated and the target is
+    // overwritten: both libraries' locks, or neither.
+    auto *registry = EditSessionRegistry::instance();
+    if (auto holder = m_writeHold.acquire({registry->libraryIdForPath(m_sourceRoot), registry->libraryIdForPath(m_targetRoot)},
+                                          m_sourceLabel, [this, exact] { start(exact); })) {
+        emit lockRefused(*holder, m_writeHold.refusedLibraryId());
+        return;
+    }
     setErrorMessage({});
     setStatusMessage({});
     m_result.clear();
@@ -330,6 +339,7 @@ void CloneStickController::clearResult()
 void CloneStickController::onRunFinished()
 {
     std::shared_ptr<RunResult> result = m_runWatcher.result();
+    m_writeHold.release();
     m_cloning = false;
     emit busyChanged();
     if (!result) {
