@@ -76,6 +76,7 @@ signals:
     void busyChanged();
     void errorMessageChanged();
     void statusMessageChanged();
+    void actionFeedback(const QString &message, bool isError);
 
 private:
     void onFormatFinished();
