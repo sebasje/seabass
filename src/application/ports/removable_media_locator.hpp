@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+#include "application/stick_identity.hpp"
+
 namespace seabass::application
 {
 
@@ -52,6 +54,12 @@ struct DetectedStick
     // disk index/size alone isn't something a person can reliably
     // recognize across reboots and replugs.
     std::vector<std::string> rootEntries;
+
+    // Who this stick is, independent of devicePath/mountPoint -- see
+    // StickIdentity. Populated by every locator as far as the platform
+    // allows (label and capacityBytes are always copied in, so
+    // identity.libraryId() is non-empty for any labelled stick).
+    StickIdentity identity;
 };
 
 // Port for finding candidate USB sticks without the caller needing to know
