@@ -55,7 +55,22 @@ std::string shellQuote(const std::string &s)
 std::pair<int, std::string> run(const std::string &command)
 {
 #if defined(_WIN32)
-    FILE *pipe = _popen(command.c_str(), "r");
+    // _popen runs the command through `cmd /c`, which applies its own
+    // quote-stripping rule first: when the command line begins with a
+    // quote, cmd removes the FIRST and LAST quote characters of the whole
+    // string. Every command built here starts with a quoted program path
+    // and ends with a quoted argument, so that rule mangles both ends at
+    // once, leaving cmd with an unbalanced line and failing before the
+    // program ever runs ("The filename, directory name, or volume label
+    // syntax is incorrect"). The test then read that as the archive being
+    // rejected, when python had in fact never been invoked -- verified by
+    // running the identical command by hand, which lists the archive fine.
+    //
+    // Wrapping the whole thing in one more pair of quotes is cmd's own
+    // documented escape hatch: the outer pair is what gets stripped, and
+    // the real command survives intact.
+    const std::string wrapped = "\"" + command + "\"";
+    FILE *pipe = _popen(wrapped.c_str(), "r");
 #else
     FILE *pipe = popen(command.c_str(), "r");
 #endif
