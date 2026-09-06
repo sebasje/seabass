@@ -244,8 +244,9 @@ Page {
                     text: {
                         if (!root.selectedDisk) return "";
                         if (root.selectedDisk.hasNoFilesystem) return "Empty, no files";
+                        if (!root.selectedDisk.mounted) return "(not mounted, contents unknown)";
                         var entries = root.selectedDisk.rootEntries;
-                        return entries && entries.length > 0 ? entries.join(", ") : "(unknown)";
+                        return entries && entries.length > 0 ? entries.join(", ") : "empty";
                     }
                 }
                 Label { text: "Format"; color: Theme.textMuted; font.pointSize: Theme.fontSmall }
@@ -381,11 +382,14 @@ Page {
                                         color: Theme.textMuted
                                         font.family: Theme.dataFamily
                                         font.pointSize: Theme.fontTiny
+                                        // "empty" only when the drive was actually
+                                        // looked at: an unmounted one is just unknown.
                                         text: driveRadio.modelData.hasNoFilesystem
-                                            ? (driveRadio.modelData.wholeDiskPath + " · empty")
+                                            ? (driveRadio.modelData.wholeDiskPath + " · no filesystem")
                                             : (driveRadio.modelData.wholeDiskPath + " · "
-                                                + (driveRadio.modelData.rootEntries.length > 0
-                                                    ? driveRadio.modelData.rootEntries.join(", ") : "empty"))
+                                                + (!driveRadio.modelData.mounted ? "not mounted"
+                                                    : (driveRadio.modelData.rootEntries.length > 0
+                                                        ? driveRadio.modelData.rootEntries.join(", ") : "empty")))
                                     }
                                 }
                                 StatusBadge {

@@ -1,8 +1,11 @@
 #include "media_controller.hpp"
 
+#include <QCoreApplication>
 #include <QtConcurrent/QtConcurrentRun>
 
 #include <algorithm>
+#include <iterator>
+#include <utility>
 
 #include "infrastructure/media/media_factory.hpp"
 
@@ -135,6 +138,9 @@ MediaController::MediaController(QObject *parent) : QObject(parent)
     });
 
     connect(&m_watcher, &QFutureWatcher<MediaTaskResult>::finished, this, &MediaController::onTaskFinished);
+    if (QCoreApplication *app = QCoreApplication::instance()) {
+        connect(app, &QCoreApplication::aboutToQuit, this, &MediaController::unmountOwnMounts);
+    }
 }
 
 MediaController::~MediaController()
@@ -142,31 +148,81 @@ MediaController::~MediaController()
     if (m_monitor) {
         m_monitor->stop();
     }
+    unmountOwnMounts();
 }
 
 void MediaController::detect()
 {
     auto locator = infrastructure::media::createRemovableMediaLocator();
     m_model.setSticks(locator->detect());
+    queueAutoMounts();
+}
+
+// Every stick with a filesystem and no mount point becomes a candidate,
+// except one the user ejected here or one that already failed; both
+// forget their exemption once the stick is gone, so re-inserting it
+// mounts it again.
+void MediaController::queueAutoMounts()
+{
+    QSet<QString> present;
+    for (const application::DetectedStick &stick : m_model.sticks()) {
+        const QString devicePath = QString::fromStdString(stick.devicePath);
+        if (devicePath.isEmpty()) {
+            continue;
+        }
+        present.insert(devicePath);
+        if (stick.mounted) {
+            continue;
+        }
+        if (stick.hasNoFilesystem || m_userUnmounted.contains(devicePath) || m_autoMountFailed.contains(devicePath)
+            || m_autoMountQueue.contains(devicePath) || (m_busy && m_busyDevicePath == devicePath)) {
+            continue;
+        }
+        m_autoMountQueue.push_back(devicePath);
+    }
+    for (QSet<QString> *set : {&m_userUnmounted, &m_autoMountFailed, &m_mountedByUs}) {
+        for (auto it = set->begin(); it != set->end();) {
+            it = present.contains(*it) ? std::next(it) : set->erase(it);
+        }
+    }
+    m_autoMountQueue.erase(std::remove_if(m_autoMountQueue.begin(), m_autoMountQueue.end(),
+                                          [&](const QString &d) { return !present.contains(d); }),
+                           m_autoMountQueue.end());
+    startNextAutoMount();
+}
+
+void MediaController::startNextAutoMount()
+{
+    if (m_busy || m_autoMountQueue.isEmpty()) {
+        return;
+    }
+    const QString devicePath = m_autoMountQueue.takeFirst();
+    startTask(true, devicePath, true);
 }
 
 void MediaController::mountStick(const QString &devicePath)
 {
-    startTask(true, devicePath);
+    m_userUnmounted.remove(devicePath);
+    m_autoMountFailed.remove(devicePath);
+    startTask(true, devicePath, false);
 }
 
 void MediaController::unmountStick(const QString &devicePath)
 {
-    startTask(false, devicePath);
+    m_userUnmounted.insert(devicePath);
+    m_autoMountQueue.removeAll(devicePath);
+    startTask(false, devicePath, false);
 }
 
-void MediaController::startTask(bool mount, const QString &devicePath)
+void MediaController::startTask(bool mount, const QString &devicePath, bool automatic)
 {
     if (m_busy) {
         return;
     }
     setErrorMessage({});
     m_busy = true;
+    m_busyIsMount = mount;
+    m_busyIsAutomatic = automatic;
     m_busyDevicePath = devicePath;
     emit busyChanged();
     m_watcher.setFuture(QtConcurrent::run(runMediaTask, mount, devicePath));
@@ -175,11 +231,51 @@ void MediaController::startTask(bool mount, const QString &devicePath)
 void MediaController::onTaskFinished()
 {
     MediaTaskResult result = m_watcher.result();
+    const QString devicePath = m_busyDevicePath;
     m_busy = false;
     m_busyDevicePath.clear();
+    if (m_busyIsMount) {
+        if (result.success) {
+            m_mountedByUs.insert(devicePath);
+        } else if (m_busyIsAutomatic) {
+            m_autoMountFailed.insert(devicePath);
+        }
+    } else if (result.success) {
+        m_mountedByUs.remove(devicePath);
+    }
     setErrorMessage(result.errorMessage);
     emit busyChanged();
     detect();
+}
+
+void MediaController::unmountOwnMounts()
+{
+    if (m_ownMountsReleased) {
+        return;
+    }
+    m_ownMountsReleased = true;
+    m_autoMountQueue.clear();
+    m_watcher.waitForFinished();
+    if (m_mountedByUs.isEmpty()) {
+        return;
+    }
+    // Only what is still mounted: the user may have ejected it meanwhile.
+    QSet<QString> stillMounted;
+    auto locator = infrastructure::media::createRemovableMediaLocator();
+    for (const application::DetectedStick &stick : locator->detect()) {
+        if (stick.mounted) {
+            stillMounted.insert(QString::fromStdString(stick.devicePath));
+        }
+    }
+    auto mounter = infrastructure::media::createRemovableMediaMounter();
+    for (const QString &devicePath : std::as_const(m_mountedByUs)) {
+        if (!stillMounted.contains(devicePath)) {
+            continue;
+        }
+        std::string error;
+        mounter->unmount(devicePath.toStdString(), error);  // best effort: nothing left to report to
+    }
+    m_mountedByUs.clear();
 }
 
 void MediaController::setErrorMessage(const QString &message)
