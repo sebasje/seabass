@@ -15,22 +15,20 @@
 #include "application/use_cases/sync_libraries.hpp"
 #include "domain/cross_source_sync_conflict.hpp"
 #include "domain/track_scope.hpp"
+#include "gui/edit/edit_session_registry.hpp"
+#include "gui/edit/format_write_session.hpp"
+#include "gui/edit/library_edit_session.hpp"
+#include "gui/edit/pending_change.hpp"
+#include "gui/edit/save_context.hpp"
 #include "gui/library_catalog_cache.hpp"
 #include "gui/qt_progress_reporter.hpp"
-#include "gui/write_guard.hpp"
-#include "infrastructure/backup/filesystem_backup_store.hpp"
-#include "infrastructure/backup/stick_write_lock.hpp"
-#include "infrastructure/bulk_write_strategy.hpp"
-#include "infrastructure/durable_file_write.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cue_writer.hpp"
 #include "infrastructure/engine/libdjinterop_engine_reader.hpp"
-#include "infrastructure/logging/file_operation_log.hpp"
 #include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
 #include "infrastructure/onelibrary/onelibrary_reader.hpp"
 #include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 #include "infrastructure/rekordbox/rekordbox_cue_writer.hpp"
-#include "infrastructure/scratch_dir_guard.hpp"
 
 namespace seabass::gui
 {
@@ -40,9 +38,6 @@ using domain::SyncPlan;
 
 namespace
 {
-
-using infrastructure::hasRoomForWholeFileReplace;
-using infrastructure::ScratchDirGuard;
 
 // Mirrors cli/main.cpp's describeCues() exactly.
 QString describeCues(const std::vector<domain::CuePoint> &cues)
@@ -129,6 +124,12 @@ QVariant SyncPlanListModel::data(const QModelIndex &index, int role) const
         return plan.kind == SyncPlan::Kind::Conflict;
     case TracksRole:
         return QVariantList{trackToMap(plan.match.trackA), trackToMap(plan.match.trackB)};
+    case StagedRole:
+        return static_cast<size_t>(index.row()) < m_stagedDescriptions.size()
+            && !m_stagedDescriptions[static_cast<size_t>(index.row())].isEmpty();
+    case StagedDescriptionRole:
+        return static_cast<size_t>(index.row()) < m_stagedDescriptions.size()
+            ? m_stagedDescriptions[static_cast<size_t>(index.row())] : QString();
     default:
         return {};
     }
@@ -143,6 +144,8 @@ QHash<int, QByteArray> SyncPlanListModel::roleNames() const
         {DescriptionRole, "description"},
         {ConflictRole, "conflict"},
         {TracksRole, "tracks"},
+        {StagedRole, "staged"},
+        {StagedDescriptionRole, "stagedDescription"},
     };
 }
 
@@ -150,6 +153,7 @@ void SyncPlanListModel::setPlans(std::vector<domain::SyncPlan> plans)
 {
     beginResetModel();
     m_plans = std::move(plans);
+    m_stagedDescriptions.assign(m_plans.size(), QString());
     endResetModel();
 }
 
@@ -158,6 +162,7 @@ void SyncPlanListModel::addPlan(domain::SyncPlan plan)
     int row = static_cast<int>(m_plans.size());
     beginInsertRows(QModelIndex(), row, row);
     m_plans.push_back(std::move(plan));
+    m_stagedDescriptions.push_back(QString());
     endInsertRows();
 }
 
@@ -168,7 +173,26 @@ void SyncPlanListModel::removePlanAt(int index)
     }
     beginRemoveRows(QModelIndex(), index, index);
     m_plans.erase(m_plans.begin() + index);
+    m_stagedDescriptions.erase(m_stagedDescriptions.begin() + index);
     endRemoveRows();
+}
+
+void SyncPlanListModel::setStaged(int index, bool staged, const QString &description)
+{
+    if (index < 0 || static_cast<size_t>(index) >= m_plans.size()) {
+        return;
+    }
+    m_stagedDescriptions[static_cast<size_t>(index)] = staged ? description : QString();
+    emit dataChanged(this->index(index), this->index(index), {StagedRole, StagedDescriptionRole});
+}
+
+void SyncPlanListModel::clearStaged()
+{
+    if (m_plans.empty()) {
+        return;
+    }
+    std::fill(m_stagedDescriptions.begin(), m_stagedDescriptions.end(), QString());
+    emit dataChanged(index(0), index(static_cast<int>(m_plans.size()) - 1), {StagedRole, StagedDescriptionRole});
 }
 
 namespace
@@ -356,7 +380,6 @@ SyncTaskResult runAnalyzeTask(QString rekordboxPath, QString enginePath, QString
 SyncController::SyncController(QObject *parent) : QObject(parent)
 {
     connect(&m_watcher, &QFutureWatcher<SyncTaskResult>::finished, this, &SyncController::onAnalyzeFinished);
-    connect(&m_writeWatcher, &QFutureWatcher<SyncWriteResult>::finished, this, &SyncController::onWriteFinished);
 }
 
 void SyncController::analyze(const QString &rekordboxPath, const QString &enginePath, const QString &playlistName,
@@ -378,6 +401,7 @@ void SyncController::analyze(const QString &rekordboxPath, const QString &engine
     }
     m_rekordboxPath = rekordboxPath;
     m_enginePath = enginePath;
+    attachSession();
     setErrorMessage({});
     setStatusMessage({});
     setScanProgress(0, 0);
@@ -428,6 +452,14 @@ void SyncController::onAnalyzeFinished()
     m_playlistNames = std::move(result.playlistNames);
     m_playlistTrackCounts = std::move(result.playlistTrackCounts);
     m_model.setPlans(std::move(result.plans));
+    // Plans staged before this re-analyze keep their mark if they are
+    // still listed (the change itself lives in the session either way).
+    for (const auto &[targetKey, info] : m_stagedByTarget) {
+        int index = indexOfTargetKey(targetKey);
+        if (index >= 0) {
+            m_model.setStaged(index, true, info.description);
+        }
+    }
     recomputeDirectionCounts();
     // A rescan is a fresh snapshot -- any conflict resolved against the
     // previous one no longer means anything (the plan it produced is
@@ -517,6 +549,8 @@ void SyncController::resolveConflict(int index, bool useSourceA)
     plan.cuesToApply = useSourceA ? conflict.cuesFromA : conflict.cuesFromB;
     m_model.addPlan(std::move(plan));
     recomputeDirectionCounts();
+    // The decision is the edit: staged right away, Save writes it.
+    stagePlan(static_cast<int>(m_model.plans().size()) - 1);
 
     m_conflicts.erase(m_conflicts.begin() + index);
     rebuildUnresolvedConflictsList();
@@ -546,23 +580,6 @@ void SyncController::recomputeDirectionCounts()
 namespace
 {
 
-// Acquires one StickWriteLock per distinct directory (sorted first so two
-// concurrent multi-lock callers always acquire in the same order, and
-// deduped so locking the same directory twice, e.g. rekordbox and
-// OneLibrary sharing one stick root's .seabass-backups, never self-
-// deadlocks). Held for the caller's whole scope via RAII.
-std::vector<std::unique_ptr<infrastructure::backup::StickWriteLock>> acquireStickLocks(std::vector<std::string> dirs)
-{
-    std::sort(dirs.begin(), dirs.end());
-    dirs.erase(std::unique(dirs.begin(), dirs.end()), dirs.end());
-    std::vector<std::unique_ptr<infrastructure::backup::StickWriteLock>> locks;
-    locks.reserve(dirs.size());
-    for (const auto &dir : dirs) {
-        locks.push_back(std::make_unique<infrastructure::backup::StickWriteLock>(dir + "/.write.lock"));
-    }
-    return locks;
-}
-
 QString formatLabel(const std::string &format)
 {
     if (format == "engine") return "Engine";
@@ -570,281 +587,195 @@ QString formatLabel(const std::string &format)
     return "Rekordbox";
 }
 
-// One plan's cues, already resolved to a concrete target track plus the
-// human-readable identity of where they came from (for logging).
-struct WriteItem
+// The writer for one target catalog in one save, created by the first
+// SyncPlanChange that needs it and shared by the rest
+// (SaveContext::shared): the catalog's database is backed up once, and a
+// big batch against Engine/OneLibrary goes through FormatWriteSession's
+// scratch copy. rekordbox cue writes go to small per-track .ANLZ files
+// (backed up per item by the change), so its hint is 0: never scratch.
+struct SyncFormatWriter
 {
-    domain::Track targetTrack;
-    std::vector<domain::CuePoint> cuesToApply;
-    std::string sourceFormat;
-    std::string sourceTitle;
-    std::string sourceSourceId;
+    SyncFormatWriter(const std::string &format, const std::string &catalogPath, int itemCountHint, SaveContext &ctx)
+        : session(format, catalogPath, format == "rekordbox" ? 0 : itemCountHint, "sync", ctx)
+    {
+        if (format == "rekordbox") {
+            rekordbox = std::make_unique<infrastructure::rekordbox::RekordboxCueWriter>(session.realRoot());
+        } else if (format == "engine") {
+            engine = std::make_unique<infrastructure::engine::LibdjinteropEngineCueWriter>(session.writeRoot());
+        } else {
+            // realStickRoot is passed explicitly because writeRoot() may
+            // be the scratch copy, whose parent is just a temp directory
+            // -- content.path lookups need the real stick's layout.
+            oneLibrary = std::make_unique<infrastructure::onelibrary::OneLibraryCueWriter>(
+                session.writeRoot(), fs::path(catalogPath).parent_path().string());
+        }
+    }
+
+    FormatWriteSession session;
+    std::unique_ptr<infrastructure::rekordbox::RekordboxCueWriter> rekordbox;
+    std::unique_ptr<infrastructure::engine::LibdjinteropEngineCueWriter> engine;
+    std::unique_ptr<infrastructure::onelibrary::OneLibraryCueWriter> oneLibrary;
 };
 
-// Ports cli/main.cpp's runSyncCommand phase-3 block, generalized to any
-// number of target catalogs instead of a fixed rekordbox/Engine pair:
-// plans are grouped by which catalog is actually receiving the write
-// (regardless of which pair they came from), so writing to e.g.
-// "rekordbox" happens exactly once per stick even if some of those plans
-// came from the rekordbox<->Engine pair and others from rekordbox<->
-// OneLibrary. Runs entirely on a background thread (see
-// SyncController::startApply()).
-SyncWriteResult runApplyTask(QString rekordboxPath, QString enginePath, std::vector<SyncPlan> actionablePlans,
-                              std::shared_ptr<QtProgressReporter> reporter)
+// One plan: the source track's cues onto the target track. What used to
+// be one iteration of runApplyTask()'s per-format loops.
+class SyncPlanChange : public PendingChange
 {
-    SyncWriteResult result;
-    QString refusal = refuseIfDjSoftwareRunning();
-    if (!refusal.isEmpty()) {
-        result.errorMessage = refusal;
-        return result;
+public:
+    SyncPlanChange(QString rekordboxPath, QString enginePath, SyncPlan plan, int itemCountHint)
+        : m_rekordboxPath(std::move(rekordboxPath)),
+          m_enginePath(std::move(enginePath)),
+          m_plan(std::move(plan)),
+          m_itemCountHint(itemCountHint)
+    {
     }
-    try {
+
+    const domain::Track &target() const
+    {
+        return m_plan.direction == SyncPlan::Direction::ToB ? m_plan.match.trackB : m_plan.match.trackA;
+    }
+    const domain::Track &source() const
+    {
+        return m_plan.direction == SyncPlan::Direction::ToB ? m_plan.match.trackA : m_plan.match.trackB;
+    }
+
+    QString id() const override
+    {
+        return "sync:" + QString::fromStdString(target().format) + ":" + QString::fromStdString(target().sourceId);
+    }
+
+    QString description() const override
+    {
+        return QStringLiteral("Copy %1 from %2 \"%3\" to %4")
+            .arg(describeCues(m_plan.cuesToApply), formatLabel(source().format), QString::fromStdString(source().title),
+                 formatLabel(target().format));
+    }
+
+    QString unit() const override { return QStringLiteral("tracks"); }
+    QStringList formatsTouched() const override { return {QString::fromStdString(target().format)}; }
+
+    ChangeOutcome apply(SaveContext &ctx) override
+    {
+        const domain::Track &tgt = target();
+        const domain::Track &src = source();
+        const std::string &targetFormat = tgt.format;
         // rekordbox and OneLibrary share the same PIONEER root/path.
-        auto pathForFormat = [&](const std::string &format) { return format == "engine" ? enginePath : rekordboxPath; };
-
-        std::map<std::string, std::vector<WriteItem>> byTargetFormat;
-        for (const auto &plan : actionablePlans) {
-            bool toB = plan.direction == SyncPlan::Direction::ToB;
-            const domain::Track &target = toB ? plan.match.trackB : plan.match.trackA;
-            const domain::Track &source = toB ? plan.match.trackA : plan.match.trackB;
-            byTargetFormat[target.format].push_back({target, plan.cuesToApply, source.format, source.title, source.sourceId});
+        QString path = targetFormat == "engine" ? m_enginePath : m_rekordboxPath;
+        if (path.isEmpty()) {
+            return ChangeOutcome::failure("No " + formatLabel(targetFormat) + " catalog path is known for this stick.");
         }
+        std::string catalogPath = path.toStdString();
+        SyncFormatWriter &writer = ctx.shared<SyncFormatWriter>("sync:" + targetFormat, [&]() {
+            return std::make_unique<SyncFormatWriter>(targetFormat, catalogPath, m_itemCountHint, ctx);
+        });
 
-        std::vector<std::string> lockDirs;
-        if (!rekordboxPath.isEmpty()) {
-            lockDirs.push_back((fs::path(rekordboxPath.toStdString()).parent_path() / ".seabass-backups").string());
-        }
-        if (!enginePath.isEmpty()) {
-            lockDirs.push_back((fs::path(enginePath.toStdString()).parent_path() / ".seabass-backups").string());
-        }
-        auto locks = acquireStickLocks(lockDirs);
-
-        reporter->start("Writing cues", actionablePlans.size());
-        size_t written = 0;
-        QStringList summaryParts;
-
-        for (const auto &[targetFormat, items] : byTargetFormat) {
-            QString path = pathForFormat(targetFormat);
-            std::string stickRoot = fs::path(path.toStdString()).parent_path().string();
-            infrastructure::backup::FilesystemBackupStore backupStore((fs::path(stickRoot) / ".seabass-backups").string());
-            infrastructure::logging::FileOperationLog log((fs::path(stickRoot) / ".seabass.log").string());
-            int cuesCopied = 0;
-
-            try {
-            if (targetFormat == "rekordbox") {
-                infrastructure::rekordbox::RekordboxCueWriter writer(path.toStdString());
-                std::string pioneerRoot = path.toStdString();
-                auto record = backupStore.backup({pioneerRoot + "/rekordbox/export.pdb"}, "sync");
-                log.record("sync: backed up export.pdb -> " + record.path);
-                result.backups.push_back({QString::fromStdString(fs::path(record.path).parent_path().string()),
-                                           QString::fromStdString(record.id)});
-                std::set<std::string> backedUpAnlz;
-                for (const auto &item : items) {
-                    auto analyzePath = infrastructure::rekordbox::findAnlzPathForTrackId(
-                        pioneerRoot, static_cast<uint32_t>(std::stoul(item.targetTrack.sourceId)));
-                    if (analyzePath) {
-                        std::string extPath = infrastructure::rekordbox::extAnlzPath(pioneerRoot, *analyzePath);
-                        if (backedUpAnlz.insert(extPath).second) {
-                            auto anlzRecord = backupStore.backup({extPath}, "sync");
-                            log.record("sync: backed up -> " + anlzRecord.path);
-                        }
-                    }
-                    writer.writeHotCues(item.targetTrack.sourceId, item.cuesToApply);
-                    cuesCopied += static_cast<int>(item.cuesToApply.size());
-                    log.record("sync: copied cues (" + describeCues(item.cuesToApply).toStdString() + ") from " +
-                               item.sourceFormat + " track \"" + item.sourceTitle + "\" (id=" + item.sourceSourceId +
-                               ") to rekordbox track id=" + item.targetTrack.sourceId);
-                    reporter->tick(++written);
-                }
-            } else if (targetFormat == "engine") {
-                std::string engineDbFile = (fs::path(path.toStdString()) / "Database2" / "m.db").string();
-                auto record = backupStore.backup({engineDbFile}, "sync");
-                log.record("sync: backed up m.db -> " + record.path);
-                result.backups.push_back({QString::fromStdString(fs::path(record.path).parent_path().string()),
-                                           QString::fromStdString(record.id)});
-
-                std::error_code sizeEc;
-                auto existingBytes = fs::file_size(engineDbFile, sizeEc);
-                infrastructure::BulkWriteStrategyInputs strategyInputs;
-                strategyInputs.itemCount = static_cast<int>(items.size());
-                strategyInputs.existingFileBytes = sizeEc ? 0 : existingBytes;
-                bool useWholeFile = !sizeEc && infrastructure::shouldUseWholeFileReplace(strategyInputs) &&
-                                     hasRoomForWholeFileReplace(fs::path(engineDbFile).parent_path(), existingBytes);
-
-                std::optional<fs::path> scratchDir;
-                std::optional<ScratchDirGuard> scratchGuard;
-                std::string writeTargetPath = path.toStdString();
-                if (useWholeFile) {
-                    scratchDir = fs::temp_directory_path() /
-                                 ("seabass-sync-scratch-engine-" +
-                                  std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
-                    std::error_code cleanupEc;
-                    fs::remove_all(*scratchDir, cleanupEc);
-                    fs::create_directories(*scratchDir / "Database2");
-                    fs::copy_file(engineDbFile, *scratchDir / "Database2" / "m.db");
-                    scratchGuard.emplace(*scratchDir);
-                    writeTargetPath = scratchDir->string();
-                    log.record("sync: applying " + std::to_string(items.size()) +
-                               " engine cue update(s) to a local scratch copy first (m.db is " +
-                               std::to_string(existingBytes) + " bytes)");
-                }
-
-                infrastructure::engine::LibdjinteropEngineCueWriter writer(writeTargetPath);
-                for (const auto &item : items) {
-                    writer.writeHotCues(item.targetTrack.sourceId, item.cuesToApply);
-                    cuesCopied += static_cast<int>(item.cuesToApply.size());
-                    log.record("sync: copied cues (" + describeCues(item.cuesToApply).toStdString() + ") from " +
-                               item.sourceFormat + " track \"" + item.sourceTitle + "\" (id=" + item.sourceSourceId +
-                               ") to engine track id=" + item.targetTrack.sourceId);
-                    reporter->tick(++written);
-                }
-
-                if (scratchDir &&
-                    !infrastructure::copyFileDurablyAtomic((*scratchDir / "Database2" / "m.db").string(), engineDbFile)) {
-                    throw std::runtime_error(
-                        "sync: failed to commit the scratch-built engine library back onto the stick");
-                }
-            } else if (targetFormat == "onelibrary") {
-                std::string dbFile = infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(path.toStdString());
-                auto record = backupStore.backup({dbFile}, "sync");
-                log.record("sync: backed up exportLibrary.db -> " + record.path);
-                result.backups.push_back({QString::fromStdString(fs::path(record.path).parent_path().string()),
-                                           QString::fromStdString(record.id)});
-
-                std::error_code sizeEc;
-                auto existingBytes = fs::file_size(dbFile, sizeEc);
-                infrastructure::BulkWriteStrategyInputs strategyInputs;
-                strategyInputs.itemCount = static_cast<int>(items.size());
-                strategyInputs.existingFileBytes = sizeEc ? 0 : existingBytes;
-                bool useWholeFile = !sizeEc && infrastructure::shouldUseWholeFileReplace(strategyInputs) &&
-                                     hasRoomForWholeFileReplace(fs::path(dbFile).parent_path(), existingBytes);
-
-                std::optional<fs::path> scratchDir;
-                std::optional<ScratchDirGuard> scratchGuard;
-                std::string writeTargetRoot = path.toStdString();
-                if (useWholeFile) {
-                    scratchDir = fs::temp_directory_path() /
-                                 ("seabass-sync-scratch-onelibrary-" +
-                                  std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
-                    std::error_code cleanupEc;
-                    fs::remove_all(*scratchDir, cleanupEc);
-                    fs::create_directories(*scratchDir / "rekordbox");
-                    fs::copy_file(dbFile, *scratchDir / "rekordbox" / "exportLibrary.db");
-                    scratchGuard.emplace(*scratchDir);
-                    writeTargetRoot = scratchDir->string();
-                    log.record("sync: applying " + std::to_string(items.size()) +
-                               " OneLibrary cue update(s) to a local scratch copy first (exportLibrary.db is " +
-                               std::to_string(existingBytes) + " bytes)");
-                }
-
-                // realStickRoot is passed explicitly (not left to the
-                // writer's own pioneerRoot-parent default) because
-                // writeTargetRoot may be the scratch copy above, whose
-                // parent is just a temp directory, not the stick --
-                // content.path lookups need the *real* stick root
-                // regardless of where the database file itself is being
-                // read from right now.
-                infrastructure::onelibrary::OneLibraryCueWriter writer(
-                    writeTargetRoot, fs::path(path.toStdString()).parent_path().string());
-                for (const auto &item : items) {
-                    writer.writeCuesForPath(item.targetTrack.filePath, item.cuesToApply);
-                    cuesCopied += static_cast<int>(item.cuesToApply.size());
-                    log.record("sync: copied cues (" + describeCues(item.cuesToApply).toStdString() + ") from " +
-                               item.sourceFormat + " track \"" + item.sourceTitle + "\" to OneLibrary track path=" +
-                               item.targetTrack.filePath);
-                    reporter->tick(++written);
-                }
-
-                if (scratchDir && !infrastructure::copyFileDurablyAtomic(
-                                       (*scratchDir / "rekordbox" / "exportLibrary.db").string(), dbFile)) {
-                    throw std::runtime_error(
-                        "sync: failed to commit the scratch-built OneLibrary database back onto the stick");
-                }
+        if (targetFormat == "rekordbox") {
+            auto analyzePath = infrastructure::rekordbox::findAnlzPathForTrackId(
+                catalogPath, static_cast<uint32_t>(std::stoul(tgt.sourceId)));
+            if (analyzePath) {
+                ctx.backupOnce(infrastructure::rekordbox::extAnlzPath(catalogPath, *analyzePath), "sync");
             }
-
-            } catch (const std::exception &e) {
-                log.record("sync: FAILED writing " + targetFormat + " (" + std::to_string(items.size()) +
-                           " item(s) queued, " + std::to_string(cuesCopied) + " cue(s) actually copied first): " +
-                           e.what());
-                throw;
-            }
-
-            summaryParts << QString("%1 track(s) to %2 (%3 cue(s))")
-                                .arg(items.size())
-                                .arg(formatLabel(targetFormat))
-                                .arg(cuesCopied);
+            writer.rekordbox->writeHotCues(tgt.sourceId, m_plan.cuesToApply);
+        } else if (targetFormat == "engine") {
+            writer.engine->writeHotCues(tgt.sourceId, m_plan.cuesToApply);
+        } else {
+            writer.oneLibrary->writeCuesForPath(tgt.filePath, m_plan.cuesToApply);
         }
-        reporter->finish();
-        result.statusMessage = "Synced " + summaryParts.join(", ");
-    } catch (const std::exception &e) {
-        result.errorMessage = QString::fromStdString(e.what());
+        writer.session.noteItemApplied();
+        ctx.log().record("sync: copied cues (" + describeCues(m_plan.cuesToApply).toStdString() + ") from "
+                         + src.format + " track \"" + src.title + "\" (id=" + src.sourceId + ") to " + targetFormat
+                         + " track id=" + tgt.sourceId);
+        return ChangeOutcome::success();
     }
-    return result;
-}
 
-// Runs entirely on a background thread (see SyncController::
-// undoLastOperation()). An empty `backups` result always means "nothing
-// left to undo," whether that's because everything restored cleanly or
-// because an error stopped the loop partway, either way the caller's
-// undo trail is now stale and should be cleared.
-SyncWriteResult runUndoTask(std::vector<UndoableBackup> backups, std::shared_ptr<QtProgressReporter> reporter)
-{
-    SyncWriteResult result;
-    QString refusal = refuseIfDjSoftwareRunning();
-    if (!refusal.isEmpty()) {
-        result.errorMessage = refusal;
-        return result;
-    }
-    int restored = 0;
-    try {
-        std::vector<std::string> dirs;
-        for (const auto &backup : backups) {
-            dirs.push_back(backup.backupDir.toStdString());
-        }
-        auto locks = acquireStickLocks(dirs);
-
-        reporter->start("Undoing", backups.size());
-        // Reverse order: if anything ever depends on write order, undoing
-        // most-recent-first is the safer default.
-        for (auto it = backups.rbegin(); it != backups.rend(); ++it) {
-            infrastructure::backup::FilesystemBackupStore store(it->backupDir.toStdString());
-            if (store.restore(it->id.toStdString())) {
-                restored++;
-            }
-            reporter->tick(static_cast<size_t>(restored));
-        }
-        reporter->finish();
-        result.statusMessage = QString("Undone - restored %1 file(s) to their state before the last sync").arg(restored);
-    } catch (const std::exception &e) {
-        result.errorMessage = QString::fromStdString(e.what());
-    }
-    return result;
-}
+private:
+    QString m_rekordboxPath;
+    QString m_enginePath;
+    SyncPlan m_plan;
+    int m_itemCountHint;
+};
 
 }  // namespace
 
-// Phase 2 (the confirmation gate) + phase 3: writes every plan currently in
-// the model. See runApplyTask() for the actual backup/write logic.
-void SyncController::apply()
+// The target track identifies a plan across re-analyses: at most one plan
+// per target track ever exists (SyncPlanner classifies each matched pair
+// once), so this is also the staged change's key.
+QString SyncController::targetKeyFor(const SyncPlan &plan)
 {
-    if (m_busy) {
-        return;
-    }
-    std::vector<SyncPlan> actionable;
-    for (const auto &plan : m_model.plans()) {
-        if (plan.direction != SyncPlan::Direction::None) {
-            actionable.push_back(plan);
-        }
-    }
-    m_pendingWriteKind = PendingWriteKind::ApplyAll;
-    startApply(std::move(actionable));
+    const domain::Track &target = plan.direction == SyncPlan::Direction::ToB ? plan.match.trackB : plan.match.trackA;
+    return QString::fromStdString(target.format) + ":" + QString::fromStdString(target.sourceId);
 }
 
-void SyncController::applyOne(int index)
+int SyncController::indexOfTargetKey(const QString &targetKey) const
 {
-    if (m_busy) {
-        return;
+    const auto &plans = m_model.plans();
+    for (size_t i = 0; i < plans.size(); ++i) {
+        if (targetKeyFor(plans[i]) == targetKey) {
+            return static_cast<int>(i);
+        }
     }
+    return -1;
+}
+
+bool SyncController::writing() const
+{
+    return m_session && m_session->writing();
+}
+
+bool SyncController::canUndo() const
+{
+    return m_session && m_session->canUndo();
+}
+
+void SyncController::attachSession()
+{
+    auto *registry = EditSessionRegistry::instance();
+    const QString &any = m_rekordboxPath.isEmpty() ? m_enginePath : m_rekordboxPath;
+    LibraryEditSession *session = registry->sessionFor(registry->libraryIdForPath(any));
+    if (session != m_session) {
+        if (m_session) {
+            disconnect(m_session, nullptr, this, nullptr);
+        }
+        m_session = session;
+        if (m_session) {
+            connect(m_session, &LibraryEditSession::stateChanged, this, &SyncController::writingChanged);
+            connect(m_session, &LibraryEditSession::canUndoChanged, this, &SyncController::canUndoChanged);
+            connect(m_session, &LibraryEditSession::changeApplied, this, [this](const QString &changeId) {
+                if (changeId == QStringLiteral("undo:last-save")) {
+                    // Prior file bytes are back; the plan list is stale.
+                    analyze(m_rekordboxPath, m_enginePath, m_currentPlaylistName, m_currentSearchQuery);
+                    return;
+                }
+                for (auto it = m_stagedByTarget.begin(); it != m_stagedByTarget.end(); ++it) {
+                    if (it->second.changeId == changeId) {
+                        // That pair is consistent now: the row goes.
+                        // SyncPlanner classifies each pair independently,
+                        // so no other row's classification can change.
+                        int index = indexOfTargetKey(it->first);
+                        m_stagedByTarget.erase(it);
+                        if (index >= 0) {
+                            m_model.removePlanAt(index);
+                            recomputeDirectionCounts();
+                        }
+                        emit stagedChanged();
+                        break;
+                    }
+                }
+            });
+            connect(m_session, &LibraryEditSession::changesDiscarded, this, [this]() {
+                m_stagedByTarget.clear();
+                m_model.clearStaged();
+                emit stagedChanged();
+            });
+        }
+    }
+    if (m_session) {
+        m_session->setLibraryPaths(m_rekordboxPath, m_enginePath);
+    }
+}
+
+void SyncController::stagePlan(int index)
+{
     const auto &plans = m_model.plans();
     if (index < 0 || static_cast<size_t>(index) >= plans.size()) {
         return;
@@ -853,99 +784,100 @@ void SyncController::applyOne(int index)
     if (plan.direction == SyncPlan::Direction::None) {
         return;
     }
-    m_pendingWriteKind = PendingWriteKind::ApplyOne;
-    m_pendingApplyOneIndex = index;
-    startApply({plan});
+    if (!m_session) {
+        attachSession();
+        if (!m_session) {
+            setErrorMessage("This stick's library could not be identified; nothing was changed.");
+            return;
+        }
+    }
+    if (m_session->writing()) {
+        setErrorMessage("A save is running -- stage more once it has finished.");
+        return;
+    }
+    // How many writes this save may make against the target's database
+    // (drives the scratch-copy decision): every listed plan for that
+    // format, the most that could be staged.
+    QString targetKey = targetKeyFor(plan);
+    QString targetFormat = targetKey.section(':', 0, 0);
+    int itemCountHint = 0;
+    for (const auto &other : plans) {
+        if (targetKeyFor(other).section(':', 0, 0) == targetFormat) {
+            itemCountHint++;
+        }
+    }
+    auto change = std::make_unique<SyncPlanChange>(m_rekordboxPath, m_enginePath, plan, itemCountHint);
+    QString changeId = change->id();
+    QString description = change->description();
+    if (!m_session->stage(std::move(change))) {
+        return;  // the session reported the lock refusal; the page shows it
+    }
+    m_stagedByTarget[targetKey] = {changeId, description};
+    m_model.setStaged(index, true, description);
+    emit stagedChanged();
 }
 
-void SyncController::startApply(std::vector<SyncPlan> plans)
+// Stages every plan currently in the model; the page's Save writes them.
+void SyncController::apply()
 {
+    if (m_busy) {
+        return;
+    }
     setErrorMessage({});
     setStatusMessage({});
-    setScanProgress(0, 0);
-    setBusy(true);
-    setWriting(true);
-    m_lastBackups.clear();
-    emit canUndoChanged();
-
-    m_writeWatcher.setFuture(QtConcurrent::run(runApplyTask, m_rekordboxPath, m_enginePath, std::move(plans), makeReporter()));
+    int staged = 0;
+    const size_t count = m_model.plans().size();
+    for (size_t i = 0; i < count; ++i) {
+        if (m_model.plans()[i].direction != SyncPlan::Direction::None
+            && !m_stagedByTarget.count(targetKeyFor(m_model.plans()[i]))) {
+            stagePlan(static_cast<int>(i));
+            staged++;
+            if (m_session && !m_session->lockHeld()) {
+                return;  // refused at the first one; no point trying the rest
+            }
+        }
+    }
+    if (staged > 0) {
+        setStatusMessage(QStringLiteral("Staged %1 track(s). Press Save to write the cues to the stick.").arg(staged));
+    }
 }
 
-// Common completion path for apply()/applyOne()/undoLastOperation().
-// All three just differ in which background task fed the watcher.
-void SyncController::onWriteFinished()
+void SyncController::applyOne(int index)
 {
-    SyncWriteResult result = m_writeWatcher.result();
-    m_lastBackups = std::move(result.backups);
-    emit canUndoChanged();
-
-    if (!result.errorMessage.isEmpty()) {
-        setErrorMessage(result.errorMessage);
-    } else {
-        setStatusMessage(result.statusMessage);
+    if (m_busy) {
+        return;
     }
-    setBusy(false);
-    setWriting(false);
+    setErrorMessage({});
+    setStatusMessage({});
+    stagePlan(index);
+}
 
-    // A write may have touched any/all of the three catalogs -- rather
-    // than plumbing through exactly which ones a given apply actually
-    // wrote to, just invalidate all three; even the local-update
-    // branches below that skip the immediate re-analyze still need
-    // this, so a *later* analyze (switching playlists, reopening the
-    // page) can't read stale cached tracks from before the write within
-    // an mtime-granularity window.
-    auto &catalogCache = LibraryCatalogCache::instance();
-    catalogCache.invalidate("rekordbox", m_rekordboxPath.toStdString());
-    catalogCache.invalidate("engine", m_enginePath.toStdString());
-    catalogCache.invalidate("onelibrary", m_rekordboxPath.toStdString());
-
-    if (m_pendingWriteKind == PendingWriteKind::ApplyAll) {
-        // apply() writes every plan currently in the model (everything
-        // with direction != None, which is all SyncPlanListModel ever
-        // holds) -- once the write succeeds every remaining row is
-        // consistent by construction. domain::SyncPlanner classifies
-        // each matched pair independently of every other pair, and
-        // CrossSourceConflictDetector::detect() already split out
-        // conflicts once at analyze() time, so writing these plans
-        // can't change any other plan's classification -- there is
-        // nothing a full re-analyze of the whole catalog could reveal
-        // here. Traced with gdb on a similar case (Clean Up Stray
-        // Cues): the full post-write catalog re-scan was the entire
-        // cost of a "removing this is slow" report.
-        m_model.setPlans({});
-        recomputeDirectionCounts();
-    } else if (m_pendingWriteKind == PendingWriteKind::ApplyOne) {
-        m_model.removePlanAt(m_pendingApplyOneIndex);
-        m_pendingApplyOneIndex = -1;
-        recomputeDirectionCounts();
-    } else {
-        // Undo restores the prior file bytes directly; the plan list
-        // this session had for "what changed" was already discarded
-        // when the corresponding apply cleared/removed it locally
-        // above, so there's nothing to patch back in without a real
-        // re-analyze, staying scoped to whatever playlist/search was
-        // active rather than reverting to "All tracks".
-        analyze(m_rekordboxPath, m_enginePath, m_currentPlaylistName, m_currentSearchQuery);
+void SyncController::unstage(int index)
+{
+    const auto &plans = m_model.plans();
+    if (index < 0 || static_cast<size_t>(index) >= plans.size()) {
+        return;
     }
+    auto it = m_stagedByTarget.find(targetKeyFor(plans[static_cast<size_t>(index)]));
+    if (it == m_stagedByTarget.end()) {
+        return;
+    }
+    if (m_session) {
+        m_session->unstage(it->second.changeId);
+    }
+    m_stagedByTarget.erase(it);
+    m_model.setStaged(index, false, QString());
+    emit stagedChanged();
 }
 
 void SyncController::undoLastOperation()
 {
-    if (m_busy || m_lastBackups.empty()) {
+    if (m_busy || !m_session) {
         return;
     }
-    m_pendingWriteKind = PendingWriteKind::Undo;
     setErrorMessage({});
     setStatusMessage({});
-    setScanProgress(0, 0);
-    setBusy(true);
-    setWriting(true);
-
-    // m_lastBackups stays intact (canUndo stays true) until the task
-    // finishes and onWriteFinished() replaces it with the (empty) result,
-    // same visible behavior as the old synchronous version, which only
-    // cleared it after the restore loop completed.
-    m_writeWatcher.setFuture(QtConcurrent::run(runUndoTask, m_lastBackups, makeReporter()));
+    m_session->undoLastSave();
 }
 
 void SyncController::setBusy(bool busy)
@@ -955,15 +887,6 @@ void SyncController::setBusy(bool busy)
     }
     m_busy = busy;
     emit busyChanged();
-}
-
-void SyncController::setWriting(bool writing)
-{
-    if (m_writing == writing) {
-        return;
-    }
-    m_writing = writing;
-    emit writingChanged();
 }
 
 void SyncController::setScanProgress(int current, int total)

@@ -19,6 +19,17 @@ Page {
         id: syncController
     }
 
+    // Edit mode for this library: session, floating Save, leave guard.
+    EditSessionHost {
+        id: editHost
+        anchors.fill: parent
+        libraryId: typeof EditSessionRegistry !== "undefined"
+            ? EditSessionRegistry.libraryIdForPath(root.rekordboxPath.length > 0 ? root.rekordboxPath : root.enginePath) : ""
+        stickLabel: root.stickLabel
+        rekordboxPath: root.rekordboxPath
+        enginePath: root.enginePath
+    }
+
     // "All tracks" first (no meaningful single count across up to three
     // independent catalogs, so left blank rather than showing a
     // misleading sum), then the union of playlist names across whichever
@@ -60,8 +71,8 @@ Page {
                 middleLabel: root.stickLabel
                 title: "Sync Cue Points"
                 backEnabled: !syncController.writing
-                onHomeRequested: root.StackView.view.pop(null)
-                onBackRequested: root.StackView.view.pop()
+                onHomeRequested: editHost.requestLeave(() => root.StackView.view.pop(null))
+                onBackRequested: editHost.requestLeave(() => root.StackView.view.pop())
             }
             Item { Layout.fillWidth: true }
             Label {
@@ -120,19 +131,25 @@ Page {
                 ToolTip.text: "Re-scan both libraries and recompute what needs syncing"
                 onClicked: syncController.analyze(root.rekordboxPath, root.enginePath, root.selectedPlaylistName, root.searchQuery)
             }
+            Label {
+                visible: syncController.stagedCount > 0
+                text: syncController.stagedCount + " staged, not saved yet"
+                color: Theme.warnText
+            }
             Button {
-                text: "Apply " + plansListView.count + " change(s)"
-                enabled: !syncController.busy && plansListView.count > 0
+                text: "Stage All " + plansListView.count
+                enabled: !syncController.busy && !syncController.writing
+                    && plansListView.count > syncController.stagedCount
                 ToolTip.visible: hovered
-                ToolTip.text: "Review and confirm before writing any cues"
+                ToolTip.text: "Review what will be copied, then stage every listed track; Save writes them"
                 onClicked: confirmDialog.open()
             }
             Button {
-                text: "Undo"
+                text: "Undo Last Save"
                 visible: syncController.canUndo
-                enabled: !syncController.busy
+                enabled: !syncController.busy && !syncController.writing
                 ToolTip.visible: hovered
-                ToolTip.text: "Revert the last sync - restores every file it touched to what it was before"
+                ToolTip.text: "Revert the last save: restores every file it touched to what it was before"
                 onClicked: syncController.undoLastOperation()
             }
         }
@@ -142,9 +159,9 @@ Page {
         id: confirmDialog
         anchors.centerIn: parent
         modal: true
-        title: "Apply Sync?"
+        title: "Stage all changes?"
         footer: DialogButtonBox {
-            Button { text: "Sync Now"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
+            Button { text: "Stage All"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
             Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
         }
         onAccepted: syncController.apply()
@@ -172,8 +189,8 @@ Page {
                 wrapMode: Text.WordWrap
             }
             Label {
-                text: "Every catalog involved is backed up before anything is written. Once this finishes, "
-                    + "\"Undo\" reverts every file it touched. Do not remove the stick while it's running."
+                text: "Nothing is written yet: this stages the changes, and Save writes them. Every catalog "
+                    + "involved is backed up first; afterwards \"Undo Last Save\" reverts every file it touched."
                 color: Theme.textMuted
                 wrapMode: Text.WordWrap
             }
@@ -184,11 +201,6 @@ Page {
         anchors.fill: parent
         anchors.margins: 16
         spacing: 8
-
-        StickWriteWarning {
-            visible: syncController.writing
-            text: "Writing cues to the stick. Do not remove it until this finishes."
-        }
 
         Label {
             visible: syncController.errorMessage.length > 0
@@ -389,7 +401,7 @@ Page {
                                             formatLabelText: root.formatLabel(cardLoader.modelData.format)
                                             formatLabelTooltip: cardLoader.modelData.summary
                                             actionButtonText: "Use this"
-                                            actionButtonTooltip: "Apply (and overwrite) these cue points to the other track"
+                                            actionButtonTooltip: "Stage copying (and overwriting) these cue points onto the other track; Save writes it"
                                             onActionTriggered: syncController.resolveConflict(conflictCard.index, cardLoader.modelData.useSourceA)
                                             hintText: cardLoader.modelData.hasJunkCue
                                                 ? "This side has a 0:00 memory cue that's usually accidental - consider cleaning it up in Clean Up before deciding."
@@ -417,6 +429,8 @@ Page {
                 required property string description
                 required property bool conflict
                 required property var tracks
+                required property bool staged
+                required property string stagedDescription
 
                 property bool expanded: false
 
@@ -447,12 +461,22 @@ Page {
                                 elide: Text.ElideRight
                                 Layout.fillWidth: true
                             }
+                            StatusBadge {
+                                visible: delegateRoot.staged
+                                label: "Staged"
+                                badgeColor: Theme.warnText
+                                tooltipText: delegateRoot.stagedDescription + "\n\nNot on the stick yet: press Save."
+                            }
                             Button {
-                                text: "Copy"
-                                enabled: !syncController.busy
+                                text: delegateRoot.staged ? "Unstage" : "Stage"
+                                enabled: !syncController.busy && !syncController.writing
                                 ToolTip.visible: hovered
-                                ToolTip.text: "Sync just this one track now"
-                                onClicked: syncController.applyOne(delegateRoot.index)
+                                ToolTip.text: delegateRoot.staged
+                                    ? "Take this track back out of the changes to save"
+                                    : "Stage syncing just this one track; Save writes it"
+                                onClicked: delegateRoot.staged
+                                    ? syncController.unstage(delegateRoot.index)
+                                    : syncController.applyOne(delegateRoot.index)
                             }
                             Label {
                                 text: delegateRoot.expanded ? "▾" : "▸"
@@ -532,7 +556,7 @@ Page {
         busy: syncController.busy
         current: syncController.scanCurrent
         total: syncController.scanTotal
-        label: syncController.writing ? "Syncing cues..." : "Scanning for sync differences..."
+        label: "Scanning for sync differences..."
         cancellable: syncController.scanCancellable
         onCancelRequested: syncController.cancelScan()
     }
