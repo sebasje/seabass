@@ -58,7 +58,7 @@ FormatUsbTaskResult runFormatTask(QString wholeDiskPath, QString filesystem, QSt
                                     std::shared_ptr<QtProgressReporter> reporter)
 {
     FormatUsbTaskResult result;
-    QString refusal = refuseIfRekordboxRunning();
+    QString refusal = refuseIfDjSoftwareRunning();
     if (!refusal.isEmpty()) {
         result.errorMessage = refusal;
         return result;

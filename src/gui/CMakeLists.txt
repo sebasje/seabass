@@ -54,6 +54,7 @@ qt_add_qml_module(seabass
         qml/common/TypedConfirmDialog.qml
         qml/common/TransferResultFrame.qml
         qml/common/PageScrollView.qml
+        qml/common/DjSoftwareRunningDialog.qml
         qml/Theme.qml
         qml/FormatLabels.qml
         qml/CamelotWheelPosition.qml
@@ -87,7 +88,6 @@ qt_add_qml_module(seabass
         qml/AnonymizeLibraryPage.qml
         qml/UsbStickIcon.qml
         qml/StickWriteWarning.qml
-        qml/RekordboxRunningWarning.qml
         qml/CueFallbackNotice.qml
         qml/TrackWaveformCard.qml
         qml/PlaylistPickerCombo.qml
@@ -146,8 +146,8 @@ qt_add_qml_module(seabass
         app_settings_controller.cpp
         anonymize_library_controller.hpp
         anonymize_library_controller.cpp
-        rekordbox_guard_controller.hpp
-        rekordbox_guard_controller.cpp
+        dj_software_guard_controller.hpp
+        dj_software_guard_controller.cpp
         write_guard.hpp
         write_guard.cpp
         qt_progress_reporter.hpp

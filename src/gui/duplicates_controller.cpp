@@ -258,7 +258,7 @@ DuplicatesWriteResult runApplyTask(QString format, QString path, std::vector<Dup
                                     std::shared_ptr<QtProgressReporter> reporter)
 {
     DuplicatesWriteResult result;
-    QString refusal = refuseIfRekordboxRunning();
+    QString refusal = refuseIfDjSoftwareRunning();
     if (!refusal.isEmpty()) {
         result.errorMessage = refusal;
         return result;
@@ -317,7 +317,7 @@ DuplicatesWriteResult runApplyTask(QString format, QString path, std::vector<Dup
 DuplicatesWriteResult runUndoTask(std::vector<UndoableBackup> backups, std::shared_ptr<QtProgressReporter> reporter)
 {
     DuplicatesWriteResult result;
-    QString refusal = refuseIfRekordboxRunning();
+    QString refusal = refuseIfDjSoftwareRunning();
     if (!refusal.isEmpty()) {
         result.errorMessage = refusal;
         return result;

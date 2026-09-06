@@ -381,6 +381,7 @@ if(Qt6_FOUND)
                 src/gui/qml/CloneStickPage.qml
                 src/gui/qml/common/ActionCard.qml
                 src/gui/qml/common/BusyOverlay.qml
+                src/gui/qml/common/DjSoftwareRunningDialog.qml
                 src/gui/qml/UsbStickIcon.qml
                 src/gui/qml/StickListPage.qml
                 src/gui/qml/BackupsHubPage.qml
