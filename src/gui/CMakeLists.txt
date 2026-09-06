@@ -49,6 +49,10 @@ qt_add_qml_module(seabass
         qml/common/StatusBadge.qml
         qml/common/Subtitle.qml
         qml/common/TableHeaderLabel.qml
+        qml/common/ExperimentalBadge.qml
+        qml/common/TransferProgressFrame.qml
+        qml/common/TypedConfirmDialog.qml
+        qml/common/TransferResultFrame.qml
         qml/Theme.qml
         qml/FormatLabels.qml
         qml/CamelotWheelPosition.qml
@@ -122,6 +126,7 @@ qt_add_qml_module(seabass
         backup_advisor_controller.cpp
         library_fingerprint_reader.hpp
         library_fingerprint_reader.cpp
+        stick_backup_paths.hpp
         sync_controller.hpp
         sync_controller.cpp
         backups_controller.hpp

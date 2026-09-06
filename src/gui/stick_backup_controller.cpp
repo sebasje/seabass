@@ -2,6 +2,7 @@
 
 #include "domain/library_fingerprint.hpp"
 #include "gui/library_fingerprint_reader.hpp"
+#include "gui/stick_backup_paths.hpp"
 
 #include <QDateTime>
 #include <QDesktopServices>
@@ -57,21 +58,6 @@ QString phaseName(BackupProgress::Phase phase)
     return {};
 }
 
-// A label the archive file can be named after: the stick label with the
-// characters no filesystem accepts replaced, never empty.
-QString archiveFileName(const QString &stickLabel)
-{
-    QString name = stickLabel.trimmed();
-    for (QChar &c : name) {
-        if (QStringLiteral("/\\:*?\"<>|").contains(c) || c.unicode() < 0x20) {
-            c = QLatin1Char('_');
-        }
-    }
-    if (name.isEmpty() || name == QStringLiteral(".") || name == QStringLiteral("..")) {
-        name = QStringLiteral("stick");
-    }
-    return name + QStringLiteral(".zip");
-}
 
 }  // namespace
 
@@ -117,7 +103,7 @@ void StickBackupController::configure(const QString &stickLabel, const QString &
     m_rekordboxPath = rekordboxPath;
     m_enginePath = enginePath;
     m_stickRoot = QString::fromStdString(fs::path(anyPath.toStdString()).parent_path().string());
-    m_archivePath = QDir(backupDirectory).filePath(archiveFileName(stickLabel));
+    m_archivePath = archivePathForLabel(backupDirectory, stickLabel);
     emit configuredChanged();
     refresh();
 }

@@ -97,21 +97,7 @@ Page {
                 onHomeRequested: root.StackView.view.pop(null)
                 onBackRequested: root.StackView.view.pop()
             }
-            Rectangle {
-                radius: 3
-                color: Theme.warnBg
-                border.color: Theme.warnBorder
-                implicitWidth: experimentalLabel.implicitWidth + 8
-                implicitHeight: experimentalLabel.implicitHeight + 4
-                Label {
-                    id: experimentalLabel
-                    anchors.centerIn: parent
-                    text: "EXPERIMENTAL"
-                    font.pointSize: Theme.fontTiny
-                    font.bold: true
-                    color: Theme.warnText
-                }
-            }
+            ExperimentalBadge {}
             Item { Layout.fillWidth: true }
             BusyIndicator { running: root.controller.previewing === true; visible: running; implicitWidth: 20; implicitHeight: 20 }
         }

@@ -367,6 +367,10 @@ if(Qt6_FOUND)
                 src/gui/qml/FormatUsbPage.qml
                 src/gui/qml/common/MessagePopup.qml
                 src/gui/qml/StickWriteWarning.qml
+                src/gui/qml/common/ExperimentalBadge.qml
+                src/gui/qml/common/TransferProgressFrame.qml
+                src/gui/qml/common/TypedConfirmDialog.qml
+                src/gui/qml/common/TransferResultFrame.qml
                 src/gui/qml/StickBackupPage.qml
                 src/gui/qml/RestoreStickBackupPage.qml
             SOURCES
