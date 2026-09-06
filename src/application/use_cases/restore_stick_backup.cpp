@@ -223,6 +223,44 @@ std::string writeEntry(const Zip64Reader &reader, const PlannedEntry &planned, c
 
 }  // namespace
 
+StickBackupDescription RestoreStickBackup::describe(const fs::path &archivePath)
+{
+    StickBackupDescription description;
+    description.archivePath = archivePath;
+    Opened opened;
+    if (!opened.open(archivePath)) {
+        description.error = opened.error;
+        return description;
+    }
+    description.stickLabel = opened.manifest->stickLabel;
+    description.stickIdentifier = opened.manifest->stickIdentifier;
+    description.status = opened.manifest->status;
+    description.createdAtUnix = opened.manifest->createdAtUnix;
+    description.entries = opened.manifest->rows.size();
+    description.archiveBytes = opened.archive->size();
+    return description;
+}
+
+std::vector<StickBackupDescription> RestoreStickBackup::describeAll(const fs::path &directory)
+{
+    std::vector<StickBackupDescription> descriptions;
+    std::error_code ec;
+    for (const fs::directory_entry &entry : fs::directory_iterator(directory, ec)) {
+        if (!entry.is_regular_file(ec) || entry.path().extension() != ".zip") {
+            continue;
+        }
+        descriptions.push_back(describe(entry.path()));
+    }
+    std::stable_sort(descriptions.begin(), descriptions.end(),
+                     [](const StickBackupDescription &a, const StickBackupDescription &b) {
+                         if (a.error.empty() != b.error.empty()) {
+                             return a.error.empty();
+                         }
+                         return a.createdAtUnix > b.createdAtUnix;
+                     });
+    return descriptions;
+}
+
 RestorePreview RestoreStickBackup::preview(const RestoreOptions &options)
 {
     RestorePreview preview;
@@ -332,6 +370,17 @@ RestoreSummary RestoreStickBackup::execute(const RestoreOptions &options, Progre
         if (!error.empty()) {
             summary.writeErrors.push_back(error);
             progress.bytesDone = bytesBefore;
+            // A yanked stick would otherwise produce one error per
+            // remaining file: stop at the first error whose target is gone.
+            if (!fs::is_directory(options.targetRoot, ec)) {
+                ec.clear();
+                reporter.finish();
+                summary.status = RestoreSummary::Status::Failed;
+                summary.message = "the drive disappeared after " + std::to_string(summary.filesWritten)
+                                  + " files were restored; the files already restored are complete. Reconnect it and "
+                                    "restore again to continue where this left off.";
+                return summary;
+            }
         } else {
             ++summary.filesWritten;
             summary.bytesWritten += opened.reader->entries()[file.index].size;

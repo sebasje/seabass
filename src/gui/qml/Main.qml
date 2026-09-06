@@ -269,7 +269,10 @@ ApplicationWindow {
             })
             onAboutRequested: stackView.push(aboutPageComponent)
             onFormatUsbRequested: stackView.push(formatUsbPageComponent)
-            onRestoreStickBackupRequested: stackView.push(restoreStickBackupPageComponent)
+            onRestoreStickBackupRequested: (mountPoint, devicePath) => stackView.push(restoreStickBackupPageComponent, {
+                preselectedMountPoint: mountPoint,
+                preselectedDevicePath: devicePath,
+            })
         }
     }
 
