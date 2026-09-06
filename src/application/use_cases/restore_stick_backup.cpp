@@ -15,6 +15,7 @@
 #include "infrastructure/stick_backup/archive_recovery.hpp"
 #include "infrastructure/stick_backup/posix_archive_file.hpp"
 #include "infrastructure/stick_backup/restore_path_sanitizer.hpp"
+#include "infrastructure/stick_backup/sqlite_db_set.hpp"
 #include "infrastructure/stick_backup/stick_tree_walker.hpp"
 #include "infrastructure/stick_backup/zip64_reader.hpp"
 #include "infrastructure/stick_backup/zip_format.hpp"
@@ -80,8 +81,10 @@ struct PlannedEntry
     std::string name;             // archive name
     fs::path relative;            // sanitized
     bool isDirectory = false;
-    bool unchanged = false;       // file already on the target with the same size and mtime
+    std::uint64_t size = 0;
+    bool unchanged = false;       // file already on the target with the same size and mtime (and, for a database set, the same fingerprint)
     bool databaseMember = false;  // written last, sets kept together
+    std::string setMainPath;      // databaseMember only: archive path of the set's main file
 };
 
 struct RestorePlan
@@ -95,10 +98,14 @@ struct RestorePlan
     std::set<std::string> backupPaths;  // relative paths (files and dirs) the backup contains
 };
 
-RestorePlan planRestore(const Zip64Reader &reader, const fs::path &targetRoot)
+RestorePlan planRestore(const Zip64Reader &reader, const BackupManifest &manifest, const fs::path &targetRoot)
 {
     RestorePlan plan;
     std::vector<PlannedEntry> databaseFiles;
+    std::map<std::string, const ManifestRow *> rowsByPath;
+    for (const ManifestRow &row : manifest.rows) {
+        rowsByPath.emplace(row.path, &row);
+    }
     for (std::size_t i = 0; i < reader.entries().size(); ++i) {
         const CentralEntry &entry = reader.entries()[i];
         if (entry.name == ManifestEntryName) {
@@ -122,6 +129,7 @@ RestorePlan planRestore(const Zip64Reader &reader, const fs::path &targetRoot)
             continue;
         }
         plan.totalBytes += entry.size;
+        planned.size = entry.size;
         std::error_code ec;
         fs::path target = targetRoot / *relative;
         if (fs::is_regular_file(target, ec)) {
@@ -129,15 +137,39 @@ RestorePlan planRestore(const Zip64Reader &reader, const fs::path &targetRoot)
             std::int64_t mtime = ec ? 0 : toUnixSeconds(fs::last_write_time(target, ec));
             if (!ec && size == entry.size && std::llabs(mtime - entry.mtimeUnix) <= 2) {
                 planned.unchanged = true;
-                ++plan.unchanged;
             }
         }
-        if (!planned.unchanged) {
-            plan.bytesToWrite += entry.size;
-        }
         std::string filename = pathToUtf8(relative->filename());
-        planned.databaseMember = engine::dbSetMainFile(fs::path(filename)).has_value();
+        if (const std::optional<fs::path> mainFile = engine::dbSetMainFile(fs::path(filename))) {
+            planned.databaseMember = true;
+            planned.setMainPath = entry.name.substr(0, entry.name.size() - filename.size()) + pathToUtf8(*mainFile);
+            // Size and mtime cannot tell a database apart from itself one
+            // commit later (SQLite reuses pages; FAT keeps 2 s mtimes): a
+            // set whose main file the manifest fingerprinted is unchanged
+            // only when the target's fingerprint is the same.
+            if (planned.unchanged && planned.setMainPath == entry.name) {
+                auto row = rowsByPath.find(entry.name);
+                if (row != rowsByPath.end() && !row->second->extra.empty()) {
+                    const std::optional<DbSetFingerprint> live = fingerprintDbSet(target);
+                    planned.unchanged = live && live->toHex() == row->second->extra;
+                }
+            }
+        }
         (planned.databaseMember ? databaseFiles : plan.files).push_back(std::move(planned));
+    }
+    // A database set is written whole or not at all: any member that
+    // changed (or a main file whose fingerprint moved) takes its
+    // siblings with it.
+    std::set<std::string> setsToWrite;
+    for (const PlannedEntry &member : databaseFiles) {
+        if (!member.unchanged) {
+            setsToWrite.insert(member.setMainPath);
+        }
+    }
+    for (PlannedEntry &member : databaseFiles) {
+        if (setsToWrite.count(member.setMainPath) != 0) {
+            member.unchanged = false;
+        }
     }
     auto byName = [](const PlannedEntry &a, const PlannedEntry &b) { return a.name < b.name; };
     std::sort(plan.directories.begin(), plan.directories.end(), byName);
@@ -146,6 +178,13 @@ RestorePlan planRestore(const Zip64Reader &reader, const fs::path &targetRoot)
     // X.db-wal adjacent -- one set is written without other files between.
     std::sort(databaseFiles.begin(), databaseFiles.end(), byName);
     plan.files.insert(plan.files.end(), databaseFiles.begin(), databaseFiles.end());
+    for (const PlannedEntry &file : plan.files) {
+        if (file.unchanged) {
+            ++plan.unchanged;
+        } else {
+            plan.bytesToWrite += file.size;
+        }
+    }
     return plan;
 }
 
@@ -280,7 +319,7 @@ RestorePreview RestoreStickBackup::preview(const RestoreOptions &options)
     preview.status = opened.manifest->status;
     preview.createdAtUnix = opened.manifest->createdAtUnix;
 
-    RestorePlan plan = planRestore(*opened.reader, options.targetRoot);
+    RestorePlan plan = planRestore(*opened.reader, *opened.manifest, options.targetRoot);
     preview.entries = plan.directories.size() + plan.files.size();
     preview.bytes = plan.totalBytes;
     preview.filesUnchanged = plan.unchanged;
@@ -319,7 +358,7 @@ RestoreSummary RestoreStickBackup::execute(const RestoreOptions &options, Progre
         }
     };
     report(RestoreProgress::Phase::Analyzing);
-    RestorePlan plan = planRestore(*opened.reader, options.targetRoot);
+    RestorePlan plan = planRestore(*opened.reader, *opened.manifest, options.targetRoot);
     summary.rejected = plan.rejected;
     summary.filesUnchanged = plan.unchanged;
     std::vector<std::string> extras = options.exact ? extrasOnTarget(options.targetRoot, plan.backupPaths) : std::vector<std::string>{};

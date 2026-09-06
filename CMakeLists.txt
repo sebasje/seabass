@@ -181,6 +181,7 @@ add_library(seabass_core STATIC
     src/application/use_cases/backup_stick.cpp
     src/application/use_cases/compact_stick_backup.cpp
     src/application/use_cases/restore_stick_backup.cpp
+    src/application/use_cases/clone_stick.cpp
 )
 target_include_directories(seabass_core PUBLIC src)
 target_link_libraries(seabass_core PUBLIC rekordbox_format DjInterop ZLIB::ZLIB)
@@ -979,6 +980,22 @@ add_executable(backup_restore_test
 target_include_directories(backup_restore_test PRIVATE src)
 target_link_libraries(backup_restore_test PRIVATE ZLIB::ZLIB SQLite::SQLite3)
 add_test(NAME backup_restore_test COMMAND backup_restore_test)
+
+add_executable(clone_stick_test
+    ${SEABASS_STICK_BACKUP_STICK_SOURCES}
+    src/infrastructure/durable_file_write.cpp
+    src/infrastructure/stick_backup/archive_compactor.cpp
+    src/infrastructure/stick_backup/restore_path_sanitizer.cpp
+    src/application/ports/progress_reporter.cpp
+    src/application/use_cases/backup_stick.cpp
+    src/application/use_cases/compact_stick_backup.cpp
+    src/application/use_cases/restore_stick_backup.cpp
+    src/application/use_cases/clone_stick.cpp
+    tests/clone_stick_test.cpp
+)
+target_include_directories(clone_stick_test PRIVATE src)
+target_link_libraries(clone_stick_test PRIVATE ZLIB::ZLIB SQLite::SQLite3)
+add_test(NAME clone_stick_test COMMAND clone_stick_test)
 
 add_executable(pending_deletion_resolver_test
     src/infrastructure/cleanup/pending_deletion_resolver.cpp
