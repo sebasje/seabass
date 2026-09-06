@@ -26,6 +26,26 @@ If the track/cue counts change, update the exact numbers `anonymized_fixture_int
 
 One design point worth knowing if you're touching the anonymizer: the same real track's obfuscated title/filename comes out **identical** whether it's read from the rekordbox output or the Engine output, even though the two catalogs are anonymized in completely independent runs. That's deliberate -- `domain::TrackMatcher`'s primary cross-catalog matching signal is exactly the (normalized) filename, so if the two anonymizers assigned placeholders independently (e.g. a per-run sequential counter), the *same* real track would get *unrelated* obfuscated filenames in each catalog, and sync-matching tests against the fixture would look broken even though nothing in the real app is. See `src/infrastructure/anonymization_placeholder.hpp`'s own comment for the mechanism (a deterministic hash of the real filename, not a counter).
 
+## Locks, sessions, and fake controllers
+
+- `library_edit_lock_store_test` forks a child process (POSIX only) to
+  hold a cookie, so the "owner is provably dead" staleness rule is
+  tested against a real pid rather than a stub; the Windows build runs
+  the remaining cases.
+- `edit_session_save_loop_test` and `format_write_session_test` cover
+  the save loop's cancel/failure points and the scratch-copy commit rule
+  without Qt Quick (plain Qt Core).
+- QML pages take their controllers and the edit registry as untyped
+  properties (`property var controller`, `property var editRegistry`) so
+  `tests/qml/tst_*.qml` pass plain JS objects with the properties and
+  functions a test needs (see `fakeEditRegistry()` in
+  `tst_StickListPage.qml`); the dialogs in `qml/common/` take a
+  `session` the same way (`tst_EditModeDialogs.qml`,
+  `tst_EditSessionHost.qml`). Pages guard their `Connections` with
+  `ignoreUnknownSignals: true` for that reason.
+- `SEABASS_SCREENSHOT_DIR=<dir> QT_QPA_PLATFORM=offscreen build/seabass_qml_tests -input tests/qml`
+  saves a PNG per page the tests render; look at them for any visual claim.
+
 ## Submitting your own library for testing
 
 If you'd like to help test Seabass against hardware or a library shape Sebas doesn't personally have, you can generate the same kind of anonymized export from your own stick and send it in:

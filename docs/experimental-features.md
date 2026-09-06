@@ -11,6 +11,11 @@ to stable" (and drop `experimental: true` from its `ActionCard`) once it's
 seen real, successful use — most importantly, an actual write/apply path
 exercised live against real hardware, not just a read-only scan.
 
+Deliberately *not* gated: edit mode, the per-library edit lock,
+cancellation, and the process guard (`docs/edit-mode-and-cancel.md`).
+They exist to keep the user's data safe, so they are on for everyone
+from day one.
+
 ## Currently experimental
 
 - **Format USB Stick** (added 2026-09-05) — erases and reformats a
