@@ -7,6 +7,7 @@
 #include <set>
 
 #include "gui/library_fingerprint_reader.hpp"
+#include "gui/future_result.hpp"
 #include "infrastructure/engine/engine_library_layout.hpp"
 #include "infrastructure/stick_backup/library_catalog_mtime.hpp"
 #include "infrastructure/stick_backup/sqlite_db_set.hpp"
@@ -148,7 +149,11 @@ void BackupAdvisorController::startNext()
 
 void BackupAdvisorController::onFinished()
 {
-    const std::shared_ptr<Result> result = m_watcher.result();
+    // No error surface here on purpose: the advisor is background
+    // colour on the stick list, so a stick that could not be read this
+    // pass just keeps whatever advice it had (or none) rather than
+    // interrupting anything.
+    const std::shared_ptr<Result> result = takeResult(m_watcher);
     if (result) {
         m_facts[result->mountPoint] = result->facts;
         m_backups = result->backups;

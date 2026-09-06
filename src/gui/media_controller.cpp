@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "infrastructure/media/media_factory.hpp"
+#include "gui/future_result.hpp"
 
 namespace seabass::gui
 {
@@ -240,7 +241,11 @@ void MediaController::startTask(const PendingTask &task)
 
 void MediaController::onTaskFinished()
 {
-    MediaTaskResult result = m_watcher.result();
+    QString thrown;
+    MediaTaskResult result = takeResult(m_watcher, &thrown);
+    if (!thrown.isEmpty()) {
+        result.errorMessage = thrown;
+    }
     const PendingTask task = m_busyTask;
     m_busy = false;
     m_busyTask = {};

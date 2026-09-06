@@ -3,6 +3,7 @@
 #include <QtConcurrent/QtConcurrentRun>
 
 #include "infrastructure/system/rekordbox_process_detector.hpp"
+#include "gui/future_result.hpp"
 
 namespace seabass::gui
 {
@@ -35,7 +36,10 @@ void RekordboxGuardController::poll()
 
 void RekordboxGuardController::onPollFinished()
 {
-    QString name = m_watcher.result();
+    // A failed probe reads as "nothing running" and the next tick tries
+    // again -- this polls forever in the background, so it must never be
+    // the thing that takes the app down.
+    QString name = takeResult(m_watcher);
     if (m_conflictingSoftware == name) {
         return;
     }
