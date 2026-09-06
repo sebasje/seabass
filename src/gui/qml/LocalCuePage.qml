@@ -245,6 +245,8 @@ Page {
 
                 ListView {
                     id: snapshotListView
+                    // Not draggable when everything already fits.
+                    interactive: contentHeight > height
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     clip: true
@@ -401,6 +403,7 @@ Page {
 
                 ListView {
                     id: restoreListView
+                    interactive: contentHeight > height
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     clip: true

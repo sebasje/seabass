@@ -53,6 +53,7 @@ qt_add_qml_module(seabass
         qml/common/TransferProgressFrame.qml
         qml/common/TypedConfirmDialog.qml
         qml/common/TransferResultFrame.qml
+        qml/common/PageScrollView.qml
         qml/Theme.qml
         qml/FormatLabels.qml
         qml/CamelotWheelPosition.qml

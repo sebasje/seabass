@@ -372,12 +372,14 @@ if(Qt6_FOUND)
                 src/gui/qml/common/TransferProgressFrame.qml
                 src/gui/qml/common/TypedConfirmDialog.qml
                 src/gui/qml/common/TransferResultFrame.qml
+                src/gui/qml/common/PageScrollView.qml
                 src/gui/qml/StickBackupPage.qml
                 src/gui/qml/RestoreStickBackupPage.qml
                 src/gui/qml/CloneStickPage.qml
                 src/gui/qml/common/ActionCard.qml
                 src/gui/qml/UsbStickIcon.qml
                 src/gui/qml/StickListPage.qml
+                src/gui/qml/BackupsHubPage.qml
             SOURCES
                 # Theme.qml's font-size properties (fontSmall, iconScale,
                 # ...) bind to this QML_SINGLETON C++ type.

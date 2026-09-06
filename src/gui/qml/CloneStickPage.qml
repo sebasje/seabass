@@ -124,11 +124,9 @@ Page {
         }
     }
 
-    ScrollView {
+    PageScrollView {
         anchors.fill: parent
         anchors.margins: 16
-        contentWidth: availableWidth
-        ScrollBar.vertical: BigScrollBar {}
 
         ColumnLayout {
             width: parent.width

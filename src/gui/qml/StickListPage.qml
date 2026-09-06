@@ -34,7 +34,7 @@ Page {
     signal settingsRequested(string stickLabel, string pioneerRoot)
     signal syncRequested(string stickLabel, string rekordboxPath, string enginePath)
     signal appSettingsRequested()
-    signal backupsHubRequested(string stickLabel, string rekordboxPath, string enginePath)
+    signal backupsHubRequested(string stickLabel, string rekordboxPath, string enginePath, string mountPoint, string devicePath)
     signal aboutRequested()
     signal donationRequested()
     signal formatUsbRequested()
@@ -113,18 +113,37 @@ Page {
                 ToolTip.text: "Support Seabass"
                 onClicked: root.donationRequested()
 
-                // A slight, infrequent "beat" -- once every 5 seconds,
-                // not continuous -- so it reads as a subtle living
-                // detail rather than a distracting animated icon. Drives
-                // scale directly rather than through a Behavior, which
-                // would otherwise re-trigger on every intermediate value
-                // this same animation produces.
+                // A slight, infrequent heartbeat -- a soft "lub-dub"
+                // every six seconds or so, not a continuous throb -- so
+                // it reads as a subtle living detail rather than a
+                // distracting animated icon. Two small swells with a
+                // slight brightening on each, on sine curves (an organic
+                // rise and settle, no snap), the second a touch weaker,
+                // then a long rest. Drives scale and opacity directly
+                // rather than through a Behavior, which would otherwise
+                // re-trigger on every intermediate value this same
+                // animation produces.
                 SequentialAnimation {
                     running: true
                     loops: Animation.Infinite
-                    NumberAnimation { target: donateButton; property: "scale"; to: 1.25; duration: 120; easing.type: Easing.OutQuad }
-                    NumberAnimation { target: donateButton; property: "scale"; to: 1.0; duration: 160; easing.type: Easing.InQuad }
-                    PauseAnimation { duration: 4720 }
+                    ParallelAnimation {
+                        NumberAnimation { target: donateButton; property: "scale"; to: 1.12; duration: 260; easing.type: Easing.OutSine }
+                        NumberAnimation { target: donateButton; property: "opacity"; to: 1.0; duration: 260; easing.type: Easing.OutSine }
+                    }
+                    ParallelAnimation {
+                        NumberAnimation { target: donateButton; property: "scale"; to: 1.0; duration: 340; easing.type: Easing.InOutSine }
+                        NumberAnimation { target: donateButton; property: "opacity"; to: 0.85; duration: 340; easing.type: Easing.InOutSine }
+                    }
+                    PauseAnimation { duration: 90 }
+                    ParallelAnimation {
+                        NumberAnimation { target: donateButton; property: "scale"; to: 1.07; duration: 220; easing.type: Easing.OutSine }
+                        NumberAnimation { target: donateButton; property: "opacity"; to: 1.0; duration: 220; easing.type: Easing.OutSine }
+                    }
+                    ParallelAnimation {
+                        NumberAnimation { target: donateButton; property: "scale"; to: 1.0; duration: 520; easing.type: Easing.InOutSine }
+                        NumberAnimation { target: donateButton; property: "opacity"; to: 0.85; duration: 520; easing.type: Easing.InOutSine }
+                    }
+                    PauseAnimation { duration: 4800 }
                 }
             }
         }
@@ -142,6 +161,8 @@ Page {
             Layout.fillHeight: true
             model: root.mediaController.sticks
             clip: true
+            // Not draggable when every stick already fits.
+            interactive: contentHeight > height
             spacing: 4
 
             // A plain Rectangle, not a Frame -- Qt Quick Controls' Material
@@ -370,7 +391,7 @@ Page {
                             onClicked: root.browseRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
                         }
                         ActionCard {
-                            cardTitle: "Clean-up and Housekeeping"
+                            cardTitle: "Housekeeping"
                             cardSubtitle: "Duplicate stats, sync metadata across copies, and clean up"
                             cardIcon: "▣"
                             visible: delegateRoot.hasKnownLibrary
@@ -429,6 +450,9 @@ Page {
                             // The advisor's verdict on the full stick backup
                             // leads when it has one; the generic line otherwise.
                             cardSubtitle: {
+                                if (delegateRoot.updateSource !== null) {
+                                    return "Newer copy on " + delegateRoot.updateSource.label + ": update this stick from here";
+                                }
                                 switch (delegateRoot.adviceState) {
                                 case "outdated": return "Update the full stick backup: " + delegateRoot.advice.detail;
                                 case "behind-backup": return delegateRoot.advice.detail;
@@ -442,10 +466,11 @@ Page {
                             cardIcon: "🗄"
                             visible: delegateRoot.hasKnownLibrary
                             enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
-                            onClicked: root.backupsHubRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
+                            onClicked: root.backupsHubRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath,
+                                delegateRoot.mountPoint, delegateRoot.devicePath)
                         }
                         ActionCard {
-                            cardTitle: "Device Settings"
+                            cardTitle: "Device Profile"
                             cardSubtitle: "View this stick's saved Rekordbox player settings"
                             cardIcon: "⚙"
                             cardIconFont: "Noto Sans Symbols"
@@ -510,34 +535,6 @@ Page {
                             onClicked: root.cloneStickRequested(delegateRoot.cloneSource.label,
                                 delegateRoot.cloneSource.rekordboxPath, delegateRoot.cloneSource.enginePath,
                                 delegateRoot.mountPoint, delegateRoot.label, false)
-                        }
-                        ActionCard {
-                            // The subtitle names the source; a title that
-                            // did too got elided next to the badge.
-                            cardTitle: "Update Stick"
-                            cardSubtitle: delegateRoot.updateSource !== null
-                                ? (delegateRoot.advice.diverged === true ? "⚠ " : "") + delegateRoot.updateSource.detail
-                                : ""
-                            cardIcon: "⟳"
-                            cardIconFont: "Noto Sans Math"
-                            experimental: true
-                            experimentalFeaturesEnabled: root.appSettingsController.experimentalFeaturesEnabled
-                            // A newer copy of this stick's library exists: on
-                            // another mounted stick (copied via its backup)
-                            // or as the disk backup itself (restored).
-                            visible: delegateRoot.hasKnownLibrary && delegateRoot.updateSource !== null
-                            enabled: !root.mediaController.busy && delegateRoot.mounted
-                                && delegateRoot.updateSource !== null && delegateRoot.updateSource.enoughSpace !== false
-                            onClicked: {
-                                if (delegateRoot.updateSource.kind === "stick") {
-                                    root.cloneStickRequested(delegateRoot.updateSource.label,
-                                        delegateRoot.updateSource.rekordboxPath, delegateRoot.updateSource.enginePath,
-                                        delegateRoot.mountPoint, delegateRoot.label, true);
-                                } else {
-                                    root.restoreStickBackupRequested(delegateRoot.mountPoint, delegateRoot.devicePath,
-                                        delegateRoot.updateSource.backupPath);
-                                }
-                            }
                         }
                     }
                 }

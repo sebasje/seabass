@@ -411,6 +411,8 @@ Page {
 
             ListView {
                 id: trackListView
+                // Not draggable when everything already fits.
+                interactive: contentHeight > height
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
@@ -1030,6 +1032,7 @@ Page {
                     }
                     ListView {
                         id: mergeCandidatesList
+                        interactive: contentHeight > height
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         clip: true

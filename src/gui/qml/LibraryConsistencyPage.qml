@@ -396,6 +396,8 @@ Page {
         // ListView+BigScrollBar pairing every other page in this app uses.
         ListView {
             id: issueListView
+            // Not draggable when everything already fits.
+            interactive: contentHeight > height
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true

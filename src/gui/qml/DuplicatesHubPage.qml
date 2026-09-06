@@ -70,7 +70,7 @@ Page {
             spacing: 12
             BackBreadcrumb {
                 middleLabel: root.stickLabel
-                title: "Clean-up and Housekeeping"
+                title: "Housekeeping"
                 onHomeRequested: root.StackView.view.pop(null)
                 onBackRequested: root.StackView.view.pop()
             }

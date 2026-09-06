@@ -62,7 +62,7 @@ Page {
             anchors.margins: 10
             spacing: 12
             BackBreadcrumb {
-                middleLabel: "Clean-up and Housekeeping"
+                middleLabel: "Housekeeping"
                 title: "Clean Up Stray Cues"
                 backEnabled: !consistencyController.writing
                 onHomeRequested: root.StackView.view.pop(null)
@@ -230,6 +230,8 @@ Page {
 
         ListView {
             id: junkCueListView
+            // Not draggable when everything already fits.
+            interactive: contentHeight > height
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true

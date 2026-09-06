@@ -96,7 +96,7 @@ Page {
                 Layout.fillWidth: true
                 spacing: 12
                 BackBreadcrumb {
-                    middleLabel: "Clean-up and Housekeeping"
+                    middleLabel: "Housekeeping"
                     title: "Duplicate Stats & Sync"
                     backEnabled: !duplicatesController.writing
                     onHomeRequested: root.StackView.view.pop(null)
@@ -178,6 +178,8 @@ Page {
 
         ListView {
             id: plansListView
+            // Not draggable when everything already fits.
+            interactive: contentHeight > height
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
