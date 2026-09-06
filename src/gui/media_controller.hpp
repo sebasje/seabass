@@ -170,6 +170,11 @@ private:
     // Every mounted stick ever seen this session, by mount point, kept
     // after the stick is gone (see libraryIdForMountPoint()).
     std::map<std::string, application::StickIdentity> m_lastKnownByMountPoint;
+    // Presence by identity (see application/stick_presence_diff.hpp):
+    // what was mounted at the last detect(), and every stick pulled since
+    // that has not come back, for stickRemoved()/stickReturned().
+    std::vector<application::StickIdentity> m_presentIdentities;
+    std::vector<application::StickIdentity> m_awaitedIdentities;
 };
 
 }  // namespace seabass::gui

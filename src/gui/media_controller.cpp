@@ -7,6 +7,7 @@
 #include <iterator>
 #include <utility>
 
+#include "application/stick_presence_diff.hpp"
 #include "infrastructure/media/media_factory.hpp"
 
 namespace seabass::gui
@@ -164,10 +165,38 @@ void MediaController::detect()
 {
     auto locator = infrastructure::media::createRemovableMediaLocator();
     m_model.setSticks(locator->detect());
+    std::vector<application::StickIdentity> present;
     for (const application::DetectedStick &stick : m_model.sticks()) {
         if (stick.mounted && !stick.mountPoint.empty()) {
             m_lastKnownByMountPoint[stick.mountPoint] = stick.identity;
+            if (stick.identity.strength() != application::StickIdentity::Strength::None) {
+                present.push_back(stick.identity);
+            }
         }
+    }
+    // Pulled and returned sticks, by identity. A pulled stick stays
+    // awaited until the very same one is back, however long that takes;
+    // a different stick on the same mount point in the meantime is just
+    // a new stick.
+    auto diff = application::diffStickPresence(m_presentIdentities, present);
+    m_presentIdentities = std::move(present);
+    for (const application::StickIdentity &identity : diff.gone) {
+        if (!application::containsSameStick(m_awaitedIdentities, identity)) {
+            m_awaitedIdentities.push_back(identity);
+        }
+        emit stickRemoved(QString::fromStdString(identity.libraryId()), QString::fromStdString(identity.label));
+    }
+    for (const application::StickIdentity &identity : diff.appeared) {
+        auto awaited = application::findAwaited(m_awaitedIdentities, identity);
+        if (!awaited) {
+            continue;
+        }
+        m_awaitedIdentities.erase(std::remove_if(m_awaitedIdentities.begin(), m_awaitedIdentities.end(),
+                                                 [&](const application::StickIdentity &a) { return a.isSameStick(identity); }),
+                                  m_awaitedIdentities.end());
+        emit stickReturned(QString::fromStdString(awaited->libraryId()),
+                           QString::fromUtf8(application::StickIdentity::strengthName(
+                               application::matchStrength(*awaited, identity))));
     }
     queueAutoMounts();
 }
