@@ -120,6 +120,8 @@ qt_add_qml_module(seabass
         restore_stick_backup_controller.cpp
         backup_advisor_controller.hpp
         backup_advisor_controller.cpp
+        library_fingerprint_reader.hpp
+        library_fingerprint_reader.cpp
         sync_controller.hpp
         sync_controller.cpp
         backups_controller.hpp

@@ -174,6 +174,7 @@ add_library(seabass_core STATIC
     src/infrastructure/stick_backup/stick_tree_walker.cpp
     src/infrastructure/stick_backup/stat_diff.cpp
     src/infrastructure/stick_backup/sqlite_db_set.cpp
+    src/infrastructure/stick_backup/library_catalog_mtime.cpp
     src/infrastructure/stick_backup/archive_compactor.cpp
     src/infrastructure/stick_backup/restore_path_sanitizer.cpp
     src/infrastructure/engine/engine_restore_check.cpp
@@ -914,7 +915,16 @@ set(SEABASS_STICK_BACKUP_STICK_SOURCES
     src/infrastructure/stick_backup/stick_tree_walker.cpp
     src/infrastructure/stick_backup/stat_diff.cpp
     src/infrastructure/stick_backup/sqlite_db_set.cpp
+    src/infrastructure/stick_backup/library_catalog_mtime.cpp
 )
+
+add_executable(library_catalog_mtime_test
+    src/infrastructure/stick_backup/stick_tree_walker.cpp
+    src/infrastructure/stick_backup/library_catalog_mtime.cpp
+    tests/library_catalog_mtime_test.cpp
+)
+target_include_directories(library_catalog_mtime_test PRIVATE src)
+add_test(NAME library_catalog_mtime_test COMMAND library_catalog_mtime_test)
 
 add_executable(stat_diff_test
     src/infrastructure/hashing/sha256.cpp

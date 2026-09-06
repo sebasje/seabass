@@ -1,7 +1,7 @@
 #include "stick_backup_controller.hpp"
 
 #include "domain/library_fingerprint.hpp"
-#include "gui/library_catalog_cache.hpp"
+#include "gui/library_fingerprint_reader.hpp"
 
 #include <QDateTime>
 #include <QDesktopServices>
@@ -313,21 +313,8 @@ void StickBackupController::backUp()
         // the stick list can later tell "this backup is of that library"
         // regardless of which stick (or format) it ends up on. Read-only,
         // and a failure here just leaves the previous fingerprint in place.
-        std::vector<domain::Track> tracks;
-        bool anyRead = false;
-        for (const auto &[format, path] : {std::pair{"rekordbox", rekordboxPath}, std::pair{"engine", enginePath}}) {
-            if (path.isEmpty()) {
-                continue;
-            }
-            try {
-                std::vector<domain::Track> read = LibraryCatalogCache::instance().tracksFor(format, path.toStdString());
-                tracks.insert(tracks.end(), read.begin(), read.end());
-                anyRead = true;
-            } catch (const std::exception &) {
-            }
-        }
-        if (anyRead) {
-            options.libraryFingerprint = domain::fingerprintLibrary(tracks).serialize();
+        if (const auto fingerprint = readLibraryFingerprint(rekordboxPath, enginePath)) {
+            options.libraryFingerprint = fingerprint->serialize();
         }
         result->backup = std::make_shared<BackupStickOutcome>(BackupStick::execute(options));
         return result;
