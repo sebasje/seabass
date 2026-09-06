@@ -5,8 +5,17 @@
 #include <string>
 #include <string_view>
 
+#include "infrastructure/long_paths.hpp"
+
 namespace seabass::infrastructure::stick_backup
 {
+
+// longPathSafe started here, but the walker needs it too and cannot
+// include this header (this one already includes the walker). It now
+// lives in infrastructure/long_paths.hpp alongside removeTreeDeepestFirst;
+// this keeps the unqualified name resolving for everything that reaches
+// it through `using namespace ...::stick_backup`.
+using infrastructure::longPathSafe;
 
 enum class TargetOs
 {
@@ -35,10 +44,5 @@ constexpr TargetOs hostTargetOs()
 // Trailing '/' (a directory entry) is stripped; `isDirectory` says so.
 std::optional<std::filesystem::path> sanitizeEntryName(std::string_view entryName, TargetOs os, std::string *reason = nullptr,
                                                       bool *isDirectory = nullptr);
-
-// On Windows, paths longer than the classic MAX_PATH need the \\?\ prefix
-// to be created at all; long artist/album/title paths get there easily.
-// Identity elsewhere.
-std::filesystem::path longPathSafe(const std::filesystem::path &absolute);
 
 }  // namespace seabass::infrastructure::stick_backup
