@@ -99,6 +99,7 @@ qt_add_qml_module(seabass
         qml/StickBackupPage.qml
         qml/RestoreStickBackupPage.qml
         qml/CloneStickPage.qml
+        qml/TrackDetailPanel.qml
     RESOURCES
         qml/icons/seabass_soundbass.svg
     SOURCES
