@@ -159,7 +159,10 @@ add_library(seabass_core STATIC
     src/infrastructure/compression/zlib_compressor.cpp
     src/infrastructure/logging/file_operation_log.cpp
     src/infrastructure/local/local_cue_store.cpp
+    src/infrastructure/local/app_data_directory.cpp
+    src/infrastructure/local/file_library_edit_lock_store.cpp
     src/infrastructure/system/rekordbox_process_detector.cpp
+    src/infrastructure/system/process_liveness.cpp
     src/infrastructure/system/stick_hardware_info.cpp
     src/infrastructure/zip_archive_writer.cpp
     src/infrastructure/hashing/sha256.cpp
@@ -647,6 +650,18 @@ add_executable(stick_identity_test tests/stick_identity_test.cpp)
 target_include_directories(stick_identity_test PRIVATE src)
 add_test(NAME stick_identity_test COMMAND stick_identity_test)
 
+# Forks a child process on POSIX to prove the pid-liveness staleness rule
+# against a real second process, not just an injected fake.
+add_executable(library_edit_lock_store_test
+    src/infrastructure/durable_file_write.cpp
+    src/infrastructure/local/app_data_directory.cpp
+    src/infrastructure/local/file_library_edit_lock_store.cpp
+    src/infrastructure/system/process_liveness.cpp
+    tests/library_edit_lock_store_test.cpp
+)
+target_include_directories(library_edit_lock_store_test PRIVATE src)
+add_test(NAME library_edit_lock_store_test COMMAND library_edit_lock_store_test)
+
 add_executable(rekordbox_process_detector_test
     src/infrastructure/system/rekordbox_process_detector.cpp
     tests/rekordbox_process_detector_test.cpp
@@ -684,6 +699,7 @@ add_executable(local_cue_store_test
     src/domain/track_matching.cpp
     src/application/ports/progress_reporter.cpp
     src/infrastructure/compression/zlib_compressor.cpp
+    src/infrastructure/local/app_data_directory.cpp
     src/infrastructure/local/local_cue_store.cpp
     tests/local_cue_store_test.cpp
 )
