@@ -63,8 +63,8 @@ Page {
         id: mergeController
     }
 
-    // Backs the "click the waveform to add a cue" form in the track info
-    // popup below.
+    // Backs the "click the waveform to add a cue" form in the track
+    // details column (TrackDetailPanel).
     AddCueController {
         id: addCueController
     }
@@ -104,6 +104,9 @@ Page {
     // Experimental features doesn't itself change what Browse looks like
     // until a track is actually being edited.
     property bool matchingPanelOpen: false
+    // The track details column: opened by clicking a row, closed by its
+    // own button. Sits between the track list and the Matching panel.
+    property bool trackPanelOpen: false
     // Starts open (matching the classic left Pane it replaces, which is
     // always visible) -- the header pill collapses/expands it, unlike
     // matchingPanelOpen above which starts collapsed.
@@ -390,22 +393,19 @@ Page {
                 TableHeaderLabel { label: "Time"; Layout.preferredWidth: 60; visible: root.browseTier >= 2 }
                 TableHeaderLabel { label: "Cues"; Layout.preferredWidth: 50; visible: root.browseTier >= 2 }
                 TableHeaderLabel { label: "Plays"; Layout.preferredWidth: 50; visible: root.browseTier >= 2 }
-                // Theme.iconSizeSmall (info button) + 8 (row spacing) +
-                // Theme.iconSizeSmall (merge button), both trailing
-                // ToolButtons in the delegate below, not just one -- five
-                // when Matching (Experimental) is on, since the
-                // edit button and the (always-present, just faded/
-                // disabled off the anchor row) reorder arrows join them.
-                // Getting this narrower than the delegate's real
-                // trailing content silently pushes every column before
-                // it out of alignment (the fill spacer above ends up
-                // absorbing a different amount of leftover space in the
-                // header than in each row), exactly what happened here
-                // before this comment existed.
+                // Theme.iconSizeSmall (merge button), the one trailing
+                // ToolButton in the delegate below -- two when Matching
+                // (Experimental) is on, since the find-matching button
+                // joins it. Getting this narrower than the delegate's
+                // real trailing content silently pushes every column
+                // before it out of alignment (the fill spacer above ends
+                // up absorbing a different amount of leftover space in
+                // the header than in each row), exactly what happened
+                // here before this comment existed.
                 Label {
                     text: ""
                     Layout.preferredWidth: root.matchingEnabled
-                        ? Theme.iconSizeSmall * 5 + 8 * 4 : Theme.iconSizeSmall * 2 + 8
+                        ? Theme.iconSizeSmall * 2 + 8 : Theme.iconSizeSmall
                 }
             }
 
@@ -493,19 +493,21 @@ Page {
                             ? playbackController.position / playbackController.duration : 0
                     }
 
-                    // Opens the track detail page -- playing now happens
-                    // only via the artwork's own hover-play overlay above
-                    // (which, being declared later/topmost for just that
-                    // region, claims its own clicks first). Streaming
-                    // tracks are fine here: the detail page still shows
-                    // their cues/metadata/transitions, only Play itself
-                    // (on the artwork) is unavailable for those.
+                    // Opens the track details column -- playing now
+                    // happens only via the artwork's own hover-play
+                    // overlay above (which, being declared later/topmost
+                    // for just that region, claims its own clicks
+                    // first). Streaming tracks are fine here: the column
+                    // still shows their cues and playlists, only Play
+                    // itself (on the artwork) is unavailable for those.
                     MouseArea {
                         id: rowMouseArea
                         anchors.fill: parent
                         hoverEnabled: true
-                        onClicked: root.trackDetailRequested(scanController, trackDelegate.index,
-                            root.format, root.currentPath())
+                        onClicked: {
+                            trackDetailPanel.showFor(trackDelegate);
+                            root.trackPanelOpen = true;
+                        }
                     }
 
                     RowLayout {
@@ -640,15 +642,6 @@ Page {
                             Layout.preferredWidth: 50
                         }
                         ToolButton {
-                            text: "ⓘ"
-                            Layout.preferredWidth: Theme.iconSizeSmall
-                            ToolTip.visible: hovered
-                            ToolTip.text: trackDelegate.playlistNames.length > 0
-                                ? "Playlists:\n" + trackDelegate.playlistNames.join("\n")
-                                : "Not in any playlist"
-                            onClicked: trackInfoPopup.showFor(trackDelegate)
-                        }
-                        ToolButton {
                             text: "🔗"
                             Layout.preferredWidth: Theme.iconSizeSmall
                             enabled: root.format !== "onelibrary" && trackDelegate.streamingSource.length === 0
@@ -663,43 +656,11 @@ Page {
                         ToolButton {
                             id: editButton
                             visible: root.matchingEnabled
-                            text: "✎"
+                            text: "🔍"
                             Layout.preferredWidth: Theme.iconSizeSmall
                             ToolTip.visible: hovered
-                            ToolTip.text: "Edit position or add tracks"
+                            ToolTip.text: "Find matching tracks"
                             onClicked: root.toggleAnchor(trackDelegate)
-                        }
-                        // Nudge this row's position in root.currentPlaylistLabel --
-                        // preview only (see MatchingPage's own doc
-                        // comment, no format has a playlist writer yet).
-                        // Kept in the layout at fixed width on every row
-                        // (visible, just faded/disabled off the anchor
-                        // row) rather than visible:false, so every row's
-                        // trailing columns stay aligned with the header
-                        // above -- see that Label's own comment.
-                        ToolButton {
-                            id: moveUpButton
-                            readonly property bool isAnchorRow: trackDelegate.sourceId === root.anchorSourceId
-                            visible: root.matchingEnabled
-                            enabled: isAnchorRow
-                            opacity: enabled ? 1.0 : 0.25
-                            text: "▲"
-                            Layout.preferredWidth: Theme.iconSizeSmall
-                            ToolTip.visible: hovered && enabled
-                            ToolTip.text: "Move up in " + root.currentPlaylistLabel + " (preview, not saved yet)"
-                            onClicked: matchingPage.previewNotSaved("moved up", trackDelegate.title)
-                        }
-                        ToolButton {
-                            id: moveDownButton
-                            readonly property bool isAnchorRow: trackDelegate.sourceId === root.anchorSourceId
-                            visible: root.matchingEnabled
-                            enabled: isAnchorRow
-                            opacity: enabled ? 1.0 : 0.25
-                            text: "▼"
-                            Layout.preferredWidth: Theme.iconSizeSmall
-                            ToolTip.visible: hovered && enabled
-                            ToolTip.text: "Move down in " + root.currentPlaylistLabel + " (preview, not saved yet)"
-                            onClicked: matchingPage.previewNotSaved("moved down", trackDelegate.title)
                         }
                     }
                 }
@@ -709,278 +670,6 @@ Page {
                     visible: trackListView.count === 0 && !scanController.busy
                     text: "No tracks found."
                     color: Theme.textMuted
-                }
-            }
-
-            // One shared popup, reused for whichever row's (i) button was
-            // clicked, populated by showFor() rather than one Popup
-            // instance per delegate. The waveform is read on demand right
-            // here (never during the bulk scan that fills trackListView),
-            // same pattern playbackController.load() already uses.
-            Popup {
-                id: trackInfoPopup
-                modal: true
-                focus: true
-                x: (root.width - width) / 2
-                y: (root.height - height) / 2
-                width: 460
-
-                property string trackSourceId: ""
-                property string trackTitle: ""
-                property string trackArtist: ""
-                property var trackCues: []
-                property double trackDurationMs: 0
-                property var trackPlaylistNames: []
-                property string trackStreamingSource: ""
-                // -1 means no pending Add-Cue form; set by clicking the
-                // waveform below.
-                property real pendingPositionMs: -1
-                // -1 means the pending add is a plain cue; a real value
-                // (from dragging out a range) means it's a loop, and
-                // pendingPositionMs is the loop-in.
-                property real pendingLoopEndMs: -1
-
-                function showFor(delegate) {
-                    trackInfoPopup.trackSourceId = delegate.sourceId;
-                    trackInfoPopup.trackTitle = delegate.title;
-                    trackInfoPopup.trackArtist = delegate.artist;
-                    trackInfoPopup.trackCues = delegate.cues;
-                    trackInfoPopup.trackDurationMs = delegate.durationSeconds * 1000;
-                    trackInfoPopup.trackPlaylistNames = delegate.playlistNames;
-                    trackInfoPopup.trackStreamingSource = delegate.streamingSource;
-                    trackInfoPopup.pendingPositionMs = -1;
-                    trackInfoPopup.pendingLoopEndMs = -1;
-                    waveformView.waveformData = playbackController.waveformFor(
-                        root.format, root.currentPath(), delegate.sourceId);
-                    waveformView.format = root.format;
-                    trackInfoPopup.open();
-                }
-
-                // Once a cue is actually added, the popup's own trackCues
-                // (a snapshot from when it was opened) is patched locally
-                // so the new marker shows up on the waveform immediately,
-                // and the page's track list is refreshed in the background
-                // so it's not showing stale cue counts next time this
-                // popup is reopened.
-                Connections {
-                    target: addCueController
-                    function onStatusMessageChanged() {
-                        if (addCueController.statusMessage.length === 0) {
-                            return;
-                        }
-                        var isLoopAdded = trackInfoPopup.pendingLoopEndMs >= 0;
-                        var isHot = isLoopAdded || cueKindCombo.currentIndex === 0;
-                        var cues = trackInfoPopup.trackCues.slice();
-                        if (isHot) {
-                            cues = cues.filter((c) => !(c.kind === "hot" && c.hotCueNumber === hotCueNumberSpin.value));
-                        }
-                        cues.push({
-                            kind: isHot ? "hot" : "memory",
-                            hotCueNumber: isHot ? hotCueNumberSpin.value : 0,
-                            positionMs: trackInfoPopup.pendingPositionMs,
-                            isLoop: isLoopAdded,
-                            loopEndMs: isLoopAdded ? trackInfoPopup.pendingLoopEndMs : 0,
-                            color: isLoopAdded ? "#3daee9" : (isHot ? "#ffcc00" : "#00a5e3"),
-                            comment: cueCommentField.text,
-                        });
-                        trackInfoPopup.trackCues = cues;
-                        trackInfoPopup.pendingPositionMs = -1;
-                        trackInfoPopup.pendingLoopEndMs = -1;
-                        cueCommentField.text = "";
-                        root.rescan();
-                    }
-                }
-
-                ColumnLayout {
-                    width: parent.width
-                    spacing: 10
-
-                    ColumnLayout {
-                        spacing: 1
-                        Label {
-                            text: trackInfoPopup.trackTitle
-                            font.bold: true
-                            font.pointSize: Theme.fontMedium
-                            Layout.fillWidth: true
-                            elide: Text.ElideRight
-                        }
-                        Label {
-                            text: trackInfoPopup.trackArtist
-                            color: Theme.textMuted
-                            Layout.fillWidth: true
-                            elide: Text.ElideRight
-                        }
-                    }
-
-                    Label {
-                        visible: trackInfoPopup.trackStreamingSource.length > 0
-                        Layout.fillWidth: true
-                        wrapMode: Text.WordWrap
-                        text: "Streaming source: " + trackInfoPopup.trackStreamingSource
-                            + " - no local file; playback, merging, and adding cues aren't available for this track."
-                        color: Theme.textMuted
-                    }
-
-                    WaveformView {
-                        id: waveformView
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 80
-                        cueData: trackInfoPopup.trackCues
-                        trackDurationMs: trackInfoPopup.trackDurationMs
-                        progress: -1
-                        cueEditable: true
-                        onPositionClicked: (ms) => {
-                            if (trackInfoPopup.trackStreamingSource.length > 0) {
-                                return;
-                            }
-                            trackInfoPopup.pendingPositionMs = ms;
-                            trackInfoPopup.pendingLoopEndMs = -1;
-                        }
-                        onLoopRangeSelected: (startMs, endMs) => {
-                            if (trackInfoPopup.trackStreamingSource.length > 0) {
-                                return;
-                            }
-                            trackInfoPopup.pendingPositionMs = startMs;
-                            trackInfoPopup.pendingLoopEndMs = endMs;
-                            // Loops always need a hot slot -- see the
-                            // combo's own visibility below.
-                            cueKindCombo.currentIndex = 0;
-                        }
-                    }
-
-                    Label {
-                        visible: trackInfoPopup.pendingPositionMs < 0 && trackInfoPopup.trackStreamingSource.length === 0
-                        text: "Click the waveform above to add a cue there, or drag to add a loop."
-                        color: Theme.textMuted
-                        font.pointSize: Theme.fontSmall
-                    }
-
-                    // Position-only for now, no beatgrid snap, see
-                    // AddCueController's own class comment for why.
-                    ColumnLayout {
-                        id: addCueForm
-                        visible: trackInfoPopup.pendingPositionMs >= 0
-                        Layout.fillWidth: true
-                        spacing: 6
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 8
-                            Label {
-                                font.bold: true
-                                text: trackInfoPopup.pendingLoopEndMs >= 0
-                                    ? "Add loop " + root.formatDuration(trackInfoPopup.pendingPositionMs / 1000)
-                                        + " to " + root.formatDuration(trackInfoPopup.pendingLoopEndMs / 1000)
-                                    : "Add cue at " + root.formatDuration(trackInfoPopup.pendingPositionMs / 1000)
-                            }
-                            Item { Layout.fillWidth: true }
-                            // Loops always occupy a hot slot -- same
-                            // constraint the hardware itself has, no
-                            // memory-loop equivalent exists to offer here.
-                            Label { text: "Kind:"; visible: trackInfoPopup.pendingLoopEndMs < 0 }
-                            ComboBox {
-                                id: cueKindCombo
-                                model: ["Hot", "Memory"]
-                                Layout.preferredWidth: 110
-                                visible: trackInfoPopup.pendingLoopEndMs < 0
-                            }
-                            Label {
-                                text: "Slot:"
-                                visible: trackInfoPopup.pendingLoopEndMs >= 0 || cueKindCombo.currentIndex === 0
-                            }
-                            SpinBox {
-                                id: hotCueNumberSpin
-                                visible: trackInfoPopup.pendingLoopEndMs >= 0 || cueKindCombo.currentIndex === 0
-                                from: 1
-                                to: 8
-                                value: 1
-                            }
-                        }
-                        TextField {
-                            id: cueCommentField
-                            Layout.fillWidth: true
-                            placeholderText: "Comment (optional)"
-                        }
-                        Label {
-                            // AddCueController refuses this too (belt and
-                            // suspenders), but saying so up front skips a
-                            // pointless rescan-then-fail round trip -- see
-                            // AddCueController's own class comment for why
-                            // rekordbox/OneLibrary loop writes are refused
-                            // rather than silently downgraded to a point.
-                            visible: trackInfoPopup.pendingLoopEndMs >= 0 && root.format !== "engine"
-                            text: "Hot loops can only be added to Engine tracks right now."
-                            color: Theme.danger
-                            wrapMode: Text.WordWrap
-                            Layout.fillWidth: true
-                        }
-                        Label {
-                            visible: addCueController.errorMessage.length > 0
-                            text: addCueController.errorMessage
-                            color: Theme.danger
-                            wrapMode: Text.WordWrap
-                            Layout.fillWidth: true
-                        }
-                        Label {
-                            visible: addCueController.statusMessage.length > 0
-                            text: addCueController.statusMessage
-                            color: Theme.good
-                            wrapMode: Text.WordWrap
-                            Layout.fillWidth: true
-                        }
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 8
-                            BusyIndicator {
-                                visible: addCueController.busy
-                                running: visible
-                                implicitWidth: 20
-                                implicitHeight: 20
-                            }
-                            Label {
-                                visible: addCueController.busy
-                                text: "Adding..."
-                                color: Theme.textMuted
-                            }
-                            Item { Layout.fillWidth: true }
-                            Button {
-                                text: "Cancel"
-                                enabled: !addCueController.busy
-                                onClicked: {
-                                    trackInfoPopup.pendingPositionMs = -1;
-                                    trackInfoPopup.pendingLoopEndMs = -1;
-                                }
-                            }
-                            Button {
-                                text: trackInfoPopup.pendingLoopEndMs >= 0 ? "Add Loop" : "Add Cue"
-                                enabled: !addCueController.busy
-                                    && !(trackInfoPopup.pendingLoopEndMs >= 0 && root.format !== "engine")
-                                onClicked: {
-                                    var isLoop = trackInfoPopup.pendingLoopEndMs >= 0;
-                                    var isHot = isLoop || cueKindCombo.currentIndex === 0;
-                                    addCueController.addCue(root.format, root.currentPath(),
-                                        trackInfoPopup.trackSourceId, trackInfoPopup.pendingPositionMs,
-                                        isHot ? "hot" : "memory", hotCueNumberSpin.value,
-                                        isLoop ? "#3daee9" : (isHot ? "#ffcc00" : "#00a5e3"), cueCommentField.text,
-                                        isLoop, isLoop ? trackInfoPopup.pendingLoopEndMs : 0);
-                                }
-                            }
-                        }
-                    }
-
-                    Label {
-                        text: "Playlists"
-                        font.bold: true
-                        color: Theme.textMuted
-                        font.pointSize: Theme.fontSmall
-                    }
-                    Label {
-                        Layout.fillWidth: true
-                        wrapMode: Text.WordWrap
-                        text: trackInfoPopup.trackPlaylistNames.length > 0
-                            ? trackInfoPopup.trackPlaylistNames.join("\n")
-                            : "Not in any playlist"
-                    }
                 }
             }
 
@@ -1238,6 +927,19 @@ Page {
                 text: trackListView.count + " tracks"
                 color: Theme.textMuted
             }
+        }
+
+        TrackDetailPanel {
+            id: trackDetailPanel
+            visible: root.trackPanelOpen
+            SplitView.preferredWidth: 460
+            SplitView.minimumWidth: 360
+            addCueController: addCueController
+            playbackController: root.playbackController
+            format: root.format
+            libraryPath: root.currentPath()
+            onCloseRequested: root.trackPanelOpen = false
+            onRescanRequested: root.rescan()
         }
 
         MatchingPage {

@@ -380,6 +380,9 @@ if(Qt6_FOUND)
                 src/gui/qml/UsbStickIcon.qml
                 src/gui/qml/StickListPage.qml
                 src/gui/qml/BackupsHubPage.qml
+                src/gui/qml/TrackDetailPanel.qml
+            RESOURCES
+                src/gui/qml/icons/seabass_soundbass.svg
             SOURCES
                 # Theme.qml's font-size properties (fontSmall, iconScale,
                 # ...) bind to this QML_SINGLETON C++ type.
