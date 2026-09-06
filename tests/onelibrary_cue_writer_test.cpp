@@ -1,6 +1,8 @@
 #include <cassert>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -59,6 +61,16 @@ fs::path freshScratch()
     fs::remove_all(scratch, ec);
     fs::create_directories(scratch);
     return scratch;
+}
+
+// Raw byte-level read of the database file, used by case 15 to establish
+// that its external modification really did change the file's contents
+// even though size and mtime both stayed put -- i.e. that the only signal
+// left for the staleness guard is the bytes themselves.
+std::string readWholeFile(const std::string &path)
+{
+    std::ifstream in(path, std::ios::binary);
+    return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 }
 
 }  // namespace
@@ -590,6 +602,91 @@ int main()
         assert(threw);
 
         std::cout << "case 14 (propagateMissingFieldsForPath: unknown path throws) OK\n";
+    }
+
+
+    // Case 15: the staleness guard against a modification neither half of
+    // its cheap size/mtime pre-filter can see -- the shape that defeated
+    // both of the guard's earlier implementations.
+    //
+    // Cases 2 and 8 above already tamper externally, but they don't pin
+    // down WHICH part of the guard did the catching: their INSERT bumps
+    // the file's mtime, so a metadata-only guard passes them too. Verified
+    // rather than assumed -- forcing checkNotStale()'s checksum comparison
+    // to false and re-running left both of them still passing.
+    //
+    // So this case removes every signal except the file's actual bytes:
+    //
+    //   - The external write is a real SQLCipher UPDATE to a same-length
+    //     value, so the page is rewritten in place and file_size() cannot
+    //     move. It also leaves a VALID database behind, which matters --
+    //     an earlier version of this case flipped a raw byte instead, and
+    //     passed for entirely the wrong reason: the corrupted ciphertext
+    //     made the writer throw on decryption, not on staleness. A test
+    //     that throws for the wrong reason is worse than no test.
+    //   - The mtime is then restored to its pre-tamper value, so the
+    //     timestamp comparison is blind by construction rather than by
+    //     luck. (On Windows it is often blind anyway: an in-process
+    //     path-based fs::last_write_time() does not observe a write that
+    //     just happened, since the directory entry only refreshes on
+    //     handle close/reopen. Restoring it explicitly makes this case
+    //     deterministic on every platform instead of relying on that.)
+    //
+    // Only reading the file's content can catch what's left, which is why
+    // the assertion below checks the exception's MESSAGE rather than just
+    // that something was thrown. An earlier guard here used
+    // `PRAGMA data_version`, blind for its own reason: a per-connection
+    // counter that only moves when that same connection observes another
+    // connection's commit, so querying it on a freshly-opened connection
+    // returns the same value forever.
+    //
+    // tests/pdb_row_writer_staleness_test.cpp covers the equivalent case
+    // on the rekordbox side.
+    {
+        fs::path scratch = freshScratch();
+        fs::path pioneerRoot = scratch / "PIONEER";
+        createFixture(pioneerRoot.string());
+        std::string dbPath = OneLibraryCueWriter::dbPathFor(pioneerRoot.string());
+
+        OneLibraryCueWriter writer(pioneerRoot.string());
+
+        const auto originalMtime = fs::last_write_time(dbPath);
+        const auto originalSize = fs::file_size(dbPath);
+        const std::string originalBytes = readWholeFile(dbPath);
+
+        // "Test Track" -> "Xest Track": same length, so the row and its
+        // page keep their size and the file's length cannot change.
+        {
+            std::string key = deriveOneLibraryKey();
+            SqlCipherLibrary lib;
+            SqlCipherDb db(lib, dbPath, /*readOnly=*/false);
+            db.exec("PRAGMA key = '" + key + "';");
+            db.exec("UPDATE content SET title = 'Xest Track' WHERE content_id = 1;");
+        }
+        fs::last_write_time(dbPath, originalMtime);
+
+        const std::string tamperedBytes = readWholeFile(dbPath);
+        assert(fs::file_size(dbPath) == originalSize);            // size blind
+        assert(fs::last_write_time(dbPath) == originalMtime);     // mtime blind
+        assert(tamperedBytes != originalBytes);                   // content genuinely changed
+
+        std::string message;
+        try {
+            writer.writeCuesForPath((scratch / "Contents" / "Test Track.mp3").string(), sampleCues());
+        } catch (const std::exception &e) {
+            message = e.what();
+        }
+        // Checking the message, not merely that something threw: the
+        // database is still perfectly readable here, so the only correct
+        // reason to refuse is staleness.
+        assert(message.find("changed since this writer was opened") != std::string::npos);
+
+        // And the refusal has to be real, not merely reported -- the
+        // external change must still be on disk, not overwritten by
+        // anything the writer decided to flush anyway.
+        assert(readWholeFile(dbPath) == tamperedBytes);
+
+        std::cout << "case 15 (staleness guard refuses an external same-length write with size and mtime unchanged) OK\n";
     }
 
     std::cout << "All onelibrary_cue_writer_test cases passed.\n";
