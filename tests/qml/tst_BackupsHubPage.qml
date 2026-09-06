@@ -52,6 +52,25 @@ TestCase {
         grabImage(page).save(screenshotDir + "/" + name + ".png");
     }
 
+    function test_readOnlyWhileAnotherInstanceEdits() {
+        var registry = {
+            lockedByOther: ["lib-main"], calls: [],
+            refreshLocks: function() {},
+            removeLock: function(id) { this.calls.push("remove:" + id); },
+            lockHolder: function(id) { return {hostname: "studio-pc", pid: 4242, startedAtUtc: ""}; },
+            libraryIdForPath: function(p) { return "lib-main"; },
+        };
+        var page = makePage({}, {editRegistry: registry});
+        compare(page.lockedByOther, true);
+        compare(findChild(page, "manageBackupsCard").readOnly, true);
+        compare(findChild(page, "restoreCard").readOnly, true);
+        var spy = createTemporaryObject(spyComponent, testCase, {target: page, signalName: "restoreStickBackupRequested"});
+        mouseClick(findChild(page, "restoreCard"));
+        compare(spy.count, 0);
+        tryCompare(findChild(page, "lockedDialog"), "opened", true);
+        saveScreenshot(page, "backups-hub-read-only");
+    }
+
     function test_deprecatedBadgesAndRestoreCard() {
         var page = makePage({});
         compare(findChild(page, "localCueCard").deprecated, true);

@@ -23,7 +23,7 @@ TestCase {
         var s = {
             label: "MAIN", mountPoint: "/media/MAIN", devicePath: "/dev/sdb1", mounted: true,
             hasRekordbox: true, hasEngine: true, rekordboxPath: "/media/MAIN/PIONEER",
-            enginePath: "/media/MAIN/Engine Library", isSdCard: false,
+            enginePath: "/media/MAIN/Engine Library", isSdCard: false, libraryId: "lib-main",
         };
         for (var key in overrides) {
             s[key] = overrides[key];
@@ -98,6 +98,50 @@ TestCase {
         if (!screenshotDir || screenshotDir.length === 0) return;
         var image = grabImage(page);
         image.save(screenshotDir + "/" + name + ".png");
+    }
+
+    function fakeEditRegistry(lockedIds) {
+        return {
+            lockedByOther: lockedIds, calls: [],
+            refreshLocks: function() { this.calls.push("refresh"); },
+            removeLock: function(id) { this.calls.push("remove:" + id); },
+            lockHolder: function(id) { return {hostname: "studio-pc", pid: 4242, startedAtUtc: "2026-09-06T10:00:00Z"}; },
+            libraryIdForPath: function(p) { return "lib-main"; },
+        };
+    }
+
+    // Another instance holds the library's edit lock: every card that
+    // would change the library is read-only and explains itself when
+    // clicked; Browse stays a plain card.
+    function test_readOnlyCardsWhileAnotherInstanceEdits() {
+        var page = makePage([makeStick({})], {}, {editRegistry: fakeEditRegistry(["lib-main"])});
+        var housekeeping = findCard(page, "/media/MAIN", "Housekeeping");
+        var browse = findCard(page, "/media/MAIN", "Browse Library");
+        verify(housekeeping !== null && browse !== null);
+        compare(housekeeping.readOnly, true);
+        compare(browse.readOnly, false);
+        compare(findChild(housekeeping, "readOnlyBadge").visible, true);
+        compare(findChild(browse, "readOnlyBadge").visible, false);
+
+        var spy = createTemporaryObject(spyComponent, testCase, {target: page, signalName: "duplicateTracksHubRequested"});
+        mouseClick(housekeeping);
+        compare(spy.count, 0);
+        var dialog = findChild(page, "lockedDialog");
+        tryCompare(dialog, "opened", true);
+        compare(dialog.libraryId, "lib-main");
+        verify(findChild(dialog, "holderLabel").text.indexOf("studio-pc") >= 0);
+        saveScreenshot(page, "stick-list-read-only");
+
+        findChild(dialog, "removeLockButton").clicked();
+        tryCompare(dialog, "opened", false);
+        tryCompare(dialog, "visible", false);  // the modal overlay eats clicks until the exit is over
+        compare(page.editRegistry.calls.indexOf("remove:lib-main") >= 0, true);
+
+        // No lock: the same card opens the feature.
+        page.editRegistry = fakeEditRegistry([]);
+        compare(housekeeping.readOnly, false);
+        mouseClick(housekeeping);
+        compare(spy.count, 1);
     }
 
     function test_everyMountedStickIsAssessed() {

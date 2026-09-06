@@ -15,9 +15,44 @@ Page {
     required property var playbackController
     required property var appSettingsController
     required property var backupAdvisor
+    // The edit-lock registry (EditSessionRegistry singleton; a fake in
+    // tests): which libraries another instance is editing right now.
+    property var editRegistry: typeof EditSessionRegistry !== "undefined" ? EditSessionRegistry : null
+    function refreshLocks() {
+        if (root.editRegistry !== null && root.editRegistry !== undefined) {
+            root.editRegistry.refreshLocks();
+        }
+    }
+    function isLockedByOther(libraryId) {
+        return libraryId.length > 0 && root.editRegistry !== null && root.editRegistry !== undefined
+            && root.editRegistry.lockedByOther.indexOf(libraryId) >= 0;
+    }
+    function explainLock(libraryId) {
+        lockedDialog.openFor(libraryId, root.editRegistry ? root.editRegistry.lockHolder(libraryId) : {});
+    }
 
     // Coming back from a backup or restore: the advice is stale.
-    StackView.onActivated: root.backupAdvisor.reassessAll()
+    StackView.onActivated: {
+        root.backupAdvisor.reassessAll();
+        root.refreshLocks();
+    }
+    // Another instance taking or dropping a lock shows up within 2 s
+    // while this page is in front.
+    Timer {
+        interval: 2000
+        repeat: true
+        running: root.StackView.status === StackView.Active
+        onTriggered: root.refreshLocks()
+    }
+    LockedLibraryDialog {
+        id: lockedDialog
+        objectName: "lockedDialog"
+        onRemoveLockRequested: {
+            if (root.editRegistry) {
+                root.editRegistry.removeLock(lockedDialog.libraryId);
+            }
+        }
+    }
     signal browseRequested(string stickLabel, string rekordboxPath, string enginePath)
     // Deduplication and Backups are hub pages now (see
     // DuplicatesHubPage.qml / BackupsHubPage.qml), each fanning out to two
@@ -190,7 +225,11 @@ Page {
                 required property string rekordboxPath
                 required property string enginePath
                 required property bool isSdCard
+                required property string libraryId
                 readonly property bool hasKnownLibrary: hasRekordbox || hasEngine
+                // Another instance is editing this stick's library: every
+                // card that would change it goes read-only.
+                readonly property bool lockedByOther: root.isLockedByOther(delegateRoot.libraryId)
                 // What the backup advisor found for this stick (see
                 // BackupAdvisorController); null until it has looked.
                 readonly property var advice: root.backupAdvisor.advice[mountPoint] || null
@@ -392,6 +431,8 @@ Page {
                         }
                         ActionCard {
                             cardTitle: "Housekeeping"
+                            readOnly: delegateRoot.lockedByOther
+                            onReadOnlyClicked: root.explainLock(delegateRoot.libraryId)
                             cardSubtitle: "Duplicate stats, sync metadata across copies, and clean up"
                             cardIcon: "▣"
                             visible: delegateRoot.hasKnownLibrary
@@ -400,6 +441,8 @@ Page {
                         }
                         ActionCard {
                             cardTitle: "Library Health"
+                            readOnly: delegateRoot.lockedByOther
+                            onReadOnlyClicked: root.explainLock(delegateRoot.libraryId)
                             cardSubtitle: "Find rows whose file is missing and repair or clean them up"
                             cardIcon: "🩹"
                             // Graduated from experimental (see
@@ -422,6 +465,8 @@ Page {
                         }
                         ActionCard {
                             cardTitle: "Create Engine Library"
+                            readOnly: delegateRoot.lockedByOther
+                            onReadOnlyClicked: root.explainLock(delegateRoot.libraryId)
                             cardSubtitle: "Build a new Engine Library from this stick's DeviceLibrary export"
                             cardIcon: "⚙"
                             cardIconFont: "Noto Sans Symbols"
@@ -438,6 +483,8 @@ Page {
                         }
                         ActionCard {
                             cardTitle: "Sync Cue Points"
+                            readOnly: delegateRoot.lockedByOther
+                            onReadOnlyClicked: root.explainLock(delegateRoot.libraryId)
                             cardSubtitle: "Copy cues between DeviceLibrary and Engine"
                             cardIcon: "⇄"
                             cardIconFont: "Noto Sans Math"
@@ -447,6 +494,8 @@ Page {
                         }
                         ActionCard {
                             cardTitle: "Backups"
+                            readOnly: delegateRoot.lockedByOther
+                            onReadOnlyClicked: root.explainLock(delegateRoot.libraryId)
                             // The advisor's verdict on the full stick backup
                             // leads when it has one; the generic line otherwise.
                             cardSubtitle: {
@@ -471,6 +520,8 @@ Page {
                         }
                         ActionCard {
                             cardTitle: "Device Profile"
+                            readOnly: delegateRoot.lockedByOther
+                            onReadOnlyClicked: root.explainLock(delegateRoot.libraryId)
                             cardSubtitle: "View this stick's saved Rekordbox player settings"
                             cardIcon: "⚙"
                             cardIconFont: "Noto Sans Symbols"
@@ -498,6 +549,8 @@ Page {
                         }
                         ActionCard {
                             cardTitle: "Restore a Backup"
+                            readOnly: delegateRoot.lockedByOther
+                            onReadOnlyClicked: root.explainLock(delegateRoot.libraryId)
                             cardSubtitle: delegateRoot.adviceState === "restore"
                                 ? "Restore " + delegateRoot.advice.backupLabel + " onto this empty stick"
                                 : "Put one of your stick backups onto this empty stick"
@@ -519,6 +572,8 @@ Page {
                         }
                         ActionCard {
                             cardTitle: "Create Backup USB Stick"
+                            readOnly: delegateRoot.lockedByOther
+                            onReadOnlyClicked: root.explainLock(delegateRoot.libraryId)
                             cardSubtitle: delegateRoot.cloneSource !== null ? delegateRoot.cloneSource.detail : ""
                             cardIcon: "⧉"
                             cardIconFont: "Noto Sans Math"

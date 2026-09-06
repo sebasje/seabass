@@ -27,6 +27,14 @@ Button {
     // what is wrong with it.
     property bool deprecated: false
     property string deprecatedNote: "Needs rework"
+    // Another Seabass instance is editing the library this card would
+    // change (see docs/edit-mode-and-cancel.md): the card stays visible,
+    // wears a READ ONLY badge, and a click asks the page to explain
+    // (readOnlyClicked) instead of opening the feature. Cards that only
+    // read (Browse, Statistics) never set this.
+    property bool readOnly: false
+    property string readOnlyReason: "Another Seabass instance is editing this library"
+    signal readOnlyClicked()
     visible: !experimental || experimentalFeaturesEnabled
     Layout.fillWidth: true
     Layout.preferredHeight: 68
@@ -37,7 +45,7 @@ Button {
             text: card.cardIcon
             font.family: card.cardIconFont
             font.pointSize: Theme.fontHuge
-            color: card.enabled ? Theme.textMuted : Qt.darker(Theme.textMuted, 1.6)
+            color: card.enabled && !card.readOnly ? Theme.textMuted : Qt.darker(Theme.textMuted, 1.6)
             Layout.preferredWidth: 30
             horizontalAlignment: Text.AlignHCenter
         }
@@ -75,6 +83,23 @@ Button {
                     }
                 }
                 Rectangle {
+                    objectName: "readOnlyBadge"
+                    visible: card.readOnly
+                    radius: 3
+                    color: Theme.warnBg
+                    border.color: Theme.warnBorder
+                    implicitWidth: readOnlyBadgeText.implicitWidth + 8
+                    implicitHeight: readOnlyBadgeText.implicitHeight + 4
+                    Label {
+                        id: readOnlyBadgeText
+                        anchors.centerIn: parent
+                        text: "READ ONLY"
+                        font.pointSize: Theme.fontTiny
+                        font.bold: true
+                        color: Theme.warnText
+                    }
+                }
+                Rectangle {
                     visible: card.deprecated
                     radius: 3
                     color: "transparent"
@@ -101,11 +126,24 @@ Button {
             }
             Label {
                 text: card.cardSubtitle
-                color: card.enabled ? Theme.textMuted : Qt.darker(Theme.textMuted, 1.6)
+                color: card.enabled && !card.readOnly ? Theme.textMuted : Qt.darker(Theme.textMuted, 1.6)
                 font.pointSize: Theme.baseFontPointSize * 0.9
                 wrapMode: Text.WordWrap
                 Layout.fillWidth: true
             }
         }
+    }
+
+    // Swallows the click while read-only so the page's onClicked never
+    // fires; the page hears readOnlyClicked instead.
+    MouseArea {
+        objectName: "readOnlyGuard"
+        anchors.fill: parent
+        visible: card.readOnly
+        hoverEnabled: true
+        cursorShape: Qt.ForbiddenCursor
+        onClicked: card.readOnlyClicked()
+        ToolTip.visible: containsMouse && card.readOnlyReason.length > 0
+        ToolTip.text: card.readOnlyReason
     }
 }
