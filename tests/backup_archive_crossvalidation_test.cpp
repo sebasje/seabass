@@ -170,7 +170,17 @@ int main()
     fs::path script = root / "listing.py";
     {
         std::ofstream out(script);
+        // Entry names come back over a pipe, and Python encodes a
+        // non-tty stdout with locale.getpreferredencoding() -- the ANSI
+        // code page, cp1252 on this machine. "Contents/Cafe del Mar.mp3"
+        // (with the accent) then arrives as cp1252 bytes while the name
+        // read out of the archive is UTF-8, and comparing the two says
+        // "python did not list" a file python listed perfectly well.
+        // Nothing is wrong with the archive when that happens: testzip()
+        // has already passed by then. Pin the encoding so the comparison
+        // is about the archive rather than about the machine's locale.
         out << "import sys, zipfile\n"
+               "sys.stdout.reconfigure(encoding='utf-8')\n"
                "z = zipfile.ZipFile(sys.argv[1])\n"
                "bad = z.testzip()\n"
                "if bad is not None:\n"
