@@ -643,6 +643,10 @@ target_include_directories(stick_write_lock_test PRIVATE src)
 target_link_libraries(stick_write_lock_test PRIVATE Threads::Threads)
 add_test(NAME stick_write_lock_test COMMAND stick_write_lock_test)
 
+add_executable(stick_identity_test tests/stick_identity_test.cpp)
+target_include_directories(stick_identity_test PRIVATE src)
+add_test(NAME stick_identity_test COMMAND stick_identity_test)
+
 add_executable(rekordbox_process_detector_test
     src/infrastructure/system/rekordbox_process_detector.cpp
     tests/rekordbox_process_detector_test.cpp

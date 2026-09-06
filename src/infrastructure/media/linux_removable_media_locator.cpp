@@ -213,6 +213,32 @@ std::vector<DetectedStick> LinuxRemovableMediaLocator::detect()
             stick.isSdCard = isFlashSd(parentDisk);
         }
 
+        // Identity (see StickIdentity): the USB device serial is a
+        // property of the whole disk, so a partition entry inherits it
+        // from the parent when it does not carry one itself. ID_SERIAL_SHORT
+        // is the bare serial; ID_SERIAL is vendor_model_serial, still
+        // unique per device, used only when the short form is missing.
+        // The filesystem UUID lives on the partition (the entry with the
+        // filesystem), never on the parent disk.
+        auto serialOf = [](udev_device *d) -> std::string {
+            if (auto s = udevProperty(d, "ID_SERIAL_SHORT"); s && !s->empty()) {
+                return *s;
+            }
+            if (auto s = udevProperty(d, "ID_SERIAL"); s && !s->empty()) {
+                return *s;
+            }
+            return {};
+        };
+        stick.identity.hardwareSerial = serialOf(dev.get());
+        if (stick.identity.hardwareSerial.empty() && parentDisk) {
+            stick.identity.hardwareSerial = serialOf(parentDisk);
+        }
+        if (auto uuid = udevProperty(dev.get(), "ID_FS_UUID")) {
+            stick.identity.filesystemUuid = *uuid;
+        }
+        stick.identity.label = stick.label;
+        stick.identity.capacityBytes = stick.capacityBytes;
+
         auto mountIt = mountedByDevice.find(devnode);
         if (mountIt != mountedByDevice.end()) {
             stick.mounted = true;

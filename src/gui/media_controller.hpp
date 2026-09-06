@@ -8,7 +8,10 @@
 #include <QQmlEngine>
 #include <QTimer>
 
+#include <map>
 #include <memory>
+#include <optional>
+#include <string>
 
 #include "application/ports/removable_media_locator.hpp"
 #include "application/ports/removable_media_monitor.hpp"
@@ -36,6 +39,13 @@ public:
         RekordboxPathRole,
         EnginePathRole,
         IsSdCardRole,
+        // See application::StickIdentity. libraryId is the key every
+        // edit-mode/lock feature uses for "this library"; identityStrength
+        // ("hardware"/"filesystem"/"weak"/"none") says how trustworthy
+        // "the same stick" answers are.
+        LibraryIdRole,
+        HardwareSerialRole,
+        IdentityStrengthRole,
     };
 
     explicit DetectedStickListModel(QObject *parent = nullptr);
@@ -111,6 +121,15 @@ public:
     Q_INVOKABLE void mountStick(const QString &devicePath);
     Q_INVOKABLE void unmountStick(const QString &devicePath);
 
+    // The library id (StickIdentity::libraryId()) of the stick mounted at
+    // mountPoint -- or, if no stick is mounted there right now, of the
+    // stick that was last seen there. Pages hold library paths, not
+    // identities, and must still resolve their session after the stick
+    // has been pulled, which is what the last-seen fallback is for. Empty
+    // when the mount point was never seen.
+    Q_INVOKABLE QString libraryIdForMountPoint(const QString &mountPoint) const;
+    std::optional<application::StickIdentity> lastKnownIdentity(const std::string &mountPoint) const;
+
 signals:
     void errorMessageChanged();
     void busyChanged();
@@ -142,6 +161,9 @@ private:
     QSet<QString> m_autoMountFailed;  // do not retry until re-inserted
     QStringList m_autoMountQueue;
     bool m_ownMountsReleased = false;
+    // Every mounted stick ever seen this session, by mount point, kept
+    // after the stick is gone (see libraryIdForMountPoint()).
+    std::map<std::string, application::StickIdentity> m_lastKnownByMountPoint;
 };
 
 }  // namespace seabass::gui

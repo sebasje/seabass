@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 #include <fstream>
 #include <sstream>
 
@@ -173,7 +174,8 @@ StickHardwareInfo readStickHardwareInfo(const std::string &mountPoint, const std
     }
 
     wchar_t fsName[MAX_PATH + 1] = {};
-    if (GetVolumeInformationW(root.c_str(), nullptr, 0, nullptr, nullptr, nullptr, fsName, MAX_PATH)) {
+    DWORD volumeSerial = 0;
+    if (GetVolumeInformationW(root.c_str(), nullptr, 0, &volumeSerial, nullptr, nullptr, fsName, MAX_PATH)) {
         std::wstring wname(fsName);
         info.filesystem = lower(std::string(wname.begin(), wname.end()));
     }
@@ -184,7 +186,17 @@ StickHardwareInfo readStickHardwareInfo(const std::string &mountPoint, const std
         info.freeBytes = freeAvailable.QuadPart;
     }
 
-    info.stickIdentifier = fallbackIdentifier(stickLabel, info.totalBytes);
+    // The volume serial plays the role ID_FS_UUID plays on Linux --
+    // formatted exactly as WindowsRemovableMediaLocator formats it
+    // (8 upper-case hex digits), so StickIdentity::libraryId() and this
+    // identifier agree on the same stick.
+    if (volumeSerial != 0) {
+        char text[16] = {};
+        std::snprintf(text, sizeof(text), "%08X", static_cast<unsigned int>(volumeSerial));
+        info.stickIdentifier = text;
+    } else {
+        info.stickIdentifier = fallbackIdentifier(stickLabel, info.totalBytes);
+    }
     return info;
 }
 

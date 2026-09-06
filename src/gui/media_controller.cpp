@@ -70,6 +70,12 @@ QVariant DetectedStickListModel::data(const QModelIndex &index, int role) const
         return stick.enginePath ? QString::fromStdString(*stick.enginePath) : QString();
     case IsSdCardRole:
         return stick.isSdCard;
+    case LibraryIdRole:
+        return QString::fromStdString(stick.identity.libraryId());
+    case HardwareSerialRole:
+        return QString::fromStdString(stick.identity.hardwareSerial);
+    case IdentityStrengthRole:
+        return QString::fromLatin1(application::StickIdentity::strengthName(stick.identity.strength()));
     default:
         return {};
     }
@@ -87,6 +93,9 @@ QHash<int, QByteArray> DetectedStickListModel::roleNames() const
         {RekordboxPathRole, "rekordboxPath"},
         {EnginePathRole, "enginePath"},
         {IsSdCardRole, "isSdCard"},
+        {LibraryIdRole, "libraryId"},
+        {HardwareSerialRole, "hardwareSerial"},
+        {IdentityStrengthRole, "identityStrength"},
     };
 }
 
@@ -155,7 +164,32 @@ void MediaController::detect()
 {
     auto locator = infrastructure::media::createRemovableMediaLocator();
     m_model.setSticks(locator->detect());
+    for (const application::DetectedStick &stick : m_model.sticks()) {
+        if (stick.mounted && !stick.mountPoint.empty()) {
+            m_lastKnownByMountPoint[stick.mountPoint] = stick.identity;
+        }
+    }
     queueAutoMounts();
+}
+
+QString MediaController::libraryIdForMountPoint(const QString &mountPoint) const
+{
+    auto identity = lastKnownIdentity(mountPoint.toStdString());
+    return identity ? QString::fromStdString(identity->libraryId()) : QString();
+}
+
+std::optional<application::StickIdentity> MediaController::lastKnownIdentity(const std::string &mountPoint) const
+{
+    for (const application::DetectedStick &stick : m_model.sticks()) {
+        if (stick.mounted && stick.mountPoint == mountPoint) {
+            return stick.identity;
+        }
+    }
+    auto it = m_lastKnownByMountPoint.find(mountPoint);
+    if (it != m_lastKnownByMountPoint.end()) {
+        return it->second;
+    }
+    return std::nullopt;
 }
 
 // Every stick with a filesystem and no mount point becomes a candidate,

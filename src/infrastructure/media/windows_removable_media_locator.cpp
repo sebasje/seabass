@@ -14,6 +14,10 @@
 #include <windows.h>
 #include <winioctl.h>
 
+#include <algorithm>
+#include <cctype>
+#include <cstdio>
+#include <cstring>
 #include <exception>
 #include <map>
 #include <optional>
@@ -21,6 +25,7 @@
 #include <sstream>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "infrastructure/media/stick_root_scan.hpp"
 #include "infrastructure/process/run_command.hpp"
@@ -122,6 +127,58 @@ std::string physicalDrivePath(int number)
     return "\\\\.\\PhysicalDrive" + std::to_string(number);
 }
 
+// The device's own serial number as reported by the storage stack
+// (STORAGE_DEVICE_DESCRIPTOR::SerialNumberOffset via
+// IOCTL_STORAGE_QUERY_PROPERTY) -- the Windows counterpart of udev's
+// ID_SERIAL_SHORT, and the "exact same physical stick" evidence
+// StickIdentity::isSameStick() prefers. Works on a "\\.\PhysicalDriveN"
+// handle without elevation. Empty when the device reports none (some
+// cheap sticks do) or the query fails. Unverified on real Windows
+// hardware, like the rest of this file: written against the documented
+// API only.
+std::string storageSerialNumber(const std::string &devicePath)
+{
+    HANDLE handle = ::CreateFileA(devicePath.c_str(), 0, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
+                                   0, nullptr);
+    if (handle == INVALID_HANDLE_VALUE) {
+        return {};
+    }
+    STORAGE_PROPERTY_QUERY query = {};
+    query.PropertyId = StorageDeviceProperty;
+    query.QueryType = PropertyStandardQuery;
+    std::vector<char> buffer(4096, '\0');
+    DWORD bytesReturned = 0;
+    BOOL ok = ::DeviceIoControl(handle, IOCTL_STORAGE_QUERY_PROPERTY, &query, sizeof(query), buffer.data(),
+                                 static_cast<DWORD>(buffer.size() - 1), &bytesReturned, nullptr);
+    ::CloseHandle(handle);
+    if (!ok || bytesReturned < sizeof(STORAGE_DEVICE_DESCRIPTOR)) {
+        return {};
+    }
+    const auto *descriptor = reinterpret_cast<const STORAGE_DEVICE_DESCRIPTOR *>(buffer.data());
+    if (descriptor->SerialNumberOffset == 0 || descriptor->SerialNumberOffset >= bytesReturned) {
+        return {};
+    }
+    // The buffer keeps a trailing NUL past what the driver may write, so
+    // strnlen can never run off the end.
+    const char *start = buffer.data() + descriptor->SerialNumberOffset;
+    std::string serial(start, ::strnlen(start, buffer.size() - descriptor->SerialNumberOffset));
+    auto notSpace = [](unsigned char c) { return !std::isspace(c); };
+    serial.erase(serial.begin(), std::find_if(serial.begin(), serial.end(), notSpace));
+    serial.erase(std::find_if(serial.rbegin(), serial.rend(), notSpace).base(), serial.end());
+    return serial;
+}
+
+// The volume serial number GetVolumeInformation reports, formatted the
+// way Windows itself shows it ("1A2B-3C4D" in `dir`, here without the
+// dash): the filesystem-level identity, reassigned by a format, same
+// role as ID_FS_UUID on Linux.
+std::string volumeSerialString(DWORD serial)
+{
+    char text[16] = {};
+    std::snprintf(text, sizeof(text), "%08X", static_cast<unsigned int>(serial));
+    return text;
+}
+
 }  // namespace
 
 std::vector<DetectedStick> WindowsRemovableMediaLocator::detect()
@@ -166,10 +223,13 @@ std::vector<DetectedStick> WindowsRemovableMediaLocator::detect()
         // empty slot in the first place, so there's nothing to filter.
 
         char volumeName[MAX_PATH + 1] = {};
-        if (::GetVolumeInformationA(rootPath.c_str(), volumeName, sizeof(volumeName), nullptr, nullptr, nullptr,
-                                     nullptr, 0) &&
-            volumeName[0] != '\0') {
-            stick.label = volumeName;
+        DWORD volumeSerial = 0;
+        if (::GetVolumeInformationA(rootPath.c_str(), volumeName, sizeof(volumeName), &volumeSerial, nullptr,
+                                     nullptr, nullptr, 0)) {
+            stick.label = volumeName[0] != '\0' ? std::string(volumeName) : rootPath;
+            if (volumeSerial != 0) {
+                stick.identity.filesystemUuid = volumeSerialString(volumeSerial);
+            }
         } else {
             stick.label = rootPath;
         }
@@ -180,8 +240,11 @@ std::vector<DetectedStick> WindowsRemovableMediaLocator::detect()
                 stick.capacityBytes = it->second.sizeBytes;
                 stick.hasNoFilesystem = false;  // it has a mounted volume, so it's clearly not blank
                 claimedDiskNumbers.insert(*diskNumber);
+                stick.identity.hardwareSerial = storageSerialNumber(stick.wholeDiskPath);
             }
         }
+        stick.identity.label = stick.label;
+        stick.identity.capacityBytes = stick.capacityBytes;
 
         scanMountedRoot(rootPath, stick);
         sticks.push_back(std::move(stick));
@@ -204,6 +267,9 @@ std::vector<DetectedStick> WindowsRemovableMediaLocator::detect()
         stick.hasNoFilesystem = info.blank;
         stick.label = info.friendlyName.empty() ? stick.wholeDiskPath : info.friendlyName;
         stick.mounted = false;
+        stick.identity.hardwareSerial = storageSerialNumber(stick.wholeDiskPath);
+        stick.identity.label = stick.label;
+        stick.identity.capacityBytes = stick.capacityBytes;
         sticks.push_back(std::move(stick));
     }
 
