@@ -663,6 +663,29 @@ add_executable(library_edit_lock_store_test
 target_include_directories(library_edit_lock_store_test PRIVATE src)
 add_test(NAME library_edit_lock_store_test COMMAND library_edit_lock_store_test)
 
+# The edit-session save loop and its per-format write target live in
+# src/gui/edit but are plain Qt Core code (QString, no widgets), so they
+# are testable headless.
+if(TARGET Qt6::Core)
+    add_executable(edit_session_save_loop_test
+        src/gui/edit/save_context.cpp
+        src/gui/edit/save_loop.cpp
+        tests/edit_session_save_loop_test.cpp
+    )
+    target_include_directories(edit_session_save_loop_test PRIVATE src)
+    target_link_libraries(edit_session_save_loop_test PRIVATE seabass_core Qt6::Core)
+    add_test(NAME edit_session_save_loop_test COMMAND edit_session_save_loop_test)
+
+    add_executable(format_write_session_test
+        src/gui/edit/save_context.cpp
+        src/gui/edit/format_write_session.cpp
+        tests/format_write_session_test.cpp
+    )
+    target_include_directories(format_write_session_test PRIVATE src)
+    target_link_libraries(format_write_session_test PRIVATE seabass_core Qt6::Core)
+    add_test(NAME format_write_session_test COMMAND format_write_session_test)
+endif()
+
 add_executable(rekordbox_process_detector_test
     src/infrastructure/system/rekordbox_process_detector.cpp
     tests/rekordbox_process_detector_test.cpp
