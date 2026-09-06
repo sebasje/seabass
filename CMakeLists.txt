@@ -659,6 +659,10 @@ add_executable(stick_identity_test tests/stick_identity_test.cpp)
 target_include_directories(stick_identity_test PRIVATE src)
 add_test(NAME stick_identity_test COMMAND stick_identity_test)
 
+add_executable(stick_presence_diff_test tests/stick_presence_diff_test.cpp)
+target_include_directories(stick_presence_diff_test PRIVATE src)
+add_test(NAME stick_presence_diff_test COMMAND stick_presence_diff_test)
+
 # Forks a child process on POSIX to prove the pid-liveness staleness rule
 # against a real second process, not just an injected fake.
 add_executable(library_edit_lock_store_test
