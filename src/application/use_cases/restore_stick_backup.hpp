@@ -73,6 +73,20 @@ struct RestorePreview
     bool enoughFreeSpace = true;
 };
 
+// What a backup file is, without planning a restore from it: enough to
+// list a folder of backups and let a person pick one.
+struct StickBackupDescription
+{
+    std::filesystem::path archivePath;
+    std::string error;  // non-empty: unreadable, the other fields are unset
+    std::string stickLabel;
+    std::string stickIdentifier;
+    infrastructure::stick_backup::BackupStatus status = infrastructure::stick_backup::BackupStatus::Complete;
+    std::int64_t createdAtUnix = 0;
+    std::size_t entries = 0;      // files + directories in the backup
+    std::uint64_t archiveBytes = 0;  // size of the .zip on disk
+};
+
 struct RestoreSummary
 {
     enum class Status
@@ -103,6 +117,10 @@ struct RestoreSummary
 class RestoreStickBackup
 {
 public:
+    // Reads only the manifest. Every `.zip` directly inside `directory`
+    // is described, newest first, unreadable ones last.
+    static StickBackupDescription describe(const std::filesystem::path &archivePath);
+    static std::vector<StickBackupDescription> describeAll(const std::filesystem::path &directory);
     static RestorePreview preview(const RestoreOptions &options);
     static RestoreSummary execute(const RestoreOptions &options, ProgressReporter &reporter = NullProgressReporter::instance());
 };

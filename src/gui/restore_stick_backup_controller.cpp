@@ -81,12 +81,23 @@ struct RestoreStickBackupController::RestoreResult
     RestoreSummary summary;
 };
 
+struct RestoreStickBackupController::MountResult
+{
+    QString devicePath;
+    QString mountPoint;
+    QString error;
+};
+
 RestoreStickBackupController::RestoreStickBackupController(QObject *parent) : QObject(parent)
 {
     connect(&m_analyzeWatcher, &QFutureWatcher<std::shared_ptr<AnalyzeResult>>::finished, this,
             &RestoreStickBackupController::onAnalyzeFinished);
     connect(&m_restoreWatcher, &QFutureWatcher<std::shared_ptr<RestoreResult>>::finished, this,
             &RestoreStickBackupController::onRestoreFinished);
+    connect(&m_listWatcher, &QFutureWatcher<QVariantList>::finished, this,
+            &RestoreStickBackupController::onListFinished);
+    connect(&m_mountWatcher, &QFutureWatcher<std::shared_ptr<MountResult>>::finished, this,
+            &RestoreStickBackupController::onMountFinished);
     refresh();
 }
 
@@ -95,6 +106,8 @@ RestoreStickBackupController::~RestoreStickBackupController()
     m_cancel.cancel();
     m_restoreWatcher.waitForFinished();
     m_analyzeWatcher.waitForFinished();
+    m_listWatcher.waitForFinished();
+    m_mountWatcher.waitForFinished();
 }
 
 void RestoreStickBackupController::refresh()
@@ -134,6 +147,7 @@ void RestoreStickBackupController::setDefaultBackupDirectory(const QString &dire
     }
     m_defaultBackupDirectory = directory;
     emit defaultBackupDirectoryChanged();
+    refreshKnownBackups();
 }
 
 QString RestoreStickBackupController::archivePathForLabel(const QString &label) const
@@ -150,9 +164,99 @@ QString RestoreStickBackupController::archivePathForLabel(const QString &label) 
     return QDir(m_defaultBackupDirectory).filePath(name + QStringLiteral(".zip"));
 }
 
+void RestoreStickBackupController::refreshKnownBackups()
+{
+    if (m_listWatcher.isRunning()) {
+        return;
+    }
+    const fs::path directory(m_defaultBackupDirectory.toStdString());
+    m_listWatcher.setFuture(QtConcurrent::run([directory]() {
+        QVariantList backups;
+        if (directory.empty()) {
+            return backups;
+        }
+        for (const application::StickBackupDescription &d : application::RestoreStickBackup::describeAll(directory)) {
+            QVariantMap map;
+            map["archivePath"] = QString::fromStdString(d.archivePath.string());
+            map["fileName"] = QString::fromStdString(d.archivePath.filename().string());
+            map["error"] = QString::fromStdString(d.error);
+            map["label"] = QString::fromStdString(d.stickLabel);
+            map["identifier"] = QString::fromStdString(d.stickIdentifier);
+            map["status"] = QString::fromUtf8(std::string(infrastructure::stick_backup::toString(d.status)).c_str());
+            map["createdAt"] = QDateTime::fromSecsSinceEpoch(d.createdAtUnix).toString(Qt::ISODate);
+            map["entries"] = static_cast<qlonglong>(d.entries);
+            map["bytes"] = static_cast<qlonglong>(d.archiveBytes);
+            backups.push_back(map);
+        }
+        return backups;
+    }));
+    emit knownBackupsChanged();
+}
+
+void RestoreStickBackupController::onListFinished()
+{
+    m_knownBackups = m_listWatcher.result();
+    emit knownBackupsChanged();
+}
+
+void RestoreStickBackupController::mount(const QString &devicePath)
+{
+    if (busy() || devicePath.isEmpty()) {
+        return;
+    }
+    m_mounting = true;
+    emit busyChanged();
+    setErrorMessage({});
+    m_mountWatcher.setFuture(QtConcurrent::run([devicePath]() {
+        auto result = std::make_shared<MountResult>();
+        result->devicePath = devicePath;
+        auto mounter = infrastructure::media::createRemovableMediaMounter();
+        std::string error;
+        if (const std::optional<std::string> mountPoint = mounter->mount(devicePath.toStdString(), error)) {
+            result->mountPoint = QString::fromStdString(*mountPoint);
+        } else {
+            result->error = QString::fromStdString(error);
+        }
+        return result;
+    }));
+}
+
+void RestoreStickBackupController::onMountFinished()
+{
+    const std::shared_ptr<MountResult> result = m_mountWatcher.result();
+    m_mounting = false;
+    emit busyChanged();
+    if (!result) {
+        return;
+    }
+    if (!result->error.isEmpty()) {
+        setErrorMessage(QStringLiteral("Couldn't mount %1: %2").arg(result->devicePath, result->error.trimmed()));
+        emit actionFeedback(m_errorMessage, true);
+        return;
+    }
+    refresh();
+    // udisksctl's reply may omit the mount point; the fresh disk list
+    // knows it either way.
+    QString mountPoint = result->mountPoint;
+    if (mountPoint.isEmpty()) {
+        for (const QVariant &disk : m_disks) {
+            const QVariantMap map = disk.toMap();
+            if (map["devicePath"].toString() == result->devicePath) {
+                mountPoint = map["mountPoint"].toString();
+                break;
+            }
+        }
+    }
+    emit driveMounted(mountPoint);
+}
+
 void RestoreStickBackupController::analyze(const QString &targetRoot)
 {
-    if (m_archivePath.isEmpty() || m_analyzeWatcher.isRunning() || m_restoring) {
+    if (m_archivePath.isEmpty() || m_restoring) {
+        return;
+    }
+    if (m_analyzeWatcher.isRunning()) {
+        m_pendingAnalyzeTarget = targetRoot;
         return;
     }
     m_analyzing = true;
@@ -205,6 +309,11 @@ void RestoreStickBackupController::onAnalyzeFinished()
     emit archiveInfoChanged();
     emit previewChanged();
     emit busyChanged();
+    if (m_pendingAnalyzeTarget) {
+        const QString target = *m_pendingAnalyzeTarget;
+        m_pendingAnalyzeTarget.reset();
+        analyze(target);
+    }
 }
 
 void RestoreStickBackupController::applyProgress(const RestoreProgress &progress)
@@ -215,13 +324,26 @@ void RestoreStickBackupController::applyProgress(const RestoreProgress &progress
     m_bytesDone = static_cast<qlonglong>(progress.bytesDone);
     m_bytesTotal = static_cast<qlonglong>(progress.bytesTotal);
     m_currentFile = QString::fromStdString(progress.currentFile);
+    // Same sampling as StickBackupController: a one-second window for the
+    // rate, no ETA before five seconds in (too jumpy until then).
+    const qint64 now = m_progressClock.elapsed();
+    if (now - m_lastProgressMs >= 1000) {
+        const double seconds = static_cast<double>(now - m_lastProgressMs) / 1000.0;
+        m_bytesPerSecond = static_cast<double>(m_bytesDone - m_lastProgressBytes) / seconds;
+        m_lastProgressMs = now;
+        m_lastProgressBytes = m_bytesDone;
+    }
+    m_etaSeconds = (progress.phase == RestoreProgress::Phase::Writing && m_bytesPerSecond > 0 && m_bytesTotal > m_bytesDone
+                    && now > 5000)
+                       ? static_cast<int>(static_cast<double>(m_bytesTotal - m_bytesDone) / m_bytesPerSecond)
+                       : -1;
     emit progressChanged();
 }
 
 void RestoreStickBackupController::restore(const QString &targetRoot, bool exact)
 {
     if (busy() || m_archivePath.isEmpty() || targetRoot.isEmpty()) {
-        emit actionFeedback(QStringLiteral("Still busy -- try again once the current operation finishes."), true);
+        emit actionFeedback(QStringLiteral("Still busy. Try again once the current operation finishes."), true);
         return;
     }
     setErrorMessage({});
@@ -232,6 +354,11 @@ void RestoreStickBackupController::restore(const QString &targetRoot, bool exact
     emit busyChanged();
     m_phase.clear();
     m_filesDone = m_filesTotal = m_bytesDone = m_bytesTotal = 0;
+    m_bytesPerSecond = 0.0;
+    m_etaSeconds = -1;
+    m_progressClock.start();
+    m_lastProgressMs = 0;
+    m_lastProgressBytes = 0;
     m_currentFile.clear();
     emit progressChanged();
     m_cancel = application::CancellationToken();
@@ -275,6 +402,17 @@ void RestoreStickBackupController::cancel()
     m_cancel.cancel();
 }
 
+void RestoreStickBackupController::clearResult()
+{
+    if (m_restoring) {
+        return;
+    }
+    m_result.clear();
+    emit resultChanged();
+    setErrorMessage({});
+    setStatusMessage({});
+}
+
 void RestoreStickBackupController::onRestoreFinished()
 {
     std::shared_ptr<RestoreResult> result = m_restoreWatcher.result();
@@ -297,7 +435,7 @@ void RestoreStickBackupController::onRestoreFinished()
     map["bytesWritten"] = static_cast<qlonglong>(s.bytesWritten);
     QVariantList rejected;
     for (const auto &[name, reason] : s.rejected) {
-        rejected.push_back(QString::fromStdString(name + " -- " + reason));
+        rejected.push_back(QString::fromStdString(name + ": " + reason));
     }
     map["rejected"] = rejected;
     map["writeErrors"] = toVariantList(s.writeErrors);
@@ -313,7 +451,7 @@ void RestoreStickBackupController::onRestoreFinished()
         emit actionFeedback(m_statusMessage, false);
         break;
     case RestoreSummary::Status::RestoredWithProblems:
-        setStatusMessage(QStringLiteral("Restored %1 files, but with problems -- see the report below.").arg(s.filesWritten));
+        setStatusMessage(QStringLiteral("Restored %1 files, but with problems; see the report below.").arg(s.filesWritten));
         emit actionFeedback(m_statusMessage, true);
         break;
     case RestoreSummary::Status::Cancelled:

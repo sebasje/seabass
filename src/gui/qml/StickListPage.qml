@@ -33,7 +33,9 @@ Page {
     signal backupsHubRequested(string stickLabel, string rekordboxPath, string enginePath)
     signal aboutRequested()
     signal formatUsbRequested()
-    signal restoreStickBackupRequested()
+    // mountPoint (or, for a not-yet-mounted stick, devicePath) preselects
+    // the target drive; both empty means "pick one there".
+    signal restoreStickBackupRequested(string mountPoint, string devicePath)
 
     // A subtle brand watermark in the corner of the very first page shown --
     // same "Seabass / DJ USB Stick Management" text as AboutPage.qml, just
@@ -84,7 +86,7 @@ Page {
                 font.pointSize: Theme.fontLarge
                 ToolTip.visible: hovered
                 ToolTip.text: "Restore a Stick Backup (experimental)"
-                onClicked: root.restoreStickBackupRequested()
+                onClicked: root.restoreStickBackupRequested("", "")
             }
             ToolButton {
                 text: "ⓘ"
@@ -291,7 +293,7 @@ Page {
                     wrapMode: Text.WordWrap
                     color: Theme.textMuted
                     text: delegateRoot.mounted
-                        ? "No DeviceLibrary or Engine library detected on this stick."
+                        ? "No DeviceLibrary or Engine library detected on this stick. Restore a backup onto it, or format it."
                         : "Click to mount, then Seabass will show what's available here."
                 }
 
@@ -409,6 +411,24 @@ Page {
                             // stick with nothing recognizable on it yet.
                             enabled: !root.mediaController.busy
                             onClicked: root.formatUsbRequested()
+                        }
+                        ActionCard {
+                            cardTitle: "Restore a Backup"
+                            cardSubtitle: "Put one of your stick backups onto this empty stick"
+                            cardIcon: "🗃"
+                            experimental: true
+                            experimentalFeaturesEnabled: root.appSettingsController.experimentalFeaturesEnabled
+                            // Only for a stick with nothing recognizable on
+                            // it: the disaster case is a blank replacement
+                            // drive. A stick that already has a library
+                            // restores from its own Backups page instead.
+                            visible: !delegateRoot.hasKnownLibrary
+                            // Not gated on `mounted`: a stick fresh out of
+                            // Format USB Stick is not remounted, and the
+                            // restore page mounts it itself when handed
+                            // the device path.
+                            enabled: !root.mediaController.busy
+                            onClicked: root.restoreStickBackupRequested(delegateRoot.mountPoint, delegateRoot.devicePath)
                         }
                     }
                 }
