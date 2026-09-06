@@ -132,4 +132,32 @@ std::uintmax_t removeTreeDeepestFirst(const fs::path &path)
     return removed;
 }
 
+std::uintmax_t directoryTreeSizeBytes(const fs::path &path)
+{
+    std::error_code ec;
+    const fs::path full = longPathSafe(path);
+    const fs::file_status status = fs::symlink_status(full, ec);
+    if (ec || !fs::exists(status) || fs::is_symlink(status)) {
+        return 0;
+    }
+    if (fs::is_regular_file(status)) {
+        const std::uintmax_t size = fs::file_size(full, ec);
+        return ec ? 0 : size;
+    }
+    if (!fs::is_directory(status)) {
+        return 0;
+    }
+    DirectoryReader reader(full, ec);
+    if (ec) {
+        return 0;
+    }
+    std::uintmax_t total = 0;
+    fs::path child;
+    std::error_code readEc;
+    while (reader.next(child, readEc)) {
+        total += directoryTreeSizeBytes(child);
+    }
+    return total;
+}
+
 }  // namespace seabass::infrastructure

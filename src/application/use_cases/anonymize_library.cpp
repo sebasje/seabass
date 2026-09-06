@@ -38,22 +38,6 @@ std::string hostOsName()
 #endif
 }
 
-std::uintmax_t directorySizeBytes(const fs::path &dir)
-{
-    std::uintmax_t total = 0;
-    std::error_code ec;
-    if (!fs::exists(dir, ec)) {
-        return 0;
-    }
-    for (auto it = fs::recursive_directory_iterator(dir, ec); !ec && it != fs::recursive_directory_iterator();
-         it.increment(ec)) {
-        std::error_code fileEc;
-        if (it->is_regular_file(fileEc)) {
-            total += it->file_size(fileEc);
-        }
-    }
-    return total;
-}
 
 // Blended, catalog-specific compression ratios measured with `gzip -9`
 // against real rekordbox/Engine library files (see the plan this
@@ -188,8 +172,8 @@ AnonymizationSummary AnonymizeLibrary::execute(const std::optional<std::string> 
         summary.engineError = result.errorMessage;
     }
 
-    std::uintmax_t rekordboxBytes = directorySizeBytes(fs::path(outputDir) / "rekordbox");
-    std::uintmax_t engineBytes = directorySizeBytes(fs::path(outputDir) / "engine");
+    std::uintmax_t rekordboxBytes = infrastructure::directoryTreeSizeBytes(fs::path(outputDir) / "rekordbox");
+    std::uintmax_t engineBytes = infrastructure::directoryTreeSizeBytes(fs::path(outputDir) / "engine");
     summary.outputSizeBytes = rekordboxBytes + engineBytes;
     summary.estimatedZippedBytes = estimateZippedBytes(rekordboxBytes, engineBytes);
 
