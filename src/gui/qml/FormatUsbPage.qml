@@ -88,6 +88,16 @@ Page {
         }
     }
 
+    MessagePopup { id: messagePopup }
+    Connections {
+        // A plain JS stand-in (tests) has no signals and is not a QObject.
+        target: ("objectName" in root.controller) ? root.controller : null
+        ignoreUnknownSignals: true
+        function onActionFeedback(message, isError) {
+            messagePopup.show(message, isError ? Theme.danger : Theme.good);
+        }
+    }
+
     // Shown every time selection lands on a drive with a recognized DJ
     // library (see applySelection() above) -- separate from confirmDialog
     // below, which gates the actual write. This one's job is just making

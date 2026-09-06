@@ -168,9 +168,11 @@ void FormatUsbController::onFormatFinished()
     setBusy(false);
     if (!result.errorMessage.isEmpty()) {
         setErrorMessage(result.errorMessage);
+        emit actionFeedback(result.errorMessage, true);
         return;
     }
     setStatusMessage(QStringLiteral("Drive formatted successfully."));
+    emit actionFeedback(QStringLiteral("Your USB stick has been formatted. All the data that once was on it is now gone, gone, gone with the wind..."), false);
     refresh();
 }
 
