@@ -50,6 +50,24 @@ std::optional<std::string> WindowsRemovableMediaMounter::mount(const std::string
     return devicePath;
 }
 
+namespace
+{
+
+// Shared lock -> dismount step used by both unmount() (which goes on to
+// eject) and release() (which deliberately stops here). Locking fails
+// (harmlessly refusing, same as udisksctl would) if another process still
+// has a file open on the volume.
+bool lockAndDismount(HANDLE handle, DWORD &lastError)
+{
+    DWORD bytesReturned = 0;
+    bool ok = ::DeviceIoControl(handle, FSCTL_LOCK_VOLUME, nullptr, 0, nullptr, 0, &bytesReturned, nullptr) &&
+              ::DeviceIoControl(handle, FSCTL_DISMOUNT_VOLUME, nullptr, 0, nullptr, 0, &bytesReturned, nullptr);
+    lastError = ::GetLastError();
+    return ok;
+}
+
+}  // namespace
+
 bool WindowsRemovableMediaMounter::unmount(const std::string &devicePath, std::string &errorMessage)
 {
     std::string volumePath = toVolumeDevicePath(devicePath);
@@ -65,19 +83,48 @@ bool WindowsRemovableMediaMounter::unmount(const std::string &devicePath, std::s
         return false;
     }
 
+    DWORD lastError = 0;
     DWORD bytesReturned = 0;
     // Same lock -> dismount -> eject sequence Windows' own "Safely Remove
-    // Hardware" performs. Locking fails (harmlessly refusing the eject,
-    // same as udisksctl would) if another process still has a file open
-    // on the volume.
-    bool ok = ::DeviceIoControl(handle, FSCTL_LOCK_VOLUME, nullptr, 0, nullptr, 0, &bytesReturned, nullptr) &&
-              ::DeviceIoControl(handle, FSCTL_DISMOUNT_VOLUME, nullptr, 0, nullptr, 0, &bytesReturned, nullptr) &&
+    // Hardware" performs. This physically ejects the media -- only use
+    // this for a user-initiated eject. A caller that intends to keep
+    // operating on the same disk (e.g. FormatUsbStick) must call
+    // release() instead: an ejected Windows volume needs a physical
+    // reinsertion before it's usable again, unlike a plain dismount.
+    bool ok = lockAndDismount(handle, lastError) &&
               ::DeviceIoControl(handle, IOCTL_STORAGE_EJECT_MEDIA, nullptr, 0, nullptr, 0, &bytesReturned, nullptr);
-    DWORD lastError = ::GetLastError();
+    lastError = ::GetLastError();
     ::CloseHandle(handle);
 
     if (!ok) {
         errorMessage = "Could not eject " + devicePath +
+                        " -- it may still be in use (error " + std::to_string(lastError) + ").";
+        return false;
+    }
+    return true;
+}
+
+bool WindowsRemovableMediaMounter::release(const std::string &devicePath, std::string &errorMessage)
+{
+    std::string volumePath = toVolumeDevicePath(devicePath);
+    if (volumePath.empty()) {
+        errorMessage = "No device path given.";
+        return false;
+    }
+
+    HANDLE handle = ::CreateFileA(volumePath.c_str(), GENERIC_READ | GENERIC_WRITE,
+                                   FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr);
+    if (handle == INVALID_HANDLE_VALUE) {
+        errorMessage = "Could not open " + devicePath + " (error " + std::to_string(::GetLastError()) + ").";
+        return false;
+    }
+
+    DWORD lastError = 0;
+    bool ok = lockAndDismount(handle, lastError);
+    ::CloseHandle(handle);
+
+    if (!ok) {
+        errorMessage = "Could not release " + devicePath +
                         " -- it may still be in use (error " + std::to_string(lastError) + ").";
         return false;
     }

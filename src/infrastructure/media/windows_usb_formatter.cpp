@@ -109,7 +109,15 @@ bool WindowsUsbFormatter::format(const std::string &wholeDiskPath, domain::UsbFi
         script << "$ErrorActionPreference = 'Stop'\n";
         script << "try {\n";
         script << "    Clear-Disk -Number " << *diskNumber << " -RemoveData -RemoveOEM -Confirm:$false\n";
-        script << "    Initialize-Disk -Number " << *diskNumber << " -PartitionStyle MBR\n";
+        // Set-Disk, not Initialize-Disk: Clear-Disk removes the
+        // partitions but leaves the disk INITIALIZED (still GPT if it
+        // was GPT before), so Initialize-Disk always fails afterwards
+        // with "the disk has already been initialized" -- discovered by
+        // running this against real hardware, after Clear-Disk had
+        // already destroyed the previous layout. Set-Disk changes the
+        // partition style of an already-initialized disk directly and is
+        // what actually enforces this feature's "always MBR" promise.
+        script << "    Set-Disk -Number " << *diskNumber << " -PartitionStyle MBR\n";
         script << "    $partition = New-Partition -DiskNumber " << *diskNumber << " -UseMaximumSize\n";
         script << "    Format-Volume -Partition $partition -FileSystem " << fsName << " -NewFileSystemLabel '"
                << escapePowerShellSingleQuoted(volumeLabel) << "' -Confirm:$false | Out-Null\n";

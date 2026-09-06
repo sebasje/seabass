@@ -13,6 +13,7 @@ class UdisksctlMediaMounter : public application::RemovableMediaMounter
 public:
     std::optional<std::string> mount(const std::string &devicePath, std::string &errorMessage) override;
     bool unmount(const std::string &devicePath, std::string &errorMessage) override;
+    bool release(const std::string &devicePath, std::string &errorMessage) override;
 };
 
 }  // namespace seabass::infrastructure::media
