@@ -56,7 +56,40 @@ Page {
     // (from Clean Up Duplicates, which can create new orphaned files, or
     // from Delete Orphaned Files itself, which clears them), so the card
     // below never goes stale after either happens.
-    StackView.onActivated: root.refreshPendingCounts()
+    // The edit-lock registry (EditSessionRegistry singleton; a fake in
+    // tests): whether another instance is editing this stick's library.
+    property var editRegistry: typeof EditSessionRegistry !== "undefined" ? EditSessionRegistry : null
+    readonly property string libraryId: root.editRegistry !== null && root.editRegistry !== undefined
+        ? root.editRegistry.libraryIdForPath(root.enginePath.length > 0 ? root.enginePath : root.rekordboxPath) : ""
+    readonly property bool lockedByOther: root.libraryId.length > 0 && root.editRegistry !== null
+        && root.editRegistry !== undefined && root.editRegistry.lockedByOther.indexOf(root.libraryId) >= 0
+    function refreshLocks() {
+        if (root.editRegistry !== null && root.editRegistry !== undefined) {
+            root.editRegistry.refreshLocks();
+        }
+    }
+    function explainLock() {
+        lockedDialog.openFor(root.libraryId, root.editRegistry ? root.editRegistry.lockHolder(root.libraryId) : {});
+    }
+    Timer {
+        interval: 2000
+        repeat: true
+        running: root.StackView.status === StackView.Active
+        onTriggered: root.refreshLocks()
+    }
+    LockedLibraryDialog {
+        id: lockedDialog
+        objectName: "lockedDialog"
+        onRemoveLockRequested: {
+            if (root.editRegistry) {
+                root.editRegistry.removeLock(lockedDialog.libraryId);
+            }
+        }
+    }
+    StackView.onActivated: {
+        root.refreshPendingCounts();
+        root.refreshLocks();
+    }
 
     header: ToolBar {
         // Opaque background override, see AppSettingsPage.qml's header
@@ -91,6 +124,8 @@ Page {
             onClicked: root.duplicatesStatsRequested(root.stickLabel, root.rekordboxPath, root.enginePath)
         }
         ActionCard {
+            readOnly: root.lockedByOther
+            onReadOnlyClicked: root.explainLock()
             cardTitle: "Clean Up Duplicates"
             cardSubtitle: "Remove redundant copies, keep the best one"
                 + (root.hasOneLibrary ? " (also updates OneLibrary)" : "")
@@ -99,6 +134,8 @@ Page {
             onClicked: root.cleanupRequested(root.stickLabel, root.rekordboxPath, root.enginePath)
         }
         ActionCard {
+            readOnly: root.lockedByOther
+            onReadOnlyClicked: root.explainLock()
             cardTitle: "Delete Orphaned Files"
             cardSubtitle: root.hasPendingDeletions
                 ? "Free disk space: delete files earlier cleanups' database edits orphaned"
@@ -108,6 +145,8 @@ Page {
             onClicked: root.pendingDeletionsRequested(root.stickLabel, root.rekordboxPath, root.enginePath)
         }
         ActionCard {
+            readOnly: root.lockedByOther
+            onReadOnlyClicked: root.explainLock()
             cardTitle: "Clean Up Stray Cues"
             cardSubtitle: "Remove memory cues sitting at 0:00, almost always accidental"
             cardIcon: "🧽"

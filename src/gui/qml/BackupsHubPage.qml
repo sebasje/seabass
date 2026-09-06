@@ -31,6 +31,38 @@ Page {
     signal cloneStickRequested(string sourceLabel, string sourceRekordboxPath, string sourceEnginePath,
                                string targetMountPoint, string targetLabel, bool targetHasLibrary)
 
+    // The edit-lock registry (EditSessionRegistry singleton; a fake in
+    // tests): whether another instance is editing this stick's library.
+    property var editRegistry: typeof EditSessionRegistry !== "undefined" ? EditSessionRegistry : null
+    readonly property string libraryId: root.editRegistry !== null && root.editRegistry !== undefined
+        ? root.editRegistry.libraryIdForPath(root.enginePath.length > 0 ? root.enginePath : root.rekordboxPath) : ""
+    readonly property bool lockedByOther: root.libraryId.length > 0 && root.editRegistry !== null
+        && root.editRegistry !== undefined && root.editRegistry.lockedByOther.indexOf(root.libraryId) >= 0
+    function refreshLocks() {
+        if (root.editRegistry !== null && root.editRegistry !== undefined) {
+            root.editRegistry.refreshLocks();
+        }
+    }
+    function explainLock() {
+        lockedDialog.openFor(root.libraryId, root.editRegistry ? root.editRegistry.lockHolder(root.libraryId) : {});
+    }
+    Timer {
+        interval: 2000
+        repeat: true
+        running: root.StackView.status === StackView.Active
+        onTriggered: root.refreshLocks()
+    }
+    LockedLibraryDialog {
+        id: lockedDialog
+        objectName: "lockedDialog"
+        onRemoveLockRequested: {
+            if (root.editRegistry) {
+                root.editRegistry.removeLock(lockedDialog.libraryId);
+            }
+        }
+    }
+    StackView.onActivated: root.refreshLocks()
+
     readonly property bool hasRekordbox: rekordboxPath.length > 0
     readonly property bool hasEngine: enginePath.length > 0
     readonly property string stickRoot: root.mountPoint.length > 0 ? root.mountPoint
@@ -68,6 +100,8 @@ Page {
         spacing: 12
 
         ActionCard {
+            readOnly: root.lockedByOther
+            onReadOnlyClicked: root.explainLock()
             cardTitle: "Full Stick Backup"
             cardSubtitle: root.advice && root.advice.state === "outdated"
                 ? "Update the full stick backup: " + root.advice.detail
@@ -84,6 +118,8 @@ Page {
             onClicked: root.fullStickBackupRequested(root.stickLabel, root.rekordboxPath, root.enginePath)
         }
         ActionCard {
+            readOnly: root.lockedByOther
+            onReadOnlyClicked: root.explainLock()
             objectName: "updateStickCard"
             cardTitle: "Update Stick"
             cardSubtitle: root.updateSource !== null
@@ -109,6 +145,8 @@ Page {
             }
         }
         ActionCard {
+            readOnly: root.lockedByOther
+            onReadOnlyClicked: root.explainLock()
             objectName: "restoreCard"
             cardTitle: "Restore a Stick Backup"
             cardSubtitle: "Put a stick backup from this computer back onto " + root.stickLabel
@@ -121,6 +159,8 @@ Page {
             onClicked: root.restoreStickBackupRequested(root.stickRoot, root.devicePath, "")
         }
         ActionCard {
+            readOnly: root.lockedByOther
+            onReadOnlyClicked: root.explainLock()
             objectName: "localCueCard"
             cardTitle: "Local Cue Backup"
             cardSubtitle: "Back up or restore cues on this computer"
@@ -131,6 +171,8 @@ Page {
             onClicked: root.localCueRequested(root.stickLabel, root.rekordboxPath, root.enginePath)
         }
         ActionCard {
+            readOnly: root.lockedByOther
+            onReadOnlyClicked: root.explainLock()
             objectName: "manageBackupsCard"
             cardTitle: "Manage Backups"
             cardSubtitle: "List and clean up automatic write backups"
