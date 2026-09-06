@@ -6,9 +6,10 @@
 
 #include <QVariantMap>
 
-#include "gui/write_guard.hpp"
-#include "infrastructure/backup/filesystem_backup_store.hpp"
-#include "infrastructure/backup/stick_write_lock.hpp"
+#include "gui/edit/edit_session_registry.hpp"
+#include "gui/edit/library_edit_session.hpp"
+#include "gui/edit/pending_change.hpp"
+#include "gui/edit/save_context.hpp"
 #include "infrastructure/rekordbox/rekordbox_settings_fields.hpp"
 #include "infrastructure/rekordbox/rekordbox_settings_reader.hpp"
 #include "infrastructure/rekordbox/rekordbox_settings_writer.hpp"
@@ -40,6 +41,8 @@ QVariantList buildGroups(const QString &pioneerRoot, QString *errorMessage)
                 QVariantMap fieldMap;
                 fieldMap["label"] = QString::fromStdString(label);
                 fieldMap["value"] = QString::fromStdString(value);
+                fieldMap["pendingValue"] = QString();
+                fieldMap["unsaved"] = false;
 
                 QVariantList options;
                 for (const auto &field : infrastructure::rekordbox::allSettingsFields()) {
@@ -76,51 +79,55 @@ SettingsTaskResult runLoadTask(QString pioneerRoot)
     return result;
 }
 
-// Runs entirely on a background thread (see SettingsController::
-// setField()). Writes the one field, then re-decodes every group so the
-// caller always gets a fresh, consistent view -- same as the old
-// synchronous setField()'s trailing load() call.
-SettingsTaskResult runSetFieldTask(QString pioneerRoot, QString fileName, QString fieldLabel, QString optionName)
+// One settings field's new value -- what used to be runSetFieldTask()'s
+// body, minus the lock/backup-store plumbing the save loop now provides.
+class DeviceSettingChange : public PendingChange
 {
-    SettingsTaskResult result;
-    QString refusal = refuseIfDjSoftwareRunning();
-    if (!refusal.isEmpty()) {
-        QString ignoredLoadError;
-        result.groups = buildGroups(pioneerRoot, &ignoredLoadError);
-        result.errorMessage = refusal;  // takes priority over ignoredLoadError
-        return result;
+public:
+    DeviceSettingChange(QString pioneerRoot, QString fileName, QString fieldLabel, QString oldValue,
+                        QString optionName)
+        : m_pioneerRoot(std::move(pioneerRoot)),
+          m_fileName(std::move(fileName)),
+          m_fieldLabel(std::move(fieldLabel)),
+          m_oldValue(std::move(oldValue)),
+          m_optionName(std::move(optionName))
+    {
     }
-    try {
-        std::string filePath = pioneerRoot.toStdString() + "/" + fileName.toStdString();
+
+    QString id() const override { return "settings:" + m_fileName + ":" + m_fieldLabel; }
+    QString description() const override
+    {
+        return QStringLiteral("\"%1\": %2 -> %3 (%4)").arg(m_fieldLabel, m_oldValue, m_optionName, m_fileName);
+    }
+    QString unit() const override { return QStringLiteral("settings"); }
+    QStringList formatsTouched() const override { return {}; }  // not a catalog: nothing cached to invalidate
+
+    ChangeOutcome apply(SaveContext &ctx) override
+    {
+        std::string filePath = m_pioneerRoot.toStdString() + "/" + m_fileName.toStdString();
         if (!fs::exists(filePath)) {
-            result.errorMessage = "Settings file not found: " + fileName;
-        } else {
-            // Same backup-before-write invariant as every other write path
-            // in the app, sharing the same .seabass-backups directory.
-            fs::path stickRoot = fs::path(pioneerRoot.toStdString()).parent_path();
-            infrastructure::backup::StickWriteLock lock((stickRoot / ".seabass-backups" / ".write.lock").string());
-            infrastructure::backup::FilesystemBackupStore backupStore((stickRoot / ".seabass-backups").string());
-            backupStore.backup({filePath}, "device-settings");
-
-            bool ok = infrastructure::rekordbox::writeDeviceSettingField(
-                pioneerRoot.toStdString(), fileName.toStdString(), fieldLabel.toStdString(), optionName.toStdString());
-            if (ok) {
-                result.statusMessage = "Saved -- the previous file is backed up.";
-            } else {
-                result.errorMessage = "Could not save that setting -- the file wasn't in the expected format.";
-            }
+            return ChangeOutcome::failure("Settings file not found: " + m_fileName);
         }
-    } catch (const std::exception &e) {
-        result.errorMessage = QString::fromStdString(e.what());
+        ctx.backupOnce(filePath, "device-settings");
+        bool ok = infrastructure::rekordbox::writeDeviceSettingField(
+            m_pioneerRoot.toStdString(), m_fileName.toStdString(), m_fieldLabel.toStdString(),
+            m_optionName.toStdString());
+        if (!ok) {
+            return ChangeOutcome::failure(
+                "Could not save \"" + m_fieldLabel + "\" -- the file wasn't in the expected format.");
+        }
+        ctx.log().record("device-settings: set \"" + m_fieldLabel.toStdString() + "\" to " + m_optionName.toStdString()
+                         + " in " + m_fileName.toStdString());
+        return ChangeOutcome::success();
     }
 
-    QString loadError;
-    result.groups = buildGroups(pioneerRoot, &loadError);
-    if (result.errorMessage.isEmpty()) {
-        result.errorMessage = loadError;
-    }
-    return result;
-}
+private:
+    QString m_pioneerRoot;
+    QString m_fileName;
+    QString m_fieldLabel;
+    QString m_oldValue;
+    QString m_optionName;
+};
 
 }  // namespace
 
@@ -129,12 +136,53 @@ SettingsController::SettingsController(QObject *parent) : QObject(parent)
     connect(&m_watcher, &QFutureWatcher<SettingsTaskResult>::finished, this, &SettingsController::onTaskFinished);
 }
 
+QString SettingsController::changeIdFor(const QString &fileName, const QString &fieldLabel)
+{
+    return "settings:" + fileName + ":" + fieldLabel;
+}
+
+void SettingsController::attachSession()
+{
+    auto *registry = EditSessionRegistry::instance();
+    QString libraryId = registry->libraryIdForPath(m_pioneerRoot);
+    LibraryEditSession *session = registry->sessionFor(libraryId);
+    if (session == m_session) {
+        return;
+    }
+    if (m_session) {
+        disconnect(m_session, nullptr, this, nullptr);
+    }
+    m_session = session;
+    if (!m_session) {
+        return;
+    }
+    m_session->setLibraryPaths(m_pioneerRoot, QString());
+    connect(m_session, &LibraryEditSession::changeApplied, this, [this](const QString &changeId) {
+        for (auto it = m_pending.begin(); it != m_pending.end(); ++it) {
+            if (changeIdFor(it->first.first, it->first.second) == changeId) {
+                m_pending.erase(it);
+                break;
+            }
+        }
+    });
+    connect(m_session, &LibraryEditSession::saveFinished, this, [this](const QVariantMap &) {
+        // Whatever landed is on the stick now: re-decode so `value` shows
+        // it and the staged overlay only covers what is still pending.
+        load(m_pioneerRoot);
+    });
+    connect(m_session, &LibraryEditSession::changesDiscarded, this, [this]() {
+        m_pending.clear();
+        rebuildGroupsView();
+    });
+}
+
 void SettingsController::load(const QString &pioneerRoot)
 {
     if (m_busy) {
         return;
     }
     m_pioneerRoot = pioneerRoot;
+    attachSession();
     setErrorMessage({});
     setBusy(true);
     m_watcher.setFuture(QtConcurrent::run(runLoadTask, pioneerRoot));
@@ -142,25 +190,88 @@ void SettingsController::load(const QString &pioneerRoot)
 
 void SettingsController::setField(const QString &fileName, const QString &fieldLabel, const QString &optionName)
 {
-    if (m_busy) {
-        return;
-    }
     setErrorMessage({});
     setStatusMessage({});
-    setBusy(true);
-    m_watcher.setFuture(QtConcurrent::run(runSetFieldTask, m_pioneerRoot, fileName, fieldLabel, optionName));
+    if (!m_session) {
+        attachSession();
+        if (!m_session) {
+            setErrorMessage("This stick's library could not be identified; nothing was changed.");
+            return;
+        }
+    }
+
+    QString oldValue;
+    bool known = false;
+    for (const QVariant &groupVariant : m_groups) {
+        QVariantMap group = groupVariant.toMap();
+        if (group["fileName"].toString() != fileName) {
+            continue;
+        }
+        for (const QVariant &fieldVariant : group["fields"].toList()) {
+            QVariantMap field = fieldVariant.toMap();
+            if (field["label"].toString() == fieldLabel) {
+                oldValue = field["value"].toString();
+                known = field["options"].toStringList().contains(optionName);
+            }
+        }
+    }
+    if (!known) {
+        setErrorMessage("\"" + fieldLabel + "\" cannot be set to " + optionName + " -- not a value Seabass knows.");
+        return;
+    }
+    if (optionName == oldValue) {
+        unstageField(fileName, fieldLabel);
+        return;
+    }
+
+    auto change = std::make_unique<DeviceSettingChange>(m_pioneerRoot, fileName, fieldLabel, oldValue, optionName);
+    if (!m_session->stage(std::move(change))) {
+        return;  // the session reported the lock refusal; the page shows it
+    }
+    m_pending[{fileName, fieldLabel}] = optionName;
+    rebuildGroupsView();
+}
+
+void SettingsController::unstageField(const QString &fileName, const QString &fieldLabel)
+{
+    if (m_pending.erase({fileName, fieldLabel}) == 0) {
+        return;
+    }
+    if (m_session) {
+        m_session->unstage(changeIdFor(fileName, fieldLabel));
+    }
+    rebuildGroupsView();
+}
+
+void SettingsController::rebuildGroupsView()
+{
+    QVariantList view;
+    for (const QVariant &groupVariant : m_groups) {
+        QVariantMap group = groupVariant.toMap();
+        QVariantList fields;
+        for (const QVariant &fieldVariant : group["fields"].toList()) {
+            QVariantMap field = fieldVariant.toMap();
+            auto it = m_pending.find({group["fileName"].toString(), field["label"].toString()});
+            if (it != m_pending.end()) {
+                field["pendingValue"] = it->second;
+                field["unsaved"] = true;
+            }
+            fields << field;
+        }
+        group["fields"] = fields;
+        view << group;
+    }
+    m_groupsView = view;
+    emit groupsChanged();
 }
 
 void SettingsController::onTaskFinished()
 {
     SettingsTaskResult result = m_watcher.result();
     m_groups = result.groups;
-    emit groupsChanged();
+    rebuildGroupsView();
     if (!result.errorMessage.isEmpty()) {
         setErrorMessage(result.errorMessage);
-    }
-    if (!result.statusMessage.isEmpty()) {
-        setStatusMessage(result.statusMessage);
     }
     setBusy(false);
 }

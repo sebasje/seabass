@@ -3,6 +3,9 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import SeabassGui
 
+// Device Profile: rekordbox's player/mixer preference files on the
+// stick. Picking a value stages it (UNSAVED, with an Undo); the floating
+// Save writes every staged field, each backed up first.
 Page {
     id: root
     required property string stickLabel
@@ -10,6 +13,18 @@ Page {
 
     SettingsController {
         id: settingsController
+    }
+
+    // Edit mode for this library: session, Save button, leave guard.
+    EditSessionHost {
+        id: editHost
+        anchors.fill: parent
+        libraryId: root.registryLibraryId()
+        stickLabel: root.stickLabel
+        rekordboxPath: root.pioneerRoot
+    }
+    function registryLibraryId() {
+        return typeof EditSessionRegistry !== "undefined" ? EditSessionRegistry.libraryIdForPath(root.pioneerRoot) : "";
     }
 
     Component.onCompleted: settingsController.load(root.pioneerRoot)
@@ -26,9 +41,9 @@ Page {
             BackBreadcrumb {
                 middleLabel: root.stickLabel
                 title: "Device Profile"
-                backEnabled: !settingsController.busy
-                onHomeRequested: root.StackView.view.pop(null)
-                onBackRequested: root.StackView.view.pop()
+                backEnabled: !settingsController.busy && !editHost.writing
+                onHomeRequested: editHost.requestLeave(() => root.StackView.view.pop(null))
+                onBackRequested: editHost.requestLeave(() => root.StackView.view.pop())
             }
             ToolButton {
                 text: "ⓘ"
@@ -50,30 +65,6 @@ Page {
         }
     }
 
-    Dialog {
-        id: confirmFieldDialog
-        property string targetFileName: ""
-        property string targetLabel: ""
-        property string oldValue: ""
-        property string newValue: ""
-        anchors.centerIn: parent
-        modal: true
-        title: "Change This Setting?"
-        footer: DialogButtonBox {
-            Button { text: "Save Setting"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
-            Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
-        }
-        onAccepted: settingsController.setField(targetFileName, targetLabel, newValue)
-
-        Label {
-            text: "\"" + confirmFieldDialog.targetLabel + "\": " + confirmFieldDialog.oldValue
-                + " -> " + confirmFieldDialog.newValue + "\n\n"
-                + confirmFieldDialog.targetFileName + " is backed up first, and this only ever writes "
-                + "a field Seabass fully understands the format of."
-            wrapMode: Text.WordWrap
-        }
-    }
-
     PageScrollView {
         anchors.fill: parent
         anchors.margins: 16
@@ -90,9 +81,10 @@ Page {
                 Layout.fillWidth: true
             }
             Label {
-                visible: settingsController.statusMessage.length > 0
-                text: settingsController.statusMessage
-                color: Theme.good
+                visible: settingsController.pendingCount > 0
+                text: settingsController.pendingCount + " setting(s) changed and not saved yet. Nothing is written "
+                    + "to the stick until you press Save; each file is backed up first."
+                color: Theme.warnText
                 wrapMode: Text.WordWrap
                 Layout.fillWidth: true
             }
@@ -114,6 +106,7 @@ Page {
                             delegate: RowLayout {
                                 id: fieldRow
                                 required property var modelData
+                                readonly property string shownValue: modelData.unsaved ? modelData.pendingValue : modelData.value
                                 Layout.fillWidth: true
                                 Label { text: fieldRow.modelData.label + ":"; color: Theme.textMuted; Layout.preferredWidth: 180 }
                                 ComboBox {
@@ -123,23 +116,41 @@ Page {
                                     // Falls back to -1 (nothing selected) for a byte value outside
                                     // every known option -- e.g. "unknown (0x..)" -- rather than
                                     // guess, since that value isn't one setField() could write back.
-                                    currentIndex: fieldRow.modelData.options.indexOf(fieldRow.modelData.value)
-                                    enabled: fieldRow.modelData.options.length > 0 && !settingsController.busy
+                                    currentIndex: fieldRow.modelData.options.indexOf(fieldRow.shownValue)
+                                    enabled: fieldRow.modelData.options.length > 0 && !settingsController.busy && !editHost.writing
                                     onActivated: (index) => {
-                                        var chosen = valueCombo.textAt(index);
-                                        // Snap straight back -- nothing is actually selected until
-                                        // the confirm dialog is accepted, at which point setField()
-                                        // triggers a reload that re-binds this to the real new value.
-                                        valueCombo.currentIndex = fieldRow.modelData.options.indexOf(fieldRow.modelData.value);
-                                        if (chosen === fieldRow.modelData.value) {
-                                            return;
-                                        }
-                                        confirmFieldDialog.targetFileName = groupBox.modelData.fileName;
-                                        confirmFieldDialog.targetLabel = fieldRow.modelData.label;
-                                        confirmFieldDialog.oldValue = fieldRow.modelData.value;
-                                        confirmFieldDialog.newValue = chosen;
-                                        confirmFieldDialog.open();
+                                        // Staged, not written: the floating Save does that.
+                                        settingsController.setField(groupBox.modelData.fileName, fieldRow.modelData.label,
+                                                                    valueCombo.textAt(index));
                                     }
+                                }
+                                Rectangle {
+                                    visible: fieldRow.modelData.unsaved === true
+                                    radius: 3
+                                    color: Theme.warnBg
+                                    border.color: Theme.warnBorder
+                                    implicitWidth: unsavedText.implicitWidth + 8
+                                    implicitHeight: unsavedText.implicitHeight + 4
+                                    Label {
+                                        id: unsavedText
+                                        anchors.centerIn: parent
+                                        text: "UNSAVED"
+                                        font.pointSize: Theme.fontTiny
+                                        font.bold: true
+                                        color: Theme.warnText
+                                    }
+                                }
+                                Label {
+                                    visible: fieldRow.modelData.unsaved === true
+                                    text: "was " + fieldRow.modelData.value
+                                    color: Theme.textMuted
+                                    font.pointSize: Theme.fontSmall
+                                }
+                                ToolButton {
+                                    visible: fieldRow.modelData.unsaved === true
+                                    text: "Undo"
+                                    enabled: !editHost.writing
+                                    onClicked: settingsController.unstageField(groupBox.modelData.fileName, fieldRow.modelData.label)
                                 }
                                 Item { Layout.fillWidth: true }
                             }

@@ -63,15 +63,28 @@ Pane {
         waveformView.format = panel.format;
     }
 
-    // Once a cue is actually added, the panel's own trackCues (a
-    // snapshot from when the track was shown) is patched locally so
-    // the new marker shows up on the waveform immediately, and the
-    // page's track list is refreshed in the background so it's not
-    // showing stale cue counts next time this track is shown.
+    // Cues staged for this track and not on the stick yet (see
+    // AddCueController: adding stages, the floating Save writes).
+    readonly property var pendingCues: {
+        var revision = panel.addCueController.pendingRevision;  // re-evaluate when it bumps
+        if (typeof panel.addCueController.pendingCuesFor !== "function" || panel.trackSourceId.length === 0) {
+            return [];
+        }
+        return panel.addCueController.pendingCuesFor(panel.trackSourceId);
+    }
+
+    // Once a cue is staged, the panel's own trackCues (a snapshot from
+    // when the track was shown) is patched locally so the new marker
+    // shows up on the waveform immediately; the page's track list is
+    // refreshed only once a save has actually written something, so it
+    // never shows cue counts the stick does not have yet.
     Connections {
         // A plain JS stand-in (tests) has no signals and is not a QObject.
         target: ("objectName" in panel.addCueController) ? panel.addCueController : null
         ignoreUnknownSignals: true
+        function onCuesSaved() {
+            panel.rescanRequested();
+        }
         function onStatusMessageChanged() {
             if (addCueController.statusMessage.length === 0) {
                 return;
@@ -95,7 +108,6 @@ Pane {
             panel.pendingPositionMs = -1;
             panel.pendingLoopEndMs = -1;
             cueCommentField.text = "";
-            panel.rescanRequested();
         }
     }
 
@@ -300,7 +312,43 @@ Pane {
                             panel.trackSourceId, panel.pendingPositionMs,
                             isHot ? "hot" : "memory", hotCueNumberSpin.value,
                             isLoop ? "#3daee9" : (isHot ? "#ffcc00" : "#00a5e3"), cueCommentField.text,
-                            isLoop, isLoop ? panel.pendingLoopEndMs : 0);
+                            isLoop, isLoop ? panel.pendingLoopEndMs : 0, panel.trackTitle);
+                    }
+                }
+            }
+        }
+
+        // What this track has staged and not saved yet.
+        ColumnLayout {
+            visible: panel.pendingCues.length > 0
+            Layout.fillWidth: true
+            spacing: 4
+            Label {
+                text: "Unsaved on this track"
+                font.bold: true
+                color: Theme.warnText
+                font.pointSize: Theme.fontSmall
+            }
+            Repeater {
+                model: panel.pendingCues
+                delegate: RowLayout {
+                    id: pendingRow
+                    required property var modelData
+                    Layout.fillWidth: true
+                    spacing: 8
+                    Label {
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
+                        color: Theme.text
+                        text: (pendingRow.modelData.isLoop ? "Hot loop " + pendingRow.modelData.hotCueNumber
+                            : pendingRow.modelData.kind === "hot" ? "Hot cue " + pendingRow.modelData.hotCueNumber
+                            : "Memory cue")
+                            + " at " + panel.formatDuration(pendingRow.modelData.positionMs / 1000)
+                    }
+                    ToolButton {
+                        text: "Undo"
+                        enabled: !addCueController.writing
+                        onClicked: addCueController.unstage(pendingRow.modelData.changeId)
                     }
                 }
             }

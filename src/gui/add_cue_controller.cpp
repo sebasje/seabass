@@ -1,19 +1,16 @@
 #include "add_cue_controller.hpp"
 
-#include <QtConcurrent/QtConcurrentRun>
-
 #include <algorithm>
 #include <filesystem>
 #include <memory>
 
-#include "application/ports/backup_store.hpp"
 #include "application/ports/cue_writer.hpp"
+#include "gui/edit/edit_session_registry.hpp"
+#include "gui/edit/library_edit_session.hpp"
+#include "gui/edit/pending_change.hpp"
+#include "gui/edit/save_context.hpp"
 #include "gui/library_catalog_cache.hpp"
-#include "gui/write_guard.hpp"
-#include "infrastructure/backup/filesystem_backup_store.hpp"
-#include "infrastructure/backup/stick_write_lock.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cue_writer.hpp"
-#include "infrastructure/logging/file_operation_log.hpp"
 #include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 #include "infrastructure/rekordbox/rekordbox_cue_writer.hpp"
@@ -26,51 +23,76 @@ namespace fs = std::filesystem;
 namespace
 {
 
-// Runs entirely on a background thread (see AddCueController::addCue()).
-AddCueResult runAddCueTask(QString format, QString path, QString sourceId, double positionMs, QString kind,
-                            int hotCueNumber, QString color, QString comment, bool isLoop, double loopEndMs,
-                            std::shared_ptr<QtProgressReporter> reporter)
+QString formatPosition(double positionMs)
 {
-    AddCueResult result;
-    QString refusal = refuseIfDjSoftwareRunning();
-    if (!refusal.isEmpty()) {
-        result.errorMessage = refusal;
-        return result;
-    }
-    if (isLoop && format != "engine") {
-        // See add_cue_controller.hpp's own comment: rekordbox's ANLZ loop
-        // encoding is unverified against real hardware, and OneLibrary's
-        // cue table has never been confirmed to round-trip loops either
-        // -- refusing here means a DJ never gets a cue silently written
-        // as a point when they asked to save a loop-out.
-        result.errorMessage = "Hot loops can only be added to Engine tracks right now.";
-        return result;
-    }
-    if (isLoop && kind != "hot") {
-        // Engine's loops() array is indexed exactly like hot_cues() --
-        // there's no Engine concept of an un-slotted "memory loop" to
-        // write this into.
-        result.errorMessage = "Loops need a hot cue slot.";
-        return result;
-    }
-    try {
-        fs::path stickRoot = fs::path(path.toStdString()).parent_path();
-        infrastructure::backup::StickWriteLock lock((stickRoot / ".seabass-backups" / ".write.lock").string());
-        infrastructure::backup::FilesystemBackupStore backupStore((stickRoot / ".seabass-backups").string());
-        infrastructure::logging::FileOperationLog log((stickRoot / ".seabass.log").string());
+    int totalSeconds = static_cast<int>(positionMs / 1000.0);
+    int minutes = totalSeconds / 60;
+    int seconds = totalSeconds % 60;
+    return QStringLiteral("%1:%2").arg(minutes).arg(seconds, 2, 10, QLatin1Char('0'));
+}
 
-        if (format != "rekordbox" && format != "engine" && format != "onelibrary") {
-            result.errorMessage = "Unknown library format: " + format;
-            return result;
-        }
+// One cue to add -- the old runAddCueTask() body, minus the lock/backup-
+// store/log plumbing the save loop provides. Runs on the worker; every
+// input is a copy.
+class AddCueChange : public PendingChange
+{
+public:
+    AddCueChange(QString format, QString path, QString sourceId, double positionMs, QString kind, int hotCueNumber,
+                 QString color, QString comment, bool isLoop, double loopEndMs, QString trackTitle)
+        : m_format(std::move(format)),
+          m_path(std::move(path)),
+          m_sourceId(std::move(sourceId)),
+          m_positionMs(positionMs),
+          m_kind(std::move(kind)),
+          m_hotCueNumber(hotCueNumber),
+          m_color(std::move(color)),
+          m_comment(std::move(comment)),
+          m_isLoop(isLoop),
+          m_loopEndMs(loopEndMs),
+          m_trackTitle(std::move(trackTitle))
+    {
+    }
+
+    QString id() const override
+    {
+        // A hot slot can hold one cue: staging the same slot twice replaces
+        // the earlier one. Memory cues are distinct per position.
+        QString slot = m_kind == "hot" ? QStringLiteral("hot%1").arg(m_hotCueNumber)
+                                       : QStringLiteral("memory@%1").arg(static_cast<int>(m_positionMs));
+        return "addcue:" + m_format + ":" + m_sourceId + ":" + slot;
+    }
+
+    QString description() const override
+    {
+        QString what = m_isLoop ? QStringLiteral("hot loop %1").arg(m_hotCueNumber)
+            : m_kind == "hot"  ? QStringLiteral("hot cue %1").arg(m_hotCueNumber)
+                               : QStringLiteral("memory cue");
+        QString track = m_trackTitle.isEmpty() ? "track " + m_sourceId : "\"" + m_trackTitle + "\"";
+        return QStringLiteral("Add %1 at %2 to %3").arg(what, formatPosition(m_positionMs), track);
+    }
+
+    QString unit() const override { return QStringLiteral("cues"); }
+    QStringList formatsTouched() const override { return {m_format}; }
+
+    QVariantMap summary() const
+    {
+        return {
+            {"changeId", id()},         {"sourceId", m_sourceId}, {"kind", m_kind},
+            {"hotCueNumber", m_hotCueNumber}, {"positionMs", m_positionMs}, {"isLoop", m_isLoop},
+            {"loopEndMs", m_loopEndMs}, {"color", m_color},       {"comment", m_comment},
+        };
+    }
+
+    ChangeOutcome apply(SaveContext &ctx) override
+    {
         // Never trust whatever cue list the calling page had cached --
         // re-scan fresh (via the shared cache, which itself re-reads
         // whenever the catalog's mtime has moved) so the augmented list
         // below always starts from this track's real current state.
-        std::vector<domain::Track> tracks =
-            LibraryCatalogCache::instance().tracksFor(format.toStdString(), path.toStdString(), *reporter);
+        std::vector<domain::Track> tracks = LibraryCatalogCache::instance().tracksFor(
+            m_format.toStdString(), m_path.toStdString(), ctx.progress(), ctx.cancel());
 
-        std::string id = sourceId.toStdString();
+        std::string id = m_sourceId.toStdString();
         const domain::Track *track = nullptr;
         for (const auto &t : tracks) {
             if (t.sourceId == id) {
@@ -79,18 +101,17 @@ AddCueResult runAddCueTask(QString format, QString path, QString sourceId, doubl
             }
         }
         if (!track) {
-            result.errorMessage = "This track no longer exists in the library -- rescan and try again.";
-            return result;
+            return ChangeOutcome::failure("This track no longer exists in the library -- rescan and try again.");
         }
 
         domain::CuePoint newCue;
-        newCue.kind = kind == "hot" ? domain::CuePoint::Kind::Hot : domain::CuePoint::Kind::Memory;
-        newCue.hotCueNumber = newCue.kind == domain::CuePoint::Kind::Hot ? hotCueNumber : 0;
-        newCue.positionMs = positionMs;
-        newCue.isLoop = isLoop;
-        newCue.loopEndMs = isLoop ? loopEndMs : 0.0;
-        newCue.color = color.toStdString();
-        newCue.comment = comment.toStdString();
+        newCue.kind = m_kind == "hot" ? domain::CuePoint::Kind::Hot : domain::CuePoint::Kind::Memory;
+        newCue.hotCueNumber = newCue.kind == domain::CuePoint::Kind::Hot ? m_hotCueNumber : 0;
+        newCue.positionMs = m_positionMs;
+        newCue.isLoop = m_isLoop;
+        newCue.loopEndMs = m_isLoop ? m_loopEndMs : 0.0;
+        newCue.color = m_color.toStdString();
+        newCue.comment = m_comment.toStdString();
 
         std::vector<domain::CuePoint> cues = track->cues;
         if (newCue.kind == domain::CuePoint::Kind::Hot) {
@@ -99,186 +120,215 @@ AddCueResult runAddCueTask(QString format, QString path, QString sourceId, doubl
             // adding a second entry claiming the same number, which every
             // writer here already assumes can't happen.
             cues.erase(std::remove_if(cues.begin(), cues.end(),
-                                       [&](const domain::CuePoint &c) {
-                                           return c.kind == domain::CuePoint::Kind::Hot &&
-                                                  c.hotCueNumber == newCue.hotCueNumber;
-                                       }),
+                                      [&](const domain::CuePoint &c) {
+                                          return c.kind == domain::CuePoint::Kind::Hot
+                                              && c.hotCueNumber == newCue.hotCueNumber;
+                                      }),
                        cues.end());
         }
         cues.push_back(newCue);
 
-        std::string pioneerRoot = path.toStdString();
-        std::string backupFile;
-        std::string dbBackupId;
+        std::string pioneerRoot = m_path.toStdString();
+        std::string kind = m_kind.toStdString();
+        std::string positionText = std::to_string(static_cast<int>(m_positionMs));
 
-        if (format == "onelibrary") {
+        if (m_format == "onelibrary") {
             // OneLibraryCueWriter is deliberately not an
             // application::CueWriter (it keys by file path, not sourceId
             // -- see its class comment), so this is a separate primary
             // write path rather than another branch of the writer
             // dispatch below.
             if (track->filePath.empty()) {
-                result.errorMessage = "This track has no known file path in OneLibrary -- can't write a cue.";
-                return result;
+                return ChangeOutcome::failure("This track has no known file path in OneLibrary -- can't write a cue.");
             }
-            backupFile = infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(pioneerRoot);
-            if (!backupFile.empty()) {
-                auto record = backupStore.backup({backupFile}, "add-cue");
-                log.record("add-cue: backed up before adding cue -> " + record.path);
-                dbBackupId = record.id;
-            }
+            ctx.backupOnce(infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(pioneerRoot), "add-cue");
             infrastructure::onelibrary::OneLibraryCueWriter writer(pioneerRoot);
-            // Invalidated before the write, not after: a write that
-            // throws partway through may still have modified the file on
-            // disk, and the cache must not keep serving the pre-write
-            // result in that case either.
-            LibraryCatalogCache::instance().invalidate("onelibrary", pioneerRoot);
             writer.writeCuesForPath(track->filePath, cues);
-            log.record("add-cue: added " + kind.toStdString() + " cue at " +
-                       std::to_string(static_cast<int>(positionMs)) + "ms to OneLibrary track id=" + id + " (\"" +
-                       track->title + "\")" + (dbBackupId.empty() ? "" : ", backup " + dbBackupId));
+            ctx.log().record("add-cue: added " + kind + " cue at " + positionText + "ms to OneLibrary track id=" + id
+                             + " (\"" + track->title + "\")");
+            return ChangeOutcome::success();
+        }
+
+        std::unique_ptr<application::CueWriter> writer;
+        if (m_format == "rekordbox") {
+            writer = std::make_unique<infrastructure::rekordbox::RekordboxCueWriter>(pioneerRoot);
+            auto analyzePath =
+                infrastructure::rekordbox::findAnlzPathForTrackId(pioneerRoot, static_cast<uint32_t>(std::stoul(id)));
+            if (analyzePath) {
+                ctx.backupOnce(infrastructure::rekordbox::extAnlzPath(pioneerRoot, *analyzePath), "add-cue");
+            }
         } else {
-            std::unique_ptr<application::CueWriter> writer;
-            if (format == "rekordbox") {
-                writer = std::make_unique<infrastructure::rekordbox::RekordboxCueWriter>(pioneerRoot);
-                auto analyzePath = infrastructure::rekordbox::findAnlzPathForTrackId(
-                    pioneerRoot, static_cast<uint32_t>(std::stoul(id)));
-                if (analyzePath) {
-                    backupFile = infrastructure::rekordbox::extAnlzPath(pioneerRoot, *analyzePath);
-                }
-            } else {
-                writer = std::make_unique<infrastructure::engine::LibdjinteropEngineCueWriter>(pioneerRoot);
-                backupFile = (fs::path(pioneerRoot) / "Database2" / "m.db").string();
-            }
+            writer = std::make_unique<infrastructure::engine::LibdjinteropEngineCueWriter>(pioneerRoot);
+            ctx.backupOnce((fs::path(pioneerRoot) / "Database2" / "m.db").string(), "add-cue");
+        }
 
-            if (!backupFile.empty()) {
-                auto record = backupStore.backup({backupFile}, "add-cue");
-                log.record("add-cue: backed up before adding cue -> " + record.path);
-                dbBackupId = record.id;
-            }
+        writer->writeHotCues(id, cues);
+        ctx.log().record("add-cue: added " + kind + (m_isLoop ? " loop" : " cue") + " at " + positionText
+                         + "ms to track id=" + id + " (\"" + track->title + "\")");
 
-            // Invalidated before the write (and, for rekordbox, its
-            // OneLibrary mirror below) rather than after: a write that
-            // throws partway through may still have modified the file on
-            // disk, and the cache must not keep serving the pre-write
-            // result in that case either.
-            LibraryCatalogCache::instance().invalidateWithOneLibraryMirror(format.toStdString(), pioneerRoot);
-            writer->writeHotCues(id, cues);
-            log.record("add-cue: added " + kind.toStdString() + (isLoop ? " loop" : " cue") + " at " +
-                       std::to_string(static_cast<int>(positionMs)) + "ms to track id=" + id + " (\"" +
-                       track->title + "\")" + (dbBackupId.empty() ? "" : ", backup " + dbBackupId));
-
-            // Best-effort OneLibrary mirror -- same secondary write every
-            // other rekordbox cue path here already does, never fatal to
-            // the primary write above. Its cache entry was already
-            // invalidated above regardless of whether this succeeds.
-            if (format == "rekordbox" && !track->filePath.empty() &&
-                infrastructure::onelibrary::OneLibraryCueWriter::existsFor(pioneerRoot)) {
-                try {
-                    infrastructure::onelibrary::OneLibraryCueWriter oneLibWriter(pioneerRoot);
-                    oneLibWriter.writeCuesForPath(track->filePath, cues);
-                    log.record("add-cue: also wrote into OneLibrary");
-                } catch (const std::exception &e) {
-                    log.record(std::string("add-cue: OneLibrary write failed: ") + e.what());
-                }
+        // Best-effort OneLibrary mirror -- same secondary write every
+        // other rekordbox cue path here already does, never fatal to
+        // the primary write above.
+        if (m_format == "rekordbox" && !track->filePath.empty()
+            && infrastructure::onelibrary::OneLibraryCueWriter::existsFor(pioneerRoot)) {
+            try {
+                ctx.backupOnce(infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(pioneerRoot), "add-cue");
+                infrastructure::onelibrary::OneLibraryCueWriter oneLibWriter(pioneerRoot);
+                oneLibWriter.writeCuesForPath(track->filePath, cues);
+                ctx.log().record("add-cue: also wrote into OneLibrary");
+            } catch (const std::exception &e) {
+                ctx.log().record(std::string("add-cue: OneLibrary write failed: ") + e.what());
             }
         }
 
-        QString warning;
-        if (format == "engine" && newCue.kind == domain::CuePoint::Kind::Memory) {
+        if (m_format == "engine" && newCue.kind == domain::CuePoint::Kind::Memory) {
             int otherMemoryCues = static_cast<int>(
                 std::count_if(track->cues.begin(), track->cues.end(),
-                               [](const domain::CuePoint &c) { return c.kind == domain::CuePoint::Kind::Memory; }));
+                              [](const domain::CuePoint &c) { return c.kind == domain::CuePoint::Kind::Memory; }));
             if (otherMemoryCues > 0) {
-                warning = " Engine keeps only one memory cue (the earliest by position) -- this one may not have "
-                          "been saved if an existing memory cue on this track is earlier.";
+                ctx.log().record("add-cue: note: Engine keeps only one memory cue (the earliest by position); "
+                                 "this one may not be kept if an existing memory cue on this track is earlier");
             }
         }
-
-        result.statusMessage = QString("Added %1 %2 at %3ms to \"%4\".%5")
-                                    .arg(kind == "hot" ? "hot" : "memory")
-                                    .arg(isLoop ? "loop" : "cue")
-                                    .arg(static_cast<int>(positionMs))
-                                    .arg(QString::fromStdString(track->title))
-                                    .arg(warning);
-    } catch (const std::exception &e) {
-        result.errorMessage = QString::fromStdString(e.what());
+        return ChangeOutcome::success();
     }
-    return result;
-}
+
+private:
+    QString m_format;
+    QString m_path;
+    QString m_sourceId;
+    double m_positionMs;
+    QString m_kind;
+    int m_hotCueNumber;
+    QString m_color;
+    QString m_comment;
+    bool m_isLoop;
+    double m_loopEndMs;
+    QString m_trackTitle;
+};
 
 }  // namespace
 
-AddCueController::AddCueController(QObject *parent) : QObject(parent)
+AddCueController::AddCueController(QObject *parent) : QObject(parent) {}
+
+bool AddCueController::writing() const
 {
-    connect(&m_watcher, &QFutureWatcher<AddCueResult>::finished, this, &AddCueController::onTaskFinished);
+    return m_session && m_session->writing();
 }
 
-std::shared_ptr<QtProgressReporter> AddCueController::makeReporter()
+void AddCueController::attachSession(const QString &format, const QString &path)
 {
-    auto reporter = std::make_shared<QtProgressReporter>();
-    connect(reporter.get(), &QtProgressReporter::started, this,
-            [this](const QString &, int total) { setScanProgress(0, total); });
-    connect(reporter.get(), &QtProgressReporter::progressed, this,
-            [this](int current) { setScanProgress(current, m_scanTotal); });
-    return reporter;
+    auto *registry = EditSessionRegistry::instance();
+    LibraryEditSession *session = registry->sessionFor(registry->libraryIdForPath(path));
+    if (session != m_session) {
+        if (m_session) {
+            disconnect(m_session, nullptr, this, nullptr);
+        }
+        m_session = session;
+        if (m_session) {
+            connect(m_session, &LibraryEditSession::stateChanged, this, &AddCueController::writingChanged);
+            connect(m_session, &LibraryEditSession::changeApplied, this, [this](const QString &changeId) {
+                if (m_pending.erase(changeId) > 0) {
+                    ++m_pendingRevision;
+                    emit pendingChanged();
+                }
+            });
+            connect(m_session, &LibraryEditSession::saveFinished, this, [this](const QVariantMap &summary) {
+                if (summary.value("written").toInt() > 0) {
+                    emit cuesSaved();
+                }
+            });
+            connect(m_session, &LibraryEditSession::changesDiscarded, this, [this]() {
+                if (!m_pending.empty()) {
+                    m_pending.clear();
+                    ++m_pendingRevision;
+                    emit pendingChanged();
+                }
+            });
+        }
+    }
+    if (m_session) {
+        if (format == "engine") {
+            m_session->setLibraryPaths(QString(), path);
+        } else {
+            m_session->setLibraryPaths(path, QString());
+        }
+    }
 }
 
 void AddCueController::addCue(const QString &format, const QString &path, const QString &sourceId, double positionMs,
                                const QString &kind, int hotCueNumber, const QString &color, const QString &comment,
-                               bool isLoop, double loopEndMs)
+                               bool isLoop, double loopEndMs, const QString &trackTitle)
 {
-    if (m_busy) {
-        return;
-    }
     setErrorMessage({});
     setStatusMessage({});
-    setScanProgress(0, 0);
-    setBusy(true);
-    setWriting(true);
-
-    m_watcher.setFuture(QtConcurrent::run(runAddCueTask, format, path, sourceId, positionMs, kind, hotCueNumber,
-                                           color, comment, isLoop, loopEndMs, makeReporter()));
-}
-
-void AddCueController::onTaskFinished()
-{
-    AddCueResult result = m_watcher.result();
-    if (!result.errorMessage.isEmpty()) {
-        setErrorMessage(result.errorMessage);
-    } else {
-        setStatusMessage(result.statusMessage);
-    }
-    setBusy(false);
-    setWriting(false);
-}
-
-void AddCueController::setBusy(bool busy)
-{
-    if (m_busy == busy) {
+    if (format != "rekordbox" && format != "engine" && format != "onelibrary") {
+        setErrorMessage("Unknown library format: " + format);
         return;
     }
-    m_busy = busy;
-    emit busyChanged();
-}
-
-void AddCueController::setWriting(bool writing)
-{
-    if (m_writing == writing) {
+    if (isLoop && format != "engine") {
+        // See the class comment: rekordbox's ANLZ loop encoding is
+        // unverified against real hardware, and OneLibrary's cue table
+        // has never been confirmed to round-trip loops either --
+        // refusing here means a DJ never gets a cue silently written as
+        // a point when they asked to save a loop-out.
+        setErrorMessage("Hot loops can only be added to Engine tracks right now.");
         return;
     }
-    m_writing = writing;
-    emit writingChanged();
-}
-
-void AddCueController::setScanProgress(int current, int total)
-{
-    if (m_scanCurrent == current && m_scanTotal == total) {
+    if (isLoop && kind != "hot") {
+        // Engine's loops() array is indexed exactly like hot_cues() --
+        // there's no Engine concept of an un-slotted "memory loop" to
+        // write this into.
+        setErrorMessage("Loops need a hot cue slot.");
         return;
     }
-    m_scanCurrent = current;
-    m_scanTotal = total;
-    emit scanProgressChanged();
+
+    attachSession(format, path);
+    if (!m_session) {
+        setErrorMessage("This stick's library could not be identified; nothing was changed.");
+        return;
+    }
+    if (m_session->writing()) {
+        setErrorMessage("A save is running -- add the cue once it has finished.");
+        return;
+    }
+
+    auto change = std::make_unique<AddCueChange>(format, path, sourceId, positionMs, kind, hotCueNumber, color, comment,
+                                                 isLoop, loopEndMs, trackTitle);
+    QString changeId = change->id();
+    QString description = change->description();
+    QVariantMap summary = change->summary();
+    if (!m_session->stage(std::move(change))) {
+        return;  // the session reported the lock refusal; the page shows it
+    }
+    m_pending[changeId] = summary;
+    ++m_pendingRevision;
+    emit pendingChanged();
+    setStatusMessage("Staged: " + description + ". Press Save to write it to the stick.");
+}
+
+QVariantList AddCueController::pendingCuesFor(const QString &sourceId) const
+{
+    QVariantList list;
+    for (const auto &[id, cue] : m_pending) {
+        if (cue.value("sourceId").toString() == sourceId) {
+            list << cue;
+        }
+    }
+    return list;
+}
+
+void AddCueController::unstage(const QString &changeId)
+{
+    if (m_pending.erase(changeId) == 0) {
+        return;
+    }
+    if (m_session) {
+        m_session->unstage(changeId);
+    }
+    ++m_pendingRevision;
+    emit pendingChanged();
+    setStatusMessage({});
 }
 
 void AddCueController::setErrorMessage(const QString &message)
