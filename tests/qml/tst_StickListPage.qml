@@ -212,13 +212,6 @@ TestCase {
         compare(spy.signalArguments[0][2], "/b/OLD.zip");
     }
 
-    function test_emptyStickWithNothingToOfferStillShowsAGenericCard() {
-        var page = makePage([makeStick({hasRekordbox: false, hasEngine: false, rekordboxPath: "", enginePath: ""})], {});
-        var card = findCard(page, "/media/MAIN", "Create Backup USB Stick");
-        verify(card !== null);
-        compare(card.cardSubtitle, "Restore a library onto this USB stick");
-    }
-
     // A stick's own eject/mount button used to go dark while ANY other
     // stick's task was in flight (mediaController.busy is a single
     // app-wide flag) -- a click then did nothing, worst right after
@@ -254,6 +247,35 @@ TestCase {
         localCueCard.clicked();
         compare(localCueSpy.count, 1);
         compare(localCueSpy.signalArguments[0][0], "");
+    }
+
+    // The card is visible unconditionally for a blank stick (it is also
+    // how you restore a backup file that never was in the default
+    // directory), so its wording carries the whole burden of being
+    // honest about whether one was actually found. Reported as "Seabass
+    // offers to restore a backup ... but we don't have one": a blank
+    // stick with an empty backup directory used to get the same "Put one
+    // of your stick backups onto this empty stick" text as a stick with
+    // a real match, phrased as though a backup were known to exist.
+    function test_emptyStickWithNoBackupsGetsHonestRestoreCardText() {
+        var empty = makeStick({label: "BLANK", mountPoint: "/media/BLANK", devicePath: "/dev/sdd1",
+                               hasRekordbox: false, hasEngine: false, rekordboxPath: "", enginePath: ""});
+        var advice = {};
+        advice["/media/BLANK"] = makeAdvice({});  // default state: "no-backups"
+        var page = makePage([empty], advice);
+        var card = findCard(page, "/media/BLANK", "Create Backup USB Stick");
+        verify(card !== null);
+        compare(card.visible, true);
+        compare(card.cardSubtitle.toLowerCase().indexOf("one of your"), -1);
+        compare(card.cardSubtitle, "No known stick backups yet -- browse for a backup file to restore");
+
+        var restore = createTemporaryObject(spyComponent, testCase, {target: page, signalName: "restoreStickBackupRequested"});
+        card.clicked();
+        compare(restore.count, 1);
+        compare(restore.signalArguments[0][0], "/media/BLANK");
+        // No specific match: the restore page opens to browse, not to a
+        // preselected archive.
+        compare(restore.signalArguments[0][2], "");
     }
 
     Component {
