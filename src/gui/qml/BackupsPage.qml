@@ -183,6 +183,8 @@ Page {
 
         ListView {
             id: backupsListView
+            // Not draggable when everything already fits.
+            interactive: contentHeight > height
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true

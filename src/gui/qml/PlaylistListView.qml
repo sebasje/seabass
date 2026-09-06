@@ -13,6 +13,8 @@ import SeabassGui
 // playlists from either place stays in sync.
 ListView {
     id: root
+    // Not draggable when everything already fits.
+    interactive: contentHeight > height
     required property var scanController
     property string searchQuery: ""
     property int selectedIndex: 0

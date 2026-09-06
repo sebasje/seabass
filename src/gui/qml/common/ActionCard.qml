@@ -22,6 +22,11 @@ Button {
     // card unconditionally regardless of the user's own setting.
     property bool experimental: false
     property bool experimentalFeaturesEnabled: false
+    // A feature that still works but is slated for rework or removal:
+    // stays reachable, wears a muted DEPRECATED badge whose tooltip says
+    // what is wrong with it.
+    property bool deprecated: false
+    property string deprecatedNote: "Needs rework"
     visible: !experimental || experimentalFeaturesEnabled
     Layout.fillWidth: true
     Layout.preferredHeight: 68
@@ -68,6 +73,30 @@ Button {
                         font.bold: true
                         color: Theme.warnText
                     }
+                }
+                Rectangle {
+                    visible: card.deprecated
+                    radius: 3
+                    color: "transparent"
+                    border.color: Theme.textMuted
+                    implicitWidth: deprecatedBadgeText.implicitWidth + 8
+                    implicitHeight: deprecatedBadgeText.implicitHeight + 4
+                    Label {
+                        id: deprecatedBadgeText
+                        anchors.centerIn: parent
+                        text: "DEPRECATED"
+                        font.pointSize: Theme.fontTiny
+                        font.bold: true
+                        color: Theme.textMuted
+                    }
+                    MouseArea {
+                        id: deprecatedHover
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        acceptedButtons: Qt.NoButton
+                    }
+                    ToolTip.visible: deprecatedHover.containsMouse && card.deprecatedNote.length > 0
+                    ToolTip.text: card.deprecatedNote
                 }
             }
             Label {

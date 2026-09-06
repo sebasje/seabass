@@ -48,7 +48,7 @@ Page {
             anchors.margins: 10
             spacing: 12
             BackBreadcrumb {
-                middleLabel: "Clean-up and Housekeeping"
+                middleLabel: "Housekeeping"
                 title: "Delete Orphaned Files"
                 backEnabled: !cleanupController.writing
                 onHomeRequested: root.StackView.view.pop(null)
@@ -150,6 +150,8 @@ Page {
 
         ListView {
             id: pendingListView
+            // Not draggable when everything already fits.
+            interactive: contentHeight > height
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true

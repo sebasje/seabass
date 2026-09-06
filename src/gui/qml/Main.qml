@@ -222,15 +222,20 @@ ApplicationWindow {
 
     Component.onCompleted: window.updateWatermark()
 
+    // Shared by the stick list and every stick's Backups page: what each
+    // mounted stick's backup situation is, gathered once per stick.
+    BackupAdvisorController {
+        id: backupAdvisorCtrl
+        backupDirectory: appSettingsCtrl.stickBackupDirectory
+    }
+
     Component {
         id: stickListPageComponent
         StickListPage {
             mediaController: mediaCtrl
             playbackController: playbackCtrl
             appSettingsController: appSettingsCtrl
-            backupAdvisor: BackupAdvisorController {
-                backupDirectory: appSettingsCtrl.stickBackupDirectory
-            }
+            backupAdvisor: backupAdvisorCtrl
             onBrowseRequested: (stickLabel, rekordboxPath, enginePath) => stackView.push(scanPageComponent, {
                 stickLabel: stickLabel,
                 rekordboxPath: rekordboxPath,
@@ -265,10 +270,13 @@ ApplicationWindow {
                 enginePath: enginePath,
             })
             onAppSettingsRequested: stackView.push(appSettingsPageComponent)
-            onBackupsHubRequested: (stickLabel, rekordboxPath, enginePath) => stackView.push(backupsHubPageComponent, {
+            onBackupsHubRequested: (stickLabel, rekordboxPath, enginePath, mountPoint, devicePath) => stackView.push(backupsHubPageComponent, {
                 stickLabel: stickLabel,
                 rekordboxPath: rekordboxPath,
                 enginePath: enginePath,
+                mountPoint: mountPoint,
+                devicePath: devicePath,
+                backupAdvisor: backupAdvisorCtrl,
             })
             onAboutRequested: stackView.push(aboutPageComponent)
             onDonationRequested: stackView.push(donationPageComponent)
@@ -443,6 +451,20 @@ ApplicationWindow {
                 stickLabel: stickLabel,
                 rekordboxPath: rekordboxPath,
                 enginePath: enginePath,
+            })
+            onRestoreStickBackupRequested: (mountPoint, devicePath, archivePath) => stackView.push(restoreStickBackupPageComponent, {
+                preselectedMountPoint: mountPoint,
+                preselectedDevicePath: devicePath,
+                preselectedArchivePath: archivePath,
+                preselectedLabel: stickLabel,
+            })
+            onCloneStickRequested: (sourceLabel, sourceRekordboxPath, sourceEnginePath, targetMountPoint, targetLabel, targetHasLibrary) => stackView.push(cloneStickPageComponent, {
+                sourceLabel: sourceLabel,
+                sourceRekordboxPath: sourceRekordboxPath,
+                sourceEnginePath: sourceEnginePath,
+                targetMountPoint: targetMountPoint,
+                targetLabel: targetLabel,
+                targetHasLibrary: targetHasLibrary,
             })
         }
     }

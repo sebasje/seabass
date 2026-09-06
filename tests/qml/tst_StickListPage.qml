@@ -124,7 +124,7 @@ TestCase {
         compare(card.enabled, true);
         compare(card.cardSubtitle, "Copy MAIN's library onto this stick.");
         verify(findCard(page, "/media/MAIN", "Create Backup USB Stick").visible === false);
-        verify(findCard(page, "/media/MAIN", "Update Stick").visible === false);
+        verify(findCard(page, "/media/MAIN", "Update Stick") === null);
 
         var spy = createTemporaryObject(spyComponent, testCase, {target: page, signalName: "cloneStickRequested"});
         card.clicked();
@@ -151,43 +151,23 @@ TestCase {
         compare(card.enabled, false);
     }
 
-    function test_updateFromPeerStickOpensTheClonePage() {
-        var spare = makeStick({label: "SPARE", mountPoint: "/media/SPARE", devicePath: "/dev/sdc1"});
+    function test_backupsCardOpensTheHubWithMountAndDevice() {
         var advice = {};
-        advice["/media/SPARE"] = makeAdvice({state: "outdated", detail: "The library has changed since its last backup.",
-            updateSource: {kind: "stick", label: "MAIN", mountPoint: "/media/MAIN", backupPath: "", modifiedAt: "2026-09-06T10:00:00",
-                           enoughSpace: true, detail: "MAIN holds a newer copy of this library.",
-                           rekordboxPath: "/media/MAIN/PIONEER", enginePath: "/media/MAIN/Engine Library"}, diverged: true});
-        var page = makePage([makeStick({}), spare], advice);
-        var card = findCard(page, "/media/SPARE", "Update Stick");
+        advice["/media/MAIN"] = makeAdvice({state: "outdated", detail: "The library has changed since its last backup.",
+            updateSource: {kind: "stick", label: "SPARE", mountPoint: "/media/SPARE", backupPath: "", modifiedAt: "",
+                           enoughSpace: true, detail: "SPARE holds a newer copy of this library.", rekordboxPath: "", enginePath: ""}});
+        var page = makePage([makeStick({})], advice);
+        var card = findCard(page, "/media/MAIN", "Backups");
         verify(card !== null);
-        compare(card.visible, true);
-        verify(card.cardSubtitle.indexOf("⚠") === 0);
-        var spy = createTemporaryObject(spyComponent, testCase, {target: page, signalName: "cloneStickRequested"});
+        verify(card.cardSubtitle.indexOf("Newer copy on SPARE") === 0);
+        verify(findCard(page, "/media/MAIN", "Update Stick") === null);
+        var spy = createTemporaryObject(spyComponent, testCase, {target: page, signalName: "backupsHubRequested"});
         card.clicked();
         compare(spy.count, 1);
-        compare(spy.signalArguments[0][3], "/media/SPARE");
-        compare(spy.signalArguments[0][5], true);
+        compare(spy.signalArguments[0][0], "MAIN");
+        compare(spy.signalArguments[0][3], "/media/MAIN");
+        compare(spy.signalArguments[0][4], "/dev/sdb1");
         saveScreenshot(page, "stick-list-update");
-    }
-
-    function test_updateFromDiskBackupOpensTheRestorePage() {
-        var advice = {};
-        advice["/media/MAIN"] = makeAdvice({state: "behind-backup", backupPath: "/b/MAIN.zip", backupLabel: "MAIN",
-            detail: "The backup holds a newer copy of this library than the stick.",
-            updateSource: {kind: "disk-backup", label: "MAIN", mountPoint: "", backupPath: "/b/MAIN.zip", modifiedAt: "2026-09-06T10:00:00",
-                           enoughSpace: true, detail: "The backup holds a newer copy of this library than this stick.",
-                           rekordboxPath: "", enginePath: ""}});
-        var page = makePage([makeStick({})], advice);
-        var card = findCard(page, "/media/MAIN", "Update Stick");
-        compare(card.visible, true);
-        var clone = createTemporaryObject(spyComponent, testCase, {target: page, signalName: "cloneStickRequested"});
-        var restore = createTemporaryObject(spyComponent, testCase, {target: page, signalName: "restoreStickBackupRequested"});
-        card.clicked();
-        compare(clone.count, 0);
-        compare(restore.count, 1);
-        compare(restore.signalArguments[0][0], "/media/MAIN");
-        compare(restore.signalArguments[0][2], "/b/MAIN.zip");
     }
 
     Component {
