@@ -373,6 +373,7 @@ if(Qt6_FOUND)
                 src/gui/qml/common/TransferResultFrame.qml
                 src/gui/qml/StickBackupPage.qml
                 src/gui/qml/RestoreStickBackupPage.qml
+                src/gui/qml/CloneStickPage.qml
             SOURCES
                 # Theme.qml's font-size properties (fontSmall, iconScale,
                 # ...) bind to this QML_SINGLETON C++ type.

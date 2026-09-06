@@ -97,6 +97,7 @@ qt_add_qml_module(seabass
         qml/FormatUsbPage.qml
         qml/StickBackupPage.qml
         qml/RestoreStickBackupPage.qml
+        qml/CloneStickPage.qml
     RESOURCES
         qml/icons/seabass_soundbass.svg
     SOURCES
@@ -124,6 +125,8 @@ qt_add_qml_module(seabass
         restore_stick_backup_controller.cpp
         backup_advisor_controller.hpp
         backup_advisor_controller.cpp
+        clone_stick_controller.hpp
+        clone_stick_controller.cpp
         library_fingerprint_reader.hpp
         library_fingerprint_reader.cpp
         stick_backup_paths.hpp
