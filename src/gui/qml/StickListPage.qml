@@ -512,7 +512,9 @@ Page {
                                 delegateRoot.mountPoint, delegateRoot.label, false)
                         }
                         ActionCard {
-                            cardTitle: "Update from " + (delegateRoot.updateSource !== null ? delegateRoot.updateSource.label : "…")
+                            // The subtitle names the source; a title that
+                            // did too got elided next to the badge.
+                            cardTitle: "Update Stick"
                             cardSubtitle: delegateRoot.updateSource !== null
                                 ? (delegateRoot.advice.diverged === true ? "⚠ " : "") + delegateRoot.updateSource.detail
                                 : ""

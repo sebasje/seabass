@@ -90,6 +90,27 @@ TestCase {
         return page;
     }
 
+    function saveScreenshot(page, name) {
+        if (!screenshotDir || screenshotDir.length === 0) return;
+        grabImage(page).save(screenshotDir + "/" + name + ".png");
+    }
+
+    function test_screenshots() {
+        saveScreenshot(makePage(), "clone-page-fresh");
+        saveScreenshot(makePage({preview: makePreview({targetHasEngineLibrary: true, archiveExists: true, added: 3, changed: 1,
+                                                       databaseChanged: true, bytesToRead: 300 * 1024 * 1024, restoreKnown: true,
+                                                       restoreFilesToWrite: 5, restoreExtras: 2, bytesToTarget: 310 * 1024 * 1024})},
+                                {targetHasLibrary: true}), "clone-page-update");
+        saveScreenshot(makePage({busy: true, cloning: true, stage: "restore", phase: "writing", filesDone: 3, filesTotal: 14,
+                                 bytesDone: 1024 * 1024 * 1024, bytesTotal: 4 * 1024 * 1024 * 1024, bytesPerSecond: 30 * 1024 * 1024,
+                                 etaSeconds: 95, currentFile: "Contents/Artist - Title.mp3"}), "clone-page-progress");
+        saveScreenshot(makePage({result: {status: "cloned", message: "", backupStatus: "complete", backupSkipped: false,
+                                          backupBytesRead: 300 * 1024 * 1024, restoreStarted: true, filesWritten: 5, filesUnchanged: 1156,
+                                          directoriesCreated: 0, extrasRemoved: 2, bytesWritten: 310 * 1024 * 1024, rejected: [],
+                                          writeErrors: [], warnings: [], missingTracks: [], databaseChecked: true},
+                                 statusMessage: "SPARE now holds MAIN's library: 5 files written, 1156 already up to date."}), "clone-page-result");
+    }
+
     function test_configuresTheControllerOnOpen() {
         var page = makePage();
         compare(page.controller.calls[0],
