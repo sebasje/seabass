@@ -30,6 +30,27 @@ See [`docs/testing.md`](docs/testing.md) for the test suite (including the commi
 real-library integration fixture) and how to submit your own library to help test
 against hardware Sebas doesn't have.
 
+## Building
+
+Just run `cmake` as usual (`cmake -B build && cmake --build build`) --
+the two vendored dependencies under `third_party/` (git submodules) are
+fetched and initialized automatically as part of the CMake configure
+step.
+
+**Why there's no `.gitmodules` file in the tree:** KDE Invent, this
+project's canonical host, rejects any pushed commit that contains a
+file literally named `.gitmodules` at its commit-audit step. The real
+submodule configuration instead lives in
+[`cmake/dependency-submodules.txt`](cmake/dependency-submodules.txt) --
+identical git-config-file syntax, just a different filename -- and
+either `cmake`'s configure step or
+[`scripts/init-submodules.sh`](scripts/init-submodules.sh) (for a
+manual/CI `git submodule` workflow outside CMake) regenerates the real,
+gitignored `.gitmodules` from it on demand. If you ever add or update a
+vendored dependency, edit `cmake/dependency-submodules.txt`, not
+`.gitmodules` directly -- a local `.gitmodules` edit is silently
+overwritten on the next configure.
+
 ## Status
 
 Scanning, duplicate-track cue consolidation, and cue writing are
@@ -49,7 +70,8 @@ version 2 or (at your option) any later version** (GPL-2.0-or-later). See
 ### Third-party components
 
 This project vendors a few pieces of other software, each under its own
-license (see `.gitmodules` and `specs/README.md` for exact sources):
+license (see [`cmake/dependency-submodules.txt`](cmake/dependency-submodules.txt)
+and `specs/README.md` for exact sources):
 
 | Component | Location | License |
 |---|---|---|
