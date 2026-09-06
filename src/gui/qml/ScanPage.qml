@@ -48,6 +48,11 @@ Page {
 
     ScanController {
         id: scanController
+        // playlistNames only becomes available once the (async) scan
+        // finishes, so restoring the last-selected playlist has to wait
+        // for this rather than happening at Component.onCompleted
+        // alongside rescan() below.
+        onPlaylistNamesChanged: root.restoreSelectedPlaylist()
     }
 
     // Backs the "Merge with..." picker below, reuses CleanupController
@@ -65,6 +70,27 @@ Page {
     }
 
     property int selectedPlaylistIndex: 0
+
+    // Single chokepoint for changing which playlist Browse shows --
+    // both PlaylistListView instances' onPlaylistPicked and
+    // restoreSelectedPlaylist() below funnel through this, so filtering
+    // and persisting the choice (AppSettingsController.
+    // lastBrowsePlaylistName) can't drift out of sync with each other.
+    function selectPlaylist(index, name) {
+        root.selectedPlaylistIndex = index;
+        scanController.filterByPlaylist(index === 0 ? "" : name);
+        root.appSettingsController.lastBrowsePlaylistName = index === 0 ? "" : name;
+    }
+
+    // Called once scanController.playlistNames is populated (see
+    // onPlaylistNamesChanged above). Falls back to "All tracks" if the
+    // last-selected name doesn't match any playlist on this stick --
+    // e.g. it was deleted, or this is a different stick than last time.
+    function restoreSelectedPlaylist() {
+        var wanted = root.appSettingsController.lastBrowsePlaylistName;
+        var idx = wanted.length > 0 ? scanController.playlistNames.indexOf(wanted) : -1;
+        root.selectPlaylist(idx >= 0 ? idx + 1 : 0, wanted);
+    }
 
     // ---- Matching (Experimental, see docs/experimental-
     // features.md) -- the playlist selection above is shared between the
@@ -296,10 +322,7 @@ Page {
                 scanController: scanController
                 searchQuery: searchField.text
                 selectedIndex: root.selectedPlaylistIndex
-                onPlaylistPicked: (index, name) => {
-                    root.selectedPlaylistIndex = index;
-                    scanController.filterByPlaylist(index === 0 ? "" : name);
-                }
+                onPlaylistPicked: (index, name) => root.selectPlaylist(index, name)
             }
         }
 
@@ -341,10 +364,7 @@ Page {
                 scanController: scanController
                 searchQuery: searchField.text
                 selectedIndex: root.selectedPlaylistIndex
-                onPlaylistPicked: (index, name) => {
-                    root.selectedPlaylistIndex = index;
-                    scanController.filterByPlaylist(index === 0 ? "" : name);
-                }
+                onPlaylistPicked: (index, name) => root.selectPlaylist(index, name)
             }
         }
 
@@ -482,7 +502,6 @@ Page {
                         id: rowMouseArea
                         anchors.fill: parent
                         hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
                         onClicked: root.trackDetailRequested(scanController, trackDelegate.index,
                             root.format, root.currentPath())
                     }

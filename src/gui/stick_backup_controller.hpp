@@ -133,6 +133,8 @@ private:
     QString m_stickRoot;
     QString m_archivePath;
     QString m_stickIdentifier;
+    QString m_rekordboxPath;
+    QString m_enginePath;
     QString m_activity;
     bool m_previewing = false;
     QString m_phase;

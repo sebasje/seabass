@@ -110,6 +110,8 @@ add_library(seabass_core STATIC
     src/domain/cross_source_sync_conflict.cpp
     src/domain/disk_usage.cpp
     src/domain/duplicate_cleanup.cpp
+    src/domain/library_fingerprint.cpp
+    src/application/use_cases/advise_stick_backup.cpp
     src/domain/duplicate_cue_consolidation.cpp
     src/domain/filesystem_compatibility.cpp
     src/domain/fuzzy_matcher.cpp
@@ -518,6 +520,20 @@ add_executable(library_catalog_cache_test
 target_include_directories(library_catalog_cache_test PRIVATE src)
 target_link_libraries(library_catalog_cache_test PRIVATE seabass_core Threads::Threads)
 add_test(NAME library_catalog_cache_test COMMAND library_catalog_cache_test)
+
+add_executable(library_fingerprint_test
+    tests/library_fingerprint_test.cpp
+)
+target_include_directories(library_fingerprint_test PRIVATE src)
+target_link_libraries(library_fingerprint_test PRIVATE seabass_core)
+add_test(NAME library_fingerprint_test COMMAND library_fingerprint_test)
+
+add_executable(advise_stick_backup_test
+    tests/advise_stick_backup_test.cpp
+)
+target_include_directories(advise_stick_backup_test PRIVATE src)
+target_link_libraries(advise_stick_backup_test PRIVATE seabass_core)
+add_test(NAME advise_stick_backup_test COMMAND advise_stick_backup_test)
 
 add_executable(fuzzy_matcher_test
     src/domain/fuzzy_matcher.cpp

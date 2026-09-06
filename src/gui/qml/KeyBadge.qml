@@ -35,6 +35,13 @@ Item {
     implicitWidth: 50 * Theme.iconScale
     implicitHeight: 22 * Theme.iconScale
 
+    // A slight "pushed in" shrink while either MouseArea below is
+    // actually held down -- the only click feedback a badge gives now
+    // that hovering no longer changes the cursor (see fallbackHover/
+    // keyHover's own comments).
+    scale: (fallbackHover.pressed || keyHover.pressed) ? 0.88 : 1.0
+    Behavior on scale { NumberAnimation { duration: 80; easing.type: Easing.OutQuad } }
+
     readonly property string camelot: Theme.camelotLabel(root.keyName)
     readonly property string badgeLabel: root.notation === "traditional"
         ? Theme.traditionalLabel(root.keyName) : root.camelot
@@ -48,16 +55,17 @@ Item {
         anchors.centerIn: parent
         visible: root.keyName.length === 0 || root.camelot.length === 0
         text: root.keyName.length > 0 ? root.keyName : "--"
-        color: Theme.textMuted
+        color: fallbackHover.containsMouse ? Theme.text : Theme.textMuted
 
+        // No cursor change and no tooltip here -- both read as "this is a
+        // link" more than "this shows more info," which wasn't the
+        // intent. The hover color shift above and the press animation
+        // below are cue enough that this fallback is still clickable.
         MouseArea {
             id: fallbackHover
             anchors.fill: parent
             hoverEnabled: true
             visible: root.keyName.length > 0
-            cursorShape: visible ? Qt.PointingHandCursor : Qt.ArrowCursor
-            ToolTip.visible: visible && containsMouse
-            ToolTip.text: "Unrecognized key format: " + root.keyName
             onClicked: wheelPopup.openAt("")
         }
     }
@@ -66,7 +74,9 @@ Item {
         anchors.fill: parent
         visible: root.camelot.length > 0
         radius: height / 2
-        color: Theme.colorForKey(root.keyName)
+        color: keyHover.containsMouse
+            ? Qt.lighter(Theme.colorForKey(root.keyName), 1.2)
+            : Theme.colorForKey(root.keyName)
 
         Label {
             anchors.centerIn: parent
@@ -80,7 +90,6 @@ Item {
             id: keyHover
             anchors.fill: parent
             hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
             ToolTip.visible: containsMouse
             ToolTip.text: "Key: " + root.spokenLabel
                 + (root.notation === "traditional" ? " (" + root.camelot + ")" : "")

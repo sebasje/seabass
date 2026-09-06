@@ -43,6 +43,9 @@ struct BackupStickOptions
     std::filesystem::path archivePath;  // the journal lives at archivePath + ".journal"
     std::string stickIdentifier;
     std::string stickLabel;
+    // domain::LibraryFingerprint::serialize() of the live library, stored
+    // in the manifest header; empty keeps the previous backup's.
+    std::string libraryFingerprint;
     CancellationToken cancel = CancellationToken::none();
     // Polled between files/chunks, at most every `probeInterval`: true
     // means Engine DJ / rekordbox appeared and the database must not be

@@ -57,7 +57,7 @@ struct ManifestRow
 // Format: tab-separated text, one row per line, so it stays readable via
 // `unzip -p backup.zip SEABASS-MANIFEST.tsv` and needs no JSON library.
 //
-//   seabass-stick-manifest<TAB>1<TAB>stickIdentifier<TAB>label<TAB>status<TAB>createdAtUnix
+//   seabass-stick-manifest<TAB>1<TAB>stickIdentifier<TAB>label<TAB>status<TAB>createdAtUnix[<TAB>libraryFingerprint]
 //   f<TAB>path<TAB>size<TAB>mtimeUnix<TAB>crc32hex<TAB>sha256hex<TAB>extra
 //   d<TAB>path<TAB>0<TAB>mtimeUnix<TAB><TAB><TAB>
 //   ...
@@ -73,6 +73,10 @@ struct BackupManifest
     std::string stickLabel;
     BackupStatus status = BackupStatus::Complete;
     std::int64_t createdAtUnix = 0;
+    // domain::LibraryFingerprint::serialize() of the library as backed
+    // up; empty for backups written before it existed or when the library
+    // could not be read. Opaque here: only the domain parses it.
+    std::string libraryFingerprint;
     std::vector<ManifestRow> rows;
 
     std::string serialize() const;

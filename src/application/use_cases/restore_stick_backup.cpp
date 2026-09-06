@@ -238,6 +238,12 @@ StickBackupDescription RestoreStickBackup::describe(const fs::path &archivePath)
     description.createdAtUnix = opened.manifest->createdAtUnix;
     description.entries = opened.manifest->rows.size();
     description.archiveBytes = opened.archive->size();
+    description.libraryFingerprint = opened.manifest->libraryFingerprint;
+    for (const ManifestRow &row : opened.manifest->rows) {
+        if (!row.extra.empty()) {
+            description.databaseFingerprints.emplace_back(row.path, row.extra);
+        }
+    }
     return description;
 }
 

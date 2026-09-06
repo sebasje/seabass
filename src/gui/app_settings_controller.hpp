@@ -12,6 +12,8 @@ namespace seabass::gui
 // useSystemTheme; ScanPage/DuplicatesPage/LocalCuePage bind their
 // Rekordbox/Engine mode toggle to preferredFormat, so the last-chosen
 // format carries over between those pages and across app restarts.
+// ScanPage similarly persists lastBrowsePlaylistName, so Browse Library
+// reopens on whichever playlist was last selected.
 class AppSettingsController : public QObject
 {
     Q_OBJECT
@@ -23,6 +25,8 @@ class AppSettingsController : public QObject
     Q_PROPERTY(QString keyNotation READ keyNotation WRITE setKeyNotation NOTIFY keyNotationChanged)
     Q_PROPERTY(QString stickBackupDirectory READ stickBackupDirectory WRITE setStickBackupDirectory NOTIFY
                    stickBackupDirectoryChanged)
+    Q_PROPERTY(QString lastBrowsePlaylistName READ lastBrowsePlaylistName WRITE setLastBrowsePlaylistName NOTIFY
+                   lastBrowsePlaylistNameChanged)
     // Always present (even in a build compiled with SEABASS_EXPERIMENTAL
     // off) so QML can gate the whole Settings section on it.
     Q_PROPERTY(bool experimentalBuildSupported READ experimentalBuildSupported CONSTANT)
@@ -72,6 +76,15 @@ public:
     void setStickBackupDirectory(const QString &value);
     static QString defaultStickBackupDirectory();
 
+    // Name of the playlist Browse Library last had selected (empty means
+    // "All tracks"), so returning to Browse -- whether by navigating back
+    // in the same session or relaunching the app -- lands back where the
+    // user left off instead of always resetting to "All tracks". ScanPage
+    // falls back to "All tracks" itself if this name no longer matches any
+    // playlist on the stick currently being browsed.
+    QString lastBrowsePlaylistName() const { return m_lastBrowsePlaylistName; }
+    void setLastBrowsePlaylistName(const QString &value);
+
     // See docs/experimental-features.md for the convention this backs:
     // new non-trivial features default to hidden behind
     // experimentalFeaturesEnabled until proven, then graduate to
@@ -98,6 +111,7 @@ signals:
     void hideStreamingTracksChanged();
     void keyNotationChanged();
     void stickBackupDirectoryChanged();
+    void lastBrowsePlaylistNameChanged();
 #ifdef SEABASS_EXPERIMENTAL_BUILD
     void experimentalFeaturesEnabledChanged();
 #endif
@@ -109,6 +123,7 @@ private:
     bool m_hideStreamingTracks = false;
     QString m_keyNotation = QStringLiteral("camelot");
     QString m_stickBackupDirectory;
+    QString m_lastBrowsePlaylistName;
 #ifdef SEABASS_EXPERIMENTAL_BUILD
     bool m_experimentalFeaturesEnabled = false;
 #endif

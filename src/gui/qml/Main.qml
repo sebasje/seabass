@@ -228,6 +228,9 @@ ApplicationWindow {
             mediaController: mediaCtrl
             playbackController: playbackCtrl
             appSettingsController: appSettingsCtrl
+            backupAdvisor: BackupAdvisorController {
+                backupDirectory: appSettingsCtrl.stickBackupDirectory
+            }
             onBrowseRequested: (stickLabel, rekordboxPath, enginePath) => stackView.push(scanPageComponent, {
                 stickLabel: stickLabel,
                 rekordboxPath: rekordboxPath,
@@ -268,10 +271,12 @@ ApplicationWindow {
                 enginePath: enginePath,
             })
             onAboutRequested: stackView.push(aboutPageComponent)
+            onDonationRequested: stackView.push(donationPageComponent)
             onFormatUsbRequested: stackView.push(formatUsbPageComponent)
-            onRestoreStickBackupRequested: (mountPoint, devicePath) => stackView.push(restoreStickBackupPageComponent, {
+            onRestoreStickBackupRequested: (mountPoint, devicePath, archivePath) => stackView.push(restoreStickBackupPageComponent, {
                 preselectedMountPoint: mountPoint,
                 preselectedDevicePath: devicePath,
+                preselectedArchivePath: archivePath,
             })
         }
     }
@@ -473,5 +478,10 @@ ApplicationWindow {
     Component {
         id: aboutPageComponent
         AboutPage {}
+    }
+
+    Component {
+        id: donationPageComponent
+        DonationPage {}
     }
 }

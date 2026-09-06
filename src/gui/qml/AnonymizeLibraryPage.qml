@@ -9,8 +9,8 @@ import SeabassGui
 // committed test fixture, or for submitting a library to help test
 // hardware/library shapes the maintainer doesn't have. Never sends
 // anything anywhere itself -- only ever writes that one zip file, next
-// to the location chosen below. Reachable from Settings (App Settings
-// -> Experimental features), not an ActionCard: this is a maintainer/
+// to the location chosen below. Reachable from Preferences ->
+// Experimental features, not an ActionCard: this is a maintainer/
 // power-user tool, not a per-stick everyday action.
 Page {
     id: root

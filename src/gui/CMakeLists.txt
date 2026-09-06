@@ -74,6 +74,7 @@ qt_add_qml_module(seabass
         qml/KeyBadge.qml
         qml/CamelotWheelPopup.qml
         qml/AboutPage.qml
+        qml/DonationPage.qml
         qml/PlayerBar.qml
         qml/WaveformView.qml
         qml/SettingsPage.qml
@@ -117,6 +118,8 @@ qt_add_qml_module(seabass
         stick_backup_controller.cpp
         restore_stick_backup_controller.hpp
         restore_stick_backup_controller.cpp
+        backup_advisor_controller.hpp
+        backup_advisor_controller.cpp
         sync_controller.hpp
         sync_controller.cpp
         backups_controller.hpp
