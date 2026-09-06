@@ -188,112 +188,39 @@ Page {
                 onHomeRequested: root.StackView.view.pop(null)
                 onBackRequested: root.StackView.view.pop()
             }
-            Rectangle {
-                radius: 3
-                color: Theme.warnBg
-                border.color: Theme.warnBorder
-                implicitWidth: experimentalLabel.implicitWidth + 8
-                implicitHeight: experimentalLabel.implicitHeight + 4
-                Label {
-                    id: experimentalLabel
-                    anchors.centerIn: parent
-                    text: "EXPERIMENTAL"
-                    font.pointSize: Theme.fontTiny
-                    font.bold: true
-                    color: Theme.warnText
-                }
-            }
+            ExperimentalBadge {}
             Item { Layout.fillWidth: true }
             BusyIndicator { running: root.controller.analyzing === true; visible: running; implicitWidth: 20; implicitHeight: 20 }
         }
     }
 
-    Dialog {
+    TypedConfirmDialog {
         id: confirmDialog
         objectName: "confirmDialog"
-        anchors.centerIn: parent
-        modal: true
-        width: 480
         title: "Restore onto " + (root.selectedDisk ? root.selectedDisk.label : "") + "?"
-        readonly property string confirmTarget: root.selectedDisk ? (root.selectedDisk.label.length > 0 ? root.selectedDisk.label : "(untitled)") : ""
-        footer: DialogButtonBox {
-            Button {
-                objectName: "restoreAcceptButton"
-                text: "Restore Drive"
-                DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
-                enabled: !root.needsTypedConfirmation || confirmField.text === confirmDialog.confirmTarget
-            }
-            Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
-        }
-        onOpened: confirmField.text = ""
+        confirmTarget: root.selectedDisk ? (root.selectedDisk.label.length > 0 ? root.selectedDisk.label : "(untitled)") : ""
+        needsTypedConfirmation: root.needsTypedConfirmation
+        acceptText: "Restore Drive"
+        acceptObjectName: "restoreAcceptButton"
+        warningTitle: root.exact ? "This overwrites files and removes everything the backup doesn't contain."
+                                 : "This overwrites files on a drive that already holds a DJ library."
+        warningText: (root.preview.filesToWrite || 0) + " file(s) on " + confirmDialog.confirmTarget
+            + " will be written from the backup"
+            + (root.exact ? " and " + (root.preview.extras || 0) + " file(s) or folder(s) not in the backup removed." : ".")
+            + " Audio files on the drive are not backed up first."
         onAccepted: root.controller.restore(root.selectedDisk.mountPoint, root.exact)
 
-        ColumnLayout {
-            width: parent.width
-            spacing: 14
-            Rectangle {
-                Layout.fillWidth: true
-                visible: root.needsTypedConfirmation
-                implicitHeight: warnColumn.implicitHeight + 24
-                radius: 4
-                color: Theme.dangerBg
-                border.color: Theme.dangerBorder
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.margins: 12
-                    spacing: 10
-                    Label { text: "⚠"; font.family: "Noto Sans Symbols2"; font.pointSize: Theme.fontHuge; color: Theme.dangerText; Layout.alignment: Qt.AlignTop }
-                    ColumnLayout {
-                        id: warnColumn
-                        Layout.fillWidth: true
-                        spacing: 4
-                        Label {
-                            Layout.fillWidth: true
-                            wrapMode: Text.WordWrap
-                            color: Theme.dangerText
-                            font.family: Theme.titleFamily
-                            font.weight: Font.Bold
-                            font.pointSize: Theme.fontMedium
-                            text: root.exact ? "This overwrites files and removes everything the backup doesn't contain."
-                                             : "This overwrites files on a drive that already holds a DJ library."
-                        }
-                        Label {
-                            Layout.fillWidth: true
-                            wrapMode: Text.WordWrap
-                            color: Theme.dangerText
-                            text: (root.preview.filesToWrite || 0) + " file(s) on " + confirmDialog.confirmTarget
-                                + " will be written from the backup"
-                                + (root.exact ? " and " + (root.preview.extras || 0) + " file(s) or folder(s) not in the backup removed." : ".")
-                                + " Audio files on the drive are not backed up first."
-                        }
-                    }
-                }
-            }
-            GridLayout {
-                Layout.fillWidth: true
-                columns: 2
-                columnSpacing: 12
-                rowSpacing: 4
-                Label { text: "Drive"; color: Theme.textMuted; font.pointSize: Theme.fontSmall }
-                Label { font.family: Theme.dataFamily; text: root.selectedDisk ? root.selectedDisk.mountPoint + "  ·  " + Theme.humanBytes(root.selectedDisk.capacityBytes) : "" }
-                Label { text: "From"; color: Theme.textMuted; font.pointSize: Theme.fontSmall }
-                Label { Layout.fillWidth: true; elide: Text.ElideMiddle; font.family: Theme.dataFamily; text: (root.info.label || "") + "  ·  " + root.friendlyTimestamp(root.info.createdAt) }
-                Label { text: "Mode"; color: Theme.textMuted; font.pointSize: Theme.fontSmall }
-                Label { text: root.exact ? "Exact restore" : "Overlay (keeps other files)" }
-            }
-            Label {
-                visible: root.needsTypedConfirmation
-                Layout.fillWidth: true
-                wrapMode: Text.WordWrap
-                color: Theme.textMuted
-                text: "Type " + confirmDialog.confirmTarget + " to confirm"
-            }
-            TextField {
-                id: confirmField
-                objectName: "confirmField"
-                visible: root.needsTypedConfirmation
-                Layout.fillWidth: true
-            }
+        GridLayout {
+            Layout.fillWidth: true
+            columns: 2
+            columnSpacing: 12
+            rowSpacing: 4
+            Label { text: "Drive"; color: Theme.textMuted; font.pointSize: Theme.fontSmall }
+            Label { font.family: Theme.dataFamily; text: root.selectedDisk ? root.selectedDisk.mountPoint + "  ·  " + Theme.humanBytes(root.selectedDisk.capacityBytes) : "" }
+            Label { text: "From"; color: Theme.textMuted; font.pointSize: Theme.fontSmall }
+            Label { Layout.fillWidth: true; elide: Text.ElideMiddle; font.family: Theme.dataFamily; text: (root.info.label || "") + "  ·  " + root.friendlyTimestamp(root.info.createdAt) }
+            Label { text: "Mode"; color: Theme.textMuted; font.pointSize: Theme.fontSmall }
+            Label { text: root.exact ? "Exact restore" : "Overlay (keeps other files)" }
         }
     }
 
@@ -567,191 +494,41 @@ Page {
 
             // Progress while restoring: same shape as StickBackupPage's
             // backup progress (phase strip, bar, rate, ETA, current file).
-            Frame {
+            TransferProgressFrame {
                 Layout.fillWidth: true
                 visible: root.controller.restoring === true
-                ColumnLayout {
-                    anchors.fill: parent
-                    spacing: 8
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 8
-                        Repeater {
-                            model: root.exact ? ["analyzing", "writing", "removing", "checking"] : ["analyzing", "writing", "checking"]
-                            delegate: Rectangle {
-                                required property string modelData
-                                readonly property bool current: modelData === root.controller.phase
-                                radius: 3
-                                color: current ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.15) : "transparent"
-                                border.color: current ? Theme.accent : "transparent"
-                                implicitWidth: phaseText.implicitWidth + 16
-                                implicitHeight: phaseText.implicitHeight + 6
-                                Label {
-                                    id: phaseText
-                                    anchors.centerIn: parent
-                                    text: root.phaseLabel(parent.modelData)
-                                    color: parent.current ? Theme.accent : Theme.textMuted
-                                    font.bold: parent.current
-                                }
-                            }
-                        }
-                        Item { Layout.fillWidth: true }
-                        Button { objectName: "cancelRestoreButton"; text: "Cancel"; onClicked: root.controller.cancel() }
-                    }
-                    ProgressBar {
-                        id: restoreBar
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 16
-                        // Only the writing phase has a byte total; the others
-                        // (comparing, removing, checking) sweep instead.
-                        indeterminate: root.controller.phase !== "writing" || root.controller.bytesTotal <= 0
-                        value: root.controller.bytesTotal > 0 ? root.controller.bytesDone / root.controller.bytesTotal : 0
-                        background: Rectangle { implicitHeight: 16; radius: 8; color: Theme.surface; border.color: Theme.borderSubtle }
-                        contentItem: Item {
-                            implicitHeight: 16
-                            clip: true
-                            Rectangle {
-                                visible: !restoreBar.indeterminate
-                                height: parent.height
-                                width: restoreBar.visualPosition * parent.width
-                                radius: 8
-                                color: Theme.accent
-                            }
-                            Rectangle {
-                                visible: restoreBar.indeterminate
-                                width: parent.width * 0.3
-                                height: parent.height
-                                radius: 8
-                                color: Theme.accent
-                                SequentialAnimation on x {
-                                    running: restoreBar.indeterminate && restoreBar.visible
-                                    loops: Animation.Infinite
-                                    NumberAnimation { from: -parent.width * 0.3; to: parent.width; duration: 1100; easing.type: Easing.InOutQuad }
-                                }
-                            }
-                        }
-                    }
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 8
-                        Label {
-                            visible: root.controller.filesTotal > 0
-                            font.family: Theme.dataFamily
-                            text: root.controller.filesDone + " / " + root.controller.filesTotal + " files"
-                        }
-                        Label { visible: root.controller.filesTotal > 0; text: "·"; color: Theme.textMuted }
-                        Label {
-                            font.family: Theme.dataFamily
-                            text: Theme.humanBytes(root.controller.bytesDone)
-                                + (root.controller.bytesTotal > 0 ? " of " + Theme.humanBytes(root.controller.bytesTotal) : "")
-                        }
-                        Label { visible: root.controller.bytesPerSecond > 0; text: "·"; color: Theme.textMuted }
-                        Label {
-                            visible: root.controller.bytesPerSecond > 0
-                            font.family: Theme.dataFamily
-                            text: (root.controller.bytesPerSecond / (1024 * 1024)).toFixed(1) + " MiB/s"
-                        }
-                        Item { Layout.fillWidth: true }
-                        Label {
-                            visible: root.controller.etaSeconds >= 0
-                            color: Theme.textMuted
-                            text: Theme.humanDuration(root.controller.etaSeconds) + " remaining"
-                        }
-                    }
-                    Label {
-                        visible: root.controller.currentFile.length > 0
-                        Layout.fillWidth: true
-                        elide: Text.ElideMiddle
-                        color: Theme.textMuted
-                        font.pointSize: Theme.fontSmall
-                        font.family: Theme.dataFamily
-                        text: root.controller.currentFile
-                    }
-                }
+                phases: root.exact ? ["analyzing", "writing", "removing", "checking"] : ["analyzing", "writing", "checking"]
+                // Only the writing phase has a byte total; the others
+                // (comparing, removing, checking) sweep instead.
+                determinatePhases: ["writing"]
+                phase: root.controller.phase
+                phaseLabel: root.phaseLabel
+                filesDone: root.controller.filesDone
+                filesTotal: root.controller.filesTotal
+                bytesDone: root.controller.bytesDone
+                bytesTotal: root.controller.bytesTotal
+                bytesPerSecond: root.controller.bytesPerSecond
+                etaSeconds: root.controller.etaSeconds
+                currentFile: root.controller.currentFile
+                cancelButtonObjectName: "cancelRestoreButton"
+                onCancelRequested: root.controller.cancel()
             }
 
             // Result report. Problems are counted, not listed, until asked
             // for: a stick yanked mid-restore used to produce one error per
             // remaining file, a wall of text with nothing to do about it.
-            Frame {
-                id: resultFrame
+            TransferResultFrame {
                 Layout.fillWidth: true
-                visible: root.result.filesWritten !== undefined
-                readonly property var problems: (root.result.rejected || []).concat(root.result.writeErrors || []).concat(root.result.warnings || [])
-                property bool showProblems: false
-                ColumnLayout {
-                    anchors.fill: parent
-                    spacing: 6
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Label { font.bold: true; text: "Result" }
-                        Item { Layout.fillWidth: true }
-                        Button {
-                            objectName: "startOverButton"
-                            text: "Start Over"
-                            flat: true
-                            enabled: root.controller.busy !== true
-                            ToolTip.visible: hovered
-                            ToolTip.text: "Clear this report and look for drives again. Files already restored are kept and skipped next time."
-                            onClicked: {
-                                resultFrame.showProblems = false;
-                                if (root.controller.clearResult) root.controller.clearResult();
-                                root.controller.refresh();
-                                root.selectedIndex = -1;
-                                root.applySelection(root.pickDefaultDrive());
-                            }
-                        }
-                    }
-                    Label {
-                        Layout.fillWidth: true
-                        wrapMode: Text.WordWrap
-                        color: root.controller.errorMessage.length > 0 ? Theme.danger : Theme.good
-                        text: root.controller.errorMessage.length > 0 ? root.controller.errorMessage : root.controller.statusMessage
-                    }
-                    Label {
-                        font.family: Theme.dataFamily
-                        text: root.result.filesWritten + " written · " + root.result.filesUnchanged + " unchanged · "
-                            + root.result.directoriesCreated + " folders created · " + root.result.extrasRemoved + " removed"
-                    }
-                    Label {
-                        visible: root.result.databaseChecked === true
-                        Layout.fillWidth: true
-                        wrapMode: Text.WordWrap
-                        color: (root.result.missingTracks || []).length === 0 ? Theme.good : Theme.danger
-                        text: (root.result.missingTracks || []).length === 0
-                            ? "Engine database opens and every track it references is present."
-                            : "Engine database opens, but " + root.result.missingTracks.length + " referenced track(s) are missing:"
-                    }
-                    Repeater {
-                        model: (root.result.missingTracks || []).slice(0, 20)
-                        delegate: Label { required property string modelData; Layout.leftMargin: 16; font.family: Theme.dataFamily; font.pointSize: Theme.fontSmall; color: Theme.danger; text: modelData }
-                    }
-                    RowLayout {
-                        visible: resultFrame.problems.length > 0
-                        spacing: 8
-                        Label {
-                            objectName: "problemCountLabel"
-                            color: Theme.conflictText
-                            text: resultFrame.problems.length + (resultFrame.problems.length === 1 ? " problem" : " problems")
-                        }
-                        Button {
-                            objectName: "toggleProblemsButton"
-                            flat: true
-                            text: resultFrame.showProblems ? "Hide details" : "Show details"
-                            onClicked: resultFrame.showProblems = !resultFrame.showProblems
-                        }
-                    }
-                    Repeater {
-                        objectName: "problemList"
-                        model: resultFrame.showProblems ? resultFrame.problems.slice(0, 200) : []
-                        delegate: Label { required property string modelData; Layout.fillWidth: true; wrapMode: Text.WordWrap; font.pointSize: Theme.fontSmall; color: Theme.conflictText; text: modelData }
-                    }
-                    Label {
-                        visible: resultFrame.showProblems && resultFrame.problems.length > 200
-                        color: Theme.textMuted
-                        font.pointSize: Theme.fontSmall
-                        text: "and " + (resultFrame.problems.length - 200) + " more"
-                    }
+                result: root.result
+                errorMessage: root.controller.errorMessage
+                statusMessage: root.controller.statusMessage
+                busy: root.controller.busy === true
+                startOverTooltip: "Clear this report and look for drives again. Files already restored are kept and skipped next time."
+                onStartOverRequested: {
+                    if (root.controller.clearResult) root.controller.clearResult();
+                    root.controller.refresh();
+                    root.selectedIndex = -1;
+                    root.applySelection(root.pickDefaultDrive());
                 }
             }
 

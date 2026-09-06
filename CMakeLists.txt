@@ -174,12 +174,14 @@ add_library(seabass_core STATIC
     src/infrastructure/stick_backup/stick_tree_walker.cpp
     src/infrastructure/stick_backup/stat_diff.cpp
     src/infrastructure/stick_backup/sqlite_db_set.cpp
+    src/infrastructure/stick_backup/library_catalog_mtime.cpp
     src/infrastructure/stick_backup/archive_compactor.cpp
     src/infrastructure/stick_backup/restore_path_sanitizer.cpp
     src/infrastructure/engine/engine_restore_check.cpp
     src/application/use_cases/backup_stick.cpp
     src/application/use_cases/compact_stick_backup.cpp
     src/application/use_cases/restore_stick_backup.cpp
+    src/application/use_cases/clone_stick.cpp
 )
 target_include_directories(seabass_core PUBLIC src)
 target_link_libraries(seabass_core PUBLIC rekordbox_format DjInterop ZLIB::ZLIB)
@@ -365,8 +367,16 @@ if(Qt6_FOUND)
                 src/gui/qml/FormatUsbPage.qml
                 src/gui/qml/common/MessagePopup.qml
                 src/gui/qml/StickWriteWarning.qml
+                src/gui/qml/common/ExperimentalBadge.qml
+                src/gui/qml/common/TransferProgressFrame.qml
+                src/gui/qml/common/TypedConfirmDialog.qml
+                src/gui/qml/common/TransferResultFrame.qml
                 src/gui/qml/StickBackupPage.qml
                 src/gui/qml/RestoreStickBackupPage.qml
+                src/gui/qml/CloneStickPage.qml
+                src/gui/qml/common/ActionCard.qml
+                src/gui/qml/UsbStickIcon.qml
+                src/gui/qml/StickListPage.qml
             SOURCES
                 # Theme.qml's font-size properties (fontSmall, iconScale,
                 # ...) bind to this QML_SINGLETON C++ type.
@@ -914,7 +924,16 @@ set(SEABASS_STICK_BACKUP_STICK_SOURCES
     src/infrastructure/stick_backup/stick_tree_walker.cpp
     src/infrastructure/stick_backup/stat_diff.cpp
     src/infrastructure/stick_backup/sqlite_db_set.cpp
+    src/infrastructure/stick_backup/library_catalog_mtime.cpp
 )
+
+add_executable(library_catalog_mtime_test
+    src/infrastructure/stick_backup/stick_tree_walker.cpp
+    src/infrastructure/stick_backup/library_catalog_mtime.cpp
+    tests/library_catalog_mtime_test.cpp
+)
+target_include_directories(library_catalog_mtime_test PRIVATE src)
+add_test(NAME library_catalog_mtime_test COMMAND library_catalog_mtime_test)
 
 add_executable(stat_diff_test
     src/infrastructure/hashing/sha256.cpp
@@ -969,6 +988,22 @@ add_executable(backup_restore_test
 target_include_directories(backup_restore_test PRIVATE src)
 target_link_libraries(backup_restore_test PRIVATE ZLIB::ZLIB SQLite::SQLite3)
 add_test(NAME backup_restore_test COMMAND backup_restore_test)
+
+add_executable(clone_stick_test
+    ${SEABASS_STICK_BACKUP_STICK_SOURCES}
+    src/infrastructure/durable_file_write.cpp
+    src/infrastructure/stick_backup/archive_compactor.cpp
+    src/infrastructure/stick_backup/restore_path_sanitizer.cpp
+    src/application/ports/progress_reporter.cpp
+    src/application/use_cases/backup_stick.cpp
+    src/application/use_cases/compact_stick_backup.cpp
+    src/application/use_cases/restore_stick_backup.cpp
+    src/application/use_cases/clone_stick.cpp
+    tests/clone_stick_test.cpp
+)
+target_include_directories(clone_stick_test PRIVATE src)
+target_link_libraries(clone_stick_test PRIVATE ZLIB::ZLIB SQLite::SQLite3)
+add_test(NAME clone_stick_test COMMAND clone_stick_test)
 
 add_executable(pending_deletion_resolver_test
     src/infrastructure/cleanup/pending_deletion_resolver.cpp

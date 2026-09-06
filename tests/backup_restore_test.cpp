@@ -17,65 +17,16 @@
 #include "infrastructure/stick_backup/zip64_reader.hpp"
 #include "infrastructure/stick_backup/zip64_writer.hpp"
 #include "infrastructure/stick_backup/zip_format.hpp"
+#include "stick_fixture.hpp"
 
 using namespace seabass::application;
 using namespace seabass::infrastructure::stick_backup;
 using seabass::infrastructure::hashing::Sha256;
 namespace fs = std::filesystem;
+using namespace seabass::test_fixture;
 
 namespace
 {
-
-std::string pseudoRandom(std::size_t size, std::uint64_t seed)
-{
-    std::string out(size, '\0');
-    std::uint64_t x = seed * 0x9E3779B97F4A7C15ull + 1;
-    for (std::size_t i = 0; i < size; ++i) {
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        out[i] = static_cast<char>(x & 0xff);
-    }
-    return out;
-}
-
-void writeFile(const fs::path &p, const std::string &content, std::int64_t mtime)
-{
-    fs::create_directories(p.parent_path());
-    {
-        std::ofstream out(p, std::ios::binary);
-        out << content;
-    }
-    fs::last_write_time(p, fromUnixSeconds(mtime));
-}
-
-std::string readFile(const fs::path &p)
-{
-    std::ifstream in(p, std::ios::binary);
-    return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-}
-
-void createEngineDb(const fs::path &path)
-{
-    fs::create_directories(path.parent_path());
-    sqlite3 *db = nullptr;
-    assert(sqlite3_open(path.string().c_str(), &db) == SQLITE_OK);
-    char *error = nullptr;
-    assert(sqlite3_exec(db, "CREATE TABLE Track(id INTEGER PRIMARY KEY, path TEXT); INSERT INTO Track(path) VALUES('Contents/a.mp3')",
-                        nullptr, nullptr, &error) == SQLITE_OK);
-    sqlite3_close(db);
-}
-
-// path -> content for files, "<dir>" for directories, of everything the
-// walker would back up.
-std::map<std::string, std::string> snapshot(const fs::path &root)
-{
-    std::map<std::string, std::string> out;
-    for (const TreeEntry &e : walkStickTree(root, CancellationToken::none()).entries) {
-        out[e.relativePath] = e.isDirectory ? "<dir>" : readFile(root / pathFromUtf8(e.relativePath));
-    }
-    return out;
-}
 
 std::size_t tempFilesUnder(const fs::path &root)
 {
@@ -191,6 +142,29 @@ int main()
         assert(repeat.status == RestoreSummary::Status::Restored);
         assert(repeat.filesWritten == 0 && repeat.filesUnchanged == 6);
         std::cout << "case 3 (restoring again writes nothing) OK\n";
+    }
+
+    // ---- A database that changed within the mtime window and kept its size is still restored ----
+    // SQLite reuses pages, FAT keeps 2 s mtimes: size + mtime cannot tell
+    // "one commit later" apart. The manifest's DbSetFingerprint can.
+    {
+        Fixture f("db-same-second");
+        assert(BackupStick::execute(f.backup).status == BackupOutcomeStatus::Complete);
+        assert(RestoreStickBackup::execute(f.restore).status == RestoreSummary::Status::Restored);
+        appendEngineDbRow(f.stick / "Engine Library" / "Database2" / "m.db", "Contents/b.mp3");
+        const fs::path stickDb = f.stick / "Engine Library" / "Database2" / "m.db";
+        const fs::path targetDb = f.target / "Engine Library" / "Database2" / "m.db";
+        assert(fs::file_size(stickDb) == fs::file_size(targetDb));
+        assert(BackupStick::execute(f.backup).status == BackupOutcomeStatus::Complete);
+        RestorePreview preview = RestoreStickBackup::preview(f.restore);
+        assert(preview.filesToWrite == 1);
+        RestoreSummary summary = RestoreStickBackup::execute(f.restore);
+        assert(summary.status == RestoreSummary::Status::Restored);
+        assert(summary.filesWritten == 1);
+        assert(readFile(targetDb) == readFile(stickDb));
+        // And once in sync, the fingerprint agrees: nothing to write.
+        assert(RestoreStickBackup::preview(f.restore).filesToWrite == 0);
+        std::cout << "db-same-second: database rewritten on fingerprint change OK\n";
     }
 
     // ---- Overlay vs exact ----

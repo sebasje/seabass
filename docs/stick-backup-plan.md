@@ -409,3 +409,50 @@ banner and refused run. Then the same on the real stick, over weeks.
   sticks — only if per-file latency turns out to dominate in practice.
 - **Full read-back verify on the initial backup** doubles its local I/O;
   keep it but report progress ("Verifying...") rather than running silently.
+
+## Stick-to-stick clone (chained), added 2026-09-06
+
+"Create Backup USB Stick from A" onto an empty stick B, and "Update B
+from A" when B holds an older copy of A's library, are **a backup of A
+followed by a restore onto B** (`application::CloneStick`). No second
+copy engine: the write discipline, the journal, the database-set
+handling and the free-space checks are the ones above, and the disk
+backup of A that is left behind is what a backup stick is for. A direct
+filesystem-to-filesystem copier would save the double I/O and belongs in
+the optimization pass, not here.
+
+What the stick list decides (`adviseStickBackup`, every mounted stick
+seeing the others as peers):
+
+- *Same library*: content fingerprint verdict Same or SameCollection-
+  DifferentState. *In sync*: identical DB-set fingerprints (Engine), or
+  identical content fingerprints (rekordbox-only sticks carry no SQLite
+  database).
+- *Newer*: the catalog's mtime (max over export.pdb, m.db, m.db-wal,
+  hm.db; `libraryCatalogModifiedAt`) with a 2 s tolerance for FAT; a
+  disk backup's creation time. Fingerprints say same or different, never
+  which side moved. A stick that is itself the newest copy gets no offer.
+  The disk backup being newer than the stick is the new `BehindBackup`
+  state: update the stick, not the backup.
+- *Diverged*: both this stick and the peer differ from the disk backup
+  they both match, and both are newer than it. Flagged, still offered
+  (the typed confirmation stays), never hidden.
+- *Space*: used bytes of the source volume against the target's free
+  bytes plus the restore margin; the clone page measures again.
+
+Cancel during the backup step keeps the partial archive (the next run
+resumes); a backup outcome without the database (DJ software appeared,
+database too large or unstable) stops before the target is touched. The
+restore planner now compares the manifest's DbSetFingerprint against the
+target's live database: size + mtime alone missed a database that
+changed within the same 2 s and kept its size (found by the clone test).
+
+Live checks before graduating, on two scratch sticks: A with a library,
+B formatted with a stray file -> B's card says "Create Backup USB Stick
+from A"; run it -> `A.zip` appears, B holds the library, the stray file
+survives (overlay), B reads as in sync, Engine DJ or a player opens B.
+Add a cue on A -> B shows "Update from A"; run -> incremental backup,
+small restore, in sync again. Edit B instead -> A shows "Update from
+B". Edit both -> the diverged warning. Insert only B with `A.zip` on
+disk -> "Restore" as before; touch A's archive newer than B's catalog
+-> "Update from backup" via the restore page.

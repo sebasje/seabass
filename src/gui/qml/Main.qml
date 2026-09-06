@@ -278,6 +278,14 @@ ApplicationWindow {
                 preselectedDevicePath: devicePath,
                 preselectedArchivePath: archivePath,
             })
+            onCloneStickRequested: (sourceLabel, sourceRekordboxPath, sourceEnginePath, targetMountPoint, targetLabel, targetHasLibrary) => stackView.push(cloneStickPageComponent, {
+                sourceLabel: sourceLabel,
+                sourceRekordboxPath: sourceRekordboxPath,
+                sourceEnginePath: sourceEnginePath,
+                targetMountPoint: targetMountPoint,
+                targetLabel: targetLabel,
+                targetHasLibrary: targetHasLibrary,
+            })
         }
     }
 
@@ -450,6 +458,15 @@ ApplicationWindow {
                 preselectedArchivePath: archivePath,
                 preselectedLabel: stickLabel,
             })
+        }
+    }
+
+    Component {
+        id: cloneStickPageComponent
+        CloneStickPage {
+            appSettingsController: appSettingsCtrl
+            controller: CloneStickController {}
+            conflictingSoftware: rekordboxGuardCtrl.conflictingSoftware
         }
     }
 

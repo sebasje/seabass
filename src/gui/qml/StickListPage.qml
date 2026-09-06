@@ -42,6 +42,11 @@ Page {
     // the target drive; both empty means "pick one there". archivePath
     // preselects the backup (the advisor's pick), empty picks the newest.
     signal restoreStickBackupRequested(string mountPoint, string devicePath, string archivePath)
+    // Copy the library on another mounted stick onto this one -- either a
+    // fresh backup stick (targetHasLibrary false) or an update of an older
+    // copy (true). The source's catalog paths come from the advisor.
+    signal cloneStickRequested(string sourceLabel, string sourceRekordboxPath, string sourceEnginePath,
+                               string targetMountPoint, string targetLabel, bool targetHasLibrary)
 
     // A subtle brand watermark in the corner of the very first page shown --
     // same "Seabass / DJ USB Stick Management" text as AboutPage.qml, just
@@ -169,6 +174,12 @@ Page {
                 // BackupAdvisorController); null until it has looked.
                 readonly property var advice: root.backupAdvisor.advice[mountPoint] || null
                 readonly property string adviceState: advice ? advice.state : ""
+                // Another mounted stick whose library could be copied onto
+                // this empty one / is a newer copy of this stick's library.
+                readonly property var cloneSource: advice && advice.cloneSource && advice.cloneSource.kind === "stick"
+                    ? advice.cloneSource : null
+                readonly property var updateSource: advice && advice.updateSource && advice.updateSource.kind !== "none"
+                    ? advice.updateSource : null
                 function assessBackup() {
                     if (mounted && mountPoint.length > 0) {
                         root.backupAdvisor.assess(label, mountPoint, rekordboxPath, enginePath);
@@ -324,6 +335,9 @@ Page {
                     color: Theme.textMuted
                     text: delegateRoot.mounted
                         ? "No DeviceLibrary or Engine library detected on this stick. "
+                          + (delegateRoot.cloneSource !== null
+                             ? delegateRoot.cloneSource.detail + " "
+                             : "")
                           + (delegateRoot.adviceState === "restore"
                              ? delegateRoot.advice.detail + " (" + delegateRoot.advice.backupLabel + ")"
                              : "Restore a backup onto it, or format it.")
@@ -417,6 +431,7 @@ Page {
                             cardSubtitle: {
                                 switch (delegateRoot.adviceState) {
                                 case "outdated": return "Update the full stick backup: " + delegateRoot.advice.detail;
+                                case "behind-backup": return delegateRoot.advice.detail;
                                 case "current": return "Full stick backup is up to date";
                                 case "back-up-new":
                                 case "no-backups": return "No full stick backup of this library yet";
@@ -476,6 +491,53 @@ Page {
                             enabled: !root.mediaController.busy
                             onClicked: root.restoreStickBackupRequested(delegateRoot.mountPoint, delegateRoot.devicePath,
                                 delegateRoot.adviceState === "restore" ? delegateRoot.advice.backupPath : "")
+                        }
+                        ActionCard {
+                            cardTitle: "Create Backup USB Stick"
+                            cardSubtitle: delegateRoot.cloneSource !== null ? delegateRoot.cloneSource.detail : ""
+                            cardIcon: "⧉"
+                            cardIconFont: "Noto Sans Math"
+                            // Experimental with the stick backup it is built
+                            // on: a backup of the source, then a restore of
+                            // that backup onto this stick.
+                            experimental: true
+                            experimentalFeaturesEnabled: root.appSettingsController.experimentalFeaturesEnabled
+                            // Only for an empty stick next to a stick with a
+                            // library on it; the advisor names the source.
+                            visible: !delegateRoot.hasKnownLibrary && delegateRoot.cloneSource !== null
+                            enabled: !root.mediaController.busy && delegateRoot.mounted
+                                && delegateRoot.cloneSource !== null && delegateRoot.cloneSource.enoughSpace !== false
+                            onClicked: root.cloneStickRequested(delegateRoot.cloneSource.label,
+                                delegateRoot.cloneSource.rekordboxPath, delegateRoot.cloneSource.enginePath,
+                                delegateRoot.mountPoint, delegateRoot.label, false)
+                        }
+                        ActionCard {
+                            // The subtitle names the source; a title that
+                            // did too got elided next to the badge.
+                            cardTitle: "Update Stick"
+                            cardSubtitle: delegateRoot.updateSource !== null
+                                ? (delegateRoot.advice.diverged === true ? "⚠ " : "") + delegateRoot.updateSource.detail
+                                : ""
+                            cardIcon: "⟳"
+                            cardIconFont: "Noto Sans Math"
+                            experimental: true
+                            experimentalFeaturesEnabled: root.appSettingsController.experimentalFeaturesEnabled
+                            // A newer copy of this stick's library exists: on
+                            // another mounted stick (copied via its backup)
+                            // or as the disk backup itself (restored).
+                            visible: delegateRoot.hasKnownLibrary && delegateRoot.updateSource !== null
+                            enabled: !root.mediaController.busy && delegateRoot.mounted
+                                && delegateRoot.updateSource !== null && delegateRoot.updateSource.enoughSpace !== false
+                            onClicked: {
+                                if (delegateRoot.updateSource.kind === "stick") {
+                                    root.cloneStickRequested(delegateRoot.updateSource.label,
+                                        delegateRoot.updateSource.rekordboxPath, delegateRoot.updateSource.enginePath,
+                                        delegateRoot.mountPoint, delegateRoot.label, true);
+                                } else {
+                                    root.restoreStickBackupRequested(delegateRoot.mountPoint, delegateRoot.devicePath,
+                                        delegateRoot.updateSource.backupPath);
+                                }
+                            }
                         }
                     }
                 }
