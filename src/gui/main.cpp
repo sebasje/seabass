@@ -1,10 +1,7 @@
-#include <QDir>
 #include <QGuiApplication>
 #include <QIcon>
-#include <QLockFile>
 #include <QQmlApplicationEngine>
 #include <QSettings>
-#include <QStandardPaths>
 #include <QStyleHints>
 #include <QThreadPool>
 
@@ -132,38 +129,6 @@ int main(int argc, char **argv)
         app.styleHints()->setColorScheme(Qt::ColorScheme::Dark);
     }
 #endif
-
-    // Two seabass instances writing to the same stick at once is
-    // exactly the corruption risk StickWriteLock exists to prevent -- that
-    // lock alone already covers it correctly, but refusing a second
-    // instance outright is cheaper and clearer than letting someone open
-    // two windows and wonder why writes keep failing.
-    QString lockDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
-    QDir().mkpath(lockDir);
-    QLockFile instanceLock(lockDir + "/seabass.lock");
-    instanceLock.setStaleLockTime(30000);
-    if (!instanceLock.tryLock(100)) {
-        QQmlApplicationEngine errorEngine;
-        errorEngine.loadData(R"QML(
-            import QtQuick
-            import QtQuick.Controls
-            ApplicationWindow {
-                visible: true
-                width: 420
-                height: 140
-                title: "Seabass"
-                Label {
-                    anchors.centerIn: parent
-                    anchors.margins: 20
-                    width: parent.width - 40
-                    wrapMode: Text.WordWrap
-                    horizontalAlignment: Text.AlignHCenter
-                    text: "Seabass is already running.\nOnly one instance can run at a time."
-                }
-            }
-        )QML");
-        return app.exec();
-    }
 
     QQmlApplicationEngine engine;
     QObject::connect(

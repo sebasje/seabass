@@ -26,13 +26,16 @@
 #include "domain/fuzzy_matcher.hpp"
 #include "domain/track_queries.hpp"
 #include "infrastructure/backup/filesystem_backup_store.hpp"
+#include "infrastructure/backup/stick_locks.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cue_writer.hpp"
 #include "infrastructure/engine/libdjinterop_engine_reader.hpp"
+#include "infrastructure/local/file_library_edit_lock_store.hpp"
 #include "infrastructure/logging/file_operation_log.hpp"
 #include "infrastructure/media/media_factory.hpp"
 #include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 #include "infrastructure/rekordbox/rekordbox_cue_writer.hpp"
+#include "infrastructure/system/stick_hardware_info.hpp"
 
 using seabass::application::AnonymizeLibrary;
 using seabass::application::AnonymizationOptions;
@@ -121,6 +124,9 @@ void printUsage()
     Console::info("                      unwritable is still only reported, never guessed at.");
     Console::info("  --dry-run           sync only: run the analysis and print the full proposal,");
     Console::info("                      then stop -- never prompts, never writes.");
+    Console::info("  --force             Write even while a Seabass window on this machine is");
+    Console::info("                      editing the same library (its unsaved changes may then");
+    Console::info("                      overwrite yours, or yours theirs). Off by default.");
     Console::info("  --track NAME        Show only tracks whose title, artist, or filename");
     Console::info("                      fuzzy-matches NAME (typo-tolerant, case-insensitive).");
     Console::info("                      Shows every match, including ones with no cues yet --");
@@ -627,8 +633,41 @@ std::string backupDirFor(const ResolvedLibraryPaths &resolved)
     return (anyPath.parent_path() / ".seabass-backups").string();
 }
 
+// The GUI's per-library edit lock (docs/edit-mode-and-cancel.md): a
+// Seabass window on this machine has unsaved changes for, or is writing
+// to, the library at `catalogPath`. Writing underneath it would race
+// that save. Returns true when the write must be skipped; --force only
+// warns. Read-only commands never call this.
+bool refuseIfLockedByGui(const std::string &catalogPath, bool force)
+{
+    namespace local = seabass::infrastructure::local;
+    fs::path stickRoot = fs::path(catalogPath).parent_path();
+    auto info = seabass::infrastructure::system::readStickHardwareInfo(stickRoot.string(),
+                                                                       stickRoot.filename().string());
+    if (info.stickIdentifier.empty()) {
+        return false;
+    }
+    local::FileLibraryEditLockStore store(local::FileLibraryEditLockStore::defaultDirectory());
+    auto probe = store.probe(info.stickIdentifier, "seabass-cli");
+    if (probe.status != seabass::application::EditLockStatus::HeldByOther) {
+        return false;
+    }
+    std::string holder = "another Seabass instance";
+    if (probe.holder) {
+        holder = "Seabass on " + probe.holder->hostname + " (process " + std::to_string(probe.holder->pid) + ")";
+    }
+    if (force) {
+        Console::warn("the library under " + stickRoot.string() + " is being edited by " + holder +
+                      "; writing anyway because of --force");
+        return false;
+    }
+    Console::error("the library under " + stickRoot.string() + " is being edited by " + holder +
+                   ". Save or discard those changes there first, or pass --force to write anyway.");
+    return true;
+}
+
 int runBackupsCommand(bool wantRekordbox, bool wantEngine, const std::optional<std::string> &rekordboxPath,
-                       const std::optional<std::string> &enginePath, bool clean, size_t keepCount)
+                       const std::optional<std::string> &enginePath, bool clean, size_t keepCount, bool force)
 {
     auto resolved = resolveLibraryPaths(wantRekordbox, wantEngine, rekordboxPath, enginePath);
     if (!resolved.rekordboxPath && !resolved.enginePath) {
@@ -638,6 +677,11 @@ int runBackupsCommand(bool wantRekordbox, bool wantEngine, const std::optional<s
     seabass::infrastructure::backup::FilesystemBackupStore store(backupDirFor(resolved));
 
     if (clean) {
+        if (refuseIfLockedByGui(resolved.enginePath ? *resolved.enginePath : *resolved.rekordboxPath, force)) {
+            return 1;
+        }
+        // The same on-stick write lock the GUI's writes hold.
+        auto locks = seabass::infrastructure::backup::acquireStickLocks({backupDirFor(resolved)});
         auto freed = store.prune(keepCount);
         Console::info("freed " + humanSize(freed) + " (kept up to " + std::to_string(keepCount) +
                        " most recent backup(s))");
@@ -687,7 +731,7 @@ std::string describeCues(const std::vector<seabass::domain::CuePoint> &cues)
 // Only after that does it ask for confirmation (unless --auto or
 // --dry-run) before actually writing.
 int runSyncCommand(bool wantRekordbox, bool wantEngine, const std::optional<std::string> &rekordboxPath,
-                    const std::optional<std::string> &enginePath, bool autoMode, bool dryRun)
+                    const std::optional<std::string> &enginePath, bool autoMode, bool dryRun, bool force)
 {
     auto resolved = resolveLibraryPaths(wantRekordbox, wantEngine, rekordboxPath, enginePath);
     if (!resolved.rekordboxPath || !resolved.enginePath) {
@@ -776,9 +820,17 @@ int runSyncCommand(bool wantRekordbox, bool wantEngine, const std::optional<std:
         Console::info("skipped -- no changes made.");
         return 0;
     }
+    if (refuseIfLockedByGui(*resolved.enginePath, force) || refuseIfLockedByGui(*resolved.rekordboxPath, force)) {
+        return 1;
+    }
 
     // --- Phase 3: apply ---
     try {
+        // The same on-stick write locks the GUI's writes hold, for both
+        // sticks (one lock when both formats share a stick).
+        auto stickLocks = seabass::infrastructure::backup::acquireStickLocks(
+            {seabass::infrastructure::backup::backupDirForCatalogPath(*resolved.enginePath),
+             seabass::infrastructure::backup::backupDirForCatalogPath(*resolved.rekordboxPath)});
         seabass::infrastructure::backup::FilesystemBackupStore engineBackupStore(
             (fs::path(*resolved.enginePath).parent_path() / ".seabass-backups").string());
         seabass::infrastructure::logging::FileOperationLog engineLog(
@@ -943,6 +995,7 @@ int main(int argc, char **argv)
     bool autoMode = false;
     bool dryRun = false;
     bool clean = false;
+    bool force = false;
     bool wantRekordbox = false;
     bool wantEngine = false;
     bool needsCues = false;
@@ -967,6 +1020,8 @@ int main(int argc, char **argv)
             verbose = true;
         } else if (arg == "--auto") {
             autoMode = true;
+        } else if (arg == "--force") {
+            force = true;
         } else if (arg == "--dry-run") {
             dryRun = true;
         } else if (arg == "--clean") {
@@ -1062,11 +1117,11 @@ int main(int argc, char **argv)
     }
 
     if (commands[0] == "backups") {
-        return runBackupsCommand(wantRekordbox, wantEngine, rekordboxPath, enginePath, clean, keepCount);
+        return runBackupsCommand(wantRekordbox, wantEngine, rekordboxPath, enginePath, clean, keepCount, force);
     }
 
     if (commands[0] == "sync") {
-        return runSyncCommand(wantRekordbox, wantEngine, rekordboxPath, enginePath, autoMode, dryRun);
+        return runSyncCommand(wantRekordbox, wantEngine, rekordboxPath, enginePath, autoMode, dryRun, force);
     }
 
     if (commands[0] == "anonymize") {
@@ -1088,6 +1143,11 @@ int main(int argc, char **argv)
             auto tracks = scanPath(
                 std::make_unique<seabass::infrastructure::rekordbox::KaitaiRekordboxReader>(target.path));
             printReport(heading, tracks, reportOptions);
+            if (refuseIfLockedByGui(target.path, force)) {
+                continue;  // the report is out; only the consolidation offer is skipped
+            }
+            auto stickLocks = seabass::infrastructure::backup::acquireStickLocks(
+                {seabass::infrastructure::backup::backupDirForCatalogPath(target.path)});
 
             seabass::infrastructure::rekordbox::RekordboxCueWriter writer(target.path);
             fs::path stickRoot = fs::path(target.path).parent_path();
@@ -1112,6 +1172,11 @@ int main(int argc, char **argv)
             auto tracks =
                 scanPath(std::make_unique<seabass::infrastructure::engine::LibdjinteropEngineReader>(target.path));
             printReport(heading, tracks, reportOptions);
+            if (refuseIfLockedByGui(target.path, force)) {
+                continue;
+            }
+            auto stickLocks = seabass::infrastructure::backup::acquireStickLocks(
+                {seabass::infrastructure::backup::backupDirForCatalogPath(target.path)});
 
             seabass::infrastructure::engine::LibdjinteropEngineCueWriter writer(target.path);
             fs::path stickRoot = fs::path(target.path).parent_path();
