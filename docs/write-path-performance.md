@@ -40,7 +40,7 @@ g++ -std=c++23 -O2 -I src -I third_party/kaitai_struct_cpp_stl_runtime \
     build/libseabass_core.a build/librekordbox_format.a \
     build/libkaitai_cpp_stl_runtime.a -lz -ldl -lpthread
 
-build/stick_write_bench /media/you/STICK 10 50 100 200
+build/stick_write_bench /media/you/STICK --device /dev/sdX1 10 50 100 200
 build/onelibrary_tx_bench /media/you/STICK 50
 ```
 
@@ -65,9 +65,24 @@ So any benchmark against removable media in this project must:
 4. **Sync the filesystem between blocks**, outside the timer, so one block's
    dirty pages are not charged to the next.
 
-Even with all four, expect run-to-run spread of two to seven times on the
-write half. Report it; do not average it away. If two strategies are within
-that spread of each other, the benchmark has not distinguished them.
+5. **Unmount and remount the stick before every timed run, then let it
+   settle** (`--device /dev/sdX1`). This is the one that actually works.
+   Each run then starts with a cold page cache and a freshly mounted
+   filesystem, and the stick's controller does its background work during
+   the idle gap instead of in the middle of a measurement.
+
+With the first four only, expect run-to-run spread of two to seven times on
+the write half. With the remount added it collapses to within a second:
+three runs of one strategy at 200 cues came out 53.41 / 54.87 / 54.40. That
+is the difference between a benchmark that can rank two strategies and one
+that cannot. Report the spread either way; if two strategies sit inside it,
+the benchmark has not distinguished them.
+
+The remount also shifts every number upward, because a cold mount re-reads
+filesystem metadata. That is not a distortion to correct for: a real save
+interleaves reads and writes across a 300 MB library, so it runs under
+memory pressure much closer to the cold case. The measured components add up
+to 105 s of the observed 155 s under the cold condition, against 65 s warm.
 
 Reads are easier: `posix_fadvise(POSIX_FADV_DONTNEED)` drops the page cache
 for a file on Linux, which is what `stick_speed_benchmark.cpp` already uses.
@@ -90,17 +105,17 @@ Rekordbox track, with Engine and OneLibrary also on the stick:
 | Work done per cue | Now | If fixed | Why it repeats |
 |---|---:|---:|---|
 | OneLibrary cue write (two encrypted opens + one transaction) | 235.3 ms | 4.7 ms | A fresh writer per cue; each open re-derives the SQLCipher key from a passphrase |
-| Analysis-path lookups (two full `export.pdb` parses) | 16.8 ms | 0.1 ms | Controller resolves the path, then the writer resolves it again |
-| Staleness checksums (three whole-file CRC32) | 0.6 ms | 0.0 ms | Constructor, pre-write guard, post-write baseline |
-| Cue file backup and rewrite (two durable writes) | 71.0 ms | 71.0 ms | Real work |
-| **Measured total** | **323.7 ms** | **75.8 ms** | |
+| Analysis-path lookups (two full `export.pdb` parses) | 15.0 ms | 0.1 ms | Controller resolves the path, then the writer resolves it again |
+| Staleness checksums (three whole-file CRC32) | 0.9 ms | 0.0 ms | Constructor, pre-write guard, post-write baseline |
+| Cue file backup and rewrite (two durable writes) | 272.0 ms | 272.0 ms | Real work |
+| **Measured total** | **523.2 ms** | **276.8 ms** | |
 
 Reference points from the same run: reading all 31.3 MB of the touched cue
 files takes 0.66 s cold; building the whole 1161-track id-to-path index in
 one pass takes 0.02 s, against 8.4 ms for a single lookup; one SQLCipher open
 with `PRAGMA key` costs 118.3 ms, and 0.6 ms once the connection is held.
 
-Those components account for 65 s of the observed 155 s. The rest is
+Those components account for 105 s of the observed 155 s. The rest is
 unmeasured work of the same shape (the Engine database reopened per cue, the
 stick log opened and closed twice per cue, the backup store rewalking its own
 growing directory per file, and a real delete-plus-inserts rather than the
@@ -112,18 +127,26 @@ Medians of three runs with rotated ordering, writes only, in seconds:
 
 | Strategy | 10 | 50 | 100 | 200 | Syncs at 200 |
 |---|---:|---:|---:|---:|---:|
-| Per-file flush (today) | 1.08 | 3.32 | 6.94 | 14.20 | 800 |
-| Relaxed, one sync at the end | 1.09 | 2.34 | 4.46 | 6.34 | 1 |
-| Strict batch via tmpfs mirror | 0.55 | 4.89 | 6.43 | 12.16 | 3 |
+| Per-file flush (today) | 15.37 | 37.25 | 45.59 | 54.40 | 800 |
+| Relaxed, one sync at the end | 13.71 | 36.47 | 45.38 | 49.66 | 1 |
+| Strict batch via tmpfs mirror | 14.25 | 35.27 | 45.64 | 50.38 | 3 |
+
+**The three strategies are the same speed.** At 100 cues they are within
+0.6% of each other; at 200, the widest gap, batching saves 8.7%; at 10 and
+50 the ordering between them flips. An earlier warm-cache run appeared to
+show batching winning by a factor of two -- that was the stick's mood, not
+the code, and it is exactly what the remount exists to prevent. For the
+record, that warm run was 1.08 / 3.32 / 6.94 / 14.20 for per-file flush,
+1.09 / 2.34 / 4.46 / 6.34 relaxed, 0.55 / 4.89 / 6.43 / 12.16 batched.
 
 Individual runs, to show the spread — this is why the medians above should
 not be read to two decimal places:
 
 | Strategy | 10 | 50 | 100 | 200 |
 |---|---|---|---|---|
-| Per-file flush | 3.27 / 1.08 / 0.62 | 3.02 / 4.97 / 3.32 | 8.59 / 6.32 / 6.94 | 22.93 / 14.20 / 13.44 |
-| Relaxed | 2.92 / 1.09 / 0.23 | 2.34 / 1.28 / 3.12 | 8.16 / 2.71 / 4.46 | 6.34 / 5.68 / 8.93 |
-| Strict batch | 1.12 / 0.55 / 0.28 | 4.91 / 1.33 / 4.89 | 21.14 / 4.65 / 6.43 | 12.16 / 7.16 / 53.04 |
+| Per-file flush | 12.81 / 15.52 / 15.37 | 40.25 / 36.85 / 37.25 | 46.19 / 45.50 / 45.59 | 53.41 / 54.87 / 54.40 |
+| Relaxed | 13.91 / 13.71 / 13.69 | 37.59 / 32.53 / 36.47 | 47.01 / 44.78 / 45.38 | 50.51 / 49.66 / 48.77 |
+| Strict batch | 14.25 / 14.07 / 14.27 | 34.19 / 35.27 / 36.00 | 46.03 / 44.90 / 45.64 | 50.38 / 49.77 / 50.67 |
 
 Bytes moved: 10 cues is 1.4 MB read and 2.7 MB written (each file is backed
 up and rewritten); 50 is 7.2 / 14.4; 100 is 16.3 / 32.5; 200 is 31.3 / 62.7.
@@ -134,15 +157,16 @@ Measured per-cue overhead plus the measured median write time:
 
 | Cues | Today | Repeated work removed | Plus batched writes |
 |---:|---:|---:|---:|
-| 10 | 3.6 s | 1.1 s | 0.6 s |
-| 50 | 16.0 s | 3.6 s | 2.6 s |
-| 100 | 32.2 s | 7.4 s | 5.0 s |
-| 200 | 64.7 s | 15.2 s | 7.3 s |
+| 10 | 17.9 s | 15.5 s | 13.8 s |
+| 50 | 49.8 s | 37.5 s | 35.5 s |
+| 100 | 70.7 s | 46.1 s | 45.9 s |
+| 200 | 104.6 s | 55.4 s | 50.7 s |
 
 ## What came out of it
 
-**Removing repeated work was worth about four times what changing the write
-strategy was worth, and cost nothing in crash safety.** Batching flushes was
+**Removing repeated work halves the save. Changing the write strategy is
+worth under 9% at the largest size and nothing at all below it, and costs
+either a safety guarantee or a new abstraction.** Batching flushes was
 the idea we started with; it is the smaller prize and the only one that
 trades away either a safety guarantee or a new abstraction.
 
