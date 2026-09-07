@@ -296,6 +296,7 @@ void RestoreStickBackupController::onAnalyzeFinished()
         info["entries"] = static_cast<qlonglong>(p.entries);
         info["bytes"] = static_cast<qlonglong>(p.bytes);
         info["rejectedCount"] = static_cast<qlonglong>(p.rejected.size());
+        info["unreadableEntries"] = static_cast<qlonglong>(p.unreadableEntries);
         m_archiveInfo = info;
         QVariantMap preview;
         if (result->targetGiven && p.error.empty()) {
