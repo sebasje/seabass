@@ -184,9 +184,21 @@ The findings above are Linux. Anything batched diverges elsewhere:
   since plain `fsync` does not reach the drive) is markedly more expensive
   than a Linux `fsync`.
 
-Benchmarks themselves are Linux-only in practice: they depend on `syncfs`
-and `posix_fadvise`. A Windows equivalent would need per-file flushes and no
-cache dropping, and its numbers are not comparable to these.
+Benchmarks themselves are currently Linux-only: they depend on `syncfs`,
+`posix_fadvise` and `udisksctl`. That is a gap to close, not a fact to live
+with. The right shape is a C++ driver built against this project's own
+platform adapters (`createRemovableMediaMounter()`,
+`createRemovableMediaLocator()` in `src/infrastructure/media/`), so the same
+program unmounts and remounts a stick on both platforms, rather than a shell
+script full of `lsblk`, `findmnt` and `udisksctl` plus a PowerShell twin of
+it. Note that Windows numbers will not be comparable to these regardless:
+there is no user-mode filesystem sync there, so a batch degrades to per-file
+flushes.
+
+**No test in this project is a human checklist.** It is a one-man project;
+anything that needs a person to follow steps will not get run. A test is
+either an automated script or a C++ program, triggered manually if need be
+but never performed manually.
 
 ## Adding a round
 

@@ -28,6 +28,12 @@ public:
 
 private:
     void appendFiles(const std::filesystem::path &dir, const std::vector<std::string> &filePaths);
+    // Paths on the stick are stored relative to it, so a backup still
+    // restores after the stick comes back at a different mount point or
+    // drive letter. See CurrentManifestFormatVersion in the .cpp.
+    std::filesystem::path stickRoot() const;
+    std::string recordedPathFor(const std::filesystem::path &source) const;
+    std::filesystem::path resolveRecordedPath(const std::string &recorded) const;
 
     std::string m_baseDirectory;
 };

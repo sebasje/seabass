@@ -20,9 +20,17 @@
 //   cmake --build build --target stick_write_bench
 // Run:
 //   build/stick_write_bench /media/you/STICK 10 50 100 200
+//   build/stick_write_bench /media/you/STICK --device /dev/sdX1 10 50 100 200
 //
 // The counts are how many stray cues to simulate. Stray cues are almost
 // always one per track, so N cues means N distinct .EXT files.
+//
+// With --device, the stick is unmounted and remounted before every timed
+// run and then left idle to settle. That is worth the wall-clock: it gives
+// each run a cold page cache and a freshly mounted filesystem, and the
+// idle gap lets the stick's own controller finish the garbage collection
+// it would otherwise do in the middle of the next measurement. Without
+// it, run-to-run spread of three to seven times is normal.
 
 #include <algorithm>
 #include <chrono>
@@ -38,6 +46,7 @@
 #include <vector>
 
 #include <fcntl.h>
+#include <thread>
 #include <unistd.h>
 
 #include <zlib.h>
@@ -112,6 +121,35 @@ void syncFilesystemAt(const fs::path &anyPathOnIt)
     }
 #endif
     ::sync();
+}
+
+// Unmount and remount, then wait. Everything here is outside the timer.
+// Returns false if the stick did not come back where it was.
+bool remountAndSettle(const std::string &device, const fs::path &mountPoint, int settleSeconds)
+{
+    if (device.empty()) {
+        return true;
+    }
+    const std::string quiet = " >/dev/null 2>&1";
+    std::string unmount = "udisksctl unmount -b " + device + quiet;
+    std::string mount = "udisksctl mount -b " + device + quiet;
+    if (std::system(unmount.c_str()) != 0) {
+        std::cerr << "    (unmount of " << device << " failed; is something holding the stick open?)\n";
+        return false;
+    }
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    std::system(mount.c_str());
+    for (int waited = 0; waited < 20 && !fs::is_directory(mountPoint); ++waited) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    }
+    if (!fs::is_directory(mountPoint)) {
+        std::cerr << "    (stick did not come back at " << mountPoint << ")\n";
+        return false;
+    }
+    // Idle, so the controller's own background work happens now rather
+    // than inside the next measurement.
+    std::this_thread::sleep_for(std::chrono::seconds(settleSeconds));
+    return true;
 }
 
 void dropCacheFor(const fs::path &path)
@@ -218,9 +256,15 @@ int main(int argc, char **argv)
     }
     const fs::path stick = argv[1];
     const std::string pioneerRoot = (stick / "PIONEER").string();
+    std::string device;
     std::vector<int> counts;
     for (int i = 2; i < argc; ++i) {
-        counts.push_back(std::atoi(argv[i]));
+        std::string arg = argv[i];
+        if (arg == "--device" && i + 1 < argc) {
+            device = argv[++i];
+            continue;
+        }
+        counts.push_back(std::atoi(arg.c_str()));
     }
     if (counts.empty()) {
         counts = {10, 50, 100, 200};
@@ -240,6 +284,11 @@ int main(int argc, char **argv)
     fs::create_directories(localScratch);
 
     std::cout << "Stick: " << stick << "\n";
+    if (device.empty()) {
+        std::cout << "No --device given: runs share a warm page cache and whatever state the stick is in.\n";
+    } else {
+        std::cout << "Unmounting and remounting " << device << " before every timed run, then settling 3 s.\n";
+    }
 
     // ---------------- Part A: repeated per-item overhead (read-only) -------
 
@@ -434,6 +483,10 @@ int main(int argc, char **argv)
             for (int slot = 0; slot < 3; ++slot) {
                 int option = (slot + rep) % 3;
                 resetTargets();
+                if (!remountAndSettle(device, stick, 3)) {
+                    std::cerr << "    (skipping this run)\n";
+                    continue;
+                }
                 t0 = Clock::now();
                 if (option == 0) {
                     option1();
