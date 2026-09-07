@@ -393,6 +393,13 @@ if(Qt6_FOUND)
     target_include_directories(seabass_edit PUBLIC src)
     target_link_libraries(seabass_edit PUBLIC seabass_core Qt6::Core)
 
+    # Times a real staged save against a real stick -- the wall-clock half
+    # of the write-path work, which the corpus runner's counts cannot
+    # answer. Writes only inside <stick>/.seabass-savebench/.
+    add_executable(staged_save_bench tools/staged_save_bench.cpp)
+    target_include_directories(staged_save_bench PRIVATE src)
+    target_link_libraries(staged_save_bench PRIVATE seabass_edit Qt6::Core)
+
     add_subdirectory(src/gui)
     target_compile_definitions(seabass PRIVATE
         $<$<BOOL:${SEABASS_EXPERIMENTAL}>:SEABASS_EXPERIMENTAL_BUILD>)

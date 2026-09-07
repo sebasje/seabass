@@ -422,3 +422,63 @@ the cost is flat or linear.
 
 **Still open:** keep the operation log's stream open, and the two O(n^2)
 loops in `FilesystemBackupStore`.
+
+## Round 6, 2026-09-07: re-measured on the stick, and it changes the plan
+
+`tools/staged_save_bench` times the workload that started all of this:
+remove a 0:00 memory cue from N tracks through the real save loop, staged
+exactly as the Library Health page stages them, against files on a real
+stick. It works only inside `<stick>/.seabass-savebench/` and removes it
+afterwards.
+
+Measured on RV2, the same stick as the original 155 s / 201-cue save:
+
+| Items | Wall clock | Per item | pdb parses | SQLCipher opens | Durable writes |
+|---:|---:|---:|---:|---:|---:|
+| 50 | 9.9 s | 198 ms | 1 | 2 | 101 |
+| 201 | 135.8 s | 676 ms | 1 | 2 | 403 |
+
+Two things to take from this, and the second matters more than the first.
+
+**The repeated work is gone and stays gone.** One catalog parse and two key
+derivations for the whole save, at any batch size. That was 402 parses and
+201 derivations for the 201-item save. The counts are flat, which is what
+rounds 3 to 5 set out to do.
+
+**And it barely moved the clock: 155 s became 136 s.** Removing per-item CPU
+work bought about 12%, because the save is now bound almost entirely by
+per-file durable writes. 403 of them for 201 items -- one backup and one
+target per cue -- and at the ~330 ms a flushed whole-file write costs on
+this stick, that is essentially the entire 136 s.
+
+**Worse, it is superlinear.** Four times the items cost thirteen times the
+wall clock, and the per-item figure triples from 198 ms to 676 ms. Nothing
+in the work counts grows, so this is not repeated work coming back. The
+most likely cause is the backup directory: every file a save backs up lands
+in one flat directory, exFAT scans a directory linearly to insert into it,
+and this save puts 201 files into one. That would make the backup half
+quadratic in the number of items, in the filesystem rather than in our
+code, caused by our choice of layout.
+
+**This reverses round 2's conclusion, with evidence.** Round 2 found the
+write strategy irrelevant, within 9% across three durability options. That
+was measured while per-item repeated work dominated everything. It no
+longer does, so the write half is now the whole cost, which is exactly the
+condition Step 4 of the plan named for revisiting batching rather than
+guessing at it.
+
+**Next, in order:**
+
+1. Confirm the superlinearity and its cause before fixing anything. Time
+   the save's two halves separately, and time the same batch with the
+   backups written into per-item subdirectories instead of one flat one.
+   The hypothesis is specific and cheap to falsify.
+2. If it is the directory, shard the backup layout. That is a small change
+   and needs no batching.
+3. Only then revisit batched durability, with these numbers rather than
+   the old ones.
+
+**Caveat on this run.** The stick was unmounted while a third measurement
+was in progress, so a `.seabass-savebench` directory may be left on it.
+Nothing else writes there and it is safe to delete. The 50 and 201 figures
+above are from runs that completed and cleaned up after themselves.

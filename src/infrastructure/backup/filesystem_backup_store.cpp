@@ -183,7 +183,7 @@ BackupRecord FilesystemBackupStore::backup(const std::vector<std::string> &fileP
     record.id = id;
     record.path = dir.string();
     record.label = label;
-    record.sizeBytes = directorySize(dir);
+    record.sizeBytes = stateFor(dir).sizeBytes;
     return record;
 }
 
@@ -200,15 +200,40 @@ BackupRecord FilesystemBackupStore::addToBackup(const std::string &id, const std
     record.path = dir.string();
     size_t dash = id.find('-');
     record.label = dash == std::string::npos ? "" : id.substr(dash + 1);
-    record.sizeBytes = directorySize(dir);
+    record.sizeBytes = stateFor(dir).sizeBytes;
     return record;
 }
 
-// Copies each file into `dir` and appends it to the manifest; shared by
-// backup() and addToBackup().
-void FilesystemBackupStore::appendFiles(const fs::path &dir, const std::vector<std::string> &filePaths)
+// What is already in one backup directory. Read from disk the first time
+// that directory is touched, then kept up to date as files are added.
+FilesystemBackupStore::DirectoryState &FilesystemBackupStore::stateFor(const fs::path &dir)
 {
+    auto it = m_directoryState.find(dir.string());
+    if (it != m_directoryState.end()) {
+        return it->second;
+    }
+    DirectoryState state;
+    std::error_code ec;
+    for (const auto &entry : fs::recursive_directory_iterator(dir, ec)) {
+        if (!entry.is_regular_file()) {
+            continue;
+        }
+        const std::string name = entry.path().filename().string();
+        state.takenNames.insert(name);
+        if (name != ManifestFileName && name != DescriptionFileName) {
+            state.sizeBytes += entry.file_size(ec);
+        }
+    }
+    return m_directoryState.emplace(dir.string(), std::move(state)).first->second;
+}
+
+// Copies each file into `dir` and appends it to the manifest; shared by
+// backup() and addToBackup(). Returns the bytes added.
+std::uint64_t FilesystemBackupStore::appendFiles(const fs::path &dir, const std::vector<std::string> &filePaths)
+{
+    DirectoryState &state = stateFor(dir);
     std::ofstream manifest(dir / ManifestFileName, std::ios::app);
+    std::uint64_t added = 0;
     for (const auto &filePath : filePaths) {
         fs::path source(filePath);
         if (!fs::exists(source)) {
@@ -219,18 +244,26 @@ void FilesystemBackupStore::appendFiles(const fs::path &dir, const std::vector<s
         // directories) the same way directory ids are guarded above --
         // otherwise the second copy would silently clobber the first
         // on disk, and restore() would only ever recover the last one.
-        fs::path destName = source.filename();
-        for (int suffix = 1; fs::exists(dir / destName); ++suffix) {
+        // Answered from the set of names already taken here rather than
+        // by asking the filesystem once per candidate, which was one stat
+        // per already-taken name on removable media.
+        std::string destName = source.filename().string();
+        for (int suffix = 1; state.takenNames.count(destName) > 0; ++suffix) {
             destName = source.filename().stem().string() + "_" + std::to_string(suffix) + source.extension().string();
         }
+        state.takenNames.insert(destName);
         // Durable + atomic, not a plain copy_file: a crash mid-copy must
         // never leave a truncated file here that restore() would later
         // trust and silently write over the live original with garbage.
-        if (!writeFileDurablyAtomic((dir / destName).string(), readWholeFile(source))) {
+        const std::string contents = readWholeFile(source);
+        if (!writeFileDurablyAtomic((dir / destName).string(), contents)) {
             throw std::runtime_error("failed to durably write backup copy of " + source.string());
         }
-        manifest << destName.string() << '\t' << recordedPathFor(source) << '\n';
+        added += contents.size();
+        manifest << destName << '\t' << recordedPathFor(source) << '\n';
     }
+    state.sizeBytes += added;
+    return added;
 }
 
 std::vector<BackupRecord> FilesystemBackupStore::list()
