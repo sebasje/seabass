@@ -1,4 +1,5 @@
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
+#include "infrastructure/work_counters.hpp"
 
 #include <fstream>
 #include <stdexcept>
@@ -58,6 +59,7 @@ std::optional<std::string> findAnlzPathForTrackId(const std::string &pioneerRoot
         throw std::runtime_error("could not open " + pdbPath);
     }
 
+    WorkCounters::instance().noteTrackDatabaseParse();
     kaitai::kstream ks(&ifs);
     Pdb pdb(false, &ks);
 

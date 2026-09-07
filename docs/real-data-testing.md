@@ -122,6 +122,15 @@ the libraries simply differ. **One data set cannot establish stability.**
 The corpus needs to span several libraries, and the harness needs to run
 every set rather than one hardcoded path.
 
+Note what those numbers measure: the *rejected* snapshot-and-update path.
+The setter path the app actually uses already catches the one throw it
+meets (`sample_rate()` on a short data blob) and writes anyway. Measured on
+2026-09-07 with the first corpus runner: **0 of 50 writes refused** on both
+the committed fixture and the RV2 set, while 27 tracks of the RV2 sample
+warned about the blob and were written regardless. So the first baselines
+are zero, and the baseline mechanism earns its keep on other people's
+libraries, not on these two.
+
 ### Speed: no, and a corpus alone can never answer it
 
 Timing is a property of the medium, not of the data. The same Engine write,
@@ -143,87 +152,251 @@ bug found so far was "this is done once per item instead of once per save".
 Wall-clock envelopes belong in the benchmark tools, run against a real
 medium, and are recorded in `docs/write-path-performance.md`.
 
-## Plugging the gaps
+## The plan, in handover shape
 
-### 1. Make the harness corpus-wide, not fixture-wide
+Everything below is written so that it can be implemented without the
+conversation that produced it. Decisions are recorded as decisions, with
+the reason, and with the one place to change if the decision is wrong.
+Paths are exact. "Today" means the tree as of 2026-09-07.
 
-Rename `anonymized_fixture_integration_test` to a corpus runner that
-discovers sets: the committed fixture always, plus every subdirectory of
-`$SEABASS_CORPUS` when set. Each set is a directory holding `rekordbox/`
-and/or `engine/` in the anonymizer's own output layout. Every case runs
-per set, and the set name goes in every failure message. A set missing a
-format skips only the cases needing it.
+### What is already in the tree
 
-### 2. Add a stability pass that expects trouble
+- `src/infrastructure/work_counters.{hpp,cpp}`: a process-wide
+  `WorkCounters` singleton with four relaxed atomics (Engine database
+  opens, SQLCipher opens, `export.pdb` parses, durable whole-file writes),
+  `snapshot()`, `reset()`, and `describe()`. Always compiled in; a counter
+  behind a build flag is a counter nobody reads.
+- The four increments, one per hot operation, each at the single choke
+  point every caller goes through:
+  `LibdjinteropEngineCueWriter` (both `load_database` calls),
+  `SqlCipherDb::SqlCipherDb`, `pdb_lookup.cpp` (the Kaitai parse), and
+  `durable_file_write.cpp` (`writeFileDurablyAtomic`).
+- `tests/corpus_test.cpp`, registered as `corpus_test` with the
+  `integration` label, working directory the source root. It discovers the
+  committed fixture plus every subdirectory of `$SEABASS_CORPUS` that holds
+  either layout (`rekordbox/` + `engine/` from the anonymizer, or
+  `PIONEER/` + `Engine Library/` from `tools/extract_testdata`). Per set it
+  runs one rekordbox cue round trip, an Engine write sample of 50 with
+  per-track refusal counting against `REFUSAL-BASELINE.txt` beside the
+  set, and a 20-item Engine work count. First run: both sets pass, 9 s for
+  the 620 MB RV2 set, baselines `0 0`.
+- `tools/extract_testdata.cpp`: copies a stick's metadata verbatim into
+  `<dest>/<name>-<date>/` with a `.gitignore` of `*` and a `SET.txt`.
 
-A pass whose contract is "no crash, no silent wrong answer, and degrade
-visibly": for every track in every set, run each reader and each writer
-against a scratch copy, catch per-track exceptions, and report them as a
-tally rather than aborting. It fails on an unhandled crash, on a write that
-reports success while changing nothing, and on a *rise* in the refusal
-count against a per-set recorded baseline. That baseline is the mechanism
-that turns "30 of 50 tracks have undecodable blobs" from an ambush into a
-known, tracked property of a data set.
+### Decision 1: the change classes move out of the controllers
 
-`tools/engine_write_bench.cpp` already counts refusals this way and is the
-prototype for it.
+**Problem.** Five of the nine functions in the matrix are orchestrated by
+`PendingChange` subclasses that are file-local classes inside
+`src/gui/*_controller.cpp`. A test cannot construct what it cannot name.
 
-### 3. Count work, do not time it
+**Decision.** Move the ten classes, unchanged in behaviour, into
+`src/gui/edit/changes/`, one header and source pair each, and build them
+together with `save_context.cpp`, `save_loop.cpp` and
+`format_write_session.cpp` into a static library `seabass_edit` that links
+`seabass_core` and `Qt6::Core` only. The corpus runner links that library.
+No event loop is needed: `format_write_session_test` already runs the
+save-context code this way.
 
-Add cheap counters to the three writers and the pdb lookup, incremented on
-each database open, each `export.pdb` parse, each durable file write. A test
-then stages N changes through the real save loop and asserts, for example,
-that a 200-item save opens the OneLibrary database once rather than 400
-times. This is the automated, cross-platform half of performance testing,
-and it would have caught every issue in `docs/write-path-performance.md`
-before a stick was ever involved.
+Not chosen: relocating the orchestration into `application/`. The classes
+depend on `QString` and on `SaveContext`, which lives in `gui/edit`; moving
+them further would be a larger change for no test benefit, and every one of
+them already meets the rule that matters (state travels in by value, no
+controller pointer, no signal). Verified: none of the ten references a
+controller, `QObject`, `QPointer` or `emit`.
 
-### 4. Collect more sets, and fix the anonymizer leak first
+The ten, with where they are today:
 
-Two things about the newly collected set, before any of it is published:
-
-- Every leak listed at the top of this document applies to it too.
-- It contains **both** an anonymized tree and raw stick copies
-  (`PIONEER/` and `Engine Library/` alongside `rekordbox/`). The raw Engine
-  database has real titles and artists: 0 of 1376 rows carry the
-  placeholder pattern, where the anonymized fixture of the same library has
-  all 1376. Publishing that set as-is would publish someone's library
-  metadata.
-- So the collection flow needs a guard: a checker that refuses to accept a
-  donated set containing anything outside the anonymizer's own output
-  layout, and a verifier that samples the structural shape of title, artist
-  and path and fails if they are not uniform placeholders. Both are a few
-  dozen lines and both are automatable.
-
-## Applying this to every cleaning and sync function
-
-The matrix below is the target. Each function gets an integrity case (a
-correctness assertion), a stability case (survives every set), and a work
-count.
-
-| Function | Integrity assertion | Work count |
+| Class | Today | Constructor takes |
 |---|---|---|
-| Sync cue points | every planned cue lands, read back equal; conflicts stay unresolved rather than guessed | one open per format per save |
-| Duplicate stats / cue consolidation | consolidation never loses a cue; the merged set is the union | one open per format per save |
-| Clean Up duplicates | survivor keeps the union of cues; no surviving row loses a playlist entry; every removed row is in the manifest | one whole-file rewrite per format per save |
-| Delete orphaned files | only files no live row references are deleted; manifest cleared exactly for those | one scan per save |
-| Library Health repairs | a repaired row resolves to an existing file; an ignored one is untouched | one pdb parse per save |
-| Stray cue removal | after saving, a fresh scan finds zero; after undo, exactly the original count | one open per format per save |
-| Local cue backup / restore | restored cues equal what was backed up | one open per save |
-| Add cue | the cue reads back at the same position and colour; a hot slot replaces rather than duplicates | one open per save |
-| Device settings | the written field reads back; other fields byte-identical | one file write per field |
+| `AddCueChange` | `add_cue_controller.cpp:37` | format, path, sourceId, positionMs, kind, hotCueNumber, ... |
+| `CleanupGroupChange` | `cleanup_controller.cpp:558` | format, path, `DuplicateCleanupPlan`, itemCountHint |
+| `CopyCuesChange` | `duplicates_controller.cpp:246` | format, path, groupKey, `DuplicatesCopyOp` |
+| `RepairIssueChange` | `library_consistency_controller.cpp:456` | path, `LibraryConsistencyIssue`, itemCountHint |
+| `DeleteOrphanChange` | `library_consistency_controller.cpp:569` | path, `LibraryConsistencyIssue` |
+| `RemoveJunkCueChange` | `library_consistency_controller.cpp:646` | path, `domain::Track` |
+| `MergeCuesChange` | `local_cue_controller.cpp:290` | format, path, `RestoreCandidate` |
+| `DeviceSettingChange` | `settings_controller.cpp:84` | pioneerRoot, fileName, fieldLabel, oldValue, ... |
+| `SyncPlanChange` | `sync_controller.cpp:622` | rekordboxPath, enginePath, `SyncPlan`, itemCountHint |
+| `RestoreBackupsChange` | `edit/library_edit_session.cpp:24` | (stays where it is; it is the session's own) |
 
-Two of those integrity assertions exist today (sync matching floor, orphan
-deletion). The stray-cue one was added to the live suite after a bug slipped
-past a test that never re-read what it wrote. The rest are to be written.
+Each class calls a few helpers from its controller's anonymous namespace
+(`junkKeyFor`, `cuesWithoutJunk`, `extAnlzPath`, `pathForFormat`,
+`writeCuesForPath`, `makeReporter`, `oneLibWriter`, and similar). Move each
+helper with the class that uses it, into the class's own source file, or
+into `src/gui/edit/changes/change_helpers.{hpp,cpp}` when two classes share
+one. The compiler lists them. Types the constructors take
+(`DuplicatesCopyOp`, `RestoreCandidate`, `SyncPlan`) that are declared in
+controller headers move to headers under `gui/edit/changes/` too, and the
+controllers include them from there.
 
-**The pattern to copy for every row: write, then read back with a fresh
-reader, and assert on what came back.** Every real bug this project has
-found in its own write paths was invisible to a test that trusted its own
-return value.
+The controllers keep their `stage()` methods; they only lose the class
+bodies. `src/gui/CMakeLists.txt` and the root `CMakeLists.txt` entries that
+list the four `edit/*.cpp` files directly are replaced by linking
+`seabass_edit`. Every existing test must still pass afterwards, with no
+behaviour change: this step is a move.
 
-## Related
+### Decision 2: a refused item aborts the save, and the runner asserts that
 
-- `docs/write-path-performance.md` — the medium-aware benchmarks and their
-  running log of results.
-- `docs/testing.md` — the suite as a whole, and the automation principle.
+**Problem.** The stability contract was drafted as "refuse one item and
+the rest still lands". `runSaveLoop` does not do that: the first failing
+change stops the loop, is reported in `failedId`, and it and every change
+after it stay pending. Everything before it is on the stick.
+
+**Decision.** Keep abort-on-first-failure. It is already documented on
+`PendingChange` ("every change is either fully on the stick or still
+pending, never half-written"), it keeps the retry story simple (the
+per-item writers are idempotent, so Save again re-applies what is left),
+and the measured refusal rate on the real write path is zero. The corpus
+runner asserts exactly these semantics when it drives a batch through
+`runSaveLoop` with one change made to fail: the changes before it read
+back, the failed one and those after it do not, and `appliedIds` lists
+precisely the ones that did.
+
+If skip-and-report is wanted instead, the change is in one place:
+`save_loop.cpp`, replace the `break` on `!outcome.ok` with recording the id
+in a new `SaveLoopResult::failedIds` and continuing, then update the
+summary text in `LibraryEditSession` and this assertion. Do not do both.
+
+### Decision 3: raw sets are the only coverage for matching
+
+Anonymized data cannot exercise `SyncLibraries` or `DuplicateTrackFinder`
+matching, because title and artist are placeholders. The extracted sets
+have real strings. So the Sync and Duplicates integrity cases run only on
+sets found under `$SEABASS_CORPUS`, and the runner prints a line saying
+they were skipped when the corpus is empty, rather than passing quietly.
+
+### Decision 4: the corpus runner absorbs the fixture test
+
+`tests/anonymized_fixture_integration_test.cpp` has eight cases that all run
+against one hardcoded set. Move each into `corpus_test.cpp` as a per-set
+case, keeping its assertions and its numbered message, then delete the old
+executable and its CMake entry. The `SEABASS_SOURCE_DIR` compile
+definition goes with it; the runner already finds the fixture by relative
+path from the source root, which ctest sets as its working directory.
+
+### Step-by-step
+
+Each step leaves the tree building and every test passing.
+
+1. **Extract the change classes** (Decision 1). Pure move. Verify with
+   `ctest --test-dir build -LE integration -j16` and the QML suite.
+2. **Fold the fixture test into the corpus runner** (Decision 4).
+3. **Add the collection guard.** `tools/verify_anonymized_export.cpp`,
+   Qt-free, linked against `seabass_core`, taking a zip or a directory. It
+   fails if anything exists outside `MANIFEST.txt`, `rekordbox/` and
+   `engine/`; if any `.DAT`/`.EXT` PPTH path is not of the form
+   `/Contents/<hex>.mp3`; if a sample of 200 Engine rows has a `title` not
+   matching `^[0-9a-f]+ Track$`, an `artist` not matching `^Artist [0-9]+$`,
+   or a `filename` not equal to the last path segment; and if the rekordbox
+   tree holds anything but `export.pdb` and the four settings files. Run
+   it from `AnonymizeLibrary::execute()` before zipping, and refuse to
+   produce the zip when it fails. Add it as a ctest against the committed
+   fixture. Until step 4 lands, that test is expected to fail on the
+   committed fixture, so register it after step 4.
+4. **Regenerate the committed fixture** with the fixed anonymizer
+   (`seabass-cli anonymize` from the RV2 set), replace
+   `tests/fixtures/anonymized_library`, and commit. The old fixture carries
+   every leak in the table at the top of this document.
+5. **Write the OneLibrary anonymizer**,
+   `src/infrastructure/onelibrary/onelibrary_anonymizer.{hpp,cpp}`: open
+   `exportLibrary.db` with the project's own key derivation, and for every
+   row apply the same `anonymizationPlaceholder(kind, realKey)` mapping the
+   other two anonymizers use, so a track's title is the same placeholder in
+   all three catalogs (the sync tests depend on that). Columns to scrub are
+   whatever `OneLibraryCueWriter` and the reader touch plus every free-text
+   column found by `PRAGMA table_info`; when in doubt, scrub. Then put
+   `exportLibrary.db` back into the export and extend the guard to sample
+   it. This is what gives the OneLibrary write path its only real-data
+   coverage.
+6. **Add `--zip` to `tools/extract_testdata`**, using
+   `infrastructure::writeZipArchive`, so a set can be produced as a single
+   file. Link the tool against `seabass_core` for it (it is standalone
+   today). Then extract the maintainer's own live stick:
+
+   ```
+   ./build/extract_testdata /media/sebas/WHALESHARK ~/Seabass/testdata whaleshark --zip
+   ```
+
+   producing `~/Seabass/testdata/whaleshark-<date>.zip`. Not anonymized;
+   it is the maintainer's own library and stays on this machine. The
+   runner must then also accept a `.zip` set by unpacking it into the
+   scratch directory first. Delete
+   `~/Seabass/testdata/whaleshark-sdcard-2026-08-31.zip` afterwards: it
+   holds raw `PIONEER/` and `Engine Library/` copies beside an anonymized
+   tree with the old leaks, and the new extraction supersedes it. The
+   empty `roy-corsair/` directory is skipped by the runner today; make the
+   runner print what it skipped and why.
+7. **Fill the matrix** in the corpus runner, one case per row, each built
+   the same way: copy the set into scratch, build a `SaveContext` over the
+   scratch paths, stage the change class from step 1, run `runSaveLoop`,
+   then construct a **fresh reader** over the scratch paths and assert on
+   what it returns. A test that trusts the writer's return value is not a
+   test. `WorkCounters::instance().reset()` before the loop and
+   `snapshot()` after, and assert counts.
+8. **Tighten the work-count expectations** as the performance work in
+   `docs/write-path-performance.md` lands. The table below records both
+   the count today, which the runner asserts now so that nothing gets
+   worse unnoticed, and the target, which becomes the assertion when the
+   corresponding optimisation is merged. Change the number in the test in
+   the same commit as the optimisation.
+
+### The matrix, with counts
+
+Per save of N items, on a set that has all three catalogs.
+
+| Function | Change class | Integrity assertion via fresh reader | Engine opens today / target | SQLCipher opens today / target | pdb parses today / target |
+|---|---|---|---|---|---|
+| Add cue | `AddCueChange` | the cue reads back at the same position and colour; a second write to the same hot slot replaces, count stays 1 | N / 1 | 2N / 1 | 2N / 1 |
+| Stray cue removal | `RemoveJunkCueChange` | zero junk cues after save; exactly the original count after `RestoreBackupsChange`; Engine main cue cleared when the removed cue was the only one | N / 1 | 2N / 1 | 2N / 1 |
+| Sync cue points | `SyncPlanChange` | every planned cue lands on the target and reads back equal; a conflict row is untouched on both sides | N / 1 | 2N / 1 | 2N / 1 |
+| Copy cues between duplicates | `CopyCuesChange` | destination has the union; source unchanged | N / 1 | 2N / 1 | 2N / 1 |
+| Clean Up duplicates | `CleanupGroupChange` | survivor has the union of cues and every playlist entry of the removed rows; every removed row is in the manifest and absent from a fresh scan | 1 / 1 | 0 | 1 / 1 |
+| Delete orphaned files | `DeleteOrphanChange` | only files no live row references are gone; manifest cleared for exactly those | 0 | 0 | 1 / 1 |
+| Library Health repair | `RepairIssueChange` | the repaired row resolves to an existing file; an ignored issue is byte-identical | 0 | 0 | N / 1 |
+| Local cue restore | `MergeCuesChange` | restored cues equal the backed-up set | N / 1 | 2N / 1 | 2N / 1 |
+| Device settings | `DeviceSettingChange` | the field reads back; every other byte of the file identical | 0 | 0 | 0 |
+| Save loop | one deliberately failing change | Decision 2's semantics | - | - | - |
+
+The "today" numbers are derived from the code paths in
+`docs/write-path-performance.md`; the first run of each case is what
+confirms them, and a mismatch on the first run means the derivation was
+wrong, not the code. Record the confirmed number in the test and in this
+table.
+
+Durable file writes are not in the table because their count is the
+correct one already: one per file the save touches, plus one per backup.
+Assert that too, per case, as "touched files + backups", so a change that
+starts rewriting files it does not need to is caught.
+
+### What the runner must do on Windows and macOS
+
+Nothing in the runner or the change classes is platform-specific: it is
+`std::filesystem`, SQLite and the project's own readers. Three practical
+points:
+
+- `SEABASS_CORPUS` is read with `std::getenv`; on Windows point it at a
+  directory on the system disk. The scratch copies go to
+  `std::filesystem::temp_directory_path()`, which is `%TEMP%` there.
+- A 620 MB set is copied three times per run today. When the matrix is
+  full it will be copied once per case. Copy once per set into scratch and
+  give each case its own sub-copy from that local copy; this keeps the run
+  under a minute on an SSD and matters more on Windows, where per-file
+  overhead is higher.
+- Two libdjinterop Boost tests fail to link on Linux already and one
+  OneLibrary test fails on Windows for a staleness-guard reason that is
+  still open; neither is this runner's concern, but a Windows run of
+  `ctest -L integration` should be recorded in `docs/testing.md` once it
+  passes there.
+
+### Verification
+
+```
+cmake --build build -j16 -- -k
+ctest --test-dir build -LE integration -j16
+SEABASS_CORPUS=$HOME/Seabass/testdata ctest --test-dir build -L integration --output-on-failure
+QT_QPA_PLATFORM=offscreen ./build/seabass_qml_tests -input tests/qml
+```
+
+The integration run must print one block per set, name every skipped case
+and why, and end with the counts table. A green run against an empty
+corpus is allowed but must say so.
