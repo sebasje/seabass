@@ -16,6 +16,44 @@ Every one of these must be automated. See the project principle in
 `docs/testing.md`: a test somebody has to perform by hand will not get
 performed.
 
+## Before anything else: the anonymizer does not keep its promise
+
+`MANIFEST.txt`, which is what a contributor reads before deciding to send
+their library, states: *"REMOVED entirely: artwork images, the detailed
+colour and scrolling waveform data ... original file paths."*
+
+That promise is not kept. Verified directly against the committed,
+already-published fixture in this repository:
+
+| What leaks | Extent | Why |
+|---|---|---|
+| Real file paths inside every analysis file | **2744 of 2744** `.DAT` and `.EXT` files | The ANLZ anonymizer strips waveform sections and rewrites cue comments, but never touches the `PPTH` path section. The path reads `/Contents/<Artist>/<Album>/NNN_<Artist>-<Title>.mp3` |
+| Engine `Track.filename` | all 1376 rows, 1154 distinct shapes | Only `path` is rewritten; `filename` is a separate column nothing writes |
+| Engine `Track.album`, `genre`, `label` | 1375 / 12 / 12 rows | Never in the scrub list |
+| `exportLibrary.db` | the whole 688 KB database | Swept in by the blanket copy of the `rekordbox/` directory. Encrypted, but with a key this project's own source derives, so anyone with the app can read the complete real library out of it |
+| `exportExt.pdb` | 73 KB | Same blanket copy; holds the My Tag vocabulary |
+
+Only `title`, `artist` and `path` are actually scrubbed, and only in the two
+databases, not in the analysis files beside them.
+
+Two claims I could not reproduce, and which should not be treated as fact
+without further checking: real paths surviving in tombstoned `export.pdb`
+rows, and a device volume label in `AlbumArt.hash`.
+
+**What this means in practice.** The published fixture is the maintainer's
+own library, so nothing has been leaked that its owner did not choose to
+publish. The risk is entirely forward-looking: the flow is currently
+soliciting other people's libraries under a promise it does not keep. Fix
+the anonymizer and the verifier before accepting another submission, and
+re-generate the committed fixture afterwards.
+
+The fix is small in each case: scrub `PPTH` the way cue comments are already
+scrubbed in place (the path is length-constrained UTF-16, exactly the
+problem `obfuscateCueComments` already solves); add `filename`, `album`,
+`genre` and `label` to the Engine scrub; and copy only the files the export
+actually needs instead of the whole `rekordbox/` directory. Then add the
+verifier described below, so the promise is checked rather than trusted.
+
 ## The corpus
 
 Libraries donated through `seabass-cli anonymize` (the "help test Seabass"
@@ -144,6 +182,7 @@ before a stick was ever involved.
 
 Two things about the newly collected set, before any of it is published:
 
+- Every leak listed at the top of this document applies to it too.
 - It contains **both** an anonymized tree and raw stick copies
   (`PIONEER/` and `Engine Library/` alongside `rekordbox/`). The raw Engine
   database has real titles and artists: 0 of 1376 rows carry the
