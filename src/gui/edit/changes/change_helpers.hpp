@@ -8,6 +8,7 @@
 #include "domain/track.hpp"
 #include <optional>
 
+#include "infrastructure/engine/libdjinterop_engine_cue_writer.hpp"
 #include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
 #include "infrastructure/rekordbox/anlz_path_index.hpp"
 
@@ -69,5 +70,11 @@ const infrastructure::rekordbox::AnlzPathIndex *sharedAnlzPathIndex(SaveContext 
 infrastructure::onelibrary::OneLibraryCueWriter &sharedOneLibraryWriter(
     SaveContext &ctx, const std::string &pioneerRoot,
     const std::optional<std::string> &realStickRoot = std::nullopt);
+
+// The save's one Engine cue writer for this library, for the call sites
+// that would otherwise build one per item. Opening an Engine library is a
+// full SQLite open plus schema detection, about 151 ms against a stick.
+infrastructure::engine::LibdjinteropEngineCueWriter &sharedEngineCueWriter(SaveContext &ctx,
+                                                                           const std::string &engineLibraryPath);
 
 }  // namespace seabass::gui

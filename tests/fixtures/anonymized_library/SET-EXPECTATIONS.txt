@@ -1,7 +1,7 @@
 # Written by corpus_test. Delete this file to re-record after a
 # deliberate change to the data set itself.
 engine.cues 1688
-engine.opensPerItem 1
+engine.opensPerBatch 1
 engine.tracks 1564
 engine.tracksWithCues 1561
 engine.writeRefusals 0

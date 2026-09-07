@@ -870,12 +870,11 @@ void caseWorkCounts(const DataSet &set, const fs::path &scratch, const Catalogs 
     const auto counts = WorkCounters::instance().snapshot();
     std::cout << "    " << items << " Engine cue writes: " << counts.describe() << "\n";
 
-    // One open per item is what the code does today. When the writer holds
-    // its handle for the save (the fix this measurement argues for), this
-    // becomes 1 -- change the expectation then, deliberately, in the same
-    // commit, rather than discovering it drifted.
-    expected.expect("engine.opensPerItem", counts.engineDatabaseOpens / std::max(1, items),
-                    "Engine database opens per item unchanged");
+    // The total for the batch, not a per-item average. The writer now
+    // holds its handle for the save, so this is 1 however many items the
+    // batch has, and an average would round that win down to zero.
+    expected.expect("engine.opensPerBatch", counts.engineDatabaseOpens,
+                    "Engine database opens for the whole batch unchanged");
     fs::remove_all(root);
     pass("work counts: the per-item database opens match what is documented");
 }

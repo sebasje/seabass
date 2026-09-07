@@ -3,6 +3,8 @@
 #include <optional>
 #include <string>
 
+#include <djinterop/database.hpp>
+
 #include "application/ports/cue_writer.hpp"
 
 namespace seabass::infrastructure::engine
@@ -32,7 +34,22 @@ public:
                                  std::optional<std::string> key);
 
 private:
+    // The open library, kept rather than reopened per call.
+    //
+    // load_database() is a full SQLite open plus schema detection, and
+    // every method used to do one: a 200-item save opened the same
+    // database 200 times, about 151 ms each against a stick (see
+    // docs/write-path-performance.md). Held lazily so constructing a
+    // writer stays free for the call sites that build one and never use
+    // it.
+    //
+    // Safe to hold for a save: libdjinterop writes through its own
+    // transactions, and nothing else in this process writes this file
+    // while a save owns the writer.
+    djinterop::database &database();
+
     std::string m_engineLibraryPath;
+    std::optional<djinterop::database> m_database;
 };
 
 }  // namespace seabass::infrastructure::engine

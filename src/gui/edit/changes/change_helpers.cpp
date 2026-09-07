@@ -91,4 +91,13 @@ infrastructure::onelibrary::OneLibraryCueWriter &sharedOneLibraryWriter(
     });
 }
 
+infrastructure::engine::LibdjinteropEngineCueWriter &sharedEngineCueWriter(SaveContext &ctx,
+                                                                           const std::string &engineLibraryPath)
+{
+    const std::string key = "engine-cue-writer:" + engineLibraryPath;
+    return ctx.shared<infrastructure::engine::LibdjinteropEngineCueWriter>(key, [&]() {
+        return std::make_unique<infrastructure::engine::LibdjinteropEngineCueWriter>(engineLibraryPath);
+    });
+}
+
 }  // namespace seabass::gui

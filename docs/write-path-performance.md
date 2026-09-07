@@ -396,3 +396,29 @@ argument for having them.
 **Still open, in order:** reuse the Engine database handle (20 opens for 20
 items today), keep the operation log's stream open, and fix the two O(n^2)
 loops in `FilesystemBackupStore`.
+
+## Round 5, 2026-09-07: one Engine handle per save
+
+`load_database()` is a full SQLite open plus schema detection, about 151 ms
+against a stick, and every method did one: a 200-item save opened the same
+database 200 times. The writer holds it now, opened lazily so constructing
+a writer that is never used stays free. Add Cue also shared its Engine
+writer for the save, the way the OneLibrary one already is.
+
+Measured by `corpus_test`, writing 20 cues:
+
+| | Engine opens |
+|---|---:|
+| Before | 20 |
+| After | 1 |
+
+Safe to hold: libdjinterop writes through its own transactions, and nothing
+else in this process writes that file while a save owns the writer.
+
+The recorded metric changed shape for the third time, and for the same
+reason each time: a per-item average rounds a 20-to-1 win down to zero. It
+now records the total for the batch, which is the number that says whether
+the cost is flat or linear.
+
+**Still open:** keep the operation log's stream open, and the two O(n^2)
+loops in `FilesystemBackupStore`.
