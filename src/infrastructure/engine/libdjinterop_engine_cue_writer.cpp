@@ -6,6 +6,7 @@
 #include <djinterop/djinterop.hpp>
 
 #include "infrastructure/engine/rekordbox_key_parser.hpp"
+#include "infrastructure/work_counters.hpp"
 
 namespace seabass::infrastructure::engine
 {
@@ -36,6 +37,7 @@ LibdjinteropEngineCueWriter::LibdjinteropEngineCueWriter(std::string engineLibra
 void LibdjinteropEngineCueWriter::writeHotCues(const std::string &trackSourceId,
                                                 const std::vector<domain::CuePoint> &cues)
 {
+    WorkCounters::instance().noteEngineDatabaseOpen();
     auto db = djinterop::engine::load_database(m_engineLibraryPath);
 
     auto track = db.track_by_id(std::stoll(trackSourceId));
@@ -119,6 +121,7 @@ void LibdjinteropEngineCueWriter::propagateMissingFields(const std::string &trac
     if (!bpm && !key) {
         return;
     }
+    WorkCounters::instance().noteEngineDatabaseOpen();
     auto db = djinterop::engine::load_database(m_engineLibraryPath);
     auto track = db.track_by_id(std::stoll(trackSourceId));
     if (!track) {

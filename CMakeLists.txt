@@ -190,6 +190,7 @@ add_library(seabass_core STATIC
     src/infrastructure/logging/file_operation_log.cpp
     src/infrastructure/local/local_cue_store.cpp
     src/infrastructure/local/app_data_directory.cpp
+    src/infrastructure/work_counters.cpp
     src/infrastructure/local/file_library_edit_lock_store.cpp
     src/infrastructure/system/rekordbox_process_detector.cpp
     src/infrastructure/system/process_liveness.cpp
@@ -1180,3 +1181,13 @@ target_compile_definitions(anonymized_fixture_integration_test PRIVATE
     SEABASS_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 add_test(NAME anonymized_fixture_integration_test COMMAND anonymized_fixture_integration_test)
 set_tests_properties(anonymized_fixture_integration_test PROPERTIES LABELS "integration")
+
+# The corpus runner: the committed fixture plus every set under
+# $SEABASS_CORPUS (real, un-anonymized libraries extracted with
+# tools/extract_testdata -- see docs/real-data-testing.md). Qt-free, runs
+# from local disk, asserts read-backs and work counts rather than seconds.
+add_executable(corpus_test tests/corpus_test.cpp)
+target_include_directories(corpus_test PRIVATE src)
+target_link_libraries(corpus_test PRIVATE seabass_core)
+add_test(NAME corpus_test COMMAND corpus_test WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(corpus_test PROPERTIES LABELS "integration")

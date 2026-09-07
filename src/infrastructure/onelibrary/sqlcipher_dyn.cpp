@@ -1,4 +1,5 @@
 #include "infrastructure/onelibrary/sqlcipher_dyn.hpp"
+#include "infrastructure/work_counters.hpp"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -196,6 +197,10 @@ std::string SqlCipherLibrary::errmsg(sqlite3 *db) const
 
 SqlCipherDb::SqlCipherDb(const SqlCipherLibrary &lib, const std::string &path, bool readOnly) : m_lib(lib)
 {
+    // Counted here rather than at each call site: the expensive part is
+    // the key derivation every open pays, and this is the one place every
+    // open goes through.
+    WorkCounters::instance().noteEncryptedDatabaseOpen();
     int flags = readOnly ? 0x00000001 /* SQLITE_OPEN_READONLY */ : (SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE);
     if (lib.open(path.c_str(), &m_db, flags) != SQLITE_OK) {
         std::string message = m_db ? lib.errmsg(m_db) : "failed to open database";

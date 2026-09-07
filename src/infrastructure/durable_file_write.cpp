@@ -1,4 +1,5 @@
 #include "infrastructure/durable_file_write.hpp"
+#include "infrastructure/work_counters.hpp"
 
 #include <filesystem>
 #include <fstream>
@@ -111,6 +112,7 @@ void fsyncDirectoryContaining(const std::string &filePath)
 
 bool writeFileDurablyAtomic(const std::string &path, const std::string &data)
 {
+    WorkCounters::instance().noteDurableFileWrite();
     std::string tempPath = path + ".tmp-seabass-write";
     if (!writeFileDurably(tempPath, data)) {
         std::error_code removeEc;
