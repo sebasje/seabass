@@ -482,3 +482,77 @@ guessing at it.
 was in progress, so a `.seabass-savebench` directory may be left on it.
 Nothing else writes there and it is safe to delete. The 50 and 201 figures
 above are from runs that completed and cleaned up after themselves.
+
+## Round 7: the flat-directory hypothesis was wrong
+
+Round 6 guessed that the superlinearity came from every backup landing in
+one flat directory that exFAT has to scan linearly to insert into. That is
+wrong, and the cheapest way to find out was to take the USB link out of the
+picture and keep the filesystem: the same benchmark against an exFAT
+loopback image on the system SSD.
+
+| Items | Per item, exFAT on SSD |
+|---:|---:|
+| 25 | 19.4 ms |
+| 50 | 13.3 ms |
+| 100 | 11.7 ms |
+| 200 | 11.1 ms |
+
+Flat, in fact improving per item as the fixed setup amortises. Same
+filesystem, same flat backup directory, same 403 durable writes for 200
+items, no bend at all. So neither exFAT's directory handling nor our
+backup layout explains the curve on the stick.
+
+That leaves the medium, and two candidates worth separating before
+anything is designed around either:
+
+- **Write-cache saturation.** Small flash devices absorb the first burst
+  into a fast buffer and fall back to slower direct writes once it fills.
+  A longer run would then cost more per item than a short one, which is the
+  shape observed.
+- **Allocation on a nearly full volume.** RV2 was at 93% before these runs
+  and 96% after, and the benchmark itself copies 600 MB onto it each time.
+  exFAT allocation slows as free space fragments, so a run that fills the
+  medium as it goes bends for reasons unrelated to the code.
+
+The second is the more likely of the two and the easier to rule out: run
+the sweep on a stick with plenty of free space, in ascending and then
+descending order of batch size. If the curve follows the batch size it is
+the device; if it follows the fill level it is the volume. The benchmark
+now prints free space with every run so the two cannot be confused.
+
+**Either way the conclusion for our code is the same**, and it is the one
+that matters: every work count is flat, one catalog parse and two key
+derivations per save at any batch size, and the remaining cost is per-file
+durable writes to a slow medium. What changes with the answer is only
+whether batching is worth its complexity, and that question is still open
+rather than settled either way.
+
+## What moving backups off the stick would buy
+
+Sebastian's suggestion, and the arithmetic supports it. Of the 403 durable
+writes a 201-cue save makes, 201 are backup copies and 202 are the actual
+library writes. The loopback numbers put a durable write on the system SSD
+at roughly 11 ms against roughly 330 ms on the stick, so those 201 backup
+writes are close to the whole of half the save's cost, and moving them to
+local disk would remove essentially all of it. Expect a save to roughly
+halve.
+
+What it costs is not performance but a property the current design has:
+backups live at `<stick>/.seabass-backups`, so undo travels with the stick.
+Move them to the local machine and Undo Last Save only works on the machine
+that performed it, a stick carried to another computer has no way back, and
+the backup no longer survives the loss of that computer. For a feature
+whose entire job is "you can get your library back", that is a real
+trade-off and not merely a location change.
+
+A middle option keeps both: write the backups to local disk during the
+save, where they are nearly free, then copy them to the stick once at the
+end, as **one archive rather than 201 files**. The stick then pays one
+sequential write instead of 201 flushed ones, undo still travels with the
+stick, and the project already has an archive writer and reader for exactly
+this shape (`infrastructure/zip_archive_writer` and `_reader`, and the
+stick-backup feature's own append-only archive with its journal).
+
+This is a design decision rather than an optimisation, so it wants deciding
+rather than assuming. Recorded here so the next round starts from it.
