@@ -280,7 +280,20 @@ Each step leaves the tree building and every test passing.
 
 1. **Extract the change classes** (Decision 1). Pure move. Verify with
    `ctest --test-dir build -LE integration -j16` and the QML suite.
-2. **Fold the fixture test into the corpus runner** (Decision 4).
+   **Done**, commit 651b8a86.
+2. **Fold the fixture test into the corpus runner** (Decision 4). **Done.**
+   All eight cases now run per set, and `anonymized_fixture_integration_test`
+   is gone. The counts they hardcoded to the committed fixture (1370 tracks,
+   188 cues, and so on) moved into a `SET-EXPECTATIONS.txt` beside each set,
+   written the first time a set is seen and asserted every time after, so a
+   real library nobody inspects by hand gets the same regression guard. Two
+   cases are conditional rather than universal: the placeholder-collision
+   check is meaningless on a raw set, where duplicates are real, and the
+   matching case states the 95% floor only for anonymized sets while every
+   set records its own matched count as a floor that must not drop. Case 7
+   also had to change one thing to be safe on real data: it writes its own
+   stand-in file inside the scratch tree and points the manifest at that,
+   because a raw set's audio paths point at files that really exist.
 3. **Add the collection guard.** `tools/verify_anonymized_export.cpp`,
    Qt-free, linked against `seabass_core`, taking a zip or a directory. It
    fails if anything exists outside `MANIFEST.txt`, `rekordbox/` and
