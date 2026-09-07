@@ -133,6 +133,9 @@ set(SEABASS_GUI_SOURCES
     library_fingerprint_reader.cpp
     stick_backup_paths.hpp
     future_result.hpp
+    staged_plan_model.hpp
+    staged_cue_edit_controller.hpp
+    staged_cue_edit_controller.cpp
     sync_controller.hpp
     sync_controller.cpp
     backups_controller.hpp
