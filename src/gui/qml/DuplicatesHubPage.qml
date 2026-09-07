@@ -117,8 +117,8 @@ Page {
         spacing: 12
 
         ActionCard {
-            cardTitle: "Duplicate Stats & Sync"
-            cardSubtitle: "Space wasted, out-of-sync copies, sync metadata and cue points across them"
+            cardTitle: "Match Duplicate Cues"
+            cardSubtitle: "Give every copy of a track the same cues, and see the space they waste"
             cardIcon: "▣"
             enabled: root.hasRekordbox || root.hasEngine
             onClicked: root.duplicatesStatsRequested(root.stickLabel, root.rekordboxPath, root.enginePath)

@@ -20,6 +20,8 @@
 #include "domain/track_scope.hpp"
 #include "application/ports/cancellation_token.hpp"
 #include "gui/qt_progress_reporter.hpp"
+#include "gui/staged_cue_edit_controller.hpp"
+#include "gui/staged_plan_model.hpp"
 
 namespace seabass::gui
 {
@@ -31,7 +33,7 @@ class LibraryEditSession;
 // <->Engine, rekordbox<->OneLibrary, Engine<->OneLibrary -- see
 // SyncController's own class comment). Only plans with an actual
 // direction are exposed; AlreadyConsistent/NoCues need no attention.
-class SyncPlanListModel : public QAbstractListModel
+class SyncPlanListModel : public QAbstractListModel, public StagedPlanModel
 {
     Q_OBJECT
     QML_ELEMENT
@@ -82,9 +84,16 @@ public:
     // applyOne() after a successful write: that one plan is now
     // consistent, nothing else in the model could have changed (see
     // SyncController::onWriteFinished()'s own comment on why).
-    void removePlanAt(int index);
-    void setStaged(int index, bool staged, const QString &description);
-    void clearStaged();
+    void removePlanAt(int index) override;
+    void setStaged(int index, bool staged, const QString &description) override;
+    void clearStaged() override;
+
+    int planCount() const override { return static_cast<int>(m_plans.size()); }
+    // A plan's identity across re-analyses: the track it would write to,
+    // as "<format>:<sourceId>". Two plans can share a target (that is what
+    // CrossSourceConflictDetector looks for), so at most one of them is
+    // ever listed at a time.
+    QString planKeyAt(int index) const override;
 
 private:
     std::vector<domain::SyncPlan> m_plans;
@@ -129,17 +138,11 @@ struct SyncTaskResult
 // LibraryEditSession (the first one takes the edit lock), the row shows
 // it, and the page's Save writes them all. A row whose change reached the
 // stick disappears from the list.
-class SyncController : public QObject
+class SyncController : public StagedCueEditController
 {
     Q_OBJECT
     QML_ELEMENT
     Q_PROPERTY(seabass::gui::SyncPlanListModel *plans READ plansModel CONSTANT)
-    Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
-    // True while the read-only analyze() runs (never during a write): it
-    // can be stopped via cancelScan(), after which scanCancelled() fires.
-    Q_PROPERTY(bool scanCancellable READ scanCancellable NOTIFY busyChanged)
-    Q_PROPERTY(int scanCurrent READ scanCurrent NOTIFY scanProgressChanged)
-    Q_PROPERTY(int scanTotal READ scanTotal NOTIFY scanProgressChanged)
     Q_PROPERTY(int rekordboxTrackCount READ rekordboxTrackCount NOTIFY analysisChanged)
     Q_PROPERTY(int engineTrackCount READ engineTrackCount NOTIFY analysisChanged)
     Q_PROPERTY(int oneLibraryTrackCount READ oneLibraryTrackCount NOTIFY analysisChanged)
@@ -162,22 +165,11 @@ class SyncController : public QObject
     // includes plans already in `plans` -- a target stays out of the
     // appliable list entirely until its conflict here is resolved.
     Q_PROPERTY(QVariantList unresolvedConflicts READ unresolvedConflicts NOTIFY conflictsChanged)
-    Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
-    Q_PROPERTY(QString statusMessage READ statusMessage NOTIFY statusMessageChanged)
-    Q_PROPERTY(bool canUndo READ canUndo NOTIFY canUndoChanged)
-    // Mirrors the session: true while a save is writing to the stick.
-    Q_PROPERTY(bool writing READ writing NOTIFY writingChanged)
-    Q_PROPERTY(int stagedCount READ stagedCount NOTIFY stagedChanged)
 
 public:
     explicit SyncController(QObject *parent = nullptr);
 
     SyncPlanListModel *plansModel() { return &m_model; }
-    bool busy() const { return m_busy; }
-    bool writing() const;
-    int stagedCount() const { return static_cast<int>(m_stagedByTarget.size()); }
-    int scanCurrent() const { return m_scanCurrent; }
-    int scanTotal() const { return m_scanTotal; }
     int rekordboxTrackCount() const { return m_rekordboxTrackCount; }
     int engineTrackCount() const { return m_engineTrackCount; }
     int oneLibraryTrackCount() const { return m_oneLibraryTrackCount; }
@@ -185,9 +177,6 @@ public:
     QVariantMap playlistTrackCounts() const { return m_playlistTrackCounts; }
     QVariantList directionCounts() const { return m_directionCounts; }
     QVariantList unresolvedConflicts() const { return m_unresolvedConflicts; }
-    QString errorMessage() const { return m_errorMessage; }
-    QString statusMessage() const { return m_statusMessage; }
-    bool canUndo() const;
 
     // Phase 1: read-only. rekordboxPath/enginePath are the stick's
     // DetectedStick.rekordboxPath / .enginePath (either may be empty if
@@ -214,10 +203,6 @@ public:
 
     // Same as apply(), scoped to the single plan at index.
     Q_INVOKABLE void applyOne(int index);
-    Q_INVOKABLE void unstage(int index);
-
-    // Reverts every file the last save touched (the session's undo).
-    Q_INVOKABLE void undoLastOperation();
 
     // Picks one side of unresolvedConflicts[index] as the winner: turns
     // it into an ordinary actionable plan (added to `plans` and staged
@@ -226,45 +211,34 @@ public:
     // sourceA/cuesFromA when true, sourceB/cuesFromB when false.
     Q_INVOKABLE void resolveConflict(int index, bool useSourceA);
 
-    bool scanCancellable() const { return m_busy && !writing(); }
-    Q_INVOKABLE void cancelScan();
-
 signals:
-    void scanCancelled();
-    void busyChanged();
-    void scanProgressChanged();
     void analysisChanged();
     void conflictsChanged();
-    void errorMessageChanged();
-    void statusMessageChanged();
-    void canUndoChanged();
-    void writingChanged();
-    void stagedChanged();
+
+protected:
+    StagedPlanModel *stagedPlanModel() override { return &m_model; }
+    void reanalyzeAfterUndo() override
+    {
+        analyze(m_rekordboxPath, m_enginePath, m_currentPlaylistName, m_currentSearchQuery);
+    }
+    // The per-direction counts are derived from the row set, so they only
+    // move when a row actually left it.
+    void onStagedChangeApplied(bool rowRemoved) override
+    {
+        if (rowRemoved) {
+            recomputeDirectionCounts();
+        }
+    }
 
 private:
     void onAnalyzeFinished();
-    void setBusy(bool busy);
-    void setScanProgress(int current, int total);
-    void setErrorMessage(const QString &message);
-    void setStatusMessage(const QString &message);
     void recomputeDirectionCounts();
     void rebuildUnresolvedConflictsList();
     void attachSession();
     void stagePlan(int index);
-    static QString targetKeyFor(const domain::SyncPlan &plan);
-    int indexOfTargetKey(const QString &targetKey) const;
-    std::shared_ptr<QtProgressReporter> makeReporter();
 
     SyncPlanListModel m_model;
     QFutureWatcher<SyncTaskResult> m_watcher;
-    application::CancellationToken m_scanCancel;  // fresh per analyze()
-    QPointer<LibraryEditSession> m_session;
-    struct StagedInfo
-    {
-        QString changeId;
-        QString description;
-    };
-    std::map<QString, StagedInfo> m_stagedByTarget;  // target key -> what is staged for it
     QString m_rekordboxPath;
     QString m_enginePath;
     // The playlistName analyze() was last called with -- so the automatic
@@ -275,9 +249,6 @@ private:
     // Same reasoning as m_currentPlaylistName -- the search box's own text
     // must also survive the automatic post-undo re-analyze.
     QString m_currentSearchQuery;
-    bool m_busy = false;
-    int m_scanCurrent = 0;
-    int m_scanTotal = 0;
     int m_rekordboxTrackCount = 0;
     int m_engineTrackCount = 0;
     int m_oneLibraryTrackCount = 0;
@@ -286,8 +257,6 @@ private:
     QVariantList m_directionCounts;
     std::vector<domain::CrossSourceSyncConflict> m_conflicts;
     QVariantList m_unresolvedConflicts;
-    QString m_errorMessage;
-    QString m_statusMessage;
 };
 
 }  // namespace seabass::gui
