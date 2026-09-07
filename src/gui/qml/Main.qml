@@ -578,6 +578,11 @@ ApplicationWindow {
                 defaultBackupDirectory: appSettingsCtrl.stickBackupDirectory
             }
             onFormatUsbRequested: stackView.push(formatUsbPageComponent)
+            onLibraryHealthRequested: (stickLabel, rekordboxPath, enginePath) => stackView.push(libraryConsistencyPageComponent, {
+                stickLabel: stickLabel,
+                rekordboxPath: rekordboxPath,
+                enginePath: enginePath,
+            })
         }
     }
 
