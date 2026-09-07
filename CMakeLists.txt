@@ -1257,6 +1257,9 @@ add_test(NAME onelibrary_reader_test COMMAND onelibrary_reader_test)
 add_executable(verify_anonymized_export tools/verify_anonymized_export.cpp)
 target_include_directories(verify_anonymized_export PRIVATE src)
 target_link_libraries(verify_anonymized_export PRIVATE seabass_core)
+add_test(NAME anonymization_verifier_test COMMAND verify_anonymized_export
+    ${CMAKE_SOURCE_DIR}/tests/fixtures/anonymized_library)
+set_tests_properties(anonymization_verifier_test PROPERTIES LABELS "integration")
 
 add_executable(corpus_test tests/corpus_test.cpp)
 target_include_directories(corpus_test PRIVATE src)

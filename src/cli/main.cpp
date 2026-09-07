@@ -940,6 +940,19 @@ int runAnonymizeCommand(bool wantRekordbox, bool wantEngine, const std::optional
     if (summary.engineAttempted && !summary.engineError.empty()) {
         Console::error("engine: " + summary.engineError);
     }
+    if (summary.verificationFailed) {
+        // The export was built, checked against the promise its own
+        // manifest makes, found to still hold real data, and thrown away.
+        // Saying so plainly matters more than usual here: the whole point
+        // of the check is that nobody ships a leaking export believing it
+        // is clean.
+        Console::error("");
+        Console::error("This export still held real data, so it was NOT written.");
+        Console::error("Nothing was left on disk. Please report this with the detail below.");
+        Console::error("");
+        Console::error(summary.verificationReport);
+        return 1;
+    }
     if (!summary.succeeded()) {
         return 1;
     }

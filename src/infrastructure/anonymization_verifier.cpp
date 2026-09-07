@@ -37,6 +37,19 @@ size_t hexPrefixLength(const std::string &value)
     return i;
 }
 
+// The rekordbox writer preserves each field's original byte length: a
+// placeholder shorter than the real text it replaces is padded out with
+// spaces, and the path section is padded the same way before its trailing
+// NUL. That padding is not part of the value, and judging it as if it were
+// reports every single track as leaking.
+std::string trimPadding(std::string value)
+{
+    while (!value.empty() && (value.back() == ' ' || value.back() == '\0')) {
+        value.pop_back();
+    }
+    return value;
+}
+
 bool isPrefixOf(const std::string &candidate, const std::string &whole)
 {
     return candidate.size() <= whole.size() && whole.compare(0, candidate.size(), candidate) == 0;
@@ -283,21 +296,24 @@ AnonymizationVerification verifyAnonymizedExport(const std::string &exportRoot, 
             }
             ++checked;
             const std::string where = label + " track id=" + track.sourceId;
-            if (!looksLikeHashPlaceholder(track.title, "Track")) {
-                fail(where + " still has a real title: \"" + track.title + "\"");
+            const std::string title = trimPadding(track.title);
+            const std::string artist = trimPadding(track.artist);
+            const std::string filename = trimPadding(track.filename);
+            const std::string filePath = trimPadding(track.filePath);
+            if (!looksLikeHashPlaceholder(title, "Track")) {
+                fail(where + " still has a real title: \"" + title + "\"");
             }
-            if (!looksLikeIndexedPlaceholder(track.artist, "Artist")) {
-                fail(where + " still has a real artist: \"" + track.artist + "\"");
+            if (!looksLikeIndexedPlaceholder(artist, "Artist")) {
+                fail(where + " still has a real artist: \"" + artist + "\"");
             }
-            if (!looksLikeFilenamePlaceholder(track.filename)) {
-                fail(where + " still has a real filename: \"" + track.filename + "\"");
+            if (!looksLikeFilenamePlaceholder(filename)) {
+                fail(where + " still has a real filename: \"" + filename + "\"");
             }
-            if (!track.filePath.empty()) {
-                const size_t slash = track.filePath.find_last_of('/');
-                const std::string basename =
-                    slash == std::string::npos ? track.filePath : track.filePath.substr(slash + 1);
-                if (!looksLikeFilenamePlaceholder(basename)) {
-                    fail(where + " still has a real file path: \"" + track.filePath + "\"");
+            if (!filePath.empty()) {
+                const size_t slash = filePath.find_last_of('/');
+                const std::string basename = slash == std::string::npos ? filePath : filePath.substr(slash + 1);
+                if (!looksLikeFilenamePlaceholder(trimPadding(basename))) {
+                    fail(where + " still has a real file path: \"" + filePath + "\"");
                 }
             }
         }

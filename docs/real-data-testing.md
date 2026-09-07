@@ -294,7 +294,7 @@ Each step leaves the tree building and every test passing.
    also had to change one thing to be safe on real data: it writes its own
    stand-in file inside the scratch tree and points the manifest at that,
    because a raw set's audio paths point at files that really exist.
-3. **Add the collection guard.** `tools/verify_anonymized_export.cpp`,
+3. **Add the collection guard.** **Done.** `tools/verify_anonymized_export.cpp`,
    Qt-free, linked against `seabass_core`, taking a zip or a directory. It
    fails if anything exists outside `MANIFEST.txt`, `rekordbox/` and
    `engine/`; if any `.DAT`/`.EXT` PPTH path is not of the form
@@ -306,7 +306,15 @@ Each step leaves the tree building and every test passing.
    produce the zip when it fails. Add it as a ctest against the committed
    fixture. Until step 4 lands, that test is expected to fail on the
    committed fixture, so register it after step 4.
-4. **Regenerate the committed fixture** with the fixed anonymizer
+4. **Regenerate the committed fixture** with the fixed anonymizer. **Done:**
+   regenerated from the RV2 set, 1161 rekordbox tracks and 1564 Engine
+   tracks, 5976 analysis files, 29.2 MB (the old one was 37 MB despite
+   holding fewer analysis files). It verifies clean, and the verifier is
+   registered as `anonymization_verifier_test` under the integration label.
+   The leak table at the top of this document describes the fixture that
+   was replaced, and is kept as the record of what went wrong.
+
+   Original instruction, for reference: **regenerate the committed fixture** with the fixed anonymizer
    (`seabass-cli anonymize` from the RV2 set), replace
    `tests/fixtures/anonymized_library`, and commit. The old fixture carries
    every leak in the table at the top of this document.
