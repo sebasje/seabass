@@ -84,6 +84,7 @@ public:
     // controller stages first (they all know them); a later call with a
     // non-empty path fills in what is still unknown.
     void setLibraryPaths(const QString &rekordboxPath, const QString &enginePath);
+    void setStickLabel(const QString &label);
     QString rekordboxPath() const { return m_rekordboxPath; }
     QString enginePath() const { return m_enginePath; }
 

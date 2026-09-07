@@ -31,6 +31,11 @@ public:
     virtual ~BackupStore() = default;
 
     virtual BackupRecord backup(const std::vector<std::string> &filePaths, const std::string &label) = 0;
+    // Adds more files to an existing backup, so one write operation that
+    // touches many files (a save removing a cue from 200 tracks, each
+    // with its own analysis file) stays one record rather than 200.
+    // Returns the record with its new size; throws if id does not exist.
+    virtual BackupRecord addToBackup(const std::string &id, const std::vector<std::string> &filePaths) = 0;
     virtual std::vector<BackupRecord> list() = 0;
 
     // Deletes the oldest backups so at most keepCount remain. Returns the

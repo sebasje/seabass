@@ -1,5 +1,6 @@
 #pragma once
 
+#include <filesystem>
 #include <string>
 
 #include "application/ports/backup_store.hpp"
@@ -18,12 +19,16 @@ public:
 
     application::BackupRecord backup(const std::vector<std::string> &filePaths, const std::string &label) override;
     std::vector<application::BackupRecord> list() override;
+    application::BackupRecord addToBackup(const std::string &id,
+                                          const std::vector<std::string> &filePaths) override;
     std::uint64_t prune(size_t keepCount) override;
     void setDescription(const std::string &id, const std::string &description) override;
     bool restore(const std::string &id) override;
     bool remove(const std::string &id) override;
 
 private:
+    void appendFiles(const std::filesystem::path &dir, const std::vector<std::string> &filePaths);
+
     std::string m_baseDirectory;
 };
 

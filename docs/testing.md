@@ -46,6 +46,35 @@ One design point worth knowing if you're touching the anonymizer: the same real 
 - `SEABASS_SCREENSHOT_DIR=<dir> QT_QPA_PLATFORM=offscreen build/seabass_qml_tests -input tests/qml`
   saves a PNG per page the tests render; look at them for any visual claim.
 
+## Live tests against a real stick
+
+`tests/qml-live/` drives the real pages with their real controllers
+against a mounted stick: reads, staged edits, saves, cancels, undo,
+Manage Backups, the foreign lock, the process guard, the CLI probe, and
+the stick being pulled. Nothing there runs under `ctest`; every test
+skips itself unless `SEABASS_LIVE_STICK` names a mount point. Only ever
+point it at a scratch copy of a library: it writes (through the normal
+backup path, undoing where the flow has an undo).
+
+```
+tests/qml-live/run-live.sh /media/you/STICK /dev/sdX1 /tmp/shots
+SKIP_PLAIN=1 tests/qml-live/run-live.sh ...   # only the orchestrated scenarios
+```
+
+The script runs one test function per process (a bare TestCase name
+makes the QtQuickTest runner exit silently), plants a cookie owned by a
+live `sleep` for the lock scenario, runs a copy of `sleep` named
+`rekordbox` for the guard, calls `seabass-cli` while the test holds the
+lock, and unmounts/remounts the device for the stick-pull scenario.
+`LiveHelpers.js` has `findByType()` for reaching the controller a page
+created for itself. Results and screenshots from the 2026-09-07 run on
+the RV2 stick are noted in `docs/edit-mode-and-cancel.md`.
+
+The QML test binary registers the same `SeabassGui` module as the app
+(`SEABASS_GUI_*` lists in `src/gui/CMakeLists.txt`), so any page can be
+instantiated in a test; `tst_PagesCompile.qml` checks that every page
+at least compiles.
+
 ## Submitting your own library for testing
 
 If you'd like to help test Seabass against hardware or a library shape Sebas doesn't personally have, you can generate the same kind of anonymized export from your own stick and send it in:

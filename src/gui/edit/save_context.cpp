@@ -67,10 +67,17 @@ bool SaveContext::backupOnce(const std::string &file, const std::string &label)
     if (file.empty() || m_backedUp.contains(file)) {
         return false;
     }
-    auto record = backupStore().backup({file}, label);
+    auto existing = m_recordByLabel.find(label);
+    application::BackupRecord record;
+    if (existing == m_recordByLabel.end()) {
+        record = backupStore().backup({file}, label);
+        m_recordByLabel[label] = record.id;
+        m_backups.push_back({QString::fromStdString(fs::path(record.path).parent_path().string()),
+                             QString::fromStdString(record.id)});
+    } else {
+        record = backupStore().addToBackup(existing->second, {file});
+    }
     log().record(label + ": backed up " + fs::path(file).filename().string() + " -> " + record.path);
-    m_backups.push_back({QString::fromStdString(fs::path(record.path).parent_path().string()),
-                         QString::fromStdString(record.id)});
     m_backedUp[file] = record.id;
     return true;
 }

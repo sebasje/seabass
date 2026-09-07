@@ -67,7 +67,8 @@ Dialog {
             color: Theme.text
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
-            text: "USB Stick " + dialog.stickLabel + " has been removed while editing. Either discard changes or plug "
+            text: (dialog.stickLabel.length > 0 ? "USB Stick " + dialog.stickLabel : "Your USB stick")
+                + " has been removed while editing. Either discard changes or plug "
                 + "the stick back in. If anything changed on the USB stick while it was unplugged, these changes "
                 + "will likely be lost."
         }

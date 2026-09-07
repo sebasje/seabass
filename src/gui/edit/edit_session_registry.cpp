@@ -136,6 +136,11 @@ LibraryEditSession *EditSessionRegistry::findSession(const QString &libraryId) c
 LibraryEditSession *EditSessionRegistry::ensureSession(const QString &libraryId, const QString &stickLabel)
 {
     if (LibraryEditSession *existing = findSession(libraryId)) {
+        // A controller may have created the session before the page's
+        // host, which is the one that knows the label.
+        if (existing->stickLabel().isEmpty() && !stickLabel.isEmpty()) {
+            existing->setStickLabel(stickLabel);
+        }
         return existing;
     }
     QString mountPoint;

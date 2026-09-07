@@ -63,6 +63,40 @@ int main()
         std::cout << "case 1 (backup + restore round trip, restore backs up what it overwrites) OK\n";
     }
 
+    // One record for many files: files added later join the same backup
+    // (same directory, same manifest), and a restore brings all of them
+    // back. Same-named files from different directories stay apart.
+    {
+        fs::remove_all(backupsDir);
+        fs::path a1 = root / "a" / "ANLZ0000.EXT";
+        fs::path b1 = root / "b" / "ANLZ0000.EXT";
+        fs::create_directories(a1.parent_path());
+        fs::create_directories(b1.parent_path());
+        writeFile(a1, "a original");
+        writeFile(b1, "b original");
+        FilesystemBackupStore store(backupsDir.string());
+        auto record = store.backup({a1.string()}, "junk-cue-cleanup");
+        auto grown = store.addToBackup(record.id, {b1.string()});
+        assert(grown.id == record.id);
+        assert(grown.sizeBytes > record.sizeBytes);
+        auto records = store.list();
+        assert(records.size() == 1);
+        assert(records[0].filePaths.size() == 2);
+        writeFile(a1, "a changed");
+        writeFile(b1, "b changed");
+        assert(store.restore(record.id));
+        assert(readFile(a1) == "a original");
+        assert(readFile(b1) == "b original");
+        bool threw = false;
+        try {
+            store.addToBackup("no-such-backup", {a1.string()});
+        } catch (const std::exception &) {
+            threw = true;
+        }
+        assert(threw);
+        std::cout << "case 1b (addToBackup grows one record; restore brings every file back) OK\n";
+    }
+
     // A manifest with no MANIFEST-VERSION header (predating this feature)
     // is treated as version 1, not refused.
     {

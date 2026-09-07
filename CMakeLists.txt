@@ -381,62 +381,41 @@ if(Qt6_FOUND)
         set_source_files_properties(src/gui/qml/CamelotWheelPosition.qml
             PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
+        # The same module the app registers (see src/gui/CMakeLists.txt's
+        # SEABASS_GUI_* lists): every page with its real controller, so
+        # tests/qml-live/ can drive the real code against a real stick.
         qt_add_qml_module(seabass_qml_tests
             URI SeabassGui
             VERSION 1.0
             QML_FILES
-                src/gui/qml/Theme.qml
-                src/gui/qml/common/BigScrollBar.qml
-                src/gui/qml/common/BackBreadcrumb.qml
-                src/gui/qml/common/PageTitle.qml
-                src/gui/qml/common/Subtitle.qml
-                src/gui/qml/common/StatusBadge.qml
-                src/gui/qml/PlaylistPickerCombo.qml
-                src/gui/qml/CamelotWheelPosition.qml
-                src/gui/qml/CamelotWheelPopup.qml
-                src/gui/qml/KeyBadge.qml
-                src/gui/qml/WaveformView.qml
-                src/gui/qml/CueFallbackNotice.qml
-                src/gui/qml/TrackDetailPage.qml
-                src/gui/qml/FormatUsbPage.qml
-                src/gui/qml/common/MessagePopup.qml
-                src/gui/qml/StickWriteWarning.qml
-                src/gui/qml/common/ExperimentalBadge.qml
-                src/gui/qml/common/TransferProgressFrame.qml
-                src/gui/qml/common/TypedConfirmDialog.qml
-                src/gui/qml/common/TransferResultFrame.qml
-                src/gui/qml/common/PageScrollView.qml
-                src/gui/qml/StickBackupPage.qml
-                src/gui/qml/RestoreStickBackupPage.qml
-                src/gui/qml/CloneStickPage.qml
-                src/gui/qml/common/ActionCard.qml
-                src/gui/qml/common/BusyOverlay.qml
-                src/gui/qml/common/DjSoftwareRunningDialog.qml
-                src/gui/qml/common/SaveOverlayButton.qml
-                src/gui/qml/common/UnsavedChangesDialog.qml
-                src/gui/qml/common/WriteProgressDialog.qml
-                src/gui/qml/common/OperationSummaryDialog.qml
-                src/gui/qml/common/LockedLibraryDialog.qml
-                src/gui/qml/common/StickRemovedDialog.qml
-                src/gui/qml/common/EditSessionHost.qml
-                src/gui/qml/UsbStickIcon.qml
-                src/gui/qml/StickListPage.qml
-                src/gui/qml/BackupsHubPage.qml
-                src/gui/qml/TrackDetailPanel.qml
+                ${SEABASS_GUI_QML_FILES_FROM_ROOT}
             RESOURCES
                 src/gui/qml/icons/seabass_soundbass.svg
             SOURCES
-                # Theme.qml's font-size properties (fontSmall, iconScale,
-                # ...) bind to this QML_SINGLETON C++ type.
-                src/gui/system_font_metrics.hpp
-                src/gui/system_font_metrics.cpp
+                ${SEABASS_GUI_SOURCES_FROM_ROOT}
         )
-        target_link_libraries(seabass_qml_tests PRIVATE Qt6::QuickTest Qt6::Quick Qt6::Gui)
+        target_link_libraries(seabass_qml_tests PRIVATE
+            seabass_core
+            Qt6::QuickTest
+            Qt6::Core
+            Qt6::Gui
+            Qt6::Qml
+            Qt6::Quick
+            Qt6::QuickControls2
+            Qt6::QuickLayouts
+            Qt6::QuickEffects
+            Qt6::QuickDialogs2
+            Qt6::QuickShapes
+            Qt6::Multimedia
+            Qt6::Concurrent
+            Qt6::Svg
+        )
         # The generated qmltyperegistrations.cpp #includes each QML_ELEMENT
         # header via <angle brackets> (see e.g. seabass_qmltyperegistrations.cpp
         # in the build dir), resolved against the include path -- src/gui/
         # itself needs to be on it for <system_font_metrics.hpp> to resolve.
-        target_include_directories(seabass_qml_tests PRIVATE ${CMAKE_SOURCE_DIR}/src/gui)
+        target_include_directories(seabass_qml_tests PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/src/gui
+            ${CMAKE_SOURCE_DIR}/src/gui/edit)
 
         add_test(NAME seabass_qml_tests
             COMMAND seabass_qml_tests -input ${CMAKE_CURRENT_SOURCE_DIR}/tests/qml)
