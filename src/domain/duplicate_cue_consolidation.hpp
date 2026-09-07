@@ -39,10 +39,16 @@ struct ConsolidationPlan
     std::vector<Track> targets;   // set only for Kind::Unambiguous
 };
 
-// Groups tracks that look like duplicates of each other (matched by
-// normalized filename + duration tolerance, or title+artist + duration
-// tolerance). Format-agnostic -- has no notion of which catalog a Track
-// came from, so callers can pass a single library's tracks (intra-library
+// Groups tracks that look like duplicates of each other. Two tracks are
+// duplicates when they agree on artist + title AND on length (within
+// DurationToleranceSeconds). All three are required: filename is not a
+// matching criterion (export-assigned number prefixes and copy suffixes
+// differ between copies of one song, and truncation can make two
+// different songs share a name), and a track whose length is unknown is
+// never grouped -- artist + title alone cannot distinguish a radio edit
+// from an extended mix, and this feeds a destructive caller.
+// Format-agnostic -- has no notion of which catalog a Track came from,
+// so callers can pass a single library's tracks (intra-library
 // duplicates) or a concatenation of both rekordbox's and Engine's tracks
 // (cross-library duplicates, used by the Clean Up feature) with no
 // difference in behavior.
