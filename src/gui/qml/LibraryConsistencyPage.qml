@@ -412,6 +412,8 @@ Page {
         // rows above it and shares the one BigScrollBar, the same proven
         // ListView+BigScrollBar pairing every other page in this app uses.
         ListView {
+            // Room to scroll the last row clear of the Save overlay (bottom right).
+            bottomMargin: 80
             id: issueListView
             // Not draggable when everything already fits.
             interactive: contentHeight > height

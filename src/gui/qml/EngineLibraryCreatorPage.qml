@@ -55,6 +55,27 @@ Page {
             Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
         }
         onAccepted: controller.create(root.rekordboxPath, root.schemaGeneration, root.stickLabel)
+
+        ColumnLayout {
+            width: parent.width
+            spacing: 8
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                text: "This creates a brand new \"Engine Library\" folder on this stick from the current "
+                    + "DeviceLibrary export. It does not touch DeviceLibrary's own data at all."
+            }
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                color: Theme.conflictText
+                text: "Experimental: this is the first feature in Seabass that builds a whole new database "
+                    + "from scratch rather than editing one Engine itself already created. It has been "
+                    + "verified by creating a library and reading it back with this app's own reader, but "
+                    + "never tested on real Denon hardware. Verify carefully on your unit before trusting it "
+                    + "for a gig."
+            }
+        }
     }
 
     // Write mode: the lock refusal and the summary. OK on the summary
@@ -81,27 +102,6 @@ Page {
         target: controller
         function onLockRefused(holder) { lockedDialog.openFor(controller.libraryId, holder); }
         function onWriteFinished(summary) { summaryDialog.show(summary); }
-
-        ColumnLayout {
-            width: parent.width
-            spacing: 8
-            Label {
-                Layout.fillWidth: true
-                wrapMode: Text.WordWrap
-                text: "This creates a brand new \"Engine Library\" folder on this stick from the current "
-                    + "DeviceLibrary export. It does not touch DeviceLibrary's own data at all."
-            }
-            Label {
-                Layout.fillWidth: true
-                wrapMode: Text.WordWrap
-                color: Theme.conflictText
-                text: "Experimental: this is the first feature in Seabass that builds a whole new database "
-                    + "from scratch rather than editing one Engine itself already created. It has been "
-                    + "verified by creating a library and reading it back with this app's own reader, but "
-                    + "never tested on real Denon hardware. Verify carefully on your unit before trusting it "
-                    + "for a gig."
-            }
-        }
     }
 
     PageScrollView {

@@ -23,7 +23,10 @@ namespace seabass::gui
 // worker thread for exactly one save loop; never touched by the GUI.
 //
 // - backupOnce(): the pre-write backup of a file, made at most once per
-//   save however many changes touch it, and remembered as the undo unit.
+//   save however many changes touch it. All files backed up under one
+//   label go into ONE backup record per save (a cue removed from 200
+//   tracks is one entry in Manage Backups, and one restore on undo),
+//   which is what the undo list remembers.
 // - shared<T>(): per-save, per-key resources -- a format's writer plus
 //   its scratch copy (FormatWriteSession), a OneLibrary mirror writer --
 //   created by the first change that asks and reused by the rest, so
@@ -90,6 +93,7 @@ private:
     std::unique_ptr<application::OperationLog> m_log;
     std::unique_ptr<application::BackupStore> m_backupStore;
     std::map<std::string, std::string> m_backedUp;  // file -> backup id
+    std::map<std::string, std::string> m_recordByLabel;  // label -> this save's record for it
     std::vector<UndoableBackup> m_backups;
     std::map<std::string, std::shared_ptr<void>> m_shared;
     std::vector<std::function<void(bool)>> m_finishHooks;

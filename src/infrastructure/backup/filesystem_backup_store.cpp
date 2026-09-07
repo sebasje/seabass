@@ -131,8 +131,42 @@ BackupRecord FilesystemBackupStore::backup(const std::vector<std::string> &fileP
     }
     fs::create_directories(dir);
 
+    {
+        std::ofstream manifest(dir / ManifestFileName, std::ios::app);
+        manifest << "MANIFEST-VERSION\t" << CurrentManifestFormatVersion << '\n';
+    }
+    appendFiles(dir, filePaths);
+
+    BackupRecord record;
+    record.id = id;
+    record.path = dir.string();
+    record.label = label;
+    record.sizeBytes = directorySize(dir);
+    return record;
+}
+
+BackupRecord FilesystemBackupStore::addToBackup(const std::string &id, const std::vector<std::string> &filePaths)
+{
+    fs::path dir = fs::path(m_baseDirectory) / id;
+    std::error_code ec;
+    if (!fs::is_directory(dir, ec)) {
+        throw std::runtime_error("no backup with id " + id + " to add to");
+    }
+    appendFiles(dir, filePaths);
+    BackupRecord record;
+    record.id = id;
+    record.path = dir.string();
+    size_t dash = id.find('-');
+    record.label = dash == std::string::npos ? "" : id.substr(dash + 1);
+    record.sizeBytes = directorySize(dir);
+    return record;
+}
+
+// Copies each file into `dir` and appends it to the manifest; shared by
+// backup() and addToBackup().
+void FilesystemBackupStore::appendFiles(const fs::path &dir, const std::vector<std::string> &filePaths)
+{
     std::ofstream manifest(dir / ManifestFileName, std::ios::app);
-    manifest << "MANIFEST-VERSION\t" << CurrentManifestFormatVersion << '\n';
     for (const auto &filePath : filePaths) {
         fs::path source(filePath);
         if (!fs::exists(source)) {
@@ -155,13 +189,6 @@ BackupRecord FilesystemBackupStore::backup(const std::vector<std::string> &fileP
         }
         manifest << destName.string() << '\t' << fs::absolute(source).string() << '\n';
     }
-
-    BackupRecord record;
-    record.id = id;
-    record.path = dir.string();
-    record.label = label;
-    record.sizeBytes = directorySize(dir);
-    return record;
 }
 
 std::vector<BackupRecord> FilesystemBackupStore::list()

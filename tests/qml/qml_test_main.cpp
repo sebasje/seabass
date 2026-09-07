@@ -46,6 +46,20 @@ public slots:
         const char *dir = std::getenv("SEABASS_SCREENSHOT_DIR");
         engine->rootContext()->setContextProperty(QStringLiteral("screenshotDir"),
                                                   dir != nullptr ? QString::fromLocal8Bit(dir) : QString());
+        // tests/qml-live/: the mount point of a real (scratch) stick to
+        // drive the real pages and controllers against. Empty under
+        // ctest, and every live test skips itself then.
+        const char *stick = std::getenv("SEABASS_LIVE_STICK");
+        engine->rootContext()->setContextProperty(QStringLiteral("liveStickRoot"),
+                                                  stick != nullptr ? QString::fromLocal8Bit(stick) : QString());
+        // Which of the orchestrated live scenarios this run is (see
+        // tests/qml-live/run-live.sh); each file skips itself otherwise.
+        engine->rootContext()->setContextProperty(QStringLiteral("liveLockPlanted"),
+                                                  qEnvironmentVariableIsSet("SEABASS_LIVE_LOCKED"));
+        engine->rootContext()->setContextProperty(QStringLiteral("liveGuardRun"),
+                                                  qEnvironmentVariableIsSet("SEABASS_LIVE_GUARD"));
+        engine->rootContext()->setContextProperty(QStringLiteral("liveStickPullRun"),
+                                                  qEnvironmentVariableIsSet("SEABASS_LIVE_STICK_PULL"));
     }
 };
 

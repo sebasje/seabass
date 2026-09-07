@@ -233,6 +233,8 @@ Page {
         }
 
         ListView {
+            // Room to scroll the last row clear of the Save overlay (bottom right).
+            bottomMargin: 80
             id: plansListView
             // Not draggable when everything already fits.
             interactive: contentHeight > height

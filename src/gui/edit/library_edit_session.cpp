@@ -99,6 +99,15 @@ QStringList LibraryEditSession::pendingDescriptions() const
     return lines;
 }
 
+void LibraryEditSession::setStickLabel(const QString &label)
+{
+    if (m_stickLabel == label) {
+        return;
+    }
+    m_stickLabel = label;
+    emit stickLabelChanged();
+}
+
 void LibraryEditSession::setLibraryPaths(const QString &rekordboxPath, const QString &enginePath)
 {
     if (!rekordboxPath.isEmpty()) {

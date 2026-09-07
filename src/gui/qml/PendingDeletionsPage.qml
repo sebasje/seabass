@@ -74,6 +74,17 @@ Page {
             Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
         }
         onAccepted: cleanupController.deleteSelectedPendingFiles()
+
+        Label {
+            width: parent.width
+            wrapMode: Text.WordWrap
+            text: "This frees " + cleanupController.includedPendingBytesHuman + ". Each selected file is "
+                + "re-verified against the current library right before deletion: if anything still "
+                + "references it, it's left alone and reported instead of deleted.\n\n"
+                + "This step is irreversible: a deleted file is gone. The library-database edit that "
+                + "originally orphaned it was already backed up separately, when the duplicate was first "
+                + "cleaned up; that backup restores the database entry, not this file."
+        }
     }
 
     // Write mode: the lock refusal, the summary (OK goes back after a
@@ -101,17 +112,6 @@ Page {
             lockedDialog.openFor(EditSessionRegistry.libraryIdForPath(root.hasEngine ? root.enginePath : root.rekordboxPath), holder);
         }
         function onPendingDeletionsWriteFinished(summary) { summaryDialog.show(summary); }
-
-        Label {
-            width: parent.width
-            wrapMode: Text.WordWrap
-            text: "This frees " + cleanupController.includedPendingBytesHuman + ". Each selected file is "
-                + "re-verified against the current library right before deletion: if anything still "
-                + "references it, it's left alone and reported instead of deleted.\n\n"
-                + "This step is irreversible: a deleted file is gone. The library-database edit that "
-                + "originally orphaned it was already backed up separately, when the duplicate was first "
-                + "cleaned up; that backup restores the database entry, not this file."
-        }
     }
 
     ColumnLayout {

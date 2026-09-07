@@ -166,3 +166,35 @@ close at all.
    `changeApplied(id)` (update the model) and `changesDiscarded()`.
 3. In the page: `EditSessionHost` with the library id and paths, and
    route Back/Home through `editHost.requestLeave(fn)`.
+
+## Live verification (2026-09-07, RV2 scratch stick, 1161 rekordbox / 1469 Engine tracks)
+
+`tests/qml-live/run-live.sh` on the real stick, real binary code paths,
+offscreen:
+
+- a cancelled Browse scan leaves no rows and no cache; the rescan reads
+  all 1161 tracks
+- Device Settings: stage one field, Save ("1 of 1 settings"), the new
+  value is on disk, Undo Last Save puts the old one back
+- Sync: 2388 plans staged, Save cancelled after the first tick, "38 of
+  2388 tracks written (cancelled)", the rest discarded, the 38 undone
+- Stray cues: 201 staged, "201 of 201 cues written", undone in one step
+- Manage Backups: prune "2 of 2 backups deleted", restore "1 of 1"
+- a foreign live lock: READ ONLY cards, the locked dialog, Remove Lock,
+  then the same stage succeeds
+- a process named rekordbox: the guard blocks within 5 s of staging and
+  clears within 1 s of the process ending; meanwhile `seabass-cli` is
+  refused with the holder and writes with `--force`
+- the stick unmounted while editing: the removed-stick dialog, Understood
+  disabled, enabled again when the same stick is back ("hardware" match)
+- the real `seabass` binary on the desktop shows READ ONLY for a planted
+  lock
+
+Found and fixed by that run: two confirm dialogs whose body had landed
+inside a `Connections` block (Delete Orphaned Files, Create Engine
+Library), one backup record per file instead of per save (201 stray
+cues made 201 records; now `BackupStore::addToBackup` grows one record
+per label per save), the removed-stick dialog without the stick label.
+Not verified live: Library Health repairs and Delete Orphaned Files
+(the stick had nothing repairable and no pending deletions), Create
+Engine Library (the stick already has one), the quit flow.
