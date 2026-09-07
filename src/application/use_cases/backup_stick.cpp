@@ -91,16 +91,34 @@ struct OpenedArchive
     std::unordered_map<std::string, const CentralEntry *> entriesByName;
     std::string error;
 
-    bool open(const BackupStickOptions &options)
+    // `recover`: apply a leftover journal, truncating the archive back to
+    // its pre-update length, before reading. Only execute() does that.
+    //
+    // preview() and verify() pass false, because recovery is a write and
+    // a running backup has a live journal by design -- a preview that
+    // recovered would truncate an archive out from under the run that is
+    // still appending to it. The same mistake on the restore side cost a
+    // real 12 GB backup; see restore_stick_backup.cpp's Opened::open()
+    // and tests/backup_archive_concurrent_reader_test.cpp. A preview
+    // reading an unrecovered archive is at worst slightly stale, and the
+    // run that follows recovers properly anyway.
+    bool open(const BackupStickOptions &options, bool recover)
     {
         std::error_code ec;
         fs::create_directories(options.archivePath.parent_path(), ec);
         existedBefore = fs::exists(options.archivePath, ec) && fs::file_size(options.archivePath, ec) > 0;
         try {
+            // Still opened read-write even when not recovering: a first
+            // backup's preview runs before the archive exists, and
+            // O_RDONLY will not create it. Nothing is written unless the
+            // caller recovers or runs an update -- it is recovery, not
+            // the open, that truncates.
             archive = std::make_unique<PosixArchiveFile>(options.archivePath, PosixArchiveFile::OpenMode::ReadWrite);
-            journal = std::make_unique<PosixArchiveFile>(BackupStick::journalPathFor(options.archivePath),
-                                                         PosixArchiveFile::OpenMode::ReadWrite);
-            recoverOnOpen(*archive, *journal);
+            if (recover) {
+                journal = std::make_unique<PosixArchiveFile>(BackupStick::journalPathFor(options.archivePath),
+                                                             PosixArchiveFile::OpenMode::ReadWrite);
+                recoverOnOpen(*archive, *journal);
+            }
         } catch (const std::exception &e) {
             error = std::string("could not open the backup archive: ") + e.what();
             return false;
@@ -349,7 +367,7 @@ VerifyOutcome BackupStick::verify(const fs::path &archivePath, CancellationToken
     BackupStickOptions options;
     options.archivePath = archivePath;
     OpenedArchive opened;
-    if (!opened.open(options)) {
+    if (!opened.open(options, false)) {
         outcome.error = opened.error;
         return outcome;
     }
@@ -400,7 +418,7 @@ BackupPreview BackupStick::preview(const BackupStickOptions &options, ProgressRe
 {
     BackupPreview preview;
     OpenedArchive opened;
-    if (!opened.open(options)) {
+    if (!opened.open(options, false)) {
         preview.error = opened.error;
         return preview;
     }
@@ -440,7 +458,7 @@ BackupStickOutcome BackupStick::execute(const BackupStickOptions &options, Progr
     auto impl = std::make_unique<PendingBackup::Impl>();
     impl->options = options;
     OpenedArchive &opened = impl->opened;
-    if (!opened.open(options)) {
+    if (!opened.open(options, true)) {
         outcome.message = opened.error;
         return outcome;
     }

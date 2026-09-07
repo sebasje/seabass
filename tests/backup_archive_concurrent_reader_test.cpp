@@ -225,6 +225,35 @@ int main()
         std::cout << "case 3 (cancel, keep, resume with a reader alongside) OK\n";
     }
 
+    // ---- the backup side's own preview, alongside a run ----
+    // StickBackupController::refresh() only guards against a second
+    // preview, not against a run, so this pairing is reachable from the
+    // UI; BackupStick::preview() used to recover (and so truncate) too.
+    {
+        Fixture f("preview-during-backup");
+        std::atomic<int> passes{0};
+        BackupStickOptions probe = f.options;
+        probe.onProgress = {};
+        f.options.onProgress = [&](const BackupProgress &progress) {
+            if (progress.phase != BackupProgress::Phase::Reading || progress.filesDone < 3 || passes >= 3) {
+                return;
+            }
+            ++passes;
+            std::thread reader([&] { (void)BackupStick::preview(probe); });
+            reader.join();
+        };
+        BackupStickOutcome outcome = BackupStick::execute(f.options);
+        assert(passes > 0);
+        if (outcome.status != BackupOutcomeStatus::Complete) {
+            std::cerr << "backup did not complete: " << outcome.message << "\n";
+        }
+        assert(outcome.status == BackupOutcomeStatus::Complete);
+        VerifyOutcome verified = BackupStick::verify(f.archive);
+        assert(verified.error.empty() && verified.ok);
+        assertNotHollow(f.archive);
+        std::cout << "case 4 (preview during a backup leaves a good archive) OK\n";
+    }
+
     std::cout << "All backup_archive_concurrent_reader tests passed." << std::endl;
     return 0;
 }
