@@ -97,6 +97,12 @@ void writeManifest(const fs::path &manifestPath, const AnonymizationSummary &sum
             m << "Tracks kept: " << summary.engineTracksKept << "\n";
             m << "Tracks dropped (--max-tracks): " << summary.engineTracksDropped << "\n";
             m << "Playlists/folders renamed: " << summary.enginePlaylistsRenamed << "\n";
+            if (summary.engineTracksRefused > 0) {
+                m << "\n*** WARNING: " << summary.engineTracksRefused
+                  << " track(s) could NOT be anonymized and still hold their real\n"
+                     "    title, artist and file path. Reason: " << summary.engineFirstRefusalReason << "\n"
+                     "    DO NOT SHARE THIS EXPORT.\n";
+            }
         } else {
             m << "FAILED: " << summary.engineError << "\n";
         }
@@ -112,9 +118,20 @@ void writeManifest(const fs::path &manifestPath, const AnonymizationSummary &sum
          "  REPLACED with placeholder text (e.g. \"Track 014\"): title,\n"
          "    artist, comment, cue comments, filename/file path,\n"
          "    playlist/folder names.\n"
+         "  REPLACED inside the analysis files too: the file path each\n"
+         "    one embeds, which is where the artist, album and title\n"
+         "    would otherwise still be readable.\n"
+         "  ALSO INCLUDED: your player preference files (MYSETTING.DAT\n"
+         "    and friends). They hold settings like LCD brightness and\n"
+         "    jog feel, nothing about you or your music, and this app's\n"
+         "    Device Profile feature cannot be tested without them.\n"
          "  REMOVED entirely: artwork images, the detailed color and\n"
          "    scrolling waveform data rekordbox's own UI uses during\n"
-         "    playback (not read by this app), original file paths.\n\n";
+         "    playback (not read by this app), original file paths, your\n"
+         "    Device Library Plus database (exportLibrary.db) and your\n"
+         "    My Tag vocabulary (exportExt.pdb) -- those last two have no\n"
+         "    anonymizer yet, so they are left out rather than sent as\n"
+         "    they are.\n\n";
 
     m << "Output size: " << humanSize(summary.outputSizeBytes) << " raw, roughly "
       << humanSize(summary.estimatedZippedBytes) << " estimated once zipped.\n\n";
@@ -169,6 +186,8 @@ AnonymizationSummary AnonymizeLibrary::execute(const std::optional<std::string> 
         summary.engineTracksKept = result.tracksKept;
         summary.engineTracksDropped = result.tracksDropped;
         summary.enginePlaylistsRenamed = result.playlistsRenamed;
+        summary.engineTracksRefused = result.tracksRefused;
+        summary.engineFirstRefusalReason = result.firstRefusalReason;
         summary.engineError = result.errorMessage;
     }
 

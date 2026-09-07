@@ -240,6 +240,61 @@ void obfuscateCueComments(std::string &sectionBytes, size_t &nextIndex)
     }
 }
 
+// The PATH section holds the audio file's real path as UTF-16BE text --
+// "/Contents/<Artist>/<Album>/NNN_<Artist>-<Title>.mp3" on a typical
+// library, so the artist, album and title are all in there even though
+// the pdb row's own copies of them were replaced. MANIFEST.txt promises
+// contributors that original file paths are removed entirely, and until
+// this existed that promise was broken in every single analysis file.
+//
+// Overwritten in place and byte-length-preserving, exactly like
+// obfuscateCueComments() above: len_path is never touched, only the text
+// inside it, still ending in the format's own NUL terminator. The
+// replacement is derived from the real basename through the same
+// anonymizationFilenamePlaceholder() the pdb row and the Engine database
+// use, so one real track keeps one placeholder across all three.
+void obfuscatePathSection(std::string &sectionBytes)
+{
+    constexpr size_t LenHeaderOffset = 4;
+    constexpr size_t LenPathOffset = 12;
+    if (sectionBytes.size() < LenPathOffset + 4) {
+        return;
+    }
+    const uint32_t lenHeader = readU32BE(sectionBytes, LenHeaderOffset);
+    const uint32_t lenPath = readU32BE(sectionBytes, LenPathOffset);
+    if (lenPath < 4 || lenHeader + lenPath > sectionBytes.size()) {
+        return;  // defensive: malformed section, leave it alone
+    }
+    const size_t capacityUnits = lenPath / 2 - 1;  // excludes the trailing NUL
+
+    std::string realPath;
+    for (size_t u = 0; u < capacityUnits; ++u) {
+        // The paths this format carries are ASCII in practice; anything
+        // wider only affects which basename we hash, never whether the
+        // text gets replaced.
+        realPath.push_back(sectionBytes[lenHeader + u * 2 + 1]);
+    }
+    while (!realPath.empty() && (realPath.back() == ' ' || realPath.back() == '\0')) {
+        realPath.pop_back();
+    }
+    const size_t slash = realPath.find_last_of('/');
+    const std::string realFilename = slash == std::string::npos ? realPath : realPath.substr(slash + 1);
+    const std::string replacement = "/Contents/" + anonymizationFilenamePlaceholder(realFilename);
+
+    const std::string fitted = replacement.substr(0, std::min(replacement.size(), capacityUnits));
+    size_t u = 0;
+    for (; u < fitted.size(); ++u) {
+        sectionBytes[lenHeader + u * 2] = 0x00;
+        sectionBytes[lenHeader + u * 2 + 1] = fitted[u];
+    }
+    for (; u < capacityUnits; ++u) {
+        sectionBytes[lenHeader + u * 2] = 0x00;
+        sectionBytes[lenHeader + u * 2 + 1] = ' ';
+    }
+    sectionBytes[lenHeader + capacityUnits * 2] = 0x00;
+    sectionBytes[lenHeader + capacityUnits * 2 + 1] = 0x00;
+}
+
 void anonymizeAnlzFile(const std::string &path, size_t &nextCueCommentIndex)
 {
     std::error_code ec;
@@ -248,9 +303,13 @@ void anonymizeAnlzFile(const std::string &path, size_t &nextCueCommentIndex)
     }
     try {
         AnlzFile file = AnlzFile::readRaw(path);
+        bool pathScrubbed = false;
         for (auto &section : file.sections) {
             if (section.fourcc == static_cast<uint32_t>(Anlz::SECTION_TAGS_CUES_2)) {
                 obfuscateCueComments(section.rawBytes, nextCueCommentIndex);
+            } else if (section.fourcc == static_cast<uint32_t>(Anlz::SECTION_TAGS_PATH)) {
+                obfuscatePathSection(section.rawBytes);
+                pathScrubbed = true;
             }
         }
         size_t before = file.sections.size();
@@ -262,7 +321,7 @@ void anonymizeAnlzFile(const std::string &path, size_t &nextCueCommentIndex)
         bool hadCues2 = std::any_of(file.sections.begin(), file.sections.end(), [](const AnlzRawSection &s) {
             return s.fourcc == static_cast<uint32_t>(Anlz::SECTION_TAGS_CUES_2);
         });
-        if (file.sections.size() != before || hadCues2) {
+        if (file.sections.size() != before || hadCues2 || pathScrubbed) {
             file.writeRaw(path);
         }
     } catch (const std::exception &) {
@@ -299,10 +358,54 @@ RekordboxAnonymizationResult anonymizeRekordboxLibrary(const std::string &source
 
     try {
         copyTreeIfPresent(fs::path(sourceRoot) / "rekordbox", fs::path(destinationRoot) / "rekordbox");
+        // That copy takes the whole rekordbox/ directory, which on a real
+        // stick holds more than export.pdb. Two of those files have no
+        // anonymizer at all and were shipping verbatim:
+        //   exportLibrary.db  the OneLibrary mirror -- the COMPLETE real
+        //                     library. Encrypted, but with a key this
+        //                     project's own source derives, so anyone with
+        //                     the app can read it straight out.
+        //   exportExt.pdb     the My Tag vocabulary, free text a DJ typed.
+        // Removed until each has a real anonymizer. Dropping exportLibrary.db
+        // costs the OneLibrary write path its only real-data coverage, so
+        // writing that anonymizer is the way to get it back, not an
+        // exception here.
+        for (const char *unanonymized : {"exportLibrary.db", "exportLibrary.db-shm", "exportLibrary.db-wal",
+                                          "exportExt.pdb"}) {
+            std::error_code removeEc;
+            fs::remove(fs::path(destinationRoot) / "rekordbox" / unanonymized, removeEc);
+        }
         copyTreeIfPresent(fs::path(sourceRoot) / "USBANLZ", fs::path(destinationRoot) / "USBANLZ");
+        // Device Profile reads these and nothing else does. They hold
+        // player preferences (LCD brightness, quantize, jog feel), not
+        // anything about the person or their music, so they go in as-is --
+        // and without them a donated set cannot exercise that feature at
+        // all. djprofile.nxs is deliberately not among them: it is a
+        // device profile blob this app never reads and has not been
+        // audited for identifying content.
+        for (const char *settingsFile : {"MYSETTING.DAT", "MYSETTING2.DAT", "DEVSETTING.DAT", "DJMMYSETTING.DAT"}) {
+            std::error_code settingsEc;
+            const fs::path from = fs::path(sourceRoot) / settingsFile;
+            if (fs::exists(from, settingsEc)) {
+                fs::copy_file(from, fs::path(destinationRoot) / settingsFile,
+                              fs::copy_options::overwrite_existing, settingsEc);
+                if (!settingsEc) {
+                    ++result.deviceSettingsFilesCopied;
+                }
+            }
+        }
 
         std::string pdbPath = (fs::path(destinationRoot) / "rekordbox" / "export.pdb").string();
         EnumerationResult enumerated = enumeratePdb(pdbPath);
+
+        // Every analysis file this run has already been through, so the sweep
+
+        // below does not process one twice (which would re-hash an
+
+        // already-anonymized name into a different one).
+
+        std::set<std::string> visitedAnlz;
+
 
         reporter.start("Anonymizing rekordbox library", enumerated.tracksInDiskOrder.size());
 
@@ -387,6 +490,9 @@ RekordboxAnonymizationResult anonymizeRekordboxLibrary(const std::string &source
             anonymizeAnlzFile(datAnlzPath(destinationRoot, t.analyzePath), nextCueCommentIndex);
             anonymizeAnlzFile(extAnlzPath(destinationRoot, t.analyzePath), nextCueCommentIndex);
             anonymizeAnlzFile(twoExAnlzPath(destinationRoot, t.analyzePath), nextCueCommentIndex);
+            visitedAnlz.insert(datAnlzPath(destinationRoot, t.analyzePath));
+            visitedAnlz.insert(extAnlzPath(destinationRoot, t.analyzePath));
+            visitedAnlz.insert(twoExAnlzPath(destinationRoot, t.analyzePath));
         }
 
         for (const auto &t : dropped) {
@@ -404,6 +510,30 @@ RekordboxAnonymizationResult anonymizeRekordboxLibrary(const std::string &source
         reporter.finish();
         result.tracksKept = static_cast<int>(kept.size());
         result.tracksDropped = static_cast<int>(dropped.size());
+        // A stick accumulates analysis files for tracks that were later
+        // deleted from the library: rekordbox leaves them behind, and the
+        // copy above brings them along. They are not reachable from any
+        // present track row, so the loop never saw them -- and every one
+        // still held its real path. Verified on a real stick: 827 of 1983
+        // triples were orphans of exactly this kind.
+        std::error_code sweepEc;
+        const fs::path anlzRoot = fs::path(destinationRoot) / "USBANLZ";
+        if (fs::is_directory(anlzRoot, sweepEc)) {
+            for (const auto &entry : fs::recursive_directory_iterator(anlzRoot, sweepEc)) {
+                if (!entry.is_regular_file()) {
+                    continue;
+                }
+                const std::string ext = entry.path().extension().string();
+                if (ext != ".DAT" && ext != ".EXT" && ext != ".2EX") {
+                    continue;
+                }
+                if (visitedAnlz.count(entry.path().string()) > 0) {
+                    continue;
+                }
+                anonymizeAnlzFile(entry.path().string(), nextCueCommentIndex);
+                ++result.orphanedAnalysisFilesScrubbed;
+            }
+        }
     } catch (const std::exception &e) {
         result.errorMessage = e.what();
     }

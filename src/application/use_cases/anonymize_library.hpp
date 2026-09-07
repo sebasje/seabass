@@ -41,6 +41,11 @@ struct AnonymizationSummary
     int engineTracksKept = 0;
     int engineTracksDropped = 0;
     int enginePlaylistsRenamed = 0;
+    // Tracks the Engine anonymizer could not touch: their real metadata is
+    // still in the export, so it must not be shared. Surfaced in
+    // MANIFEST.txt and by the CLI.
+    int engineTracksRefused = 0;
+    std::string engineFirstRefusalReason;
     std::string engineError;  // empty on success
 
     // Only valid while execute() is still running -- the staging

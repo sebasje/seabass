@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cstdio>
 #include <filesystem>
+
+#include <sqlite3.h>
 #include <stdexcept>
 #include <system_error>
 #include <unordered_map>
@@ -14,6 +16,47 @@
 
 namespace seabass::infrastructure::engine
 {
+
+namespace
+{
+
+// libdjinterop derives track::filename() from the relative path, so it
+// never writes the Track.filename column and set_relative_path() leaves
+// it holding the original real filename. Nothing in this app reads that
+// column -- but Engine DJ does, and so does anyone who opens the file, so
+// an export that left it alone was still shipping every real filename.
+//
+// Done in SQL, after libdjinterop has closed its own connection, because
+// there is no setter to do it through.
+int scrubFilenameColumn(const std::string &destinationRoot)
+{
+    const std::string dbPath = (std::filesystem::path(destinationRoot) / "Database2" / "m.db").string();
+    sqlite3 *db = nullptr;
+    if (sqlite3_open(dbPath.c_str(), &db) != SQLITE_OK) {
+        sqlite3_close(db);
+        return 0;
+    }
+    // The scrubbed path is "Contents/<hash>.<ext>", so the filename is
+    // everything after the last separator. rtrim(path, <path without
+    // slashes>) leaves just the leading "Contents/", which replace() then
+    // strips -- one statement, and correct for a path with no separator.
+    const char *sql =
+        "UPDATE Track SET filename = "
+        "  CASE WHEN instr(path, '/') > 0 "
+        "       THEN replace(path, rtrim(path, replace(path, '/', '')), '') "
+        "       ELSE path END "
+        "WHERE path IS NOT NULL;";
+    char *error = nullptr;
+    int changed = 0;
+    if (sqlite3_exec(db, sql, nullptr, nullptr, &error) == SQLITE_OK) {
+        changed = sqlite3_changes(db);
+    }
+    sqlite3_free(error);
+    sqlite3_close(db);
+    return changed;
+}
+
+}  // namespace
 
 namespace fs = std::filesystem;
 
@@ -132,6 +175,13 @@ EngineAnonymizationResult anonymizeEngineLibrary(const std::string &sourceRoot, 
 
         size_t trackIndex = 0;
         for (auto &t : kept) {
+          // Per track, not per run. libdjinterop throws on performance
+          // data it cannot decode (real libraries have plenty), and a
+          // single top-level catch meant the first such track aborted the
+          // loop and left every track after it holding its real metadata
+          // in an export that still got written and zipped. Refusing one
+          // track has to cost one track.
+          try {
             std::string realArtist = t.artist().value_or("");
             auto artistIt = artistPlaceholderByRealName.find(realArtist);
             if (artistIt == artistPlaceholderByRealName.end()) {
@@ -154,6 +204,20 @@ EngineAnonymizationResult anonymizeEngineLibrary(const std::string &sourceRoot, 
             t.set_artist(artistIt->second);
             t.set_comment(anonymizationPlaceholder("Comment", realFilename));
             t.set_relative_path("Contents/" + obfuscatedFilename);
+            // Album, genre and record label are free text a person or a
+            // tagging tool typed, exactly as identifying as the title, and
+            // they were never scrubbed at all. Only set them when the real
+            // track had one, so "no album" stays "no album" and the shape
+            // of the library survives.
+            if (t.album()) {
+                t.set_album(anonymizationPlaceholder("Album", realFilename));
+            }
+            if (t.genre()) {
+                t.set_genre(anonymizationPlaceholder("Genre", realFilename));
+            }
+            if (t.publisher()) {
+                t.set_publisher(anonymizationPlaceholder("Label", realFilename));
+            }
 
             // Hot cue/loop *labels* are the Engine-side equivalent of
             // rekordbox's cue comments -- real free text a DJ typed per
@@ -176,6 +240,12 @@ EngineAnonymizationResult anonymizeEngineLibrary(const std::string &sourceRoot, 
             }
             t.set_loops(loops);
 
+          } catch (const std::exception &e) {
+            ++result.tracksRefused;
+            if (result.firstRefusalReason.empty()) {
+                result.firstRefusalReason = e.what();
+            }
+          }
             ++trackIndex;
             reporter.tick(trackIndex);
         }
@@ -190,6 +260,9 @@ EngineAnonymizationResult anonymizeEngineLibrary(const std::string &sourceRoot, 
         result.tracksDropped = static_cast<int>(dropped.size());
     } catch (const std::exception &e) {
         result.errorMessage = e.what();
+    }
+    if (result.errorMessage.empty()) {
+        result.filenameColumnRows = scrubFilenameColumn(destinationRoot);
     }
     return result;
 }
