@@ -77,6 +77,13 @@ struct AnonymizationSummary
 
     // True if at least one catalog was attempted and none of the
     // attempted ones failed.
+    // Set when the finished export failed its own verification (see
+    // infrastructure/anonymization_verifier.hpp). No zip was written and
+    // the staging directory was removed: there is nothing to share, which
+    // is the point.
+    bool verificationFailed = false;
+    std::string verificationReport;
+
     bool succeeded() const;
 };
 

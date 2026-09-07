@@ -5,6 +5,7 @@
 #include <sstream>
 #include <system_error>
 
+#include "infrastructure/anonymization_verifier.hpp"
 #include "infrastructure/engine/libdjinterop_engine_anonymizer.hpp"
 #include "infrastructure/long_paths.hpp"
 #include "infrastructure/rekordbox/rekordbox_library_anonymizer.hpp"
@@ -156,7 +157,8 @@ bool AnonymizationSummary::succeeded() const
 {
     bool anyAttempted = rekordboxAttempted || engineAttempted;
     bool anyFailed = (rekordboxAttempted && !rekordboxError.empty()) || (engineAttempted && !engineError.empty());
-    return anyAttempted && !anyFailed;
+    // A failed verification is a failed export: no zip was written.
+    return anyAttempted && !anyFailed && !verificationFailed;
 }
 
 AnonymizationSummary AnonymizeLibrary::execute(const std::optional<std::string> &rekordboxRoot,
@@ -217,6 +219,26 @@ AnonymizationSummary AnonymizeLibrary::execute(const std::optional<std::string> 
     // portable: a trailing separator makes filename() report empty, so
     // that case falls back to parent_path() first, then += appends
     // ".zip" without inserting a fresh separator.
+    // The last thing before the zip exists: check that this export is
+    // what the manifest above just promised it is. Everything the
+    // anonymizers were supposed to scrub gets sampled back through the
+    // app's own readers, and every analysis file's embedded path is read
+    // in full, because that is where the leak was -- all 2744 of them
+    // still held the real artist, album and title while the manifest
+    // said original file paths were removed entirely.
+    //
+    // A failure refuses to write the zip at all. Producing the file and
+    // describing the problem afterwards would leave a leaking export on
+    // disk with a manifest inside it saying otherwise, which is exactly
+    // the thing to avoid.
+    auto verification = infrastructure::verifyAnonymizedExport(outputDir);
+    if (!verification.ok) {
+        summary.verificationFailed = true;
+        summary.verificationReport = verification.describe();
+        infrastructure::removeTreeDeepestFirst(outputDir);
+        return summary;
+    }
+
     fs::path zipPath(outputDir);
     if (zipPath.filename().empty()) {
         zipPath = zipPath.parent_path();

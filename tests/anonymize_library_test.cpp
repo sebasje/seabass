@@ -250,6 +250,13 @@ int main()
 
         auto summary = useCase.execute(rekordboxSource.string(), engineSource.string(), outDir.string(), options);
 
+        // The export verifies itself before zipping and refuses to write
+        // the file when it finds a leak, so say what it found rather than
+        // failing on a bare succeeded().
+        if (!summary.verificationReport.empty()) {
+            std::cerr << summary.verificationReport << std::flush;
+        }
+        assert(!summary.verificationFailed);
         assert(summary.succeeded());
         assert(summary.rekordboxAttempted && summary.rekordboxError.empty());
         assert(summary.engineAttempted && summary.engineError.empty());
