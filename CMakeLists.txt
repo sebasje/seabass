@@ -217,6 +217,8 @@ add_library(seabass_core STATIC
     src/application/use_cases/compact_stick_backup.cpp
     src/application/use_cases/restore_stick_backup.cpp
     src/application/use_cases/clone_stick.cpp
+    src/application/use_cases/fill_missing_durations.cpp
+    src/infrastructure/local/duration_cache.cpp
 )
 target_include_directories(seabass_core PUBLIC src)
 target_link_libraries(seabass_core PUBLIC rekordbox_format DjInterop ZLIB::ZLIB)
@@ -325,6 +327,27 @@ option(SEABASS_EXPERIMENTAL "Compile in the experimental-features opt-in (Settin
 # on any install that has the mandatory modules but not QuickTest.
 find_package(Qt6 QUIET COMPONENTS Core Gui Qml Quick QuickControls2 QuickLayouts QuickEffects QuickDialogs2 QuickShapes Multimedia Concurrent Svg
     OPTIONAL_COMPONENTS Test QuickTest)
+# --- QtMultimedia duration probe (see TrackDurationProbe) ---
+#
+# Deliberately its own tiny target rather than sources in seabass_core:
+# the core library, seabass-cli and the Qt-free corpus_test must keep
+# linking no Qt at all. Only this target sees Qt6::Multimedia, and both
+# seabass-cli and the GUI link it when Qt was found. Where it was not,
+# callers fall back to application::NullTrackDurationProbe and the build
+# is unchanged.
+#
+# No AUTOMOC: QtMultimediaDurationProbe has no Q_OBJECT of its own (it
+# connects with a context object + lambda), so nothing needs moc'ing.
+if(TARGET Qt6::Multimedia)
+    add_library(seabass_audio_qt STATIC src/infrastructure/audio/qt_multimedia_duration_probe.cpp)
+    target_include_directories(seabass_audio_qt PUBLIC src)
+    target_link_libraries(seabass_audio_qt PUBLIC Qt6::Core Qt6::Multimedia)
+    target_compile_definitions(seabass_audio_qt PUBLIC SEABASS_HAVE_QT_AUDIO)
+    # seabass-cli is declared above this point, so it is linked here
+    # rather than at its own definition.
+    target_link_libraries(seabass-cli PRIVATE seabass_audio_qt)
+endif()
+
 if(Qt6_FOUND)
     qt_standard_project_setup(REQUIRES 6.5)
     if(WIN32)
@@ -340,6 +363,9 @@ if(Qt6_FOUND)
     # system Qt install.
     set(BUILD_SHARED_LIBS ON)
     add_subdirectory(src/gui)
+    if(TARGET seabass_audio_qt)
+        target_link_libraries(seabass PRIVATE seabass_audio_qt)
+    endif()
     target_compile_definitions(seabass PRIVATE
         $<$<BOOL:${SEABASS_EXPERIMENTAL}>:SEABASS_EXPERIMENTAL_BUILD>)
 
@@ -434,6 +460,11 @@ endif()
 # --- domain-layer unit tests (no infrastructure deps, no fixtures needed) ---
 
 enable_testing()
+add_executable(duration_cache_test tests/duration_cache_test.cpp)
+target_include_directories(duration_cache_test PRIVATE src)
+target_link_libraries(duration_cache_test PRIVATE seabass_core)
+add_test(NAME duration_cache_test COMMAND duration_cache_test)
+
 add_executable(duplicate_cue_consolidation_test
     src/domain/duplicate_cue_consolidation.cpp
     src/domain/track_matching.cpp

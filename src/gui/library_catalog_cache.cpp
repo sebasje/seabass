@@ -4,6 +4,7 @@
 #include <stdexcept>
 
 #include "application/use_cases/scan_library.hpp"
+#include "infrastructure/audio/duration_fill.hpp"
 #include "infrastructure/engine/libdjinterop_engine_reader.hpp"
 #include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
 #include "infrastructure/onelibrary/onelibrary_reader.hpp"
@@ -39,8 +40,9 @@ std::chrono::system_clock::time_point realMtime(const std::string &format, const
     return std::chrono::clock_cast<std::chrono::system_clock>(fs::last_write_time(freshnessFile(format, path)));
 }
 
-std::vector<domain::Track> realScan(const std::string &format, const std::string &path,
-                                     application::ProgressReporter &progress, application::CancellationToken cancel)
+std::vector<domain::Track> readCatalog(const std::string &format, const std::string &path,
+                                        application::ProgressReporter &progress,
+                                        application::CancellationToken cancel)
 {
     if (format == "rekordbox") {
         infrastructure::rekordbox::KaitaiRekordboxReader reader(path);
@@ -61,6 +63,21 @@ std::vector<domain::Track> realScan(const std::string &format, const std::string
         return application::ScanLibrary(reader).execute();
     }
     throw std::invalid_argument("LibraryCatalogCache: unknown format \"" + format + "\"");
+}
+
+std::vector<domain::Track> realScan(const std::string &format, const std::string &path,
+                                     application::ProgressReporter &progress, application::CancellationToken cancel)
+{
+    auto tracks = readCatalog(format, path, progress, cancel);
+    // Every GUI scan goes through here, so this is the one place the
+    // lengths neither catalog recorded get filled in -- duplicate
+    // detection needs them to tell a radio edit from an extended mix,
+    // and the results are cached on the stick so only the first scan
+    // pays for it. Doing it here rather than in each controller is
+    // deliberate: the fill was once wired into the CLI alone, and the
+    // GUI silently found fewer duplicates as a result.
+    infrastructure::audio::fillTrackDurations(tracks, path);
+    return tracks;
 }
 
 }  // namespace
