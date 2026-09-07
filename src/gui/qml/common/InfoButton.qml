@@ -40,6 +40,14 @@ ToolButton {
         x: centeredX + (clampedSceneX - (sceneX + centeredX))
         y: root.height
         width: Math.min(420, root.Window.width - 2 * edgeMargin)
+
+        // How much room is left below the button. A long explanation
+        // must scroll inside that, not run off the bottom of the window
+        // where it would be clipped as silently as it used to be
+        // clipped off the right edge.
+        readonly property real sceneBottomY: root.mapToItem(null, 0, root.height).y
+        readonly property real maxHeight:
+            Math.max(120, root.Window.height - sceneBottomY - edgeMargin)
         modal: true
         focus: true
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
@@ -50,21 +58,35 @@ ToolButton {
             radius: 6
         }
 
-        ColumnLayout {
-            width: parent.width
-            spacing: 8
+        // Everything here addresses its siblings by id, never through
+        // parent/parent.parent: the Popup's parent chain does not exist
+        // yet while its contentItem is being constructed, and reaching
+        // through it made object creation fail -- which main.cpp turns
+        // into a silent exit(-1), no window and no QML error printed.
+        contentItem: ScrollView {
+            id: scroller
+            clip: true
+            contentWidth: availableWidth
+            implicitHeight: Math.min(column.implicitHeight, popup.maxHeight)
+            ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
-            Label {
-                text: root.explanationTitle
-                font.bold: true
-                font.pointSize: Theme.fontMedium
-                wrapMode: Text.WordWrap
-                Layout.fillWidth: true
-            }
-            Label {
-                text: root.explanationText
-                wrapMode: Text.WordWrap
-                Layout.fillWidth: true
+            ColumnLayout {
+                id: column
+                width: scroller.availableWidth
+                spacing: 8
+
+                Label {
+                    text: root.explanationTitle
+                    font.bold: true
+                    font.pointSize: Theme.fontMedium
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                }
+                Label {
+                    text: root.explanationText
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                }
             }
         }
     }
