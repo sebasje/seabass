@@ -193,6 +193,7 @@ add_library(seabass_core STATIC
     src/infrastructure/work_counters.cpp
     src/infrastructure/anonymization_verifier.cpp
     src/infrastructure/zip_archive_reader.cpp
+    src/infrastructure/onelibrary/onelibrary_anonymizer.cpp
     src/infrastructure/local/file_library_edit_lock_store.cpp
     src/infrastructure/system/rekordbox_process_detector.cpp
     src/infrastructure/system/process_liveness.cpp
@@ -846,19 +847,9 @@ target_include_directories(pdb_row_writer_string_test PRIVATE src)
 target_link_libraries(pdb_row_writer_string_test PRIVATE rekordbox_format ZLIB::ZLIB)
 add_test(NAME pdb_row_writer_string_test COMMAND pdb_row_writer_string_test)
 
-add_executable(rekordbox_library_anonymizer_test
-    src/infrastructure/long_paths.cpp
-    src/infrastructure/durable_file_write.cpp
-    src/infrastructure/work_counters.cpp
-    src/infrastructure/rekordbox/pdb_row_writer.cpp
-    src/infrastructure/rekordbox/pdb_lookup.cpp
-    src/infrastructure/rekordbox/anlz_file.cpp
-    src/infrastructure/rekordbox/rekordbox_library_anonymizer.cpp
-    src/application/ports/progress_reporter.cpp
-    tests/rekordbox_library_anonymizer_test.cpp
-)
+add_executable(rekordbox_library_anonymizer_test tests/rekordbox_library_anonymizer_test.cpp)
 target_include_directories(rekordbox_library_anonymizer_test PRIVATE src)
-target_link_libraries(rekordbox_library_anonymizer_test PRIVATE rekordbox_format ZLIB::ZLIB)
+target_link_libraries(rekordbox_library_anonymizer_test PRIVATE seabass_core)
 add_test(NAME rekordbox_library_anonymizer_test COMMAND rekordbox_library_anonymizer_test)
 
 add_executable(rekordbox_cleanup_writer_test

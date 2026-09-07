@@ -318,7 +318,23 @@ Each step leaves the tree building and every test passing.
    (`seabass-cli anonymize` from the RV2 set), replace
    `tests/fixtures/anonymized_library`, and commit. The old fixture carries
    every leak in the table at the top of this document.
-5. **Write the OneLibrary anonymizer**,
+5. **Write the OneLibrary anonymizer.** **Done:**
+   `infrastructure/onelibrary/onelibrary_anonymizer`. It scrubs titles,
+   paths, filenames, comments, artists, albums, genres, labels, playlist
+   names and cue comments, points artwork rows at a removed placeholder,
+   and VACUUMs so the old text does not survive in the database's free
+   pages. Placeholders key on the real filename, the same key the other two
+   anonymizers use, so one real track gets the same placeholder in all
+   three catalogs. Schema differences are handled by asking `PRAGMA
+   table_info` what exists rather than assuming.
+
+   `exportLibrary.db` is therefore back in the export, scrubbed, and the
+   committed fixture carries it: all nine matrix rows now run against the
+   fixture rather than eight, and OneLibrary has real-data coverage for the
+   first time. `exportExt.pdb` is still excluded and still has no
+   anonymizer.
+
+   Original instruction, for reference: write the OneLibrary anonymizer,
    `src/infrastructure/onelibrary/onelibrary_anonymizer.{hpp,cpp}`: open
    `exportLibrary.db` with the project's own key derivation, and for every
    row apply the same `anonymizationPlaceholder(kind, realKey)` mapping the

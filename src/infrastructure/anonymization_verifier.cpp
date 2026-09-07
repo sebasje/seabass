@@ -8,6 +8,8 @@
 #include "application/use_cases/scan_library.hpp"
 #include "infrastructure/anonymization_placeholder.hpp"
 #include "infrastructure/engine/libdjinterop_engine_reader.hpp"
+#include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
+#include "infrastructure/onelibrary/onelibrary_reader.hpp"
 #include "infrastructure/rekordbox/anlz_file.hpp"
 #include "infrastructure/rekordbox/generated/rekordbox_anlz.h"
 #include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
@@ -175,6 +177,7 @@ std::string AnonymizationVerification::describe() const
     out << "Analysis files checked: " << analysisFilesChecked << "\n";
     out << "rekordbox tracks sampled: " << rekordboxTracksSampled << "\n";
     out << "Engine tracks sampled: " << engineTracksSampled << "\n";
+    out << "OneLibrary tracks sampled: " << oneLibraryTracksSampled << "\n";
     if (!problems.empty()) {
         out << "\nProblems (" << problems.size() << "):\n";
         for (const auto &problem : problems) {
@@ -229,15 +232,24 @@ AnonymizationVerification verifyAnonymizedExport(const std::string &exportRoot, 
         if (fs::is_directory(catalog, ec)) {
             for (const auto &entry : fs::directory_iterator(catalog, ec)) {
                 const std::string name = entry.path().filename().string();
-                if (name == "export.pdb") {
+                // exportLibrary.db is the Device Library Plus mirror, kept
+                // now that it is scrubbed; its rows are sampled below.
+                if (name == "export.pdb" || name == "exportLibrary.db") {
                     continue;
                 }
-                // exportLibrary.db is the Device Library Plus database and
-                // exportExt.pdb the My Tag vocabulary. Both used to be
-                // swept in whole by a blanket directory copy, and the
-                // first holds the entire real library behind a key this
-                // project's own source derives.
-                fail("database that has no anonymizer is present: rekordbox/rekordbox/" + name);
+                // SQLite recreates these the moment anything opens the
+                // database -- including this check, which reads the
+                // mirror back a few lines below. They hold no content of
+                // their own once the anonymizer has vacuumed, and the
+                // export removes them after this runs, immediately before
+                // zipping.
+                if (name == "exportLibrary.db-shm" || name == "exportLibrary.db-wal") {
+                    continue;
+                }
+                // exportExt.pdb is the My Tag vocabulary and still has no
+                // anonymizer; the -shm and -wal side files are unscrubbed
+                // by definition.
+                fail("file that has no anonymizer is present: rekordbox/rekordbox/" + name);
             }
         }
     }
@@ -327,6 +339,17 @@ AnonymizationVerification verifyAnonymizedExport(const std::string &exportRoot, 
             checkTracks(tracks, "rekordbox", result.rekordboxTracksSampled);
         } catch (const std::exception &e) {
             warn(std::string("could not read the rekordbox catalog back, so its fields were not sampled: ")
+                 + e.what());
+        }
+    }
+    if (fs::is_directory(rekordboxRoot, ec)
+        && onelibrary::OneLibraryCueWriter::existsFor(rekordboxRoot.string())) {
+        try {
+            onelibrary::OneLibraryReader reader(rekordboxRoot.string());
+            auto tracks = reader.readAll();
+            checkTracks(tracks, "OneLibrary", result.oneLibraryTracksSampled);
+        } catch (const std::exception &e) {
+            warn(std::string("could not read the OneLibrary mirror back, so its fields were not sampled: ")
                  + e.what());
         }
     }

@@ -126,13 +126,21 @@ void writeManifest(const fs::path &manifestPath, const AnonymizationSummary &sum
          "    and friends). They hold settings like LCD brightness and\n"
          "    jog feel, nothing about you or your music, and this app's\n"
          "    Device Profile feature cannot be tested without them.\n"
+         "  ALSO SCRUBBED AND INCLUDED: your Device Library Plus\n"
+         "    database (exportLibrary.db), the mirror rekordbox keeps\n"
+         "    beside export.pdb. Its titles, artists, albums, genres,\n"
+         "    labels, playlist names, cue comments and file paths are\n"
+         "    replaced the same way, and the same real track gets the\n"
+         "    same placeholder in all three catalogs.\n"
          "  REMOVED entirely: artwork images, the detailed color and\n"
          "    scrolling waveform data rekordbox's own UI uses during\n"
-         "    playback (not read by this app), original file paths, your\n"
-         "    Device Library Plus database (exportLibrary.db) and your\n"
-         "    My Tag vocabulary (exportExt.pdb) -- those last two have no\n"
-         "    anonymizer yet, so they are left out rather than sent as\n"
-         "    they are.\n\n";
+         "    playback (not read by this app), original file paths, and\n"
+         "    your My Tag vocabulary (exportExt.pdb), which has no\n"
+         "    anonymizer yet and so is left out rather than sent as it is.\n\n"
+         "Everything above is CHECKED, not just intended: this export was\n"
+         "read back through the app's own readers and every analysis file\n"
+         "was inspected before the zip was written. Had anything still\n"
+         "held real data, no file would have been produced.\n\n";
 
     m << "Output size: " << humanSize(summary.outputSizeBytes) << " raw, roughly "
       << humanSize(summary.estimatedZippedBytes) << " estimated once zipped.\n\n";
@@ -237,6 +245,14 @@ AnonymizationSummary AnonymizeLibrary::execute(const std::optional<std::string> 
         summary.verificationReport = verification.describe();
         infrastructure::removeTreeDeepestFirst(outputDir);
         return summary;
+    }
+
+    // Last thing before zipping: SQLite's side files, recreated by the
+    // verification above when it read the OneLibrary mirror back. Nothing
+    // opens the database after this point, so nothing recreates them.
+    for (const char *sideFile : {"exportLibrary.db-shm", "exportLibrary.db-wal"}) {
+        std::error_code sideEc;
+        fs::remove(fs::path(outputDir) / "rekordbox" / "rekordbox" / sideFile, sideEc);
     }
 
     fs::path zipPath(outputDir);

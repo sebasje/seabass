@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "infrastructure/anonymization_placeholder.hpp"
+#include "infrastructure/onelibrary/onelibrary_anonymizer.hpp"
 #include "infrastructure/long_paths.hpp"
 #include "infrastructure/rekordbox/anlz_file.hpp"
 #include "infrastructure/rekordbox/big_endian.hpp"
@@ -359,21 +360,44 @@ RekordboxAnonymizationResult anonymizeRekordboxLibrary(const std::string &source
     try {
         copyTreeIfPresent(fs::path(sourceRoot) / "rekordbox", fs::path(destinationRoot) / "rekordbox");
         // That copy takes the whole rekordbox/ directory, which on a real
-        // stick holds more than export.pdb. Two of those files have no
-        // anonymizer at all and were shipping verbatim:
-        //   exportLibrary.db  the OneLibrary mirror -- the COMPLETE real
-        //                     library. Encrypted, but with a key this
-        //                     project's own source derives, so anyone with
-        //                     the app can read it straight out.
-        //   exportExt.pdb     the My Tag vocabulary, free text a DJ typed.
-        // Removed until each has a real anonymizer. Dropping exportLibrary.db
-        // costs the OneLibrary write path its only real-data coverage, so
-        // writing that anonymizer is the way to get it back, not an
-        // exception here.
-        for (const char *unanonymized : {"exportLibrary.db", "exportLibrary.db-shm", "exportLibrary.db-wal",
-                                          "exportExt.pdb"}) {
+        // stick holds more than export.pdb.
+        //
+        // exportExt.pdb, the My Tag vocabulary, is free text a DJ typed
+        // and still has no anonymizer, so it goes.
+        {
             std::error_code removeEc;
-            fs::remove(fs::path(destinationRoot) / "rekordbox" / unanonymized, removeEc);
+            fs::remove(fs::path(destinationRoot) / "rekordbox" / "exportExt.pdb", removeEc);
+        }
+        // exportLibrary.db is the Device Library Plus mirror: the complete
+        // real library, encrypted with a key this project's own source
+        // derives, so anyone with the app can read it straight out. It
+        // used to ship verbatim, then it was dropped outright, which was
+        // safe but left the OneLibrary write path with no real-data
+        // coverage at all. Now it is scrubbed and kept. A failure removes
+        // it rather than shipping it: this file is the worst one to get
+        // wrong.
+        {
+            const fs::path oneLibrary = fs::path(destinationRoot) / "rekordbox" / "exportLibrary.db";
+            std::error_code existsEc;
+            if (fs::is_regular_file(oneLibrary, existsEc)) {
+                auto oneLibraryResult = onelibrary::anonymizeOneLibraryDatabase(oneLibrary.string());
+                result.oneLibraryTracksScrubbed = oneLibraryResult.tracksScrubbed;
+                result.oneLibraryError = oneLibraryResult.errorMessage;
+                if (!oneLibraryResult.errorMessage.empty()) {
+                    std::error_code removeEc;
+                    fs::remove(oneLibrary, removeEc);
+                }
+            }
+            // Only now: SQLite recreates its -shm and -wal side files the
+            // moment the database is opened, so removing them before the
+            // scrub above just means they come back holding whatever the
+            // scrub itself wrote. They are removed last, and the VACUUM
+            // the anonymizer ends with has already folded everything into
+            // the database file proper.
+            for (const char *sideFile : {"exportLibrary.db-shm", "exportLibrary.db-wal"}) {
+                std::error_code removeEc;
+                fs::remove(fs::path(destinationRoot) / "rekordbox" / sideFile, removeEc);
+            }
         }
         copyTreeIfPresent(fs::path(sourceRoot) / "USBANLZ", fs::path(destinationRoot) / "USBANLZ");
         // Device Profile reads these and nothing else does. They hold

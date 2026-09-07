@@ -33,15 +33,24 @@ What's included vs. stripped, on every track:
     and friends). They hold settings like LCD brightness and
     jog feel, nothing about you or your music, and this app's
     Device Profile feature cannot be tested without them.
+  ALSO SCRUBBED AND INCLUDED: your Device Library Plus
+    database (exportLibrary.db), the mirror rekordbox keeps
+    beside export.pdb. Its titles, artists, albums, genres,
+    labels, playlist names, cue comments and file paths are
+    replaced the same way, and the same real track gets the
+    same placeholder in all three catalogs.
   REMOVED entirely: artwork images, the detailed color and
     scrolling waveform data rekordbox's own UI uses during
-    playback (not read by this app), original file paths, your
-    Device Library Plus database (exportLibrary.db) and your
-    My Tag vocabulary (exportExt.pdb) -- those last two have no
-    anonymizer yet, so they are left out rather than sent as
-    they are.
+    playback (not read by this app), original file paths, and
+    your My Tag vocabulary (exportExt.pdb), which has no
+    anonymizer yet and so is left out rather than sent as it is.
 
-Output size: 29.2 MB raw, roughly 14.5 MB estimated once zipped.
+Everything above is CHECKED, not just intended: this export was
+read back through the app's own readers and every analysis file
+was inspected before the zip was written. Had anything still
+held real data, no file would have been produced.
+
+Output size: 29.8 MB raw, roughly 14.8 MB estimated once zipped.
 
 Nothing has been sent anywhere; this only wrote a single zip
 file. Review its contents, then attach that zip to an email to
