@@ -1,7 +1,6 @@
 #include "infrastructure/logging/file_operation_log.hpp"
 
 #include <chrono>
-#include <fstream>
 #include <format>
 
 namespace seabass::infrastructure::logging
@@ -22,8 +21,16 @@ FileOperationLog::FileOperationLog(std::string logFilePath) : m_logFilePath(std:
 
 void FileOperationLog::record(const std::string &message)
 {
-    std::ofstream out(m_logFilePath, std::ios::app);
-    out << timestampNow() << "  " << message << "\n";
+    if (!m_out.is_open()) {
+        m_out.open(m_logFilePath, std::ios::app);
+    }
+    if (!m_out) {
+        // The log is a record, not a gate: a stick that cannot be written
+        // must not fail the save that was trying to describe itself.
+        return;
+    }
+    m_out << timestampNow() << "  " << message << "\n";
+    m_out.flush();
 }
 
 }  // namespace seabass::infrastructure::logging
