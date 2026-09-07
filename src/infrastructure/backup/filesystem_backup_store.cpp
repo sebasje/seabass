@@ -148,7 +148,15 @@ fs::path FilesystemBackupStore::resolveRecordedPath(const std::string &recorded)
     if (path.is_absolute()) {
         return path;
     }
-    return stickRoot() / path;
+    // lexically_normal() also converts to the platform's preferred
+    // separator -- needed because `recorded` came from a manifest as a
+    // forward-slash generic_string(), and operator/() only inserts a
+    // native separator at the join point, it doesn't rewrite separators
+    // already inside `path`'s own components. Without this, the result
+    // is a mix of '\' and '/' on Windows: still a valid path to the OS,
+    // but not string-equal to any path built the ordinary component-by-
+    // component way, which is what callers compare it against.
+    return (stickRoot() / path).lexically_normal();
 }
 
 FilesystemBackupStore::FilesystemBackupStore(std::string baseDirectory) : m_baseDirectory(std::move(baseDirectory)) {}
