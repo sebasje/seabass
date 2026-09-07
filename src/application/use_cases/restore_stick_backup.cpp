@@ -9,6 +9,7 @@
 #include <set>
 #include <system_error>
 
+#include "infrastructure/backup/stick_write_lock.hpp"
 #include "infrastructure/engine/engine_library_layout.hpp"
 #include "infrastructure/hashing/sha256.hpp"
 #include "infrastructure/stick_backup/archive_journal.hpp"
@@ -406,6 +407,18 @@ RestorePreview RestoreStickBackup::preview(const RestoreOptions &options)
 RestoreSummary RestoreStickBackup::execute(const RestoreOptions &options, ProgressReporter &reporter)
 {
     RestoreSummary summary;
+    // Held for the whole call, before the recovering open below: recovery
+    // truncates an in-flight archive, so this must exclude a concurrent
+    // BackupStick/CompactStickBackup/another restore on the same archive,
+    // not just the restore's own writes.
+    std::unique_ptr<infrastructure::backup::StickWriteLock> lock;
+    try {
+        lock = std::make_unique<infrastructure::backup::StickWriteLock>(
+            journal::lockPathFor(options.archivePath).string());
+    } catch (const infrastructure::backup::StickBusyError &e) {
+        summary.message = e.what();
+        return summary;
+    }
     Opened opened;
     if (!opened.open(options.archivePath, true)) {
         summary.message = opened.error;
