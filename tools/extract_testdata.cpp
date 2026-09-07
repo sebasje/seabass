@@ -16,10 +16,11 @@
 // enormous and which nothing under test reads.
 //
 // Usage:
-//   extract_testdata <stick-mount-point> <destination-dir> [set-name]
+//   extract_testdata <stick-mount-point> <destination-dir> [set-name] [--zip]
 //
-// Build:
-//   g++ -std=c++23 -O2 -I src tools/extract_testdata.cpp -o build/extract_testdata
+// --zip additionally writes <destination-dir>/<name>-<date>.zip and
+// removes the directory, so a set is one file to move around. The corpus
+// runner reads either form.
 
 #include <algorithm>
 #include <chrono>
@@ -30,6 +31,8 @@
 #include <iostream>
 #include <string>
 #include <vector>
+
+#include "infrastructure/zip_archive_writer.hpp"
 
 namespace fs = std::filesystem;
 
@@ -96,11 +99,25 @@ std::string humanSize(std::uintmax_t bytes)
 int main(int argc, char **argv)
 {
     if (argc < 3) {
-        std::cerr << "usage: extract_testdata <stick-mount-point> <destination-dir> [set-name]\n";
+        std::cerr << "usage: extract_testdata <stick-mount-point> <destination-dir> [set-name] [--zip]\n";
         return 1;
     }
-    const fs::path stick = argv[1];
-    const fs::path destinationRoot = argv[2];
+    bool asZip = false;
+    std::vector<std::string> positional;
+    for (int i = 1; i < argc; ++i) {
+        const std::string arg = argv[i];
+        if (arg == "--zip") {
+            asZip = true;
+        } else {
+            positional.push_back(arg);
+        }
+    }
+    if (positional.size() < 2) {
+        std::cerr << "usage: extract_testdata <stick-mount-point> <destination-dir> [set-name] [--zip]\n";
+        return 1;
+    }
+    const fs::path stick = positional[0];
+    const fs::path destinationRoot = positional[1];
     std::error_code ec;
 
     if (!fs::is_directory(stick, ec)) {
@@ -114,7 +131,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    std::string setName = argc > 3 ? argv[3] : stick.filename().string();
+    std::string setName = positional.size() > 2 ? positional[2] : stick.filename().string();
     if (setName.empty()) {
         setName = "stick";
     }
@@ -180,11 +197,35 @@ int main(int argc, char **argv)
              << "reads them and they are what makes a stick large.\n";
     }
 
-    std::cout << "Wrote " << destination.string() << "\n"
+    fs::path written = destination;
+    if (asZip) {
+        // One file is easier to move between machines than 6,000, and the
+        // corpus runner unpacks a zipped set the same way it reads a
+        // directory. The .gitignore goes into the archive too, so
+        // unpacking it anywhere keeps the same protection.
+        fs::path zipPath = destination;
+        zipPath += ".zip";
+        try {
+            seabass::infrastructure::writeZipArchive(destination, zipPath);
+        } catch (const std::exception &e) {
+            std::cerr << "could not write " << zipPath.string() << ": " << e.what() << "\n"
+                      << "the extracted directory is still at " << destination.string() << "\n";
+            return 1;
+        }
+        fs::remove_all(destination, ec);
+        written = zipPath;
+    }
+
+    std::cout << "Wrote " << written.string() << "\n"
               << "  rekordbox: " << rekordbox.files << " files, " << humanSize(rekordbox.bytes) << "\n"
               << "  Engine:    " << engine.files << " files, " << humanSize(engine.bytes) << "\n"
               << "  settings:  " << settings.files << " files, " << humanSize(settings.bytes) << "\n"
               << "  total:     " << humanSize(total) << "\n\n"
-              << "Not anonymized. See SET.txt in that directory.\n";
+              << "NOT ANONYMIZED. Real titles, artists and paths. Keep it on this machine.\n";
+    if (asZip) {
+        std::cout << "The set's own SET.txt inside the archive says the same.\n";
+    } else {
+        std::cout << "See SET.txt in that directory.\n";
+    }
     return 0;
 }

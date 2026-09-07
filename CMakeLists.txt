@@ -192,6 +192,7 @@ add_library(seabass_core STATIC
     src/infrastructure/local/app_data_directory.cpp
     src/infrastructure/work_counters.cpp
     src/infrastructure/anonymization_verifier.cpp
+    src/infrastructure/zip_archive_reader.cpp
     src/infrastructure/local/file_library_edit_lock_store.cpp
     src/infrastructure/system/rekordbox_process_detector.cpp
     src/infrastructure/system/process_liveness.cpp
@@ -1254,6 +1255,13 @@ add_test(NAME onelibrary_reader_test COMMAND onelibrary_reader_test)
 # Checks an anonymized export against the promise its manifest makes.
 # The export flow calls the same function before it writes the zip; this
 # is for checking an export somebody already produced.
+# Copies a real stick's library metadata into the local corpus directory,
+# verbatim and NOT anonymized. C++ rather than a shell script because the
+# same program has to run on Windows and eventually macOS.
+add_executable(extract_testdata tools/extract_testdata.cpp)
+target_include_directories(extract_testdata PRIVATE src)
+target_link_libraries(extract_testdata PRIVATE seabass_core)
+
 add_executable(verify_anonymized_export tools/verify_anonymized_export.cpp)
 target_include_directories(verify_anonymized_export PRIVATE src)
 target_link_libraries(verify_anonymized_export PRIVATE seabass_core)
