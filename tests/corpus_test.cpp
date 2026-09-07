@@ -45,6 +45,8 @@
 #include "infrastructure/cleanup/pending_deletion_resolver.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cue_writer.hpp"
 #include "infrastructure/engine/libdjinterop_engine_reader.hpp"
+#include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
+#include "infrastructure/onelibrary/onelibrary_reader.hpp"
 #include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
 #include "infrastructure/rekordbox/rekordbox_cleanup_writer.hpp"
 #include "infrastructure/rekordbox/rekordbox_cue_writer.hpp"
@@ -58,8 +60,15 @@
 
 #include <memory>
 
+#include "domain/duplicate_cleanup.hpp"
+#include "domain/local_restore.hpp"
 #include "domain/sync_planning.hpp"
 #include "gui/edit/changes/add_cue_change.hpp"
+#include "gui/edit/changes/cleanup_group_change.hpp"
+#include "gui/edit/changes/copy_cues_change.hpp"
+#include "gui/edit/changes/delete_orphan_change.hpp"
+#include "gui/edit/changes/merge_cues_change.hpp"
+#include "gui/edit/changes/repair_issue_change.hpp"
 #include "gui/edit/changes/device_setting_change.hpp"
 #include "gui/edit/changes/remove_junk_cue_change.hpp"
 #include "gui/edit/changes/sync_plan_change.hpp"
@@ -324,6 +333,10 @@ struct Catalogs
 {
     std::vector<domain::Track> rekordbox;
     std::vector<domain::Track> engine;
+    // The Device Library Plus mirror that lives beside export.pdb. Real
+    // sticks have one; the anonymized fixture does not, because that
+    // database has no anonymizer yet.
+    std::vector<domain::Track> oneLibrary;
 };
 
 fs::path scratchFor(const std::string &name)
@@ -398,6 +411,17 @@ void caseScanCounts(const DataSet &set, Catalogs &catalogs, Expectations &expect
                             "rekordbox tracks-with-cues unchanged");
             expected.expect("rekordbox.cues", countCues(catalogs.rekordbox), "rekordbox cue count unchanged");
             pass("case 1: rekordbox scan at real scale, track and cue counts hold");
+        }
+    }
+    if (set.rekordboxRoot && infrastructure::onelibrary::OneLibraryCueWriter::existsFor(*set.rekordboxRoot)) {
+        try {
+            infrastructure::onelibrary::OneLibraryReader reader(*set.rekordboxRoot);
+            catalogs.oneLibrary = reader.readAll();
+            expected.expect("onelibrary.tracks", static_cast<long long>(catalogs.oneLibrary.size()),
+                            "OneLibrary track count unchanged");
+            pass("case 2b: the OneLibrary mirror reads at real scale");
+        } catch (const std::exception &e) {
+            check(false, std::string("the OneLibrary mirror could not be read: ") + e.what());
         }
     }
     if (set.engineRoot) {
@@ -1242,6 +1266,336 @@ void caseDeviceSettings(const DataSet &set, const fs::path &scratch)
     pass("matrix: a settings field reads back and nothing else moved");
 }
 
+
+// Matrix: copy cues between duplicates. The destination ends up with the
+// source's cues; the source is untouched.
+void caseCopyCues(const DataSet &set, const fs::path &scratch, const Catalogs &catalogs)
+{
+    const domain::Track *source = nullptr;
+    const domain::Track *target = nullptr;
+    for (const auto &t : catalogs.rekordbox) {
+        if (source == nullptr && !t.cues.empty()) {
+            source = &t;
+        } else if (target == nullptr && t.cues.empty()) {
+            target = &t;
+        }
+        if (source && target) {
+            break;
+        }
+    }
+    if (!source || !target) {
+        std::cout << "    skipped matrix/copy-cues: need one track with cues and one without\n";
+        return;
+    }
+    const std::string sourceId = source->sourceId;
+    const std::string targetId = target->sourceId;
+    const size_t expectedCues = source->cues.size();
+    const fs::path root = freshRekordboxCopy(set, scratch, "matrix-copycues");
+
+    gui::DuplicatesCopyOp op;
+    op.source = *source;
+    op.targets = {*target};
+    auto change = std::make_shared<gui::CopyCuesChange>("rekordbox", QString::fromStdString(root.string()),
+                                                        QString::fromStdString(targetId), op);
+    auto result = runChanges({change}, root, {});
+    if (!check(result.error.isEmpty(), "the copy-cues save reported no error: " + result.error.toStdString())) {
+        fs::remove_all(root);
+        return;
+    }
+
+    auto after = rescanRekordbox(root);
+    const domain::Track *rereadTarget = findTrack(after, targetId);
+    const domain::Track *rereadSource = findTrack(after, sourceId);
+    if (check(rereadTarget != nullptr, "the destination track survived")) {
+        check(rereadTarget->cues.size() == expectedCues, "the destination has the source's cue count");
+        for (const auto &wanted : op.source.cues) {
+            bool landed = false;
+            for (const auto &actual : rereadTarget->cues) {
+                if (actual.kind == wanted.kind && actual.hotCueNumber == wanted.hotCueNumber
+                    && actual.positionMs == wanted.positionMs) {
+                    landed = true;
+                }
+            }
+            check(landed, "a copied cue landed at its own position on the destination");
+        }
+    }
+    if (check(rereadSource != nullptr, "the source track survived")) {
+        check(rereadSource->cues.size() == expectedCues, "the source kept exactly its own cues");
+    }
+    fs::remove_all(root);
+    pass("matrix: cues copy onto the other copy and the source is untouched");
+}
+
+// Matrix: local cue restore. The merged set is what the candidate carried,
+// which is the stick's own cues plus whatever the backup filled in --
+// never fewer, since a cue writer replaces the whole set.
+void caseLocalCueRestore(const DataSet &set, const fs::path &scratch, const Catalogs &catalogs)
+{
+    const domain::Track *target = nullptr;
+    for (const auto &t : catalogs.rekordbox) {
+        if (t.cues.empty()) {
+            target = &t;
+            break;
+        }
+    }
+    if (target == nullptr) {
+        std::cout << "    skipped matrix/local-restore: no track without cues\n";
+        return;
+    }
+    const std::string id = target->sourceId;
+    const fs::path root = freshRekordboxCopy(set, scratch, "matrix-localcue");
+
+    domain::RestoreCandidate candidate;
+    candidate.stickTrack = *target;
+    candidate.localTrack = *target;
+    domain::CuePoint restored;
+    restored.kind = domain::CuePoint::Kind::Hot;
+    restored.hotCueNumber = 3;
+    restored.positionMs = 21000.0;
+    candidate.mergedCues = {restored};
+
+    auto change = std::make_shared<gui::MergeCuesChange>("rekordbox", QString::fromStdString(root.string()), candidate);
+    auto result = runChanges({change}, root, {});
+    if (!check(result.error.isEmpty(), "the local-restore save reported no error: " + result.error.toStdString())) {
+        fs::remove_all(root);
+        return;
+    }
+
+    auto after = rescanRekordbox(root);
+    const domain::Track *reread = findTrack(after, id);
+    if (check(reread != nullptr, "the restored track survived")) {
+        if (check(reread->cues.size() == candidate.mergedCues.size(), "the track has exactly the merged cue set")) {
+            check(reread->cues[0].hotCueNumber == 3, "the restored cue kept its slot");
+            check(reread->cues[0].positionMs == 21000.0, "the restored cue kept its position");
+        }
+    }
+    fs::remove_all(root);
+    pass("matrix: a restored cue reads back as what was merged");
+}
+
+// Matrix: Library Health repair. The broken row's cues merge onto the
+// survivor, the broken row goes, and the survivor keeps its playlists.
+void caseLibraryHealthRepair(const DataSet &set, const fs::path &scratch, const Catalogs &catalogs,
+                             Expectations &expected)
+{
+    if (catalogs.rekordbox.size() < 30) {
+        std::cout << "    skipped matrix/repair: too few rekordbox tracks\n";
+        return;
+    }
+    const fs::path root = freshRekordboxCopy(set, scratch, "matrix-repair");
+    auto tracks = rescanRekordbox(root);
+    const size_t before = tracks.size();
+
+    // A survivor that has playlist membership, so the repair has real
+    // repointing to do, and a broken row carrying cues to merge.
+    const domain::Track *survivor = nullptr;
+    for (const auto &t : tracks) {
+        if (!t.playlists.empty()) {
+            survivor = &t;
+            break;
+        }
+    }
+    const domain::Track *broken = nullptr;
+    for (const auto &t : tracks) {
+        if (survivor && t.sourceId != survivor->sourceId && !t.cues.empty()) {
+            broken = &t;
+            break;
+        }
+    }
+    if (!survivor || !broken) {
+        std::cout << "    skipped matrix/repair: need a survivor with playlists and a broken row with cues\n";
+        fs::remove_all(root);
+        return;
+    }
+    const std::string survivorId = survivor->sourceId;
+    const std::string brokenId = broken->sourceId;
+    const size_t survivorPlaylists = survivor->playlists.size();
+
+    domain::LibraryConsistencyIssue issue;
+    issue.kind = domain::LibraryConsistencyIssue::Kind::Repairable;
+    issue.survivor = *survivor;
+    issue.brokenGroup = {*broken};
+    issue.survivorCues = broken->cues;
+
+    WorkCounters::instance().reset();
+    auto change = std::make_shared<gui::RepairIssueChange>(QString::fromStdString(root.string()), issue, 1);
+    auto result = runChanges({change}, root, {});
+    const auto counts = WorkCounters::instance().snapshot();
+    if (!check(result.error.isEmpty(), "the repair save reported no error: " + result.error.toStdString())) {
+        fs::remove_all(root);
+        return;
+    }
+
+    auto after = rescanRekordbox(root);
+    check(after.size() == before - 1, "the broken row is gone");
+    check(findTrack(after, brokenId) == nullptr, "the broken row is really gone");
+    const domain::Track *repaired = findTrack(after, survivorId);
+    if (check(repaired != nullptr, "the survivor is still there")) {
+        // The survivor must resolve to something a later scan can find,
+        // and must not have lost the playlists it was in.
+        check(!repaired->filePath.empty(), "the survivor still names a file");
+        check(repaired->playlists.size() >= survivorPlaylists, "the survivor kept its playlist membership");
+        for (const auto &wanted : issue.survivorCues) {
+            bool landed = false;
+            for (const auto &actual : repaired->cues) {
+                if (actual.kind == wanted.kind && actual.hotCueNumber == wanted.hotCueNumber
+                    && actual.positionMs == wanted.positionMs) {
+                    landed = true;
+                }
+            }
+            check(landed, "a merged cue landed on the survivor");
+        }
+    }
+    expected.expect("matrix.repair.pdbParses", counts.trackDatabaseParses, "repair pdb parses unchanged");
+    std::cout << "    library health repair: " << counts.describe() << "\n";
+    fs::remove_all(root);
+    pass("matrix: a repair merges cues onto the survivor and removes the broken row");
+}
+
+// Matrix: Clean Up duplicates. The survivor ends up with the union of the
+// group's cues, every removed row is gone from a fresh scan, and each
+// removed copy is named in the pending-deletion manifest rather than
+// deleted here.
+void caseCleanUpDuplicates(const DataSet &set, const fs::path &scratch, const Catalogs &catalogs,
+                           Expectations &expected)
+{
+    if (catalogs.rekordbox.size() < 30) {
+        std::cout << "    skipped matrix/cleanup: too few rekordbox tracks\n";
+        return;
+    }
+    const fs::path root = freshRekordboxCopy(set, scratch, "matrix-cleanup");
+    auto tracks = rescanRekordbox(root);
+    const size_t before = tracks.size();
+
+    const domain::Track *survivor = nullptr;
+    const domain::Track *doomed = nullptr;
+    for (const auto &t : tracks) {
+        if (survivor == nullptr && t.cues.empty()) {
+            survivor = &t;
+        } else if (doomed == nullptr && !t.cues.empty()) {
+            doomed = &t;
+        }
+        if (survivor && doomed) {
+            break;
+        }
+    }
+    if (!survivor || !doomed) {
+        std::cout << "    skipped matrix/cleanup: need a survivor without cues and a doomed copy with them\n";
+        fs::remove_all(root);
+        return;
+    }
+    const std::string survivorId = survivor->sourceId;
+    const std::string doomedId = doomed->sourceId;
+
+    domain::DuplicateCleanupPlan plan;
+    plan.group.tracks = {*survivor, *doomed};
+    plan.survivor = *survivor;
+    plan.toRemove = {*doomed};
+    // The union: the survivor has none, so the doomed copy's cues are what
+    // must survive it. Losing these is exactly what this feature must never
+    // do.
+    plan.mergedCuesForSurvivor = doomed->cues;
+
+    WorkCounters::instance().reset();
+    auto change = std::make_shared<gui::CleanupGroupChange>("rekordbox", QString::fromStdString(root.string()), plan, 1);
+    auto result = runChanges({change}, root, {});
+    const auto counts = WorkCounters::instance().snapshot();
+    if (!check(result.error.isEmpty(), "the cleanup save reported no error: " + result.error.toStdString())) {
+        fs::remove_all(root);
+        return;
+    }
+
+    auto after = rescanRekordbox(root);
+    check(after.size() == before - 1, "the doomed copy's row is gone");
+    check(findTrack(after, doomedId) == nullptr, "the doomed copy is really gone");
+    const domain::Track *kept = findTrack(after, survivorId);
+    if (check(kept != nullptr, "the survivor is still there")) {
+        for (const auto &wanted : plan.mergedCuesForSurvivor) {
+            bool landed = false;
+            for (const auto &actual : kept->cues) {
+                if (actual.kind == wanted.kind && actual.hotCueNumber == wanted.hotCueNumber
+                    && actual.positionMs == wanted.positionMs) {
+                    landed = true;
+                }
+            }
+            check(landed, "a cue that only existed on the removed copy survived onto the survivor");
+        }
+    }
+
+    // The removed copy is scheduled, not deleted: the file must still be
+    // there and the manifest must name it.
+    const fs::path manifestPath = scratch / ".seabass-pending-deletions.jsonl";
+    if (check(fs::exists(manifestPath), "a pending-deletion manifest was written")) {
+        infrastructure::cleanup::PendingDeletionManifest manifest(manifestPath.string());
+        auto entries = manifest.list();
+        bool named = false;
+        for (const auto &entry : entries) {
+            if (entry.filePath == doomed->filePath) {
+                named = true;
+            }
+        }
+        check(named, "the removed copy's file is named in the pending-deletion manifest");
+    }
+    expected.expect("matrix.cleanup.pdbParses", counts.trackDatabaseParses, "cleanup pdb parses unchanged");
+    std::cout << "    clean up duplicates: " << counts.describe() << "\n";
+    fs::remove_all(root);
+    fs::remove(manifestPath);
+    pass("matrix: cleanup keeps every cue, removes the row, and schedules the file");
+}
+
+// Matrix: delete orphaned OneLibrary rows. OneLibrary only, because it is
+// the one catalog whose rows are deleted outright rather than repointed at
+// a survivor.
+void caseDeleteOrphan(const DataSet &set, const fs::path &scratch, const Catalogs &catalogs)
+{
+    if (catalogs.oneLibrary.empty()) {
+        std::cout << "    skipped matrix/delete-orphan: this set has no OneLibrary database\n";
+        return;
+    }
+    const fs::path root = freshRekordboxCopy(set, scratch, "matrix-orphan");
+    std::vector<domain::Track> tracks;
+    try {
+        infrastructure::onelibrary::OneLibraryReader reader(root.string());
+        tracks = reader.readAll();
+    } catch (const std::exception &e) {
+        check(false, std::string("could not read OneLibrary from the scratch copy: ") + e.what());
+        fs::remove_all(root);
+        return;
+    }
+    if (tracks.empty()) {
+        std::cout << "    skipped matrix/delete-orphan: the scratch OneLibrary came back empty\n";
+        fs::remove_all(root);
+        return;
+    }
+    const size_t before = tracks.size();
+    const domain::Track doomed = tracks.front();
+
+    domain::LibraryConsistencyIssue issue;
+    issue.kind = domain::LibraryConsistencyIssue::Kind::Missing;
+    issue.brokenGroup = {doomed};
+
+    auto change = std::make_shared<gui::DeleteOrphanChange>(QString::fromStdString(root.string()), issue);
+    auto result = runChanges({change}, root, {});
+    if (!check(result.error.isEmpty(), "the orphan-deletion save reported no error: " + result.error.toStdString())) {
+        fs::remove_all(root);
+        return;
+    }
+
+    std::vector<domain::Track> after;
+    try {
+        infrastructure::onelibrary::OneLibraryReader reader(root.string());
+        after = reader.readAll();
+    } catch (const std::exception &e) {
+        check(false, std::string("could not re-read OneLibrary after the deletion: ") + e.what());
+        fs::remove_all(root);
+        return;
+    }
+    check(after.size() == before - 1, "exactly one OneLibrary row went");
+    check(findTrack(after, doomed.sourceId) == nullptr, "the orphaned row is really gone");
+    fs::remove_all(root);
+    pass("matrix: an orphaned OneLibrary row is deleted and nothing else with it");
+}
+
 #endif  // SEABASS_CORPUS_HAS_EDIT
 
 namespace
@@ -1255,6 +1609,11 @@ void runMatrix(const DataSet &set, const fs::path &scratch, const Catalogs &cata
     caseStrayCueRemoval(set, scratch, catalogs, expected);
     caseSync(set, scratch, catalogs, expected);
     caseDeviceSettings(set, scratch);
+    caseCopyCues(set, scratch, catalogs);
+    caseLocalCueRestore(set, scratch, catalogs);
+    caseLibraryHealthRepair(set, scratch, catalogs, expected);
+    caseCleanUpDuplicates(set, scratch, catalogs, expected);
+    caseDeleteOrphan(set, scratch, catalogs);
 #else
     (void)set;
     (void)scratch;
