@@ -498,7 +498,7 @@ Page {
                             cardTitle: "Housekeeping"
                             readOnly: delegateRoot.lockedByOther
                             onReadOnlyClicked: root.explainLock(delegateRoot.libraryId)
-                            cardSubtitle: "Duplicate stats, sync metadata across copies, and clean up"
+                            cardSubtitle: "Duplicate stats, copy cues between copies, and clean up"
                             cardIcon: "▣"
                             visible: delegateRoot.hasKnownLibrary
                             enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
