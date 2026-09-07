@@ -329,7 +329,25 @@ Each step leaves the tree building and every test passing.
    `exportLibrary.db` back into the export and extend the guard to sample
    it. This is what gives the OneLibrary write path its only real-data
    coverage.
-6. **Add `--zip` to `tools/extract_testdata`**, using
+6. **Add `--zip` to `tools/extract_testdata`.** **Partly done:** the flag
+   exists, the tool is a CMake target linking `seabass_core`, and the corpus
+   runner reads a zipped set by unpacking it into scratch first, which
+   needed a real zip reader (`infrastructure/zip_archive_reader`) since the
+   project only had a writer. A zipped set keeps its recorded numbers in
+   `<name>-EXPECTATIONS.txt` beside the archive, because the unpacked copy
+   is deleted at the end of the run. Verified end to end by zipping the RV2
+   set and running the whole corpus against the archive: same results as the
+   directory form. **Still to do:** extract Sebastian's own live stick.
+   WHALESHARK was not plugged in when this ran; the only stick present was
+   a CORSAIR that holds a rekordbox catalog and no Engine library, and which
+   appears to belong to someone else, so nothing was extracted from it.
+   Delete `~/Seabass/testdata/whaleshark-sdcard-2026-08-31.zip` once the
+   fresh extraction supersedes it: it holds raw `PIONEER/` and
+   `Engine Library/` copies beside an anonymized tree carrying the old
+   leaks. The empty `roy-corsair/` directory is now reported as skipped by
+   name rather than passed over in silence.
+
+   Original instruction, for reference: add `--zip` to `tools/extract_testdata`, using
    `infrastructure::writeZipArchive`, so a set can be produced as a single
    file. Link the tool against `seabass_core` for it (it is standalone
    today). Then extract the maintainer's own live stick:

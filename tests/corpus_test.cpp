@@ -49,6 +49,7 @@
 #include "infrastructure/rekordbox/rekordbox_cleanup_writer.hpp"
 #include "infrastructure/rekordbox/rekordbox_cue_writer.hpp"
 #include "infrastructure/work_counters.hpp"
+#include "infrastructure/zip_archive_reader.hpp"
 
 namespace fs = std::filesystem;
 using namespace seabass;
@@ -85,6 +86,11 @@ struct DataSet
 {
     std::string name;
     fs::path root;
+    // Where this set's recorded numbers live. Normally inside the set, but
+    // a zipped set is unpacked into a scratch directory that is deleted at
+    // the end of the run, so its file has to live beside the archive
+    // instead -- otherwise every run re-records and the guard never fires.
+    fs::path expectationsPath;
     std::optional<std::string> rekordboxRoot;
     std::optional<std::string> engineRoot;
     bool anonymized = false;
@@ -109,11 +115,45 @@ std::optional<DataSet> asDataSet(const fs::path &dir)
     set.root = dir;
     std::error_code ec;
     set.anonymized = fs::is_directory(dir / "rekordbox", ec) || fs::is_directory(dir / "engine", ec);
+    set.expectationsPath = dir / "SET-EXPECTATIONS.txt";
     set.rekordboxRoot = firstExisting(dir, {"rekordbox", "PIONEER"});
     set.engineRoot = firstExisting(dir, {"engine", "Engine Library"});
     if (!set.rekordboxRoot && !set.engineRoot) {
         return std::nullopt;
     }
+    return set;
+}
+
+// Where a zipped set gets unpacked, once, before anything reads it.
+fs::path unpackedSetsRoot()
+{
+    return fs::temp_directory_path() / "seabass_corpus_unpacked";
+}
+
+// A set kept as one file rather than six thousand. Unpacked into a scratch
+// directory and then treated exactly like a directory set.
+std::optional<DataSet> unpackZippedSet(const fs::path &zipPath)
+{
+    const std::string stem = zipPath.stem().string();
+    const fs::path target = unpackedSetsRoot() / stem;
+    std::error_code ec;
+    fs::remove_all(target, ec);
+    try {
+        infrastructure::extractZipArchive(zipPath, target);
+    } catch (const std::exception &e) {
+        std::cout << "skipping " << zipPath.filename().string() << ": could not unpack it (" << e.what() << ")\n";
+        return std::nullopt;
+    }
+    auto set = asDataSet(target);
+    if (!set) {
+        std::cout << "skipping " << zipPath.filename().string()
+                  << ": unpacked, but holds neither catalog (no rekordbox/PIONEER, no engine/Engine Library)\n";
+        fs::remove_all(target, ec);
+        return std::nullopt;
+    }
+    set->name = stem;
+    set->expectationsPath = zipPath.parent_path() / (stem + "-EXPECTATIONS.txt");
+    std::cout << "unpacked " << zipPath.filename().string() << " into " << target.string() << "\n";
     return set;
 }
 
@@ -136,7 +176,14 @@ std::vector<DataSet> discoverSets()
     std::error_code ec;
     for (const auto &entry : fs::directory_iterator(corpus, ec)) {
         if (!entry.is_directory()) {
-            std::cout << "skipping " << entry.path().filename().string() << ": not a directory\n";
+            if (entry.path().extension() == ".zip") {
+                if (auto set = unpackZippedSet(entry.path())) {
+                    sets.push_back(*set);
+                }
+                continue;
+            }
+            std::cout << "skipping " << entry.path().filename().string()
+                      << ": neither a directory nor a .zip\n";
             continue;
         }
         if (auto set = asDataSet(entry.path())) {
@@ -773,7 +820,7 @@ int main()
         g_set = set.name;
         std::cout << "\n== " << set.name << (set.anonymized ? " (anonymized)" : " (real)") << " ==\n";
         const fs::path scratch = scratchFor(set.name);
-        Expectations expected(set.root / "SET-EXPECTATIONS.txt");
+        Expectations expected(set.expectationsPath);
         Catalogs catalogs;
 
         std::cout << "  integrity\n";
@@ -797,6 +844,9 @@ int main()
         expected.save();
         fs::remove_all(scratch);
     }
+
+    std::error_code ec;
+    fs::remove_all(unpackedSetsRoot(), ec);
 
     std::cout << "\n";
     if (g_failures > 0) {
