@@ -14,6 +14,15 @@ struct EngineAnonymizationResult
     int tracksKept = 0;
     int tracksDropped = 0;  // only nonzero when maxTracks was set and exceeded
     int playlistsRenamed = 0;
+    // Tracks libdjinterop refused to read or write (undecodable
+    // performance data, which real libraries genuinely contain). Their
+    // metadata is NOT anonymized, so a nonzero count here means the export
+    // must not be shared -- the caller is expected to say so loudly.
+    // Rows whose stale Track.filename column was rewritten from the
+    // anonymized path (libdjinterop has no setter for it).
+    int filenameColumnRows = 0;
+    int tracksRefused = 0;
+    std::string firstRefusalReason;
     std::string errorMessage;  // empty on success
 };
 

@@ -15,6 +15,13 @@ struct RekordboxAnonymizationResult
     int tracksDropped = 0;  // only nonzero when maxTracks was set and exceeded
     int artistsRenamed = 0;
     int playlistsRenamed = 0;
+    // Analysis files scrubbed that no present track row pointed at:
+    // leftovers from tracks deleted from the library, which the copy
+    // brings along and which still carry their real path.
+    int orphanedAnalysisFilesScrubbed = 0;
+    // Player-preference files copied verbatim: Device Profile is the only
+    // thing that reads them and they carry nothing identifying.
+    int deviceSettingsFilesCopied = 0;
     std::string errorMessage;  // empty on success
 };
 
