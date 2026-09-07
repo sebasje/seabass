@@ -75,6 +75,14 @@ The QML test binary registers the same `SeabassGui` module as the app
 instantiated in a test; `tst_PagesCompile.qml` checks that every page
 at least compiles.
 
+## Measuring write performance
+
+Benchmarking a save against real removable media has its own traps (a USB
+stick's controller schedules its own garbage collection, so whichever thing
+you measure first can look thirty times slower than the same thing measured
+later). The method, the tools in `tools/`, and the running log of results are
+in [`docs/write-path-performance.md`](write-path-performance.md).
+
 ## Submitting your own library for testing
 
 If you'd like to help test Seabass against hardware or a library shape Sebas doesn't personally have, you can generate the same kind of anonymized export from your own stick and send it in:
