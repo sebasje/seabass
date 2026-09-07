@@ -5,6 +5,9 @@ engine.opensPerItem 1
 engine.tracks 1564
 engine.tracksWithCues 1561
 engine.writeRefusals 0
+matrix.addCue.pdbParses 2
+matrix.strayCue.pdbParses 2
+matrix.sync.engineOpens 0
 rekordbox.cues 314
 rekordbox.tracks 1161
 rekordbox.tracksWithCues 222
