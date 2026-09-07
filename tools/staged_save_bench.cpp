@@ -49,6 +49,21 @@ double secondsSince(const std::chrono::steady_clock::time_point &start)
     return std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
 }
 
+// Reported alongside every run because it is a candidate explanation for a
+// curve that bends: allocation on a nearly full exFAT volume gets slower
+// as free space fragments, and a run that fills the medium further as it
+// goes would look superlinear for reasons that have nothing to do with the
+// code under test.
+double freeSpaceGiB(const fs::path &path)
+{
+    std::error_code ec;
+    const auto info = fs::space(path, ec);
+    if (ec) {
+        return -1.0;
+    }
+    return static_cast<double>(info.available) / (1024.0 * 1024.0 * 1024.0);
+}
+
 }  // namespace
 
 int main(int argc, char **argv)
@@ -150,6 +165,7 @@ int main(int argc, char **argv)
         std::cout << "error: " << result.error.toStdString() << "\n";
     }
     std::cout << "  wall clock:     " << seconds << " s\n";
+    std::cout << "  free space:     " << freeSpaceGiB(stick) << " GiB left on the medium\n";
     std::cout << "  per item:       " << (seconds / static_cast<double>(changes.size())) * 1000.0 << " ms\n";
     std::cout << "  work:           " << counts.describe() << "\n";
 
