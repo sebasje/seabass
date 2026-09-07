@@ -40,14 +40,28 @@ struct Opened
     std::optional<BackupManifest> manifest;
     std::string error;
 
-    bool open(const fs::path &archivePath)
+    // `recover`: apply a leftover journal (truncating the archive back to
+    // its pre-update length) before reading. Only an operation the user
+    // actually asked for on this one archive may do that.
+    //
+    // Listing calls must pass false. Recovery is a write, and a backup
+    // that is *running* has a live journal by design -- so a listing pass
+    // that recovered would truncate an archive mid-write while
+    // BackupStick was still appending to it, leaving a file of the right
+    // length holding nothing but its trailer. That is not theoretical:
+    // BackupAdvisorController lists the backup folder on every stick
+    // assessment, and it destroyed a real 12 GB backup this way. See
+    // tests/backup_archive_concurrent_reader_test.cpp.
+    bool open(const fs::path &archivePath, bool recover)
     {
         try {
-            // Read-write only so a leftover journal can be recovered first;
-            // nothing else is ever written to the archive by a restore.
-            archive = std::make_unique<PosixArchiveFile>(archivePath, PosixArchiveFile::OpenMode::ReadWrite);
-            journal = std::make_unique<PosixArchiveFile>(journal::journalPathFor(archivePath), PosixArchiveFile::OpenMode::ReadWrite);
-            recoverOnOpen(*archive, *journal);
+            archive = std::make_unique<PosixArchiveFile>(
+                archivePath, recover ? PosixArchiveFile::OpenMode::ReadWrite : PosixArchiveFile::OpenMode::ReadOnly);
+            if (recover) {
+                journal = std::make_unique<PosixArchiveFile>(journal::journalPathFor(archivePath),
+                                                             PosixArchiveFile::OpenMode::ReadWrite);
+                recoverOnOpen(*archive, *journal);
+            }
         } catch (const std::exception &e) {
             error = std::string("could not open the backup: ") + e.what();
             return false;
@@ -283,7 +297,9 @@ StickBackupDescription RestoreStickBackup::describe(const fs::path &archivePath)
     StickBackupDescription description;
     description.archivePath = archivePath;
     Opened opened;
-    if (!opened.open(archivePath)) {
+    // Listing only: never recovers, so this is safe to run against a
+    // folder someone is backing up into right now.
+    if (!opened.open(archivePath, false)) {
         description.error = opened.error;
         return description;
     }
@@ -326,7 +342,7 @@ RestorePreview RestoreStickBackup::preview(const RestoreOptions &options)
 {
     RestorePreview preview;
     Opened opened;
-    if (!opened.open(options.archivePath)) {
+    if (!opened.open(options.archivePath, true)) {
         preview.error = opened.error;
         return preview;
     }
@@ -356,7 +372,7 @@ RestoreSummary RestoreStickBackup::execute(const RestoreOptions &options, Progre
 {
     RestoreSummary summary;
     Opened opened;
-    if (!opened.open(options.archivePath)) {
+    if (!opened.open(options.archivePath, true)) {
         summary.message = opened.error;
         return summary;
     }

@@ -181,6 +181,22 @@ void PosixArchiveFile::append(std::span<const std::byte> bytes)
     if (m_mode == OpenMode::ReadOnly) {
         throw ArchiveIoError("append on read-only archive " + m_path.string());
     }
+    // Appending means writing at the length we believe the file has. If
+    // something else shortened it behind our back, that write lands past
+    // the real end and the kernel fills the gap with a hole of zeros --
+    // producing a file of exactly the expected length containing nothing.
+    // A 12 GB backup was lost that way (a listing pass recovered a
+    // journal mid-write and truncated the archive). Never write into a
+    // hole: stop, and let the caller report it.
+    struct stat before{};
+    if (::fstat(m_fd, &before) != 0) {
+        throwIo("could not stat", m_path);
+    }
+    if (static_cast<std::uint64_t>(before.st_size) < m_size) {
+        throw ArchiveIoError("archive " + m_path.string() + " shrank underneath us: expected at least "
+                             + std::to_string(m_size) + " bytes, found " + std::to_string(before.st_size)
+                             + " -- something else wrote to it while a backup was running");
+    }
     const char *p = reinterpret_cast<const char *>(bytes.data());
     std::size_t remaining = bytes.size();
     std::uint64_t offset = m_size;

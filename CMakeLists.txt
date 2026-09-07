@@ -592,6 +592,7 @@ add_executable(cue_color_normalization_test
     src/infrastructure/engine/libdjinterop_engine_reader.cpp
     src/infrastructure/rekordbox/kaitai_rekordbox_reader.cpp
     src/infrastructure/rekordbox/pdb_lookup.cpp
+    src/infrastructure/work_counters.cpp
     tests/cue_color_normalization_test.cpp
 )
 target_include_directories(cue_color_normalization_test PRIVATE src)
@@ -600,6 +601,7 @@ add_test(NAME cue_color_normalization_test COMMAND cue_color_normalization_test)
 
 add_executable(anlz_cue_codec_test
     src/infrastructure/durable_file_write.cpp
+    src/infrastructure/work_counters.cpp
     src/infrastructure/rekordbox/anlz_cue_codec.cpp
     src/infrastructure/rekordbox/anlz_file.cpp
     tests/anlz_cue_codec_test.cpp
@@ -609,6 +611,7 @@ add_test(NAME anlz_cue_codec_test COMMAND anlz_cue_codec_test)
 
 add_executable(anlz_file_test
     src/infrastructure/durable_file_write.cpp
+    src/infrastructure/work_counters.cpp
     src/infrastructure/rekordbox/anlz_file.cpp
     tests/anlz_file_test.cpp
 )
@@ -631,6 +634,7 @@ add_test(NAME local_restore_test COMMAND local_restore_test)
 
 add_executable(durable_file_write_test
     src/infrastructure/durable_file_write.cpp
+    src/infrastructure/work_counters.cpp
     tests/durable_file_write_test.cpp
 )
 target_include_directories(durable_file_write_test PRIVATE src)
@@ -651,6 +655,7 @@ add_test(NAME bulk_write_strategy_test COMMAND bulk_write_strategy_test)
 
 add_executable(filesystem_backup_store_test
     src/infrastructure/durable_file_write.cpp
+    src/infrastructure/work_counters.cpp
     src/infrastructure/backup/filesystem_backup_store.cpp
     tests/filesystem_backup_store_test.cpp
 )
@@ -677,6 +682,7 @@ add_test(NAME stick_presence_diff_test COMMAND stick_presence_diff_test)
 # against a real second process, not just an injected fake.
 add_executable(library_edit_lock_store_test
     src/infrastructure/durable_file_write.cpp
+    src/infrastructure/work_counters.cpp
     src/infrastructure/local/app_data_directory.cpp
     src/infrastructure/local/file_library_edit_lock_store.cpp
     src/infrastructure/system/process_liveness.cpp
@@ -755,6 +761,7 @@ add_test(NAME local_cue_store_test COMMAND local_cue_store_test)
 
 add_executable(pdb_row_writer_test
     src/infrastructure/durable_file_write.cpp
+    src/infrastructure/work_counters.cpp
     src/infrastructure/rekordbox/pdb_row_writer.cpp
     tests/pdb_row_writer_test.cpp
 )
@@ -769,6 +776,7 @@ add_test(NAME pdb_row_writer_test COMMAND pdb_row_writer_test)
 # it finds that fixture, same as anonymized_fixture_integration_test.
 add_executable(pdb_row_writer_staleness_test
     src/infrastructure/durable_file_write.cpp
+    src/infrastructure/work_counters.cpp
     src/infrastructure/rekordbox/pdb_row_writer.cpp
     tests/pdb_row_writer_staleness_test.cpp
 )
@@ -780,6 +788,7 @@ add_test(NAME pdb_row_writer_staleness_test COMMAND pdb_row_writer_staleness_tes
 
 add_executable(pdb_row_writer_string_test
     src/infrastructure/durable_file_write.cpp
+    src/infrastructure/work_counters.cpp
     src/infrastructure/rekordbox/pdb_row_writer.cpp
     src/infrastructure/rekordbox/pdb_lookup.cpp
     tests/pdb_row_writer_string_test.cpp
@@ -791,6 +800,7 @@ add_test(NAME pdb_row_writer_string_test COMMAND pdb_row_writer_string_test)
 add_executable(rekordbox_library_anonymizer_test
     src/infrastructure/long_paths.cpp
     src/infrastructure/durable_file_write.cpp
+    src/infrastructure/work_counters.cpp
     src/infrastructure/rekordbox/pdb_row_writer.cpp
     src/infrastructure/rekordbox/pdb_lookup.cpp
     src/infrastructure/rekordbox/anlz_file.cpp
@@ -804,6 +814,7 @@ add_test(NAME rekordbox_library_anonymizer_test COMMAND rekordbox_library_anonym
 
 add_executable(rekordbox_cleanup_writer_test
     src/infrastructure/durable_file_write.cpp
+    src/infrastructure/work_counters.cpp
     src/infrastructure/rekordbox/pdb_row_writer.cpp
     src/infrastructure/rekordbox/rekordbox_cleanup_writer.cpp
     tests/rekordbox_cleanup_writer_test.cpp
@@ -816,6 +827,7 @@ add_executable(libdjinterop_engine_library_creator_test
     src/application/ports/progress_reporter.cpp
     src/infrastructure/engine/libdjinterop_engine_library_creator.cpp
     src/infrastructure/engine/libdjinterop_engine_cue_writer.cpp
+    src/infrastructure/work_counters.cpp
     src/infrastructure/engine/libdjinterop_engine_reader.cpp
     src/infrastructure/engine/rekordbox_key_parser.cpp
     tests/libdjinterop_engine_library_creator_test.cpp
@@ -827,6 +839,7 @@ add_test(NAME libdjinterop_engine_library_creator_test COMMAND libdjinterop_engi
 add_executable(libdjinterop_engine_sync_scratch_replace_test
     src/application/ports/progress_reporter.cpp
     src/infrastructure/durable_file_write.cpp
+    src/infrastructure/work_counters.cpp
     src/infrastructure/engine/libdjinterop_engine_library_creator.cpp
     src/infrastructure/engine/libdjinterop_engine_cue_writer.cpp
     src/infrastructure/engine/libdjinterop_engine_reader.cpp
@@ -841,6 +854,7 @@ add_executable(libdjinterop_engine_loop_cue_test
     src/application/ports/progress_reporter.cpp
     src/infrastructure/engine/libdjinterop_engine_library_creator.cpp
     src/infrastructure/engine/libdjinterop_engine_cue_writer.cpp
+    src/infrastructure/work_counters.cpp
     src/infrastructure/engine/libdjinterop_engine_reader.cpp
     src/infrastructure/engine/rekordbox_key_parser.cpp
     tests/libdjinterop_engine_loop_cue_test.cpp
@@ -861,6 +875,7 @@ add_executable(duplicate_cleanup_interruption_test
     src/infrastructure/engine/libdjinterop_engine_cleanup_writer.cpp
     src/infrastructure/backup/filesystem_backup_store.cpp
     src/infrastructure/durable_file_write.cpp
+    src/infrastructure/work_counters.cpp
     tests/duplicate_cleanup_interruption_test.cpp
 )
 target_include_directories(duplicate_cleanup_interruption_test PRIVATE src)
@@ -881,6 +896,7 @@ add_executable(anonymize_library_test
     src/application/use_cases/anonymize_library.cpp
     src/application/ports/progress_reporter.cpp
     src/infrastructure/durable_file_write.cpp
+    src/infrastructure/work_counters.cpp
     src/infrastructure/rekordbox/pdb_row_writer.cpp
     src/infrastructure/rekordbox/pdb_lookup.cpp
     src/infrastructure/rekordbox/anlz_file.cpp
@@ -895,6 +911,7 @@ add_test(NAME anonymize_library_test COMMAND anonymize_library_test)
 
 add_executable(libdjinterop_engine_cue_writer_propagate_test
     src/infrastructure/engine/libdjinterop_engine_cue_writer.cpp
+    src/infrastructure/work_counters.cpp
     src/infrastructure/engine/rekordbox_key_parser.cpp
     tests/libdjinterop_engine_cue_writer_propagate_test.cpp
 )
@@ -904,6 +921,7 @@ add_test(NAME libdjinterop_engine_cue_writer_propagate_test COMMAND libdjinterop
 
 add_executable(libdjinterop_engine_cue_writer_main_cue_test
     src/infrastructure/engine/libdjinterop_engine_cue_writer.cpp
+    src/infrastructure/work_counters.cpp
     src/infrastructure/engine/rekordbox_key_parser.cpp
     tests/libdjinterop_engine_cue_writer_main_cue_test.cpp
 )
@@ -1060,9 +1078,25 @@ target_include_directories(backup_stick_test PRIVATE src)
 target_link_libraries(backup_stick_test PRIVATE ZLIB::ZLIB SQLite::SQLite3)
 add_test(NAME backup_stick_test COMMAND backup_stick_test)
 
+add_executable(backup_archive_concurrent_reader_test
+    ${SEABASS_STICK_BACKUP_STICK_SOURCES}
+    src/infrastructure/durable_file_write.cpp
+    src/infrastructure/stick_backup/archive_compactor.cpp
+    src/infrastructure/stick_backup/restore_path_sanitizer.cpp
+    src/application/ports/progress_reporter.cpp
+    src/application/use_cases/backup_stick.cpp
+    src/application/use_cases/restore_stick_backup.cpp
+    src/infrastructure/work_counters.cpp
+    tests/backup_archive_concurrent_reader_test.cpp
+)
+target_include_directories(backup_archive_concurrent_reader_test PRIVATE src)
+target_link_libraries(backup_archive_concurrent_reader_test PRIVATE ZLIB::ZLIB SQLite::SQLite3 Threads::Threads)
+add_test(NAME backup_archive_concurrent_reader_test COMMAND backup_archive_concurrent_reader_test)
+
 add_executable(backup_archive_compaction_test
     ${SEABASS_STICK_BACKUP_UPDATE_SOURCES}
     src/infrastructure/durable_file_write.cpp
+    src/infrastructure/work_counters.cpp
     src/infrastructure/stick_backup/archive_compactor.cpp
     src/application/use_cases/compact_stick_backup.cpp
     tests/backup_archive_compaction_test.cpp
@@ -1074,6 +1108,7 @@ add_test(NAME backup_archive_compaction_test COMMAND backup_archive_compaction_t
 add_executable(backup_restore_test
     ${SEABASS_STICK_BACKUP_STICK_SOURCES}
     src/infrastructure/durable_file_write.cpp
+    src/infrastructure/work_counters.cpp
     src/infrastructure/stick_backup/archive_compactor.cpp
     src/infrastructure/stick_backup/restore_path_sanitizer.cpp
     src/application/ports/progress_reporter.cpp
@@ -1089,6 +1124,7 @@ add_test(NAME backup_restore_test COMMAND backup_restore_test)
 add_executable(clone_stick_test
     ${SEABASS_STICK_BACKUP_STICK_SOURCES}
     src/infrastructure/durable_file_write.cpp
+    src/infrastructure/work_counters.cpp
     src/infrastructure/stick_backup/archive_compactor.cpp
     src/infrastructure/stick_backup/restore_path_sanitizer.cpp
     src/application/ports/progress_reporter.cpp
@@ -1117,6 +1153,7 @@ add_executable(onelibrary_cue_writer_test
     src/application/ports/progress_reporter.cpp
     src/infrastructure/onelibrary/onelibrary_key.cpp
     src/infrastructure/onelibrary/sqlcipher_dyn.cpp
+    src/infrastructure/work_counters.cpp
     src/infrastructure/onelibrary/onelibrary_cue_writer.cpp
     src/infrastructure/onelibrary/onelibrary_reader.cpp
     tests/onelibrary_cue_writer_test.cpp
@@ -1132,6 +1169,7 @@ add_executable(onelibrary_cue_writer_adapter_test
     src/application/ports/progress_reporter.cpp
     src/infrastructure/onelibrary/onelibrary_key.cpp
     src/infrastructure/onelibrary/sqlcipher_dyn.cpp
+    src/infrastructure/work_counters.cpp
     src/infrastructure/onelibrary/onelibrary_cue_writer.cpp
     src/infrastructure/onelibrary/onelibrary_reader.cpp
     tests/onelibrary_cue_writer_adapter_test.cpp
@@ -1149,6 +1187,7 @@ add_executable(onelibrary_reader_test
     src/application/ports/progress_reporter.cpp
     src/infrastructure/onelibrary/onelibrary_key.cpp
     src/infrastructure/onelibrary/sqlcipher_dyn.cpp
+    src/infrastructure/work_counters.cpp
     src/infrastructure/onelibrary/onelibrary_cue_writer.cpp
     src/infrastructure/onelibrary/onelibrary_reader.cpp
     tests/onelibrary_reader_test.cpp
