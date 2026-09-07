@@ -70,3 +70,14 @@ Allow formatting (with all the usual warnings and safeguards); pick format based
 ## Full stick backups (incl data) 
 
 - Creating backups of a stick (either to / from local disk or directly from one USB device to another)
+
+## KDE Readiness
+
+Where the repo lives now -- `invent.kde.org/sebas/seabass`, a personal namespace -- almost none of this is required: personal repos only have to be KDE-related and follow the Code of Conduct. The list below is what would have to be true before the repo could move into the `kde/` namespace as a real KDE project (incubation, then a sysadmin move).
+
+- REUSE compliance. The big one, and repo-wide: KDE's licensing policy mandates REUSE 3.0, i.e. every file carries copyright plus an `SPDX-License-Identifier` tag, and a `LICENSES/` directory holds the text of every license used. Today there are zero SPDX tags across ~4700 tracked files and only a root `LICENSE` with GPL-2 text. `reuse annotate` can do most of the mechanical work; the judgement calls are the third-party and generated files.
+- License choice. GPL-2.0-only is on KDE's allowed list for applications, but the expected form for a new app is the disjunction `GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL`, which is what lets KDE e.V. accept future GPL versions on the project's behalf.
+- CI. There is no `.kde-ci.yml`, and `.gitlab-ci.yml` is GitLab's stock SAST/Secret-Detection templates. KDE asks projects not to hand-roll CI and to include `sysadmin/ci-utilities` templates instead (`/gitlab-templates/reuse-lint.yml`, `/gitlab-templates/linux.yml`, ...), with dependencies and code-quality options declared in `.kde-ci.yml`.
+- Submodules. `third_party/` pulls kaitai_struct_cpp_stl_runtime and libdjinterop as gitlinks from GitHub. KDE CI does not build git submodules; dependencies are expected to come through repo-metadata (or be vendored outright). Related: Invent's commit audit rejects any commit containing a file named `.gitmodules`, which is why the file is generated from `cmake/dependency-submodules.txt` rather than committed -- see `scripts/init-submodules.sh`.
+- AppStream. No `.metainfo.xml` and no `.desktop` file. Both are required for a releasable KDE application, and the metainfo file is what puts it in the software centres.
+- repo-metadata. A move into `kde/` needs an entry in `sysadmin/repo-metadata` (projectpath, kind, lifecycle). That is filed as part of the move, not something the repo carries itself.
