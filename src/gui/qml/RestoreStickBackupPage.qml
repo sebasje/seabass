@@ -19,6 +19,9 @@ Page {
     property string preselectedArchivePath: ""
     property string preselectedLabel: ""
     signal formatUsbRequested()
+    // Same signature as StickListPage's own -- see TransferResultFrame's
+    // repairLibraryRequested for why the result report offers this.
+    signal libraryHealthRequested(string stickLabel, string rekordboxPath, string enginePath)
 
     readonly property var disks: controller.disks || []
     readonly property var info: controller.archiveInfo || ({})
@@ -488,6 +491,24 @@ Page {
                             text: Theme.humanBytes(root.preview.freeBytes) + " available, " + Theme.humanBytes(root.preview.bytesToWrite) + " needed"
                         }
                     }
+                    // The central directory is metadata, written once, up
+                    // front -- it can list a perfectly plausible file count
+                    // and byte total while the entries themselves have no
+                    // data behind them. This is the one signal available
+                    // before actually restoring finds out file by file, so
+                    // it gets its own unmissable line rather than folding
+                    // into the ordinary "N problems" count restore reports
+                    // afterward.
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        visible: (root.info.unreadableEntries || 0) > 0
+                        color: Theme.danger
+                        text: "⚠ " + root.info.unreadableEntries + " of " + root.info.entries
+                            + " entries in this backup have no readable data. The archive may be damaged"
+                            + ((root.info.unreadableEntries || 0) * 2 > (root.info.entries || 1)
+                               ? " and this restore will be refused." : "; the rest can still be restored.")
+                    }
                     CheckBox {
                         objectName: "exactCheckBox"
                         text: "Exact restore: also remove files and folders that aren't in the backup"
@@ -541,6 +562,14 @@ Page {
                     root.selectedIndex = -1;
                     root.applySelection(root.pickDefaultDrive());
                 }
+                // The disk just restored onto, not whatever was selected
+                // when the report was drawn -- selectedDisk can already
+                // have moved on (Start Over resets it) by the time this
+                // is clicked.
+                onRepairLibraryRequested: root.libraryHealthRequested(
+                    (root.selectedDisk && root.selectedDisk.label) || "",
+                    (root.selectedDisk && root.selectedDisk.rekordboxPath) || "",
+                    (root.selectedDisk && root.selectedDisk.enginePath) || "")
             }
 
             RowLayout {

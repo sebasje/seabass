@@ -16,12 +16,12 @@ namespace fs = std::filesystem;
 std::string FormatWriteSession::databaseFileFor(const std::string &format, const std::string &catalogPath)
 {
     if (format == "engine") {
-        return (fs::path(catalogPath) / "Database2" / "m.db").string();
+        return (fs::path(catalogPath) / "Database2" / "m.db").generic_string();
     }
     if (format == "onelibrary") {
         return infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(catalogPath);
     }
-    return (fs::path(catalogPath) / "rekordbox" / "export.pdb").string();
+    return (fs::path(catalogPath) / "rekordbox" / "export.pdb").generic_string();
 }
 
 FormatWriteSession::FormatWriteSession(std::string format, std::string catalogPath, int itemCountHint,
