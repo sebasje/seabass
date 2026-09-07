@@ -191,14 +191,16 @@ Page {
 
         // Spelled out because this page sits between two neighbours it is
         // easy to mistake it for: Clean Up Duplicates (same duplicate
-        // groups, but it picks a survivor and removes the rest) and Sync
-        // Cue Points (same cue copying, but between two catalogs rather
-        // than within one).
+        // groups, but it consolidates them onto one copy and drops the
+        // rest from the catalog -- the audio itself goes later, under
+        // Delete Orphaned Files, see CleanupPage.qml's own explanation)
+        // and Sync Cue Points (same cue copying, but between two catalogs
+        // rather than within one).
         Label {
             text: "Copies of the same track inside this one library. Pick which copy's cues are right and "
-                + "they are copied onto the other copies. Nothing is deleted here \u2014 that is Clean Up "
-                + "Duplicates \u2014 and the stick's other libraries are left alone, which is what Sync "
-                + "Cue Points does instead."
+                + "they are copied onto the other copies. Every copy stays in the catalog \u2014 Clean Up "
+                + "Duplicates is where the redundant ones are consolidated away \u2014 and the stick's "
+                + "other libraries are left alone, which is what Sync Cue Points does instead."
             color: Theme.textMuted
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
