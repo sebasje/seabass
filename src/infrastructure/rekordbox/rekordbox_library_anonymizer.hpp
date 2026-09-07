@@ -22,6 +22,10 @@ struct RekordboxAnonymizationResult
     // Player-preference files copied verbatim: Device Profile is the only
     // thing that reads them and they carry nothing identifying.
     int deviceSettingsFilesCopied = 0;
+    // Rows scrubbed in the Device Library Plus mirror that lives beside
+    // export.pdb, and why it could not be scrubbed if it could not.
+    int oneLibraryTracksScrubbed = 0;
+    std::string oneLibraryError;
     std::string errorMessage;  // empty on success
 };
 

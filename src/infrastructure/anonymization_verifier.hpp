@@ -43,6 +43,7 @@ struct AnonymizationVerification
     int analysisFilesChecked = 0;
     int rekordboxTracksSampled = 0;
     int engineTracksSampled = 0;
+    int oneLibraryTracksSampled = 0;
 
     // Everything, ready to print or to put in an error message.
     std::string describe() const;
