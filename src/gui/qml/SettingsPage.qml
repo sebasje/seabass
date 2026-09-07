@@ -18,6 +18,7 @@ Page {
     // Edit mode for this library: session, Save button, leave guard.
     EditSessionHost {
         id: editHost
+        feature: "settings"
         anchors.fill: parent
         libraryId: root.registryLibraryId()
         stickLabel: root.stickLabel

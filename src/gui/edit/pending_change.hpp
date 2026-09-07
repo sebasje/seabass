@@ -44,6 +44,14 @@ public:
     // Catalog formats this change writes ("rekordbox", "engine",
     // "onelibrary"), for cache invalidation after the save.
     virtual QStringList formatsTouched() const = 0;
+    // Which editing page this change belongs to. One save may only ever
+    // hold changes from one page: two pages staging into the same library
+    // would each get their own scratch copy of the same database and the
+    // second commit would silently discard the first's work. The id's
+    // prefix is the page for every change whose page stages exactly one
+    // kind; a page that stages several kinds (Library Health stages both
+    // repairs and orphan deletions) overrides this to name itself.
+    virtual QString owner() const { return id().section(QLatin1Char(':'), 0, 0); }
 
     virtual ChangeOutcome apply(SaveContext &ctx) = 0;
 };

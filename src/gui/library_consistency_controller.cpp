@@ -462,6 +462,9 @@ public:
     }
 
     QString id() const override { return "repair:" + issueKeyFor(m_issue); }
+    // Repairs and orphan deletions are staged by the same page, so they
+    // share one owner (see PendingChange::owner()).
+    QString owner() const override { return QStringLiteral("library-health"); }
 
     QString description() const override
     {
@@ -571,6 +574,7 @@ public:
     }
 
     QString id() const override { return "orphan:" + issueKeyFor(m_issue); }
+    QString owner() const override { return QStringLiteral("library-health"); }
     QString description() const override
     {
         QString title = m_issue.brokenGroup.empty() ? QString("?") : QString::fromStdString(m_issue.brokenGroup.front().title);
@@ -610,9 +614,17 @@ struct JunkCueWriterContext
     {
         std::string root = path.toStdString();
         if (format == "rekordbox") {
-            ctx.backupOnce(root + "/rekordbox/export.pdb", "junk-cue-cleanup");
+            // export.pdb is deliberately NOT backed up here: cue data lives
+            // entirely in the per-track ANLZ files and this path never
+            // writes export.pdb (see RekordboxCueWriter's own header). The
+            // OneLibrary mirror below IS written, so it is what needs the
+            // backup -- without it Undo restored the analysis file and left
+            // the mirror holding the removed cue.
             rekordbox = std::make_unique<infrastructure::rekordbox::RekordboxCueWriter>(root);
             hasOneLibrary = infrastructure::onelibrary::OneLibraryCueWriter::existsFor(root);
+            if (hasOneLibrary) {
+                ctx.backupOnce(infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(root), "junk-cue-cleanup");
+            }
         } else if (format == "engine") {
             ctx.backupOnce((fs::path(root) / "Database2" / "m.db").string(), "junk-cue-cleanup");
             engine = std::make_unique<infrastructure::engine::LibdjinteropEngineCueWriter>(root);
@@ -637,6 +649,7 @@ public:
     RemoveJunkCueChange(QString path, domain::Track track) : m_path(std::move(path)), m_track(std::move(track)) {}
 
     QString id() const override { return "junk:" + junkKeyFor(m_track); }
+    QString owner() const override { return QStringLiteral("library-health"); }
     QString description() const override
     {
         return QStringLiteral("Remove the 0:00 memory cue from \"%1\"").arg(QString::fromStdString(m_track.title));

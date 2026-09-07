@@ -32,6 +32,7 @@ Page {
     // Edit mode for this library: session, floating Save, leave guard.
     EditSessionHost {
         id: editHost
+        feature: "cleanup"
         anchors.fill: parent
         libraryId: typeof EditSessionRegistry !== "undefined"
             ? EditSessionRegistry.libraryIdForPath(root.rekordboxPath.length > 0 ? root.rekordboxPath : root.enginePath) : ""

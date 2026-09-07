@@ -901,6 +901,15 @@ target_include_directories(libdjinterop_engine_cue_writer_propagate_test PRIVATE
 target_link_libraries(libdjinterop_engine_cue_writer_propagate_test PRIVATE DjInterop)
 add_test(NAME libdjinterop_engine_cue_writer_propagate_test COMMAND libdjinterop_engine_cue_writer_propagate_test)
 
+add_executable(libdjinterop_engine_cue_writer_main_cue_test
+    src/infrastructure/engine/libdjinterop_engine_cue_writer.cpp
+    src/infrastructure/engine/rekordbox_key_parser.cpp
+    tests/libdjinterop_engine_cue_writer_main_cue_test.cpp
+)
+target_include_directories(libdjinterop_engine_cue_writer_main_cue_test PRIVATE src)
+target_link_libraries(libdjinterop_engine_cue_writer_main_cue_test PRIVATE DjInterop)
+add_test(NAME libdjinterop_engine_cue_writer_main_cue_test COMMAND libdjinterop_engine_cue_writer_main_cue_test)
+
 add_executable(pending_deletion_manifest_test
     src/infrastructure/cleanup/pending_deletion_manifest.cpp
     tests/pending_deletion_manifest_test.cpp

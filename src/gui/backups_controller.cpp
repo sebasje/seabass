@@ -1,3 +1,4 @@
+#include "gui/library_catalog_cache.hpp"
 #include "backups_controller.hpp"
 
 #include <QtConcurrent/QtConcurrentRun>
@@ -9,6 +10,7 @@
 #include "gui/edit/edit_session_registry.hpp"
 #include "gui/write_guard.hpp"
 #include "infrastructure/backup/filesystem_backup_store.hpp"
+#include "infrastructure/backup/stick_locks.hpp"
 #include "infrastructure/backup/stick_write_lock.hpp"
 
 namespace seabass::gui
@@ -320,6 +322,14 @@ void BackupsController::onTaskFinished()
     }
     if (!result.statusMessage.isEmpty()) {
         setStatusMessage(result.statusMessage);
+    }
+    // A restore puts different bytes under the catalogs; a prune does not,
+    // but doing it for every mutating action is cheaper than reasoning
+    // about which one just ran.
+    if (m_writing) {
+        LibraryCatalogCache::instance().invalidateEveryCatalogOn(
+            infrastructure::backup::stickRootForCatalogPath(
+                (m_enginePath.isEmpty() ? m_rekordboxPath : m_enginePath).toStdString()));
     }
     emit backupsChanged();
     m_writing = false;

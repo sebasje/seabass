@@ -145,6 +145,7 @@ private:
     QVariantMap m_result;
     QVariantList m_knownBackups;
     bool m_restoring = false;
+    QString m_restoreTarget;  // where the last restore() wrote, for cache invalidation
     DirectWriteHold m_writeHold;
     bool m_analyzing = false;
     bool m_mounting = false;

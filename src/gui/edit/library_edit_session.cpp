@@ -170,14 +170,31 @@ void LibraryEditSession::release()
     releaseLockIfUnneeded();
 }
 
+// The batch is owned by one page only while it has changes in it; once it
+// is empty any page may start a new batch.
+void LibraryEditSession::clearOwnerIfClean()
+{
+    if (m_changes.empty()) {
+        m_editorOwner.clear();
+    }
+}
+
 bool LibraryEditSession::stage(std::unique_ptr<PendingChange> change)
 {
     if (!change || m_writing) {
         return false;
     }
+    // Checked before the lock is taken, so a refused attempt leaves no
+    // trace: one library is edited by one page at a time, full stop.
+    const QString owner = change->owner();
+    if (!m_changes.empty() && !m_editorOwner.isEmpty() && owner != m_editorOwner) {
+        emit editorConflict(m_editorOwner, owner);
+        return false;
+    }
     if (!acquireLock()) {
         return false;
     }
+    m_editorOwner = owner;
     const QString id = change->id();
     bool wasDirty = dirty();
     auto existing = std::find_if(m_changes.begin(), m_changes.end(),
@@ -205,6 +222,7 @@ void LibraryEditSession::unstage(const QString &changeId)
         return;
     }
     m_changes.erase(it, m_changes.end());
+    clearOwnerIfClean();
     emit pendingChanged();
     if (m_changes.empty()) {
         emit stateChanged();
@@ -286,6 +304,7 @@ void LibraryEditSession::onSaveFinished()
     m_changes.erase(std::remove_if(m_changes.begin(), m_changes.end(),
                                    [&](const auto &c) { return applied.count(c->id()) > 0; }),
                     m_changes.end());
+    clearOwnerIfClean();
 
     for (const QString &format : formats) {
         const QString path = format == "engine" ? m_enginePath : m_rekordboxPath;
@@ -325,6 +344,7 @@ void LibraryEditSession::discard()
     }
     bool hadChanges = !m_changes.empty();
     m_changes.clear();
+    clearOwnerIfClean();
     if (hadChanges) {
         emit pendingChanged();
         emit stateChanged();

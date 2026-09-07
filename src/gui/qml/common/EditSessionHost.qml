@@ -28,7 +28,16 @@ Item {
     property string stickLabel: ""
     property string rekordboxPath: ""
     property string enginePath: ""
+    // Which editing page this is, matching PendingChange::owner(). One
+    // library is edited by one page at a time; while another page holds
+    // unsaved changes this one is read-only, and its own staging attempts
+    // are refused in C++ regardless of what the UI does.
+    property string feature: ""
     readonly property var session: internal.session
+    readonly property string editorOwner: internal.session !== null && internal.session.editorOwner !== undefined
+        ? internal.session.editorOwner : ""
+    readonly property bool blockedByOtherPage: host.feature.length > 0 && host.editorOwner.length > 0
+        && host.editorOwner !== host.feature
     readonly property bool dirty: internal.session !== null && internal.session.dirty === true
     readonly property bool writing: internal.session !== null && internal.session.writing === true
 
@@ -125,6 +134,36 @@ Item {
         onRemoveLockRequested: host.registry.removeLock(host.libraryId)
     }
 
+    // A second page tried to stage into a library another page is already
+    // editing. Not a lock dialog: the other page is in this same window,
+    // and the way out is to finish or discard there.
+    Dialog {
+        id: otherPageDialog
+        objectName: "otherPageDialog"
+        anchors.centerIn: parent
+        modal: true
+        closePolicy: Popup.NoAutoClose
+        width: 520
+        title: "Another page is editing this library"
+        property string ownerName: ""
+        footer: DialogButtonBox {
+            Button {
+                objectName: "understoodButton"
+                text: "Understood"
+                highlighted: true
+                DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
+            }
+        }
+        Label {
+            objectName: "messageLabel"
+            width: parent.width
+            wrapMode: Text.WordWrap
+            color: Theme.text
+            text: "You have unsaved changes on " + otherPageDialog.ownerName + " for this stick. Save or discard "
+                + "them there before editing the same library from here.\n\nNothing was changed."
+        }
+    }
+
     Connections {
         target: host.session
         ignoreUnknownSignals: true
@@ -136,6 +175,24 @@ Item {
         }
         function onLockRefused(holder) {
             lockedDialog.openFor(host.libraryId, holder);
+        }
+        function onEditorConflict(owner, attempted) {
+            otherPageDialog.ownerName = host.pageNameFor(owner);
+            otherPageDialog.open();
+        }
+    }
+
+    // PendingChange::owner() values, as the user knows the pages.
+    function pageNameFor(owner) {
+        switch (owner) {
+        case "settings": return "Device Profile";
+        case "sync": return "Sync Cue Points";
+        case "library-health": return "Library Health";
+        case "cleanup": return "Clean Up Duplicates";
+        case "dup": return "Duplicate Stats & Sync";
+        case "localcue": return "Local Cue Backup";
+        case "addcue": return "Browse Library";
+        default: return "another page";
         }
     }
 }

@@ -74,6 +74,7 @@ Page {
     // Edit mode for this library: session, floating Save, leave guard.
     EditSessionHost {
         id: editHost
+        feature: "dup"
         anchors.fill: parent
         libraryId: typeof EditSessionRegistry !== "undefined"
             ? EditSessionRegistry.libraryIdForPath(root.hasRekordbox ? root.rekordboxPath : root.enginePath) : ""

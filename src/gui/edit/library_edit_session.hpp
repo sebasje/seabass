@@ -43,6 +43,9 @@ class LibraryEditSession : public QObject
     Q_PROPERTY(QString stickLabel READ stickLabel NOTIFY stickLabelChanged)
     Q_PROPERTY(QString state READ state NOTIFY stateChanged)
     Q_PROPERTY(bool dirty READ dirty NOTIFY pendingChanged)
+    // The page that owns the staged batch, "" when nothing is staged. No
+    // other page may stage into this library until it is clean again.
+    Q_PROPERTY(QString editorOwner READ editorOwner NOTIFY pendingChanged)
     Q_PROPERTY(bool writing READ writing NOTIFY stateChanged)
     Q_PROPERTY(bool lockHeld READ lockHeld NOTIFY stateChanged)
     Q_PROPERTY(int pendingCount READ pendingCount NOTIFY pendingChanged)
@@ -67,6 +70,7 @@ public:
     QString mountPoint() const { return m_mountPoint; }
     QString state() const;
     bool dirty() const { return !m_changes.empty(); }
+    QString editorOwner() const { return m_editorOwner; }
     bool writing() const { return m_writing; }
     bool lockHeld() const { return m_lockHeld; }
     int pendingCount() const { return static_cast<int>(m_changes.size()); }
@@ -126,10 +130,14 @@ signals:
     void changesDiscarded();
     // holder: {instanceId, hostname, pid, stickLabel, startedAtUtc}
     void lockRefused(const QVariantMap &holder);
+    // A second page tried to stage into a library another page is already
+    // editing. Nothing was staged.
+    void editorConflict(const QString &owner, const QString &attempted);
 
 private:
     bool acquireLock();
     void releaseLock();
+    void clearOwnerIfClean();
     void onSaveFinished();
     void setWriting(bool writing);
     void setWriteProgress(const QString &label, int current, int total);
@@ -153,6 +161,7 @@ private:
     bool m_stickPresent = true;
     QString m_stickIdentityStrength;
     QVariantMap m_lastSummary;
+    QString m_editorOwner;
     QString m_savingUnit;
     int m_refs = 0;
 };
