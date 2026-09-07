@@ -10,8 +10,10 @@
 #include <system_error>
 #include <unordered_map>
 
+#include "infrastructure/backup/stick_write_lock.hpp"
 #include "infrastructure/engine/engine_library_layout.hpp"
 #include "infrastructure/hashing/sha256.hpp"
+#include "infrastructure/stick_backup/archive_journal.hpp"
 #include "infrastructure/stick_backup/archive_recovery.hpp"
 #include "infrastructure/stick_backup/archive_stats.hpp"
 #include "infrastructure/stick_backup/archive_updater.hpp"
@@ -278,6 +280,12 @@ ManifestRow rowForEntry(const TreeEntry &entry, const ArchiveUpdater::AppendedEn
 struct PendingBackup::Impl
 {
     BackupStickOptions options;
+    // Held from just before OpenedArchive::open() until keep()/discard()
+    // actually runs -- which, for a cancelled-and-pending backup, can be
+    // much later than execute() returning. Keeps a restore, a clone or
+    // another backup from opening this same archive for writing while
+    // this one is still in flight or awaiting a decision.
+    std::unique_ptr<infrastructure::backup::StickWriteLock> lock;
     OpenedArchive opened;
     std::unique_ptr<ArchiveUpdater> updater;
     BackupManifest manifest;  // rows for carried + completed entries
@@ -312,10 +320,16 @@ BackupStickOutcome PendingBackup::keep()
     try {
         m_impl->updater->commit(m_impl->manifest);
     } catch (const std::exception &e) {
+        // Written, or explicitly left for recovery -- either way this
+        // archive is done being touched by this session. Release now:
+        // a caller keeping the PendingBackup around just to check
+        // decided() must not still be blocking a resume.
+        m_impl->lock.reset();
         outcome.status = BackupOutcomeStatus::Failed;
         outcome.message = e.what();
         return outcome;
     }
+    m_impl->lock.reset();
     outcome.status = BackupOutcomeStatus::KeptPartial;
     outcome.archiveBytes = m_impl->opened.archive->size();
     if (std::optional<Zip64Reader> reader = Zip64Reader::tryOpen(*m_impl->opened.archive)) {
@@ -335,9 +349,14 @@ BackupStickOutcome PendingBackup::discard()
     try {
         m_impl->updater->abort();
     } catch (const std::exception &e) {
+        // See the matching comment in keep(): abort() has now run,
+        // regardless of outcome, so this archive is done being touched
+        // by this session.
+        m_impl->lock.reset();
         outcome.message = e.what();
         return outcome;
     }
+    m_impl->lock.reset();
     outcome.status = BackupOutcomeStatus::Discarded;
     outcome.archiveBytes = m_impl->opened.archive->size();
     if (m_impl->firstBackup) {
@@ -457,6 +476,13 @@ BackupStickOutcome BackupStick::execute(const BackupStickOptions &options, Progr
     BackupStickOutcome outcome;
     auto impl = std::make_unique<PendingBackup::Impl>();
     impl->options = options;
+    try {
+        impl->lock = std::make_unique<infrastructure::backup::StickWriteLock>(
+            journal::lockPathFor(options.archivePath).string());
+    } catch (const infrastructure::backup::StickBusyError &e) {
+        outcome.message = e.what();
+        return outcome;
+    }
     OpenedArchive &opened = impl->opened;
     if (!opened.open(options, true)) {
         outcome.message = opened.error;
