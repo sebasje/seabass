@@ -1,0 +1,64 @@
+#include "gui/edit/changes/delete_orphan_change.hpp"
+
+#include <memory>
+#include <string>
+
+#include "gui/edit/changes/change_helpers.hpp"
+#include "gui/edit/save_context.hpp"
+#include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
+
+namespace seabass::gui
+{
+
+DeleteOrphanChange::DeleteOrphanChange(QString path, domain::LibraryConsistencyIssue issue)
+    : m_path(std::move(path)), m_issue(std::move(issue))
+{
+}
+
+QString DeleteOrphanChange::id() const
+{
+    return "orphan:" + issueKeyFor(m_issue);
+}
+
+QString DeleteOrphanChange::owner() const
+{
+    return QStringLiteral("library-health");
+}
+
+QString DeleteOrphanChange::description() const
+{
+    QString title =
+        m_issue.brokenGroup.empty() ? QString("?") : QString::fromStdString(m_issue.brokenGroup.front().title);
+    return QStringLiteral("Delete %1 orphaned OneLibrary row(s) (\"%2\")").arg(m_issue.brokenGroup.size()).arg(title);
+}
+
+QString DeleteOrphanChange::unit() const
+{
+    return QStringLiteral("rows");
+}
+
+QStringList DeleteOrphanChange::formatsTouched() const
+{
+    return {"onelibrary"};
+}
+
+ChangeOutcome DeleteOrphanChange::apply(SaveContext &ctx)
+{
+    std::string root = m_path.toStdString();
+    struct Writer
+    {
+        explicit Writer(const std::string &pioneerRoot) : writer(pioneerRoot) {}
+        infrastructure::onelibrary::OneLibraryCueWriter writer;
+    };
+    Writer &w = ctx.shared<Writer>("orphan:onelibrary", [&]() {
+        ctx.backupOnce(infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(root), "consistency-delete-orphan");
+        return std::make_unique<Writer>(root);
+    });
+    for (const auto &broken : m_issue.brokenGroup) {
+        w.writer.removeTrackByPath(broken.filePath);
+        ctx.log().record("consistency: deleted orphaned OneLibrary row \"" + broken.title + "\"");
+    }
+    return ChangeOutcome::success();
+}
+
+}  // namespace seabass::gui
