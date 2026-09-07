@@ -90,9 +90,13 @@ Page {
 
             // What this page is for, in three sentences. Real libraries
             // accumulate several files of one track through repeated
-            // exports, and someone opening a screen that proposes
-            // deleting audio deserves to know what it considers a
-            // duplicate before they trust a checkbox.
+            // exports, and someone about to let a tool merge their cue
+            // points deserves to know what it considers a duplicate
+            // before they trust a checkbox. The third sentence matters
+            // most: this page consolidates catalog rows and records what
+            // it orphaned, it does NOT delete audio -- "Delete Orphaned
+            // Files" does that, and saying so here stops the space
+            // figures above reading as a promise this page keeps.
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 8
@@ -101,10 +105,12 @@ Page {
                     wrapMode: Text.WordWrap
                     color: Theme.textMuted
                     text: "Exporting the same track more than once leaves several copies of it on the stick, "
-                        + "each catalogued separately and each taking up space. Seabass groups copies that "
-                        + "agree on artist, track title and length, keeps the best one, and moves every cue "
-                        + "point and rating from the copies it removes onto the one it keeps. Nothing is "
-                        + "deleted until you check the groups you want and press Save."
+                        + "each catalogued separately and each taking up space. In this step Seabass groups "
+                        + "the copies that agree on artist, track title and length, and consolidates their "
+                        + "metadata -- cue points, ratings, playlist membership -- onto the single copy it "
+                        + "keeps. No audio is deleted here: the files this leaves unneeded are removed "
+                        + "afterwards under \"Delete Orphaned Files\", which is where the space is actually "
+                        + "freed."
                 }
                 InfoButton {
                     explanationTitle: "What counts as a duplicate?"
@@ -128,7 +134,11 @@ Page {
                         + "Groups where the copies differ in a way that might be deliberate, or that carry "
                         + "ratings or comments that cannot be preserved, are left unchecked for you to "
                         + "decide. Use \"what's conserved\" on any group to see exactly what the surviving "
-                        + "copy would end up with."
+                        + "copy would end up with.\n\n"
+                        + "Saving here changes the catalogs only. The copies it drops are recorded as "
+                        + "orphaned files and stay on disk until you review them under \"Delete Orphaned "
+                        + "Files\", which re-checks that nothing still references them before removing "
+                        + "anything. The sizes shown on this page are what that later step would free."
                 }
             }
 
