@@ -239,6 +239,89 @@ int main()
     }
 
     fs::remove_all(root);
+    // A stick does not come back at the same mount point after a reboot,
+    // and on Windows it gets whatever drive letter is free. Paths on the
+    // stick are therefore recorded relative to it, so the same backup
+    // restores onto the same stick wherever it turns up.
+    {
+        fs::path stickA = root / "mount-a";
+        fs::path pioneer = stickA / "PIONEER" / "rekordbox";
+        fs::path exportPdb = pioneer / "export.pdb";
+        writeFile(exportPdb, "original library");
+
+        FilesystemBackupStore store((stickA / ".seabass-backups").string());
+        auto record = store.backup({exportPdb.string()}, "sync");
+
+        // Nothing absolute may have been written down.
+        std::string manifest = readFile(stickA / ".seabass-backups" / record.id / ".manifest");
+        assert(manifest.find("MANIFEST-VERSION\t2") != std::string::npos);
+        assert(manifest.find(stickA.string()) == std::string::npos);
+        assert(manifest.find("PIONEER/rekordbox/export.pdb") != std::string::npos);
+
+        // The same stick, now mounted somewhere else entirely.
+        fs::path stickB = root / "mount-b";
+        fs::rename(stickA, stickB);
+        writeFile(stickB / "PIONEER" / "rekordbox" / "export.pdb", "changed since");
+
+        FilesystemBackupStore moved((stickB / ".seabass-backups").string());
+        assert(moved.restore(record.id));
+        assert(readFile(stickB / "PIONEER" / "rekordbox" / "export.pdb") == "original library");
+        // ...and nothing was resurrected at the old mount point.
+        assert(!fs::exists(stickA));
+
+        // list() still reports where the file actually is now.
+        auto listed = moved.list();
+        bool found = false;
+        for (const auto &r : listed) {
+            for (const auto &fp : r.filePaths) {
+                if (fp == fs::absolute(stickB / "PIONEER" / "rekordbox" / "export.pdb").string()) {
+                    found = true;
+                }
+            }
+        }
+        assert(found);
+        std::cout << "case 9 (stick paths are relative, so a moved stick still restores) OK\n";
+    }
+
+    // A file that is genuinely not on the stick keeps its absolute path:
+    // making it relative would produce "../../.." nonsense.
+    {
+        fs::path stick = root / "offstick" / "mount";
+        fs::path elsewhere = root / "offstick" / "not-the-stick" / "cues.db";
+        writeFile(elsewhere, "local cue store");
+        fs::create_directories(stick);
+
+        FilesystemBackupStore store((stick / ".seabass-backups").string());
+        auto record = store.backup({elsewhere.string()}, "local-restore");
+        std::string manifest = readFile(stick / ".seabass-backups" / record.id / ".manifest");
+        assert(manifest.find(fs::absolute(elsewhere).string()) != std::string::npos);
+
+        writeFile(elsewhere, "clobbered");
+        assert(store.restore(record.id));
+        assert(readFile(elsewhere) == "local cue store");
+        std::cout << "case 10 (a file off the stick stays absolute) OK\n";
+    }
+
+    // Every backup already on a user's stick was written with absolute
+    // paths and a version 1 header. Those must keep restoring exactly as
+    // they did, at the path they name.
+    {
+        fs::path stick = root / "legacy";
+        fs::path target = stick / "PIONEER" / "rekordbox" / "export.pdb";
+        writeFile(target, "restored from a v1 backup");
+        fs::path recordDir = stick / ".seabass-backups" / "20260101T000000-sync";
+        fs::create_directories(recordDir);
+        writeFile(recordDir / "export.pdb", "restored from a v1 backup");
+        writeFile(recordDir / ".manifest",
+                  "MANIFEST-VERSION\t1\nexport.pdb\t" + fs::absolute(target).string() + "\n");
+
+        writeFile(target, "changed since");
+        FilesystemBackupStore store((stick / ".seabass-backups").string());
+        assert(store.restore("20260101T000000-sync"));
+        assert(readFile(target) == "restored from a v1 backup");
+        std::cout << "case 11 (a version 1 manifest with absolute paths still restores) OK\n";
+    }
+
     std::cout << "all cases passed\n";
     return 0;
 }

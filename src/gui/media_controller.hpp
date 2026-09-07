@@ -136,6 +136,7 @@ public:
     // when the mount point was never seen.
     Q_INVOKABLE QString libraryIdForMountPoint(const QString &mountPoint) const;
     std::optional<application::StickIdentity> lastKnownIdentity(const std::string &mountPoint) const;
+    std::string mountPointFor(const application::StickIdentity &identity) const;
 
 signals:
     void errorMessageChanged();
@@ -146,6 +147,12 @@ signals:
     // sure "the same stick" is.
     void stickRemoved(const QString &libraryId, const QString &label);
     void stickReturned(const QString &libraryId, const QString &identityStrength);
+    // Every stick newly visible since the last detect(), including one
+    // that was already plugged in at startup and one seen for the first
+    // time -- neither of which stickReturned() covers, because that only
+    // fires for a stick this session watched being removed. Anything that
+    // needs to look at a stick when it shows up wants this one.
+    void stickAppeared(const QString &libraryId, const QString &mountPoint);
 
 public:
     // Unmounts every stick Seabass mounted itself that is still mounted

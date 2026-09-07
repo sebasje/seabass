@@ -66,13 +66,25 @@ std::string readWholeFile(const fs::path &path)
 }
 
 // Format version 1: a "MANIFEST-VERSION\t1" header line, then one
-// "<name-on-disk>\t<original absolute path>" line per backed-up file. If
-// this format ever needs to change, bump this, keep parsing every older
+// "<name-on-disk>\t<original absolute path>" line per backed-up file.
+//
+// Version 2 changes only what that second field may hold: a path under
+// the stick this store lives on is now recorded RELATIVE to the stick
+// root. Absolute paths were a real defect -- a stick does not come back
+// at the same mount point after a reboot, and on Windows it gets
+// whatever drive letter is free, so restoring a v1 backup on a stick
+// that moved wrote to a path that no longer meant anything. Anything
+// genuinely off the stick is still recorded absolute.
+//
+// Reading stays backwards compatible in both directions: a relative
+// entry is resolved against the stick root, an absolute one is used as
+// it stands, so v1 manifests restore exactly as they always did.
+// If this ever changes again, bump this, keep parsing every older
 // version exactly as it always has, and add the new version as an
 // additional branch in readManifest() below -- the actual backwards-
 // compatibility guarantee (see LocalCueStore's identical pattern for
 // snapshot blobs, which this mirrors).
-constexpr int CurrentManifestFormatVersion = 1;
+constexpr int CurrentManifestFormatVersion = 2;
 
 struct Manifest
 {
@@ -108,6 +120,36 @@ Manifest readManifest(const fs::path &dir)
 }
 
 }  // namespace
+
+// The stick this store lives on: baseDirectory is <stick>/.seabass-backups.
+fs::path FilesystemBackupStore::stickRoot() const
+{
+    return fs::path(m_baseDirectory).parent_path();
+}
+
+// What goes in the manifest for `source`: relative to the stick when it is
+// on the stick, absolute otherwise.
+std::string FilesystemBackupStore::recordedPathFor(const fs::path &source) const
+{
+    const fs::path absolute = fs::absolute(source).lexically_normal();
+    const fs::path root = stickRoot().lexically_normal();
+    const fs::path relative = absolute.lexically_relative(root);
+    if (relative.empty() || *relative.begin() == "..") {
+        return absolute.string();  // genuinely off the stick
+    }
+    return relative.generic_string();
+}
+
+// The reverse: a relative manifest entry names a file on whichever stick
+// this store is on *now*, which is the whole point of recording it that way.
+fs::path FilesystemBackupStore::resolveRecordedPath(const std::string &recorded) const
+{
+    const fs::path path(recorded);
+    if (path.is_absolute()) {
+        return path;
+    }
+    return stickRoot() / path;
+}
 
 FilesystemBackupStore::FilesystemBackupStore(std::string baseDirectory) : m_baseDirectory(std::move(baseDirectory)) {}
 
@@ -187,7 +229,7 @@ void FilesystemBackupStore::appendFiles(const fs::path &dir, const std::vector<s
         if (!writeFileDurablyAtomic((dir / destName).string(), readWholeFile(source))) {
             throw std::runtime_error("failed to durably write backup copy of " + source.string());
         }
-        manifest << destName.string() << '\t' << fs::absolute(source).string() << '\n';
+        manifest << destName.string() << '\t' << recordedPathFor(source) << '\n';
     }
 }
 
@@ -211,7 +253,7 @@ std::vector<BackupRecord> FilesystemBackupStore::list()
         record.description = readWholeFile(entry.path() / DescriptionFileName);
         record.sizeBytes = directorySize(entry.path());
         for (const auto &[onDisk, originalPath] : readManifest(entry.path()).entries) {
-            record.filePaths.push_back(originalPath);
+            record.filePaths.push_back(resolveRecordedPath(originalPath).string());
         }
         records.push_back(std::move(record));
     }
@@ -272,8 +314,9 @@ bool FilesystemBackupStore::restore(const std::string &id)
     // own backup (label "pre-restore") before being overwritten.
     std::vector<std::string> currentPaths;
     for (const auto &[onDisk, originalPath] : manifest.entries) {
-        if (fs::exists(originalPath, ec)) {
-            currentPaths.push_back(originalPath);
+        const fs::path target = resolveRecordedPath(originalPath);
+        if (fs::exists(target, ec)) {
+            currentPaths.push_back(target.string());
         }
     }
     if (!currentPaths.empty()) {
@@ -286,13 +329,14 @@ bool FilesystemBackupStore::restore(const std::string &id)
         if (!fs::exists(source, ec)) {
             continue;
         }
-        fs::create_directories(fs::path(originalPath).parent_path(), ec);
+        const fs::path target = resolveRecordedPath(originalPath);
+        fs::create_directories(target.parent_path(), ec);
         // Durable + atomic, not a plain copy_file: this overwrites a
         // *live* file, and it's specifically the moment Seabass is
         // trusted to put things right -- a crash mid-copy must never
         // leave that file half-written (worse than either the backup or
         // what was there before).
-        bool ok = writeFileDurablyAtomic(originalPath, readWholeFile(source));
+        bool ok = writeFileDurablyAtomic(target.string(), readWholeFile(source));
         anyRestored = anyRestored || ok;
     }
     return anyRestored;

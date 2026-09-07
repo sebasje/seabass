@@ -162,6 +162,17 @@ MediaController::~MediaController()
     unmountOwnMounts();
 }
 
+// Where a just-detected stick is mounted right now.
+std::string MediaController::mountPointFor(const application::StickIdentity &identity) const
+{
+    for (const application::DetectedStick &stick : m_model.sticks()) {
+        if (stick.mounted && stick.identity.libraryId() == identity.libraryId()) {
+            return stick.mountPoint;
+        }
+    }
+    return {};
+}
+
 void MediaController::detect()
 {
     auto locator = infrastructure::media::createRemovableMediaLocator();
@@ -188,6 +199,8 @@ void MediaController::detect()
         emit stickRemoved(QString::fromStdString(identity.libraryId()), QString::fromStdString(identity.label));
     }
     for (const application::StickIdentity &identity : diff.appeared) {
+        emit stickAppeared(QString::fromStdString(identity.libraryId()),
+                           QString::fromStdString(mountPointFor(identity)));
         auto awaited = application::findAwaited(m_awaitedIdentities, identity);
         if (!awaited) {
             continue;
