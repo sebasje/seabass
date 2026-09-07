@@ -79,4 +79,16 @@ const infrastructure::rekordbox::AnlzPathIndex *sharedAnlzPathIndex(SaveContext 
     return shared.index.get();
 }
 
+infrastructure::onelibrary::OneLibraryCueWriter &sharedOneLibraryWriter(
+    SaveContext &ctx, const std::string &pioneerRoot, const std::optional<std::string> &realStickRoot)
+{
+    // Keyed on the database being written, not on the feature: two
+    // features staging into the same library in one save must share the
+    // connection, not open a second one against the same file.
+    const std::string key = "onelibrary-writer:" + pioneerRoot;
+    return ctx.shared<infrastructure::onelibrary::OneLibraryCueWriter>(key, [&]() {
+        return std::make_unique<infrastructure::onelibrary::OneLibraryCueWriter>(pioneerRoot, realStickRoot);
+    });
+}
+
 }  // namespace seabass::gui

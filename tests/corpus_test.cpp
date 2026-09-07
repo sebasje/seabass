@@ -1069,6 +1069,11 @@ void caseStrayCueRemoval(const DataSet &set, const fs::path &scratch, const Cata
     // per-item figure rounds that win down to zero.
     expected.expect("matrix.strayCue.pdbParsesPerSave", counts.trackDatabaseParses,
                     "stray-cue pdb parses for the whole save unchanged");
+    // Also flat in the batch size, and the one that actually costs
+    // wall-clock: every SQLCipher open derives the key from a passphrase,
+    // about 115 ms of CPU that no faster disk helps with.
+    expected.expect("matrix.strayCue.encryptedOpensPerSave", counts.encryptedDatabaseOpens,
+                    "stray-cue SQLCipher opens for the whole save unchanged");
     std::cout << "    stray cue removal (" << changes.size() << " tracks): " << counts.describe() << "\n";
     fs::remove_all(root);
     pass("matrix: stray cues go, and only they go");
