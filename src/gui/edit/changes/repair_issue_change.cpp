@@ -35,7 +35,8 @@ struct RepairWriterContext
     {
         std::string root = path.toStdString();
         if (format == "rekordbox") {
-            rekordboxCues = std::make_unique<infrastructure::rekordbox::RekordboxCueWriter>(root);
+            rekordboxCues = std::make_unique<infrastructure::rekordbox::RekordboxCueWriter>(
+                root, sharedAnlzPathIndex(ctx, path));
             rekordboxCleanup = std::make_unique<infrastructure::rekordbox::RekordboxCleanupWriter>(session.writeRoot());
             hasOneLibrary = infrastructure::onelibrary::OneLibraryCueWriter::existsFor(root);
         } else if (format == "engine") {
@@ -109,8 +110,10 @@ ChangeOutcome RepairIssueChange::apply(SaveContext &ctx)
 
     if (format == "rekordbox") {
         if (!m_issue.survivorCues.empty()) {
-            auto analyzePath = infrastructure::rekordbox::findAnlzPathForTrackId(
-                root, static_cast<uint32_t>(std::stoul(survivor.sourceId)));
+            const auto *pathIndex = sharedAnlzPathIndex(ctx, m_path);
+            const uint32_t survivorId = static_cast<uint32_t>(std::stoul(survivor.sourceId));
+            auto analyzePath = pathIndex ? pathIndex->pathFor(survivorId)
+                                         : infrastructure::rekordbox::findAnlzPathForTrackId(root, survivorId);
             if (analyzePath) {
                 ctx.backupOnce(infrastructure::rekordbox::extAnlzPath(root, *analyzePath), "consistency-repair");
             }

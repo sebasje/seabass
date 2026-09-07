@@ -36,11 +36,13 @@ QString formatLabel(const std::string &format)
 // (backed up per item by the change), so its hint is 0: never scratch.
 struct SyncFormatWriter
 {
-    SyncFormatWriter(const std::string &format, const std::string &catalogPath, int itemCountHint, SaveContext &ctx)
+    SyncFormatWriter(const std::string &format, const std::string &catalogPath, int itemCountHint, SaveContext &ctx,
+                     const infrastructure::rekordbox::AnlzPathIndex *pathIndex)
         : session(format, catalogPath, format == "rekordbox" ? 0 : itemCountHint, "sync", ctx)
     {
         if (format == "rekordbox") {
-            rekordbox = std::make_unique<infrastructure::rekordbox::RekordboxCueWriter>(session.realRoot());
+            rekordbox = std::make_unique<infrastructure::rekordbox::RekordboxCueWriter>(session.realRoot(),
+                                                                                            pathIndex);
         } else if (format == "engine") {
             engine = std::make_unique<infrastructure::engine::LibdjinteropEngineCueWriter>(session.writeRoot());
         } else {
@@ -112,12 +114,15 @@ ChangeOutcome SyncPlanChange::apply(SaveContext &ctx)
     }
     std::string catalogPath = path.toStdString();
     SyncFormatWriter &writer = ctx.shared<SyncFormatWriter>("sync:" + targetFormat, [&]() {
-        return std::make_unique<SyncFormatWriter>(targetFormat, catalogPath, m_itemCountHint, ctx);
+        return std::make_unique<SyncFormatWriter>(targetFormat, catalogPath, m_itemCountHint, ctx,
+                                                 sharedAnlzPathIndex(ctx, path));
     });
 
     if (targetFormat == "rekordbox") {
-        auto analyzePath = infrastructure::rekordbox::findAnlzPathForTrackId(
-            catalogPath, static_cast<uint32_t>(std::stoul(tgt.sourceId)));
+        const auto *pathIndex = sharedAnlzPathIndex(ctx, path);
+        const uint32_t trackId = static_cast<uint32_t>(std::stoul(tgt.sourceId));
+        auto analyzePath = pathIndex ? pathIndex->pathFor(trackId)
+                                     : infrastructure::rekordbox::findAnlzPathForTrackId(catalogPath, trackId);
         if (analyzePath) {
             ctx.backupOnce(infrastructure::rekordbox::extAnlzPath(catalogPath, *analyzePath), "sync");
         }

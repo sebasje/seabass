@@ -44,7 +44,8 @@ struct JunkCueWriterContext
             // OneLibrary mirror below IS written, so it is what needs the
             // backup -- without it Undo restored the analysis file and left
             // the mirror holding the removed cue.
-            rekordbox = std::make_unique<infrastructure::rekordbox::RekordboxCueWriter>(root);
+            rekordbox = std::make_unique<infrastructure::rekordbox::RekordboxCueWriter>(
+                root, sharedAnlzPathIndex(ctx, path));
             hasOneLibrary = infrastructure::onelibrary::OneLibraryCueWriter::existsFor(root);
             if (hasOneLibrary) {
                 ctx.backupOnce(infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(root), "junk-cue-cleanup");
@@ -105,8 +106,10 @@ ChangeOutcome RemoveJunkCueChange::apply(SaveContext &ctx)
     auto remainingCues = cuesWithoutJunk(m_track);
 
     if (format == "rekordbox") {
-        auto analyzePath = infrastructure::rekordbox::findAnlzPathForTrackId(
-            root, static_cast<uint32_t>(std::stoul(m_track.sourceId)));
+        const auto *pathIndex = sharedAnlzPathIndex(ctx, m_path);
+        const uint32_t trackId = static_cast<uint32_t>(std::stoul(m_track.sourceId));
+        auto analyzePath = pathIndex ? pathIndex->pathFor(trackId)
+                                     : infrastructure::rekordbox::findAnlzPathForTrackId(root, trackId);
         if (analyzePath) {
             ctx.backupOnce(infrastructure::rekordbox::extAnlzPath(root, *analyzePath), "junk-cue-cleanup");
         }

@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "application/ports/cue_writer.hpp"
+#include "gui/edit/changes/change_helpers.hpp"
 #include "gui/edit/save_context.hpp"
 #include "gui/library_catalog_cache.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cue_writer.hpp"
@@ -160,9 +161,11 @@ ChangeOutcome AddCueChange::apply(SaveContext &ctx)
 
     std::unique_ptr<application::CueWriter> writer;
     if (m_format == "rekordbox") {
-        writer = std::make_unique<infrastructure::rekordbox::RekordboxCueWriter>(pioneerRoot);
-        auto analyzePath =
-            infrastructure::rekordbox::findAnlzPathForTrackId(pioneerRoot, static_cast<uint32_t>(std::stoul(id)));
+        const auto *pathIndex = sharedAnlzPathIndex(ctx, m_path);
+        writer = std::make_unique<infrastructure::rekordbox::RekordboxCueWriter>(pioneerRoot, pathIndex);
+        auto analyzePath = pathIndex
+            ? pathIndex->pathFor(static_cast<uint32_t>(std::stoul(id)))
+            : infrastructure::rekordbox::findAnlzPathForTrackId(pioneerRoot, static_cast<uint32_t>(std::stoul(id)));
         if (analyzePath) {
             ctx.backupOnce(infrastructure::rekordbox::extAnlzPath(pioneerRoot, *analyzePath), "add-cue");
         }

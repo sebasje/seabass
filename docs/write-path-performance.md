@@ -308,3 +308,49 @@ Keep this file as a running log. For each round, record: the stick and its
 filesystem, the case under test, the per-item breakdown, the strategy
 comparison with individual runs, and what the decision was. A number without
 the stick it came from is not reusable.
+
+## Round 3, 2026-09-07: one index per save instead of two parses per item
+
+The first fix from Step 3 of the plan, and the first one the corpus
+runner's work counts could prove rather than argue for.
+
+`findAnlzPathForTrackId()` parses the whole 1.4 MB `export.pdb` to answer
+one question, and a rekordbox save asked it twice per item: once in the
+change class to find the analysis file to back up, once inside
+`RekordboxCueWriter` to find the same file to write. A 200-item save
+therefore parsed the same database 400 times.
+
+`infrastructure/rekordbox/anlz_path_index` builds the whole map in one
+pass. The save holds one per catalog in `SaveContext::shared`, every change
+class asks it instead of the database, and `RekordboxCueWriter` takes an
+optional pointer to it. The single-shot callers, the command line and the
+waveform reader, keep the old lookup: for one id, one pass is the cheaper
+answer.
+
+Measured by `corpus_test`, which records these per data set and fails on a
+change:
+
+| Save | Parses before | After |
+|---|---:|---:|
+| Add one cue | 2 | 1 |
+| Remove 5 stray cues | 10 | 1 |
+| Library Health repair | 2 | 1 |
+| Clean Up one group | 2 | 2 |
+
+The stray-cue row is the shape of the win: flat in the number of items
+rather than linear. Extrapolated to the 201-cue save that started all of
+this, 402 parses become 1.
+
+Clean Up is unchanged because its second parse is `PdbRowWriter`'s own read
+of the database it is about to rewrite, which is a different cost and needs
+a different fix.
+
+A failure is not automatic if the index cannot be built: the catalog may be
+unreadable, and every caller falls back to the per-call lookup rather than
+failing the save.
+
+**Still open, in order:** hold one OneLibrary connection and key derivation
+per save (the corpus counts show 1 to 5 SQLCipher opens per save today,
+each paying a PBKDF2 derivation, which is the 235 ms/item cost), reuse the
+Engine database handle, keep the operation log's stream open, and fix the
+two O(n^2) loops in `FilesystemBackupStore`.

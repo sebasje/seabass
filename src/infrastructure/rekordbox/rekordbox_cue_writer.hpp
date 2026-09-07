@@ -2,7 +2,10 @@
 
 #include <string>
 
+#include <optional>
+
 #include "application/ports/cue_writer.hpp"
+#include "infrastructure/rekordbox/anlz_path_index.hpp"
 
 namespace seabass::infrastructure::rekordbox
 {
@@ -25,10 +28,21 @@ class RekordboxCueWriter : public application::CueWriter
 public:
     explicit RekordboxCueWriter(std::string pioneerRoot);
 
+    // Same, but answering "which analysis file is this track's?" from an
+    // index built once instead of by re-parsing export.pdb per call. The
+    // index must outlive this writer and must have been built from the
+    // same catalog; a save owns one and hands it to every writer it makes.
+    // Passing nothing keeps the old per-call lookup, which is what the
+    // single-shot callers (the command line, the waveform reader) want.
+    RekordboxCueWriter(std::string pioneerRoot, const AnlzPathIndex *pathIndex);
+
     void writeHotCues(const std::string &trackSourceId, const std::vector<domain::CuePoint> &cues) override;
 
 private:
+    std::optional<std::string> analyzePathFor(uint32_t trackId) const;
+
     std::string m_pioneerRoot;
+    const AnlzPathIndex *m_pathIndex = nullptr;
 };
 
 }  // namespace seabass::infrastructure::rekordbox

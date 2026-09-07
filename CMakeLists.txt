@@ -163,6 +163,7 @@ add_library(seabass_core STATIC
     src/infrastructure/rekordbox/anlz_cue_codec.cpp
     src/infrastructure/rekordbox/anlz_file.cpp
     src/infrastructure/rekordbox/pdb_lookup.cpp
+    src/infrastructure/rekordbox/anlz_path_index.cpp
     src/infrastructure/rekordbox/pdb_row_writer.cpp
     src/infrastructure/rekordbox/rekordbox_cleanup_writer.cpp
     src/infrastructure/rekordbox/rekordbox_cue_writer.cpp
@@ -646,6 +647,7 @@ add_executable(cue_color_normalization_test
     src/infrastructure/engine/libdjinterop_engine_reader.cpp
     src/infrastructure/rekordbox/kaitai_rekordbox_reader.cpp
     src/infrastructure/rekordbox/pdb_lookup.cpp
+    src/infrastructure/rekordbox/anlz_path_index.cpp
     src/infrastructure/work_counters.cpp
     tests/cue_color_normalization_test.cpp
 )
@@ -841,6 +843,7 @@ add_executable(pdb_row_writer_string_test
     src/infrastructure/work_counters.cpp
     src/infrastructure/rekordbox/pdb_row_writer.cpp
     src/infrastructure/rekordbox/pdb_lookup.cpp
+    src/infrastructure/rekordbox/anlz_path_index.cpp
     tests/pdb_row_writer_string_test.cpp
 )
 target_include_directories(pdb_row_writer_string_test PRIVATE src)
