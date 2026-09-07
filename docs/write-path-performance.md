@@ -452,7 +452,11 @@ target per cue -- and at the ~330 ms a flushed whole-file write costs on
 this stick, that is essentially the entire 136 s.
 
 **Worse, it is superlinear.** Four times the items cost thirteen times the
-wall clock, and the per-item figure triples from 198 ms to 676 ms. Nothing
+wall clock, and the per-item figure triples from 198 ms to 676 ms.
+*(Round 8 retracts this: the same 200-item batch measured 659 ms and 278 ms
+per item in one sweep. These runs did not follow round 2's own rotate,
+remount and median discipline, so run order dominated them. The rest of
+this section stands; the superlinearity does not.)* Nothing
 in the work counts grows, so this is not repeated work coming back. The
 most likely cause is the backup directory: every file a save backs up lands
 in one flat directory, exFAT scans a directory linearly to insert into it,
@@ -556,3 +560,55 @@ stick-backup feature's own append-only archive with its journal).
 
 This is a design decision rather than an optimisation, so it wants deciding
 rather than assuming. Recorded here so the next round starts from it.
+
+## Round 8: the superlinearity was not real, and I ignored our own method
+
+The sweep, ascending then descending in one session, on RV2 after a
+filesystem check and with the old backups cleared:
+
+| Items | Ascending | Descending | Free space |
+|---:|---:|---:|---:|
+| 25 | 906.6 ms | 429.9 ms | 0.53 GiB |
+| 50 | 253.9 ms | 270.9 ms | 0.53 GiB |
+| 100 | 299.7 ms | 269.3 ms | 0.52 GiB |
+| 200 | **659.1 ms** | **277.9 ms** | 0.50 GiB |
+
+The two 200-item runs are the whole answer. Same batch size, same code,
+same free space to three decimal places, one immediately after the other,
+and they differ by 2.4x. Whatever that is, it is not a property of the
+batch size, and round 6's superlinearity does not survive it. Neither does
+the fill-level explanation: free space is identical across the pair.
+
+Corrected numbers, then. For batches of 50 and up the per-item cost is
+roughly flat at 250 to 300 ms, with one outlier at 659. Against the
+original 771 ms per cue that is a real improvement of about 2.5 to 3x, not
+the 12% round 6 reported from a single unlucky run. A 200-cue save on this
+stick lands somewhere between 56 s and 132 s depending on nothing the code
+controls.
+
+The 25-item runs being the most expensive per item is real and expected:
+the fixed cost of a save (one catalog parse, two key derivations, the write
+session's setup) divided by 25 rather than 200. It is the same absolute
+cost, showing up larger.
+
+**The actual lesson is procedural and it is on me.** This document's own
+round 2 established the method for measuring a stick, in its own words:
+rotate the order and take the median of three, and unmount and remount
+between runs, because run order otherwise dominates the result. I built a
+new benchmark and ran it single-shot, in order, without remounting. Round
+6's conclusion, its hypothesis, and the round 7 experiment chasing that
+hypothesis all follow from that one omission. The loopback result in round
+7 is still valid and still useful -- exFAT is not the problem -- but it was
+answering a question that should not have been asked yet.
+
+**Before any further conclusion about the write half:** give
+`staged_save_bench` the same `--device` unmount and remount that
+`stick_write_bench` already has, and the same rotate-and-median discipline.
+Until then the honest summary is that the work counts are flat and provably
+so, the per-item wall clock is roughly flat for realistic batch sizes, and
+the save is two to three times faster than it was.
+
+**Unchanged by any of this:** 201 of the 403 durable writes in a 201-cue
+save are backups, and moving them off the stick, or batching them into one
+archive written at the end, remains the largest single lever available. It
+does not depend on which of these numbers is right.
