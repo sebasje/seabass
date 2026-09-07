@@ -1078,6 +1078,21 @@ target_include_directories(backup_stick_test PRIVATE src)
 target_link_libraries(backup_stick_test PRIVATE ZLIB::ZLIB SQLite::SQLite3)
 add_test(NAME backup_stick_test COMMAND backup_stick_test)
 
+add_executable(backup_archive_concurrent_reader_test
+    ${SEABASS_STICK_BACKUP_STICK_SOURCES}
+    src/infrastructure/durable_file_write.cpp
+    src/infrastructure/stick_backup/archive_compactor.cpp
+    src/infrastructure/stick_backup/restore_path_sanitizer.cpp
+    src/application/ports/progress_reporter.cpp
+    src/application/use_cases/backup_stick.cpp
+    src/application/use_cases/restore_stick_backup.cpp
+    src/infrastructure/work_counters.cpp
+    tests/backup_archive_concurrent_reader_test.cpp
+)
+target_include_directories(backup_archive_concurrent_reader_test PRIVATE src)
+target_link_libraries(backup_archive_concurrent_reader_test PRIVATE ZLIB::ZLIB SQLite::SQLite3 Threads::Threads)
+add_test(NAME backup_archive_concurrent_reader_test COMMAND backup_archive_concurrent_reader_test)
+
 add_executable(backup_archive_compaction_test
     ${SEABASS_STICK_BACKUP_UPDATE_SOURCES}
     src/infrastructure/durable_file_write.cpp
