@@ -191,6 +191,7 @@ add_library(seabass_core STATIC
     src/infrastructure/local/local_cue_store.cpp
     src/infrastructure/local/app_data_directory.cpp
     src/infrastructure/work_counters.cpp
+    src/infrastructure/anonymization_verifier.cpp
     src/infrastructure/local/file_library_edit_lock_store.cpp
     src/infrastructure/system/rekordbox_process_detector.cpp
     src/infrastructure/system/process_liveness.cpp
@@ -938,22 +939,9 @@ target_include_directories(libdjinterop_engine_anonymizer_test PRIVATE src)
 target_link_libraries(libdjinterop_engine_anonymizer_test PRIVATE DjInterop)
 add_test(NAME libdjinterop_engine_anonymizer_test COMMAND libdjinterop_engine_anonymizer_test)
 
-add_executable(anonymize_library_test
-    src/infrastructure/long_paths.cpp
-    src/application/use_cases/anonymize_library.cpp
-    src/application/ports/progress_reporter.cpp
-    src/infrastructure/durable_file_write.cpp
-    src/infrastructure/work_counters.cpp
-    src/infrastructure/rekordbox/pdb_row_writer.cpp
-    src/infrastructure/rekordbox/pdb_lookup.cpp
-    src/infrastructure/rekordbox/anlz_file.cpp
-    src/infrastructure/rekordbox/rekordbox_library_anonymizer.cpp
-    src/infrastructure/engine/libdjinterop_engine_anonymizer.cpp
-    src/infrastructure/zip_archive_writer.cpp
-    tests/anonymize_library_test.cpp
-)
+add_executable(anonymize_library_test tests/anonymize_library_test.cpp)
 target_include_directories(anonymize_library_test PRIVATE src)
-target_link_libraries(anonymize_library_test PRIVATE rekordbox_format DjInterop ZLIB::ZLIB)
+target_link_libraries(anonymize_library_test PRIVATE seabass_core)
 add_test(NAME anonymize_library_test COMMAND anonymize_library_test)
 
 add_executable(libdjinterop_engine_cue_writer_propagate_test
@@ -1263,6 +1251,13 @@ add_test(NAME onelibrary_reader_test COMMAND onelibrary_reader_test)
 # Each set records its own expected counts in SET-EXPECTATIONS.txt beside
 # it, so a real library nobody inspects by hand still gets a regression
 # guard on what the readers return.
+# Checks an anonymized export against the promise its manifest makes.
+# The export flow calls the same function before it writes the zip; this
+# is for checking an export somebody already produced.
+add_executable(verify_anonymized_export tools/verify_anonymized_export.cpp)
+target_include_directories(verify_anonymized_export PRIVATE src)
+target_link_libraries(verify_anonymized_export PRIVATE seabass_core)
+
 add_executable(corpus_test tests/corpus_test.cpp)
 target_include_directories(corpus_test PRIVATE src)
 target_link_libraries(corpus_test PRIVATE seabass_core)
