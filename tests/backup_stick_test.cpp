@@ -311,6 +311,13 @@ int main()
         assert(resumed.status == BackupOutcomeStatus::Complete);
         assert(resumed.carried >= 1);
         assert(f.manifest().status == BackupStatus::Complete);
+        // A resumed archive was never actually verified here, which is
+        // how a hollow one (right length, no data) could have gone
+        // unnoticed by the suite -- see
+        // tests/backup_archive_concurrent_reader_test.cpp.
+        VerifyOutcome resumedVerify = BackupStick::verify(f.archive);
+        assert(resumedVerify.error.empty());
+        assert(resumedVerify.ok);
         assert(f.verifies());
         std::cout << "case 8 (cancel after one file, keep, resume to complete) OK\n";
     }
