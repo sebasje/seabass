@@ -75,6 +75,15 @@ The QML test binary registers the same `SeabassGui` module as the app
 instantiated in a test; `tst_PagesCompile.qml` checks that every page
 at least compiles.
 
+## Testing against real libraries
+
+The donated-library corpus, what anonymizing keeps and what that costs a
+test, and how the three purposes (integrity, stability, speed) map onto
+every cleaning and sync function:
+[`docs/real-data-testing.md`](real-data-testing.md). Short version: assert
+work counts, not wall-clock seconds, because timing is a property of the
+medium and not of the data.
+
 ## Measuring write performance
 
 Benchmarking a save against real removable media has its own traps (a USB
