@@ -19,7 +19,6 @@
 #include "application/ports/removable_media_locator.hpp"
 #include "application/use_cases/anonymize_library.hpp"
 #include "application/use_cases/consolidate_duplicate_cues.hpp"
-#include "application/use_cases/fill_missing_durations.hpp"
 #include "application/use_cases/scan_library.hpp"
 #include "application/use_cases/sync_libraries.hpp"
 #include "cli/console.hpp"
@@ -30,7 +29,6 @@
 #include "infrastructure/backup/stick_locks.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cue_writer.hpp"
 #include "infrastructure/engine/libdjinterop_engine_reader.hpp"
-#include "infrastructure/local/duration_cache.hpp"
 #include "infrastructure/local/file_library_edit_lock_store.hpp"
 #include "infrastructure/logging/file_operation_log.hpp"
 #include "infrastructure/media/media_factory.hpp"
@@ -39,10 +37,10 @@
 #include "infrastructure/rekordbox/rekordbox_cue_writer.hpp"
 #include "infrastructure/system/stick_hardware_info.hpp"
 
+#include "infrastructure/audio/duration_fill.hpp"
+
 #ifdef SEABASS_HAVE_QT_AUDIO
 #include <QCoreApplication>
-
-#include "infrastructure/audio/qt_multimedia_duration_probe.hpp"
 #endif
 
 using seabass::application::AnonymizeLibrary;
@@ -343,32 +341,14 @@ void printReport(const std::string &heading, const std::vector<Track> &tracks, c
 // Engine leaves `length` NULL on every track it has not analyzed (77.6%
 // of rows on a real stick), and without a length DuplicateTrackFinder
 // refuses to group at all -- see its header.
-//
-// libraryPath is ".../PIONEER" or ".../Engine Library"; the cache lives
-// beside them at the stick root, since the answers describe the stick's
-// own files rather than this machine.
 void fillDurations(std::vector<Track> &tracks, const std::string &libraryPath)
 {
-    const std::string stickRoot = std::filesystem::path(libraryPath).parent_path().string();
-    seabass::infrastructure::local::DurationCache cache(stickRoot);
-
-#ifdef SEABASS_HAVE_QT_AUDIO
-    seabass::infrastructure::audio::QtMultimediaDurationProbe probe;
-#else
-    // No Qt in this build: every miss stays unknown, and Clean Up simply
-    // finds fewer groups rather than unsafe ones.
-    seabass::application::NullTrackDurationProbe probe;
-#endif
-
-    const auto result = seabass::application::fillMissingDurations(tracks, probe, &cache);
+    const auto result = seabass::infrastructure::audio::fillTrackDurations(tracks, libraryPath);
     if (result.probed > 0 || result.fromCache > 0) {
         Console::verbose("durations: " + std::to_string(result.alreadyKnown) + " from catalog, " +
                           std::to_string(result.fromCache) + " cached, " + std::to_string(result.probed) +
                           " probed, " + std::to_string(result.unreadable) + " still unknown");
     }
-    // A read-only stick (or a full one) costs only the re-probe next
-    // time -- never the scan itself.
-    cache.save();
 }
 
 std::vector<Track> scanPath(std::unique_ptr<LibraryReader> reader, const std::string &libraryPath)
