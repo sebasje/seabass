@@ -14,7 +14,11 @@
 
 #include <sqlite3.h>
 
+#if defined(_WIN32)
+#include <windows.h>
+#else
 #include <sys/stat.h>
+#endif
 
 #include <atomic>
 #include <cassert>
@@ -75,9 +79,19 @@ void createEngineDb(const fs::path &path)
 // from the field reported 12.3 GB and had 3.8 MB behind it.
 std::uint64_t allocatedBytes(const fs::path &p)
 {
+#if defined(_WIN32)
+    // GetCompressedFileSize reports actual on-disk usage for both
+    // compressed and sparse files (st_blocks's Windows equivalent --
+    // struct stat here has no st_blocks at all).
+    DWORD high = 0;
+    DWORD low = GetCompressedFileSizeW(p.c_str(), &high);
+    assert(low != INVALID_FILE_SIZE || GetLastError() == NO_ERROR);
+    return (static_cast<std::uint64_t>(high) << 32) | low;
+#else
     struct stat st{};
     assert(::stat(p.c_str(), &st) == 0);
     return static_cast<std::uint64_t>(st.st_blocks) * 512u;
+#endif
 }
 
 void assertNotHollow(const fs::path &archive)
