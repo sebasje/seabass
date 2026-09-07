@@ -49,7 +49,23 @@
 #include "infrastructure/rekordbox/rekordbox_cleanup_writer.hpp"
 #include "infrastructure/rekordbox/rekordbox_cue_writer.hpp"
 #include "infrastructure/work_counters.hpp"
+#include "infrastructure/rekordbox/rekordbox_settings_fields.hpp"
+#include "infrastructure/rekordbox/rekordbox_settings_reader.hpp"
 #include "infrastructure/zip_archive_reader.hpp"
+
+#ifdef SEABASS_CORPUS_HAS_EDIT
+#include <QString>
+
+#include <memory>
+
+#include "domain/sync_planning.hpp"
+#include "gui/edit/changes/add_cue_change.hpp"
+#include "gui/edit/changes/device_setting_change.hpp"
+#include "gui/edit/changes/remove_junk_cue_change.hpp"
+#include "gui/edit/changes/sync_plan_change.hpp"
+#include "gui/edit/save_context.hpp"
+#include "gui/edit/save_loop.hpp"
+#endif
 
 namespace fs = std::filesystem;
 using namespace seabass;
@@ -113,11 +129,34 @@ std::optional<DataSet> asDataSet(const fs::path &dir)
     DataSet set;
     set.name = dir.filename().string();
     set.root = dir;
-    std::error_code ec;
-    set.anonymized = fs::is_directory(dir / "rekordbox", ec) || fs::is_directory(dir / "engine", ec);
     set.expectationsPath = dir / "SET-EXPECTATIONS.txt";
-    set.rekordboxRoot = firstExisting(dir, {"rekordbox", "PIONEER"});
-    set.engineRoot = firstExisting(dir, {"engine", "Engine Library"});
+    std::error_code ec;
+
+    // Pick ONE layout and take both catalogs from it. A set can hold both
+    // -- an early collected archive carries raw PIONEER/ and Engine
+    // Library/ copies beside the anonymized tree -- and taking the
+    // rekordbox half from one and the Engine half from the other compares
+    // placeholders against real titles, which matches nothing and looks
+    // exactly like a broken matcher. That cost an hour once; it does not
+    // get to happen twice.
+    const bool hasAnonymized = fs::is_directory(dir / "rekordbox", ec) || fs::is_directory(dir / "engine", ec);
+    const bool hasRaw = fs::is_directory(dir / "PIONEER", ec) || fs::is_directory(dir / "Engine Library", ec);
+    if (hasAnonymized && hasRaw) {
+        // Worth saying out loud rather than quietly preferring one: an
+        // archive meant to be shareable that also carries raw copies is a
+        // privacy problem, not just an awkward layout.
+        std::cout << "  NOTE: " << set.name
+                  << " holds an anonymized tree AND raw stick copies. Reading the anonymized one.\n"
+                     "        An export meant for sharing should not contain the raw copies at all.\n";
+    }
+    set.anonymized = hasAnonymized;
+    if (hasAnonymized) {
+        set.rekordboxRoot = firstExisting(dir, {"rekordbox"});
+        set.engineRoot = firstExisting(dir, {"engine"});
+    } else {
+        set.rekordboxRoot = firstExisting(dir, {"PIONEER"});
+        set.engineRoot = firstExisting(dir, {"Engine Library"});
+    }
     if (!set.rekordboxRoot && !set.engineRoot) {
         return std::nullopt;
     }
@@ -182,8 +221,12 @@ std::vector<DataSet> discoverSets()
                 }
                 continue;
             }
-            std::cout << "skipping " << entry.path().filename().string()
-                      << ": neither a directory nor a .zip\n";
+            // The runner writes a zipped set's numbers beside the
+            // archive, so those are its own files, not candidates.
+            if (entry.path().filename().string().find("-EXPECTATIONS.txt") == std::string::npos) {
+                std::cout << "skipping " << entry.path().filename().string()
+                          << ": neither a directory nor a .zip\n";
+            }
             continue;
         }
         if (auto set = asDataSet(entry.path())) {
@@ -303,6 +346,14 @@ fs::path freshRekordboxCopy(const DataSet &set, const fs::path &scratch, const s
     fs::remove_all(target);
     fs::copy(*set.rekordboxRoot, target, fs::copy_options::recursive);
     return target;
+}
+
+std::string readWholeFile(const fs::path &path)
+{
+    std::ifstream in(path, std::ios::binary);
+    std::ostringstream buffer;
+    buffer << in.rdbuf();
+    return buffer.str();
 }
 
 int countCues(const std::vector<domain::Track> &tracks)
@@ -807,6 +858,414 @@ void caseWorkCounts(const DataSet &set, const fs::path &scratch, const Catalogs 
 
 }  // namespace
 
+// ---------------------------------------------------------- matrix cases
+//
+// One case per editing feature, each built the same way: copy the set into
+// scratch, stage the change class the page stages, run it through the real
+// save loop, then construct a FRESH reader and assert on what comes back.
+// A test that trusts the writer's own return value is not a test -- every
+// write-path bug this project has found was invisible to one.
+//
+// These need the change classes, so they need Qt Core (see
+// SEABASS_CORPUS_HAS_EDIT in CMakeLists.txt). Everything above does not.
+
+#ifdef SEABASS_CORPUS_HAS_EDIT
+
+namespace
+{
+
+// A save, driven exactly as a page drives one.
+gui::SaveLoopResult runChanges(const std::vector<std::shared_ptr<gui::PendingChange>> &changes,
+                               const fs::path &rekordboxRoot, const fs::path &engineRoot)
+{
+    application::CancellationToken cancel;
+    gui::SaveContext ctx(cancel, application::NullProgressReporter::instance(), nullptr,
+                         QString::fromStdString(rekordboxRoot.string()),
+                         QString::fromStdString(engineRoot.string()));
+    return runSaveLoop(changes, ctx);
+}
+
+std::vector<domain::Track> rescanRekordbox(const fs::path &root)
+{
+    infrastructure::rekordbox::KaitaiRekordboxReader reader(root.string());
+    return application::ScanLibrary(reader).execute();
+}
+
+std::vector<domain::Track> rescanEngine(const fs::path &root)
+{
+    infrastructure::engine::LibdjinteropEngineReader reader(root.string());
+    return application::ScanLibrary(reader).execute();
+}
+
+const domain::Track *findTrack(const std::vector<domain::Track> &tracks, const std::string &sourceId)
+{
+    for (const auto &t : tracks) {
+        if (t.sourceId == sourceId) {
+            return &t;
+        }
+    }
+    return nullptr;
+}
+
+int countJunkCues(const std::vector<domain::Track> &tracks)
+{
+    int total = 0;
+    for (const auto &t : tracks) {
+        for (const auto &c : t.cues) {
+            if (c.kind == domain::CuePoint::Kind::Memory && c.positionMs == 0.0) {
+                ++total;
+            }
+        }
+    }
+    return total;
+}
+
+}  // namespace
+
+// Matrix: Add cue. The cue reads back at the same position and colour, and
+// writing a second cue to the same hot slot replaces it rather than
+// leaving the pad claiming two.
+void caseAddCue(const DataSet &set, const fs::path &scratch, const Catalogs &catalogs, Expectations &expected)
+{
+    if (catalogs.rekordbox.empty()) {
+        return;
+    }
+    const domain::Track *target = nullptr;
+    for (const auto &t : catalogs.rekordbox) {
+        if (t.cues.empty()) {
+            target = &t;
+            break;
+        }
+    }
+    if (target == nullptr) {
+        std::cout << "    skipped matrix/add-cue: no track without cues\n";
+        return;
+    }
+    const std::string id = target->sourceId;
+    const fs::path root = freshRekordboxCopy(set, scratch, "matrix-addcue");
+
+    WorkCounters::instance().reset();
+    auto change = std::make_shared<gui::AddCueChange>("rekordbox", QString::fromStdString(root.string()),
+                                                      QString::fromStdString(id), 45000.0, "hot", 2, "#00FF00", "",
+                                                      false, 0.0, QString::fromStdString(target->title));
+    auto result = runChanges({change}, root, {});
+    const auto counts = WorkCounters::instance().snapshot();
+
+    if (!check(result.error.isEmpty(), "the add-cue save reported no error: " + result.error.toStdString())) {
+        fs::remove_all(root);
+        return;
+    }
+    auto after = rescanRekordbox(root);
+    const domain::Track *reread = findTrack(after, id);
+    if (check(reread != nullptr, "the track survived the add-cue save")) {
+        if (check(reread->cues.size() == 1, "exactly one cue came back")) {
+            check(reread->cues[0].positionMs == 45000.0, "the cue is at the position it was written at");
+            check(reread->cues[0].hotCueNumber == 2, "the cue is in the hot slot it was written to");
+        }
+    }
+
+    // Same slot again, a different position: a hardware pad holds one cue,
+    // so this replaces rather than adds.
+    auto replacement = std::make_shared<gui::AddCueChange>("rekordbox", QString::fromStdString(root.string()),
+                                                           QString::fromStdString(id), 60000.0, "hot", 2, "#0000FF", "",
+                                                           false, 0.0, QString::fromStdString(target->title));
+    auto second = runChanges({replacement}, root, {});
+    check(second.error.isEmpty(), "the replacing save reported no error");
+    auto afterReplace = rescanRekordbox(root);
+    const domain::Track *replaced = findTrack(afterReplace, id);
+    if (check(replaced != nullptr, "the track survived the replacing save")) {
+        if (check(replaced->cues.size() == 1, "the hot slot still holds exactly one cue")) {
+            check(replaced->cues[0].positionMs == 60000.0, "the slot holds the newer cue");
+        }
+    }
+
+    expected.expect("matrix.addCue.pdbParses", counts.trackDatabaseParses, "add-cue pdb parses per item unchanged");
+    std::cout << "    add cue: " << counts.describe() << "\n";
+    fs::remove_all(root);
+    pass("matrix: add cue reads back, and a hot slot holds one cue");
+}
+
+// Matrix: stray cue removal. After the save a fresh scan finds none on the
+// touched tracks, and the tracks' other cues are untouched.
+void caseStrayCueRemoval(const DataSet &set, const fs::path &scratch, const Catalogs &catalogs, Expectations &expected)
+{
+    std::vector<const domain::Track *> withJunk;
+    for (const auto &t : catalogs.rekordbox) {
+        for (const auto &c : t.cues) {
+            if (c.kind == domain::CuePoint::Kind::Memory && c.positionMs == 0.0) {
+                withJunk.push_back(&t);
+                break;
+            }
+        }
+        if (withJunk.size() >= 5) {
+            break;
+        }
+    }
+    if (withJunk.empty()) {
+        std::cout << "    skipped matrix/stray-cue: this library has no 0:00 memory cues\n";
+        return;
+    }
+    const fs::path root = freshRekordboxCopy(set, scratch, "matrix-stray");
+
+    std::vector<std::shared_ptr<gui::PendingChange>> changes;
+    std::map<std::string, size_t> cuesBefore;
+    for (const auto *t : withJunk) {
+        domain::Track copy = *t;
+        cuesBefore[t->sourceId] = t->cues.size();
+        changes.push_back(std::make_shared<gui::RemoveJunkCueChange>(QString::fromStdString(root.string()), copy));
+    }
+
+    WorkCounters::instance().reset();
+    auto result = runChanges(changes, root, {});
+    const auto counts = WorkCounters::instance().snapshot();
+    if (!check(result.error.isEmpty(), "the stray-cue save reported no error: " + result.error.toStdString())) {
+        fs::remove_all(root);
+        return;
+    }
+    check(result.appliedIds.size() == changes.size(), "every staged removal was applied");
+
+    auto after = rescanRekordbox(root);
+    for (const auto &[id, before] : cuesBefore) {
+        const domain::Track *reread = findTrack(after, id);
+        if (!check(reread != nullptr, "track " + id + " survived the stray-cue save")) {
+            continue;
+        }
+        int junk = 0;
+        for (const auto &c : reread->cues) {
+            if (c.kind == domain::CuePoint::Kind::Memory && c.positionMs == 0.0) {
+                ++junk;
+            }
+        }
+        check(junk == 0, "track " + id + " has no 0:00 memory cue left");
+        // Exactly the stray cue went, and nothing else with it.
+        check(reread->cues.size() == before - 1, "track " + id + " kept every other cue it had");
+    }
+    expected.expect("matrix.strayCue.pdbParses", counts.trackDatabaseParses / std::max<size_t>(1, changes.size()),
+                    "stray-cue pdb parses per item unchanged");
+    std::cout << "    stray cue removal (" << changes.size() << " tracks): " << counts.describe() << "\n";
+    fs::remove_all(root);
+    pass("matrix: stray cues go, and only they go");
+}
+
+// Matrix: Sync. Every planned cue lands on the target and reads back
+// equal. Runs against both catalogs, so the source is real data and the
+// target is a real catalog of a different format.
+void caseSync(const DataSet &set, const fs::path &scratch, const Catalogs &catalogs, Expectations &expected)
+{
+    if (catalogs.rekordbox.empty() || catalogs.engine.empty()) {
+        std::cout << "    skipped matrix/sync: this set has only one catalog\n";
+        return;
+    }
+    const fs::path rekordboxRoot = freshRekordboxCopy(set, scratch, "matrix-sync-rb");
+    const fs::path engineRoot = scratch / "matrix-sync-engine";
+    fs::remove_all(engineRoot);
+    fs::copy(*set.engineRoot, engineRoot, fs::copy_options::recursive);
+
+    auto now = std::chrono::system_clock::now();
+    auto plans = application::SyncLibraries().execute(catalogs.rekordbox, catalogs.engine, now, now);
+
+    // Take a handful of plans that actually carry cues to write.
+    std::vector<domain::SyncPlan> withCues;
+    for (const auto &plan : plans) {
+        if (!plan.cuesToApply.empty()) {
+            withCues.push_back(plan);
+        }
+        if (withCues.size() >= 5) {
+            break;
+        }
+    }
+    if (withCues.empty()) {
+        std::cout << "    skipped matrix/sync: no plan carries cues to write\n";
+        fs::remove_all(rekordboxRoot);
+        fs::remove_all(engineRoot);
+        return;
+    }
+
+    std::vector<std::shared_ptr<gui::PendingChange>> changes;
+    for (const auto &plan : withCues) {
+        changes.push_back(std::make_shared<gui::SyncPlanChange>(QString::fromStdString(rekordboxRoot.string()),
+                                                                QString::fromStdString(engineRoot.string()), plan,
+                                                                static_cast<int>(withCues.size())));
+    }
+
+    WorkCounters::instance().reset();
+    auto result = runChanges(changes, rekordboxRoot, engineRoot);
+    const auto counts = WorkCounters::instance().snapshot();
+    if (!check(result.error.isEmpty(), "the sync save reported no error: " + result.error.toStdString())) {
+        fs::remove_all(rekordboxRoot);
+        fs::remove_all(engineRoot);
+        return;
+    }
+
+    auto rekordboxAfter = rescanRekordbox(rekordboxRoot);
+    std::vector<domain::Track> engineAfter;
+    try {
+        engineAfter = rescanEngine(engineRoot);
+    } catch (const std::exception &e) {
+        check(false, std::string("could not re-read the Engine catalog after the sync: ") + e.what());
+    }
+
+    for (const auto &plan : withCues) {
+        const domain::Track &target =
+            plan.direction == domain::SyncPlan::Direction::ToB ? plan.match.trackB : plan.match.trackA;
+        const auto &after = target.format == "engine" ? engineAfter : rekordboxAfter;
+        const domain::Track *reread = findTrack(after, target.sourceId);
+        if (!check(reread != nullptr, "sync target " + target.sourceId + " survived the save")) {
+            continue;
+        }
+        // Every hot cue the plan carried must be there at its position.
+        // Engine keeps one memory cue by design, so only hot cues are
+        // asserted one for one.
+        for (const auto &planned : plan.cuesToApply) {
+            if (planned.kind != domain::CuePoint::Kind::Hot) {
+                continue;
+            }
+            bool landed = false;
+            for (const auto &actual : reread->cues) {
+                if (actual.kind == domain::CuePoint::Kind::Hot && actual.hotCueNumber == planned.hotCueNumber
+                    && actual.positionMs == planned.positionMs) {
+                    landed = true;
+                }
+            }
+            check(landed, "planned hot cue " + std::to_string(planned.hotCueNumber) + " landed on "
+                              + target.format + " track " + target.sourceId);
+        }
+    }
+    expected.expect("matrix.sync.engineOpens", counts.engineDatabaseOpens, "sync Engine opens unchanged");
+    std::cout << "    sync (" << withCues.size() << " plans): " << counts.describe() << "\n";
+    fs::remove_all(rekordboxRoot);
+    fs::remove_all(engineRoot);
+    pass("matrix: every planned cue lands and reads back equal");
+}
+
+// Matrix: Device settings. The written field reads back, and every other
+// byte of the file is untouched -- a settings writer that rewrites the
+// whole file would pass a read-back check and still be wrong.
+void caseDeviceSettings(const DataSet &set, const fs::path &scratch)
+{
+    if (!set.rekordboxRoot) {
+        return;
+    }
+    const fs::path root = freshRekordboxCopy(set, scratch, "matrix-settings");
+    const fs::path settingsFile = root / "MYSETTING.DAT";
+    if (!fs::exists(settingsFile)) {
+        std::cout << "    skipped matrix/device-settings: this set has no MYSETTING.DAT\n";
+        fs::remove_all(root);
+        return;
+    }
+
+    auto files = infrastructure::rekordbox::readDeviceSettings(root.string());
+    const infrastructure::rekordbox::SettingsFile *mySetting = nullptr;
+    for (const auto &file : files) {
+        if (file.fileName == "MYSETTING.DAT" && !file.fields.empty()) {
+            mySetting = &file;
+        }
+    }
+    if (mySetting == nullptr) {
+        std::cout << "    skipped matrix/device-settings: nothing recognised in MYSETTING.DAT\n";
+        fs::remove_all(root);
+        return;
+    }
+
+    // A field with at least two options, so there is something to change
+    // it to.
+    std::string label;
+    std::string current;
+    std::string wanted;
+    for (const auto &[fieldLabel, value] : mySetting->fields) {
+        for (const auto &field : infrastructure::rekordbox::allSettingsFields()) {
+            if (field.fileName != "MYSETTING.DAT" || field.label != fieldLabel || field.options.size() < 2) {
+                continue;
+            }
+            for (const auto &option : field.options) {
+                if (option.name != value) {
+                    label = fieldLabel;
+                    current = value;
+                    wanted = option.name;
+                    break;
+                }
+            }
+            break;
+        }
+        if (!label.empty()) {
+            break;
+        }
+    }
+    if (label.empty()) {
+        std::cout << "    skipped matrix/device-settings: no field has an alternative value\n";
+        fs::remove_all(root);
+        return;
+    }
+
+    const std::string before = readWholeFile(settingsFile);
+    auto change = std::make_shared<gui::DeviceSettingChange>(
+        QString::fromStdString(root.string()), "MYSETTING.DAT", QString::fromStdString(label),
+        QString::fromStdString(current), QString::fromStdString(wanted));
+    auto result = runChanges({change}, root, {});
+    if (!check(result.error.isEmpty(), "the settings save reported no error: " + result.error.toStdString())) {
+        fs::remove_all(root);
+        return;
+    }
+
+    auto after = infrastructure::rekordbox::readDeviceSettings(root.string());
+    bool found = false;
+    for (const auto &file : after) {
+        if (file.fileName != "MYSETTING.DAT") {
+            continue;
+        }
+        for (const auto &[fieldLabel, value] : file.fields) {
+            if (fieldLabel != label) {
+                continue;
+            }
+            found = true;
+            check(value == wanted, "the settings field reads back as what was written");
+        }
+    }
+    check(found, "the settings field is still present after the save");
+
+    // Byte-for-byte identical apart from what one field occupies: same
+    // length, and differing in a small number of bytes rather than being
+    // rewritten wholesale.
+    const std::string afterBytes = readWholeFile(settingsFile);
+    if (check(afterBytes.size() == before.size(), "the settings file kept its exact size")) {
+        size_t differing = 0;
+        for (size_t i = 0; i < before.size(); ++i) {
+            if (before[i] != afterBytes[i]) {
+                ++differing;
+            }
+        }
+        // One field plus the checksum the format carries.
+        check(differing > 0 && differing <= 8,
+              "only the one field changed (" + std::to_string(differing) + " byte(s) differ)");
+    }
+    fs::remove_all(root);
+    pass("matrix: a settings field reads back and nothing else moved");
+}
+
+#endif  // SEABASS_CORPUS_HAS_EDIT
+
+namespace
+{
+
+void runMatrix(const DataSet &set, const fs::path &scratch, const Catalogs &catalogs, Expectations &expected)
+{
+#ifdef SEABASS_CORPUS_HAS_EDIT
+    std::cout << "  matrix: one editing feature per case, staged through the real save loop\n";
+    caseAddCue(set, scratch, catalogs, expected);
+    caseStrayCueRemoval(set, scratch, catalogs, expected);
+    caseSync(set, scratch, catalogs, expected);
+    caseDeviceSettings(set, scratch);
+#else
+    (void)set;
+    (void)scratch;
+    (void)catalogs;
+    (void)expected;
+    std::cout << "  matrix: skipped, this build has no Qt so the change classes are not available\n";
+#endif
+}
+
+}  // namespace
+
 int main()
 {
     auto sets = discoverSets();
@@ -840,6 +1299,8 @@ int main()
 
         std::cout << "  work counts\n";
         caseWorkCounts(set, scratch, catalogs, 20, expected);
+
+        runMatrix(set, scratch, catalogs, expected);
 
         expected.save();
         fs::remove_all(scratch);

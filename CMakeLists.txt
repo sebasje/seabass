@@ -1272,5 +1272,13 @@ set_tests_properties(anonymization_verifier_test PROPERTIES LABELS "integration"
 add_executable(corpus_test tests/corpus_test.cpp)
 target_include_directories(corpus_test PRIVATE src)
 target_link_libraries(corpus_test PRIVATE seabass_core)
+# The matrix cases stage real edits through the real save loop, which
+# lives in seabass_edit and so needs Qt Core. The reader, writer and
+# work-count cases do not, and still run on a machine without Qt -- the
+# same reason the CLI is built there and the GUI is not.
+if(TARGET seabass_edit)
+    target_link_libraries(corpus_test PRIVATE seabass_edit Qt6::Core)
+    target_compile_definitions(corpus_test PRIVATE SEABASS_CORPUS_HAS_EDIT)
+endif()
 add_test(NAME corpus_test COMMAND corpus_test WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 set_tests_properties(corpus_test PROPERTIES LABELS "integration")
