@@ -55,6 +55,15 @@ AnonymizeLibraryTaskResult runAnonymizeTask(QString rekordboxPath, QString engin
             if (summary.engineAttempted && !summary.engineError.empty()) {
                 errors << "Engine: " + QString::fromStdString(summary.engineError);
             }
+            if (summary.verificationFailed) {
+                // Built, checked against the promise the manifest makes,
+                // found to still hold real data, and thrown away. Say so
+                // plainly: the whole point of the check is that nobody
+                // sends a leaking export believing it is clean.
+                errors << "This export still held real data, so it was not written. Nothing was left "
+                          "on disk. Please report this."
+                       << QString::fromStdString(summary.verificationReport);
+            }
             result.errorMessage = errors.join("\n");
         }
 

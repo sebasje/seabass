@@ -1,21 +1,21 @@
 Seabass anonymized library export
 ==================================
 
-Seabass version: 0.5 (beta)
+Seabass version: 0.6 (beta)
 Host OS: Linux
-Hardware (as entered by the submitter): generated from Sebas's real whaleshark SD card, 2026-08-31
-Notes (as entered by the submitter): committed integration-test fixture for the Seabass test suite
+Hardware (as entered by the submitter): (none given)
+Notes (as entered by the submitter): (none given)
 
 rekordbox:
-Tracks kept: 1370
+Tracks kept: 1161
 Tracks dropped (--max-tracks): 0
-Distinct artists renamed: 738
-Playlists/folders renamed: 20
+Distinct artists renamed: 796
+Playlists/folders renamed: 24
 
 Engine:
-Tracks kept: 1376
+Tracks kept: 1564
 Tracks dropped (--max-tracks): 0
-Playlists/folders renamed: 20
+Playlists/folders renamed: 33
 
 What's included vs. stripped, on every track:
   KEPT as-is: format, file size, bitrate, duration, BPM, key,
@@ -26,11 +26,22 @@ What's included vs. stripped, on every track:
   REPLACED with placeholder text (e.g. "Track 014"): title,
     artist, comment, cue comments, filename/file path,
     playlist/folder names.
+  REPLACED inside the analysis files too: the file path each
+    one embeds, which is where the artist, album and title
+    would otherwise still be readable.
+  ALSO INCLUDED: your player preference files (MYSETTING.DAT
+    and friends). They hold settings like LCD brightness and
+    jog feel, nothing about you or your music, and this app's
+    Device Profile feature cannot be tested without them.
   REMOVED entirely: artwork images, the detailed color and
     scrolling waveform data rekordbox's own UI uses during
-    playback (not read by this app), original file paths.
+    playback (not read by this app), original file paths, your
+    Device Library Plus database (exportLibrary.db) and your
+    My Tag vocabulary (exportExt.pdb) -- those last two have no
+    anonymizer yet, so they are left out rather than sent as
+    they are.
 
-Output size: 20.3 MB raw, roughly 9.8 MB estimated once zipped.
+Output size: 29.2 MB raw, roughly 14.5 MB estimated once zipped.
 
 Nothing has been sent anywhere; this only wrote a single zip
 file. Review its contents, then attach that zip to an email to
