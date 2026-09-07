@@ -42,6 +42,12 @@ QVariantMap diskToVariant(const DetectedStick &disk)
     map["mounted"] = disk.mounted;
     map["hasNoFilesystem"] = disk.hasNoFilesystem;
     map["hasDjLibrary"] = disk.rekordboxPath.has_value() || disk.enginePath.has_value();
+    // Exposed so the result page can route "referenced tracks are
+    // missing" straight to Library Health for this same stick, rather
+    // than only naming the problem -- see RestoreStickBackupPage.qml's
+    // onRepairLibraryRequested.
+    map["rekordboxPath"] = disk.rekordboxPath ? QString::fromStdString(*disk.rekordboxPath) : QString();
+    map["enginePath"] = disk.enginePath ? QString::fromStdString(*disk.enginePath) : QString();
     map["usable"] = disk.mounted && !disk.hasNoFilesystem && !disk.mountPoint.empty();
     QVariantList rootEntries;
     for (const auto &entry : disk.rootEntries) {

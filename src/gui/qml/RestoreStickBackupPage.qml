@@ -19,6 +19,9 @@ Page {
     property string preselectedArchivePath: ""
     property string preselectedLabel: ""
     signal formatUsbRequested()
+    // Same signature as StickListPage's own -- see TransferResultFrame's
+    // repairLibraryRequested for why the result report offers this.
+    signal libraryHealthRequested(string stickLabel, string rekordboxPath, string enginePath)
 
     readonly property var disks: controller.disks || []
     readonly property var info: controller.archiveInfo || ({})
@@ -559,6 +562,14 @@ Page {
                     root.selectedIndex = -1;
                     root.applySelection(root.pickDefaultDrive());
                 }
+                // The disk just restored onto, not whatever was selected
+                // when the report was drawn -- selectedDisk can already
+                // have moved on (Start Over resets it) by the time this
+                // is clicked.
+                onRepairLibraryRequested: root.libraryHealthRequested(
+                    (root.selectedDisk && root.selectedDisk.label) || "",
+                    (root.selectedDisk && root.selectedDisk.rekordboxPath) || "",
+                    (root.selectedDisk && root.selectedDisk.enginePath) || "")
             }
 
             RowLayout {
