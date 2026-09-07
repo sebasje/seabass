@@ -21,6 +21,9 @@ stick:
   batched alternatives.
 - `tools/onelibrary_tx_bench.cpp` — the cost of one OneLibrary cue write,
   in the shape the code uses today versus one held connection.
+- `tools/engine_write_bench.cpp` — the same for Engine, timed on the stick
+  and on a ramdisk so the split between device and CPU is visible, and
+  against the proposed snapshot-and-update shape.
 
 **Neither writes to the real library.** Everything goes into a scratch folder
 under the stick root (`.seabass-writebench`, `.seabass-writebench-tx`) which
@@ -42,7 +45,28 @@ g++ -std=c++23 -O2 -I src -I third_party/kaitai_struct_cpp_stl_runtime \
 
 build/stick_write_bench /media/you/STICK --device /dev/sdX1 10 50 100 200
 build/onelibrary_tx_bench /media/you/STICK 50
+
+# engine_write_bench also needs libdjinterop and its generated config header
+g++ -std=c++23 -O2 -I src -I third_party/libdjinterop/include \
+    -I build/third_party/libdjinterop/include \
+    tools/engine_write_bench.cpp -o build/engine_write_bench \
+    build/libseabass_core.a build/third_party/libdjinterop/libdjinterop.a \
+    build/librekordbox_format.a build/libkaitai_cpp_stl_runtime.a \
+    -lz -ldl -lpthread -lsqlite3
+build/engine_write_bench /media/you/STICK 50
 ```
+
+### Still not measured
+
+- A whole Sync save end to end. The per-item costs above are components; no
+  run has yet timed the real save loop over a few thousand staged plans.
+  The harness for it would stage N changes against a *copy* of a library on
+  the stick and run them through `runSaveLoop`, which is the only way to
+  catch costs that live between the items rather than in them.
+- The rekordbox ANLZ write in the Sync shape specifically, which unlike the
+  stray-cue path has no OneLibrary mirror write beside it.
+- Clean Up and Duplicates, whose per-item work is row removals and cue
+  merges rather than a cue write, so the numbers here do not carry directly.
 
 ## Method, and the trap in it
 
@@ -161,6 +185,60 @@ Measured per-cue overhead plus the measured median write time:
 | 50 | 49.8 s | 37.5 s | 35.5 s |
 | 100 | 70.7 s | 46.1 s | 45.9 s |
 | 200 | 104.6 s | 55.4 s | 50.7 s |
+
+## Round 2, same day: the cost is different per format
+
+The stray-cue round measured the rekordbox and OneLibrary paths. Sync,
+Clean Up, Duplicates, Local Cue restore and Add Cue all go through the same
+three cue writers, so the obvious question is whether the same answer
+applies. It does not: **the right fix differs per format**, and the
+scratch-copy mechanism the project already has helps exactly one of them.
+
+`tools/engine_write_bench.cpp`, 50 tracks from RV2's own Engine Library,
+copied to a scratch directory on the stick and to a ramdisk:
+
+| One Engine cue write | Per item |
+|---|---:|
+| Today, database reopened per item, on the stick | 151.0 ms |
+| Today, database reopened per item, on a ramdisk | 0.8 ms |
+| One handle held, one `track::update(snapshot)` per item | 0.4 ms |
+
+Put beside the OneLibrary figures from round 1, the three formats want
+three different things:
+
+| Format | Per item | Where the time goes | Fixed by |
+|---|---:|---|---|
+| Engine | 151 ms | almost entirely device I/O | a scratch copy: 151 ms to 0.8 ms |
+| OneLibrary | 235 ms | almost entirely CPU (two PBKDF2 key derivations per call) | holding the connection: 235 ms to 4.7 ms. A scratch copy does **not** help |
+| rekordbox | 15 ms + a whole-file ANLZ rewrite | two `export.pdb` parses, then per-track file writes | an index built once per save; the per-track writes are irreducible |
+
+Two consequences worth carrying forward:
+
+- **Sync's Engine target is already fast** and nobody noticed. It goes
+  through `FormatWriteSession`, which scratch-copies `m.db` once the item
+  count clears its threshold, so those writes land on a ramdisk at 0.8 ms
+  each. The stray-cue path does not use `FormatWriteSession` at all, so its
+  Engine writes pay the full 151 ms.
+- **A scratch copy is not a general speed fix.** It converts device I/O into
+  RAM I/O, so it does nothing at all for a cost that is CPU. That is exactly
+  the OneLibrary case, and it is why "put it on a ramdisk" was the wrong
+  instinct there.
+
+### A proposed optimization the benchmark rejected
+
+Collapsing the Engine writer's three auto-commit updates into one
+`track::update(snapshot)` looked free: the library creator already uses that
+shape, and it measured faster. It cannot be used. On RV2's real Engine
+Library, `track::snapshot()` **throws for 30 of 50 tracks** ("Track data blob
+doesn't have expected decompressed length"), the same libdjinterop decoder
+quirk the cue writer already works around for `sample_rate()`. The current
+three-setter shape writes all 50 without complaint.
+
+Round-tripping a whole snapshot means round-tripping every field, including
+ones this library cannot decode. Keep the targeted setters. This is the
+clearest argument in this file for measuring against a real library rather
+than a fixture: a synthetic Engine database created by `create_database()`
+has none of these tracks and would have passed.
 
 ## What came out of it
 
