@@ -152,15 +152,6 @@ set(SEABASS_GUI_SOURCES
     write_guard.hpp
     write_guard.cpp
     qt_progress_reporter.hpp
-    library_catalog_cache.hpp
-    library_catalog_cache.cpp
-    edit/pending_change.hpp
-    edit/save_context.hpp
-    edit/save_context.cpp
-    edit/save_loop.hpp
-    edit/save_loop.cpp
-    edit/format_write_session.hpp
-    edit/format_write_session.cpp
     edit/library_edit_session.hpp
     edit/library_edit_session.cpp
     edit/edit_session_registry.hpp
@@ -198,6 +189,7 @@ qt_add_qml_module(seabass
 target_include_directories(seabass PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/edit)
 target_link_libraries(seabass PRIVATE
     seabass_core
+    seabass_edit
     Qt6::Core
     Qt6::Gui
     Qt6::Qml

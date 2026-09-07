@@ -15,6 +15,7 @@
 #include "application/ports/cancellation_token.hpp"
 #include "domain/duplicate_cue_consolidation.hpp"
 #include "gui/qt_progress_reporter.hpp"
+#include "gui/edit/changes/copy_cues_change.hpp"
 
 namespace seabass::gui
 {
@@ -86,12 +87,6 @@ struct DuplicatesTaskResult
 // copyFromTrack() each produce exactly one, applyAllUnambiguous() produces
 // one per unambiguous group. Tracks are copied by value so the save loop
 // never touches the GUI-thread model.
-struct DuplicatesCopyOp
-{
-    domain::Track source;
-    std::vector<domain::Track> targets;
-};
-
 // Wraps ConsolidateDuplicateCues for QML: scans a library, finds duplicate
 // tracks, and (for Unambiguous groups) can copy cues from the one copy that
 // has them onto the others -- mirroring cli/main.cpp's handleDuplicates

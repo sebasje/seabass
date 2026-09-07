@@ -339,6 +339,56 @@ if(Qt6_FOUND)
     # for static QML plugin targets that don't exist in this (dynamic)
     # system Qt install.
     set(BUILD_SHARED_LIBS ON)
+
+    # --- seabass_edit: the staged-edit machinery, Qt Core only ---
+    #
+    # One save's worth of shared state (SaveContext), the loop that
+    # applies staged changes (runSaveLoop), the scratch-copy sessions
+    # (FormatWriteSession), the catalog scan cache, and one class per
+    # kind of staged edit under edit/changes/.
+    #
+    # Separate from the GUI target on purpose: a change class is the unit
+    # a page stages and the save loop applies, so it is also the unit a
+    # test has to be able to construct. While these lived as file-local
+    # classes inside the controllers, five of the nine editing features
+    # could not be driven from a test at all (docs/real-data-testing.md).
+    # Qt Core is the whole Qt dependency -- no widgets, no QML, no event
+    # loop -- so a plain C++ test links this and stages real work.
+    add_library(seabass_edit STATIC
+        src/gui/library_catalog_cache.hpp
+        src/gui/library_catalog_cache.cpp
+        src/gui/onelibrary_cue_writer_adapter.hpp
+        src/gui/edit/pending_change.hpp
+        src/gui/edit/save_context.hpp
+        src/gui/edit/save_context.cpp
+        src/gui/edit/save_loop.hpp
+        src/gui/edit/save_loop.cpp
+        src/gui/edit/format_write_session.hpp
+        src/gui/edit/format_write_session.cpp
+        src/gui/edit/changes/change_helpers.hpp
+        src/gui/edit/changes/change_helpers.cpp
+        src/gui/edit/changes/add_cue_change.hpp
+        src/gui/edit/changes/add_cue_change.cpp
+        src/gui/edit/changes/cleanup_group_change.hpp
+        src/gui/edit/changes/cleanup_group_change.cpp
+        src/gui/edit/changes/copy_cues_change.hpp
+        src/gui/edit/changes/copy_cues_change.cpp
+        src/gui/edit/changes/delete_orphan_change.hpp
+        src/gui/edit/changes/delete_orphan_change.cpp
+        src/gui/edit/changes/device_setting_change.hpp
+        src/gui/edit/changes/device_setting_change.cpp
+        src/gui/edit/changes/merge_cues_change.hpp
+        src/gui/edit/changes/merge_cues_change.cpp
+        src/gui/edit/changes/remove_junk_cue_change.hpp
+        src/gui/edit/changes/remove_junk_cue_change.cpp
+        src/gui/edit/changes/repair_issue_change.hpp
+        src/gui/edit/changes/repair_issue_change.cpp
+        src/gui/edit/changes/sync_plan_change.hpp
+        src/gui/edit/changes/sync_plan_change.cpp
+    )
+    target_include_directories(seabass_edit PUBLIC src)
+    target_link_libraries(seabass_edit PUBLIC seabass_core Qt6::Core)
+
     add_subdirectory(src/gui)
     target_compile_definitions(seabass PRIVATE
         $<$<BOOL:${SEABASS_EXPERIMENTAL}>:SEABASS_EXPERIMENTAL_BUILD>)
@@ -397,6 +447,7 @@ if(Qt6_FOUND)
         )
         target_link_libraries(seabass_qml_tests PRIVATE
             seabass_core
+            seabass_edit
             Qt6::QuickTest
             Qt6::Core
             Qt6::Gui
@@ -704,13 +755,9 @@ if(TARGET Qt6::Core)
     target_link_libraries(edit_session_save_loop_test PRIVATE seabass_core Qt6::Core)
     add_test(NAME edit_session_save_loop_test COMMAND edit_session_save_loop_test)
 
-    add_executable(format_write_session_test
-        src/gui/edit/save_context.cpp
-        src/gui/edit/format_write_session.cpp
-        tests/format_write_session_test.cpp
-    )
+    add_executable(format_write_session_test tests/format_write_session_test.cpp)
     target_include_directories(format_write_session_test PRIVATE src)
-    target_link_libraries(format_write_session_test PRIVATE seabass_core Qt6::Core)
+    target_link_libraries(format_write_session_test PRIVATE seabass_edit Qt6::Core)
     add_test(NAME format_write_session_test COMMAND format_write_session_test)
 endif()
 

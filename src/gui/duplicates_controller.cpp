@@ -21,6 +21,7 @@
 #include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 #include "infrastructure/rekordbox/rekordbox_cue_writer.hpp"
+#include "gui/edit/changes/copy_cues_change.hpp"
 
 namespace seabass::gui
 {
@@ -202,102 +203,6 @@ namespace
 // GUI-applied consolidation behaves identically to the CLI's. One per
 // format per save (SaveContext::shared), except OneLibrary, whose adapter
 // needs the tracks it is about to write (see below).
-struct FormatContext
-{
-    std::unique_ptr<application::CueWriter> writer;
-    std::function<std::vector<std::string>(const std::string &)> filesToBackUpFor;
-};
-
-// oneLibrarySourceIdToPath is only consulted when format == "onelibrary"
-// -- built by the caller from the actual tracks about to be written
-// (OneLibraryCueWriterAdapter's own comment explains why sourceId alone
-// isn't enough for this format).
-std::unique_ptr<FormatContext> makeContext(const QString &format, const QString &path,
-                                           const std::unordered_map<std::string, std::string> &oneLibrarySourceIdToPath)
-{
-    auto ctx = std::make_unique<FormatContext>();
-    if (format == "rekordbox") {
-        std::string pioneerRoot = path.toStdString();
-        ctx->writer = std::make_unique<infrastructure::rekordbox::RekordboxCueWriter>(pioneerRoot);
-        ctx->filesToBackUpFor = [pioneerRoot](const std::string &trackSourceId) -> std::vector<std::string> {
-            auto analyzePath = infrastructure::rekordbox::findAnlzPathForTrackId(
-                pioneerRoot, static_cast<uint32_t>(std::stoul(trackSourceId)));
-            if (!analyzePath) {
-                return {};
-            }
-            return {infrastructure::rekordbox::extAnlzPath(pioneerRoot, *analyzePath)};
-        };
-    } else if (format == "onelibrary") {
-        std::string pioneerRoot = path.toStdString();  // same PIONEER root rekordbox uses, see scan()'s own comment
-        ctx->writer = std::make_unique<OneLibraryCueWriterAdapter>(pioneerRoot, oneLibrarySourceIdToPath);
-        std::string dbFile = infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(pioneerRoot);
-        ctx->filesToBackUpFor = [dbFile](const std::string &) -> std::vector<std::string> { return {dbFile}; };
-    } else {
-        std::string engineLibraryPath = path.toStdString();
-        ctx->writer = std::make_unique<infrastructure::engine::LibdjinteropEngineCueWriter>(engineLibraryPath);
-        std::string engineDbFile = (fs::path(engineLibraryPath) / "Database2" / "m.db").string();
-        ctx->filesToBackUpFor = [engineDbFile](const std::string &) -> std::vector<std::string> { return {engineDbFile}; };
-    }
-    return ctx;
-}
-
-// One group: copy the chosen copy's cues onto every other copy. Runs on
-// the worker with copies of the tracks.
-class CopyCuesChange : public PendingChange
-{
-public:
-    CopyCuesChange(QString format, QString path, QString groupKey, DuplicatesCopyOp op)
-        : m_format(std::move(format)), m_path(std::move(path)), m_groupKey(std::move(groupKey)), m_op(std::move(op))
-    {
-    }
-
-    QString id() const override { return "dup:" + m_format + ":" + m_groupKey; }
-
-    QString description() const override
-    {
-        QString from = QString::fromStdString(m_op.source.filename.empty() ? m_op.source.sourceId : m_op.source.filename);
-        QString title = QString::fromStdString(m_op.source.title);
-        return QStringLiteral("Copy %1 cue(s) from %2 onto %3 other copy/copies of \"%4\"")
-            .arg(m_op.source.cues.size())
-            .arg(from)
-            .arg(m_op.targets.size())
-            .arg(title);
-    }
-
-    QString unit() const override { return QStringLiteral("groups"); }
-    QStringList formatsTouched() const override { return {m_format}; }
-
-    ChangeOutcome apply(SaveContext &ctx) override
-    {
-        std::string key = "dup:" + m_format.toStdString();
-        std::unordered_map<std::string, std::string> oneLibrarySourceIdToPath;
-        if (m_format == "onelibrary") {
-            oneLibrarySourceIdToPath[m_op.source.sourceId] = m_op.source.filePath;
-            for (const auto &target : m_op.targets) {
-                oneLibrarySourceIdToPath[target.sourceId] = target.filePath;
-            }
-            key += ":" + m_groupKey.toStdString();  // the adapter is bound to this group's tracks
-        }
-        FormatContext &format = ctx.shared<FormatContext>(
-            key, [&]() { return makeContext(m_format, m_path, oneLibrarySourceIdToPath); });
-
-        for (const auto &target : m_op.targets) {
-            for (const auto &file : format.filesToBackUpFor(target.sourceId)) {
-                ctx.backupOnce(file, "duplicate-cue-consolidation");
-            }
-            format.writer->writeHotCues(target.sourceId, m_op.source.cues);
-            ctx.log().record("copied " + std::to_string(m_op.source.cues.size()) + " cue(s) from track id="
-                             + m_op.source.sourceId + " to track id=" + target.sourceId);
-        }
-        return ChangeOutcome::success();
-    }
-
-private:
-    QString m_format;
-    QString m_path;
-    QString m_groupKey;
-    DuplicatesCopyOp m_op;
-};
 
 // Runs entirely on a background thread (see DuplicatesController::
 // rescan()) - no access to the controller itself.

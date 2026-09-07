@@ -29,32 +29,14 @@
 #include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 #include "infrastructure/rekordbox/rekordbox_cue_writer.hpp"
+#include "gui/edit/changes/change_helpers.hpp"
+#include "gui/edit/changes/sync_plan_change.hpp"
 
 namespace seabass::gui
 {
 
 namespace fs = std::filesystem;
 using domain::SyncPlan;
-
-namespace
-{
-
-// Mirrors cli/main.cpp's describeCues() exactly.
-QString describeCues(const std::vector<domain::CuePoint> &cues)
-{
-    int hot = 0;
-    int memory = 0;
-    for (const auto &cue : cues) {
-        (cue.kind == domain::CuePoint::Kind::Hot ? hot : memory)++;
-    }
-    QString result = QString("%1 hot").arg(hot);
-    if (memory > 0) {
-        result += QString(", %1 memory (not written - Engine writer only handles hot cues)").arg(memory);
-    }
-    return result;
-}
-
-}  // namespace
 
 SyncPlanListModel::SyncPlanListModel(QObject *parent) : QAbstractListModel(parent) {}
 
@@ -576,126 +558,6 @@ void SyncController::recomputeDirectionCounts()
     m_directionCounts = list;
     emit analysisChanged();
 }
-
-namespace
-{
-
-QString formatLabel(const std::string &format)
-{
-    if (format == "engine") return "Engine";
-    if (format == "onelibrary") return "OneLibrary";
-    return "Rekordbox";
-}
-
-// The writer for one target catalog in one save, created by the first
-// SyncPlanChange that needs it and shared by the rest
-// (SaveContext::shared): the catalog's database is backed up once, and a
-// big batch against Engine/OneLibrary goes through FormatWriteSession's
-// scratch copy. rekordbox cue writes go to small per-track .ANLZ files
-// (backed up per item by the change), so its hint is 0: never scratch.
-struct SyncFormatWriter
-{
-    SyncFormatWriter(const std::string &format, const std::string &catalogPath, int itemCountHint, SaveContext &ctx)
-        : session(format, catalogPath, format == "rekordbox" ? 0 : itemCountHint, "sync", ctx)
-    {
-        if (format == "rekordbox") {
-            rekordbox = std::make_unique<infrastructure::rekordbox::RekordboxCueWriter>(session.realRoot());
-        } else if (format == "engine") {
-            engine = std::make_unique<infrastructure::engine::LibdjinteropEngineCueWriter>(session.writeRoot());
-        } else {
-            // realStickRoot is passed explicitly because writeRoot() may
-            // be the scratch copy, whose parent is just a temp directory
-            // -- content.path lookups need the real stick's layout.
-            oneLibrary = std::make_unique<infrastructure::onelibrary::OneLibraryCueWriter>(
-                session.writeRoot(), fs::path(catalogPath).parent_path().string());
-        }
-    }
-
-    FormatWriteSession session;
-    std::unique_ptr<infrastructure::rekordbox::RekordboxCueWriter> rekordbox;
-    std::unique_ptr<infrastructure::engine::LibdjinteropEngineCueWriter> engine;
-    std::unique_ptr<infrastructure::onelibrary::OneLibraryCueWriter> oneLibrary;
-};
-
-// One plan: the source track's cues onto the target track. What used to
-// be one iteration of runApplyTask()'s per-format loops.
-class SyncPlanChange : public PendingChange
-{
-public:
-    SyncPlanChange(QString rekordboxPath, QString enginePath, SyncPlan plan, int itemCountHint)
-        : m_rekordboxPath(std::move(rekordboxPath)),
-          m_enginePath(std::move(enginePath)),
-          m_plan(std::move(plan)),
-          m_itemCountHint(itemCountHint)
-    {
-    }
-
-    const domain::Track &target() const
-    {
-        return m_plan.direction == SyncPlan::Direction::ToB ? m_plan.match.trackB : m_plan.match.trackA;
-    }
-    const domain::Track &source() const
-    {
-        return m_plan.direction == SyncPlan::Direction::ToB ? m_plan.match.trackA : m_plan.match.trackB;
-    }
-
-    QString id() const override
-    {
-        return "sync:" + QString::fromStdString(target().format) + ":" + QString::fromStdString(target().sourceId);
-    }
-
-    QString description() const override
-    {
-        return QStringLiteral("Copy %1 from %2 \"%3\" to %4")
-            .arg(describeCues(m_plan.cuesToApply), formatLabel(source().format), QString::fromStdString(source().title),
-                 formatLabel(target().format));
-    }
-
-    QString unit() const override { return QStringLiteral("tracks"); }
-    QStringList formatsTouched() const override { return {QString::fromStdString(target().format)}; }
-
-    ChangeOutcome apply(SaveContext &ctx) override
-    {
-        const domain::Track &tgt = target();
-        const domain::Track &src = source();
-        const std::string &targetFormat = tgt.format;
-        // rekordbox and OneLibrary share the same PIONEER root/path.
-        QString path = targetFormat == "engine" ? m_enginePath : m_rekordboxPath;
-        if (path.isEmpty()) {
-            return ChangeOutcome::failure("No " + formatLabel(targetFormat) + " catalog path is known for this stick.");
-        }
-        std::string catalogPath = path.toStdString();
-        SyncFormatWriter &writer = ctx.shared<SyncFormatWriter>("sync:" + targetFormat, [&]() {
-            return std::make_unique<SyncFormatWriter>(targetFormat, catalogPath, m_itemCountHint, ctx);
-        });
-
-        if (targetFormat == "rekordbox") {
-            auto analyzePath = infrastructure::rekordbox::findAnlzPathForTrackId(
-                catalogPath, static_cast<uint32_t>(std::stoul(tgt.sourceId)));
-            if (analyzePath) {
-                ctx.backupOnce(infrastructure::rekordbox::extAnlzPath(catalogPath, *analyzePath), "sync");
-            }
-            writer.rekordbox->writeHotCues(tgt.sourceId, m_plan.cuesToApply);
-        } else if (targetFormat == "engine") {
-            writer.engine->writeHotCues(tgt.sourceId, m_plan.cuesToApply);
-        } else {
-            writer.oneLibrary->writeCuesForPath(tgt.filePath, m_plan.cuesToApply);
-        }
-        writer.session.noteItemApplied();
-        ctx.log().record("sync: copied cues (" + describeCues(m_plan.cuesToApply).toStdString() + ") from "
-                         + src.format + " track \"" + src.title + "\" (id=" + src.sourceId + ") to " + targetFormat
-                         + " track id=" + tgt.sourceId);
-        return ChangeOutcome::success();
-    }
-
-private:
-    QString m_rekordboxPath;
-    QString m_enginePath;
-    SyncPlan m_plan;
-    int m_itemCountHint;
-};
-
-}  // namespace
 
 // The target track identifies a plan across re-analyses: at most one plan
 // per target track ever exists (SyncPlanner classifies each matched pair
