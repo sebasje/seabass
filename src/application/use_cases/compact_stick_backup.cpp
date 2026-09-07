@@ -6,6 +6,7 @@
 #include <system_error>
 #include <thread>
 
+#include "infrastructure/backup/stick_write_lock.hpp"
 #include "infrastructure/durable_file_write.hpp"
 #include "infrastructure/stick_backup/archive_compactor.hpp"
 #include "infrastructure/stick_backup/archive_journal.hpp"
@@ -147,6 +148,18 @@ CompactionPreflight CompactStickBackup::preflight(const fs::path &archivePath, s
 CompactionOutcome CompactStickBackup::execute(const CompactStickBackupOptions &options)
 {
     CompactionOutcome outcome;
+    // Held for the whole call, before the recovering open below: this
+    // always recovers (unlike a restore's preview), so it must exclude a
+    // concurrent BackupStick/RestoreStickBackup/another compaction on the
+    // same archive from its very first touch of the file.
+    std::unique_ptr<infrastructure::backup::StickWriteLock> lock;
+    try {
+        lock = std::make_unique<infrastructure::backup::StickWriteLock>(
+            journal::lockPathFor(options.archivePath).string());
+    } catch (const infrastructure::backup::StickBusyError &e) {
+        outcome.message = e.what();
+        return outcome;
+    }
     const fs::path tempPath = temporaryPathFor(options.archivePath);
     std::error_code ec;
     fs::remove(tempPath, ec);  // a previous attempt that never finished

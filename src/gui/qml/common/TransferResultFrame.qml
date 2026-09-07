@@ -19,6 +19,15 @@ Frame {
     property bool busy: false
     property string startOverTooltip: ""
     signal startOverRequested()
+    // A referenced track missing after the write is not, by itself,
+    // evidence this restore/clone did anything wrong: the same database
+    // row was just as capable of pointing at a file that was already gone
+    // before the source stick was ever backed up (a re-numbered or
+    // re-imported track leaving its old row dangling). Library Health
+    // already knows how to find and fix exactly that -- a broken row
+    // with a healthy same-catalog sibling, or none at all -- so this
+    // hands off to it rather than only naming the problem here.
+    signal repairLibraryRequested()
 
     visible: resultFrame.result.filesWritten !== undefined
     readonly property var problems: (resultFrame.result.rejected || []).concat(resultFrame.result.writeErrors || []).concat(resultFrame.result.warnings || [])
@@ -67,6 +76,27 @@ Frame {
         Repeater {
             model: (resultFrame.result.missingTracks || []).slice(0, 20)
             delegate: Label { required property string modelData; Layout.leftMargin: 16; font.family: Theme.dataFamily; font.pointSize: Theme.fontSmall; color: Theme.danger; text: modelData }
+        }
+        RowLayout {
+            visible: (resultFrame.result.missingTracks || []).length > 0
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                color: Theme.textMuted
+                font.pointSize: Theme.fontSmall
+                text: "This can predate the backup -- a re-numbered or re-imported track can leave the database still pointing at its old file. Library Health can tell the two apart and offer to fix it."
+            }
+            Button {
+                objectName: "repairLibraryButton"
+                // Set directly (not just inherited from the RowLayout
+                // above) so a test can read this button's own visible
+                // property, the same convention every other conditional
+                // button on this page follows.
+                visible: (resultFrame.result.missingTracks || []).length > 0
+                text: "Check Library Health"
+                flat: true
+                onClicked: resultFrame.repairLibraryRequested()
+            }
         }
         RowLayout {
             visible: resultFrame.problems.length > 0

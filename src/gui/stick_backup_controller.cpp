@@ -122,7 +122,13 @@ BackupStickOptions StickBackupController::baseOptions() const
 
 void StickBackupController::refresh()
 {
-    if (m_stickRoot.isEmpty() || m_previewWatcher.isRunning()) {
+    // busy() also covers backup/verify/compact -- refresh() used to guard
+    // only against a second preview racing its own watcher, so a preview
+    // during an actual run was reachable straight from the UI. Harmless
+    // now that BackupStick/CompactStickBackup take an archive-level write
+    // lock, but still wasted work and a stale-looking read while the
+    // write it's about to report on is still in flight.
+    if (m_stickRoot.isEmpty() || m_previewWatcher.isRunning() || busy()) {
         return;
     }
     m_previewing = true;

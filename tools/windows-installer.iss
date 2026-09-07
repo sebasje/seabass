@@ -8,12 +8,13 @@
 ;   & "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" tools\windows-installer.iss
 ;
 ; Only the runtime files deploy-windows.ps1 actually produces are listed
-; explicitly below (exes, DLLs, qt.conf, Qt plugin dirs) -- build-win\ also
-; contains CMake/Ninja intermediates and ~20 unit-test .exe files that must
-; NOT ship.
+; explicitly below (exes, DLLs, Qt plugin dirs) -- build-win\ also contains
+; CMake/Ninja intermediates and ~20 unit-test .exe files that must NOT ship.
+; (windeployqt does not write a qt.conf here: our plugin layout is Qt's
+; standard relative structure next to the exe, so none is needed.)
 
 #define MyAppName "Seabass"
-#define MyAppVersion "0.1.0-9c20aa5"
+#define MyAppVersion "0.1.0-d1d8379"
 #define MyAppPublisher "Sebastian Kugler"
 #define BuildDir "..\build-win"
 
@@ -25,6 +26,12 @@ AppPublisher={#MyAppPublisher}
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
+; Per-user install by default (no UAC elevation, no admin needed) so the
+; installer can run unattended in CI/nightly testing; {autopf}/{autodesktop}
+; above already adapt to a per-user location under this mode. Pass
+; /ALLUSERS on the command line to opt into a per-machine install instead.
+PrivilegesRequired=lowest
+PrivilegesRequiredOverridesAllowed=commandline
 OutputDir=..\installer-out
 OutputBaseFilename=Seabass-Setup-{#MyAppVersion}
 Compression=lzma2
@@ -45,7 +52,6 @@ Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription
 ; Executables
 Source: "{#BuildDir}\seabass.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#BuildDir}\seabass-cli.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#BuildDir}\qt.conf"; DestDir: "{app}"; Flags: ignoreversion
 
 ; Runtime DLLs (mingw runtime, Qt, ffmpeg codec graph, sqlcipher, etc. --
 ; the full closure deploy-windows.ps1 already resolved)

@@ -391,6 +391,132 @@ int main()
         removeTreeDeepestFirst(root);
     }
 
+    // ---- A bulk-corrupted archive is refused outright, not ground through ----
+    //
+    // Reproduces a real failure: a 28 GiB "Full Stick Backup" whose central
+    // directory parsed perfectly (names, sizes, mtimes are metadata,
+    // written once, up front) while all but the last few entries' local
+    // headers were, on disk, zero -- something outside this archive's own
+    // write path zeroed roughly the first 28 of its 30 GiB sometime after
+    // it was written; nothing in Zip64Writer/Reader, PosixArchiveFile, or
+    // ArchiveUpdater's own verification was ever able to reproduce that
+    // corruption directly, so this test reproduces its *symptom* (a
+    // majority of entries whose local header is zero) rather than its
+    // still-unknown cause. Before this fix, RestoreStickBackup could not
+    // tell that apart from ordinary bad luck on a couple of files: it
+    // created a directory for every one of thousands of planned entries,
+    // then attempted and failed every one of them individually, and only
+    // said so at the very end, past the point of taking the target stick
+    // back -- see countUnreadableEntries's own comment.
+    {
+        Fixture f("bulk-corrupt");
+        std::string good = "still readable";
+        fs::create_directories(f.archive.parent_path());
+        std::vector<std::string> corruptNames;
+        {
+            PosixArchiveFile file(f.archive, PosixArchiveFile::OpenMode::ReadWrite);
+            Zip64Writer writer(file, {});
+            BackupManifest manifest;
+            manifest.stickLabel = "BULK";
+            manifest.createdAtUnix = 1'757'100'000;
+            for (int i = 0; i < 6; ++i) {
+                std::string name = "Contents/track" + std::to_string(i) + ".mp3";
+                std::string content = i == 5 ? good : pseudoRandom(2'000, static_cast<std::uint64_t>(i));
+                seabass::infrastructure::hashing::Sha256Digest sha;
+                CentralEntry e = writer.addFileFromMemory(name, 1'700'000'000 + i, zip::bytesOf(content), &sha);
+                manifest.rows.push_back({ManifestRow::Kind::File, name, e.size, e.mtimeUnix, sha, "", e.crc32});
+                if (i != 5) {
+                    corruptNames.push_back(name);
+                }
+            }
+            writer.finish(manifest.serialize(), std::string(ManifestEntryName), manifest.createdAtUnix);
+            file.barrier();
+        }
+        // Zero every local header but the last entry's, in place -- exactly
+        // the shape the real archive was found in: a structurally valid
+        // central directory, and no local header behind most of it.
+        {
+            PosixArchiveFile file(f.archive, PosixArchiveFile::OpenMode::ReadWrite);
+            Zip64Reader reader = Zip64Reader::open(file);
+            std::string bytes = readFile(f.archive);
+            for (const std::string &name : corruptNames) {
+                std::uint64_t at = reader.entries()[*reader.findEntry(name)].localHeaderOffset;
+                for (std::uint64_t b = at; b < at + 16; ++b) {
+                    bytes[static_cast<std::size_t>(b)] = '\0';
+                }
+            }
+            std::ofstream(f.archive, std::ios::binary) << bytes;
+        }
+
+        RestorePreview preview = RestoreStickBackup::preview(f.restore);
+        assert(preview.error.empty());
+        assert(preview.unreadableEntries == corruptNames.size());  // 5 of 6: majority
+
+        RestoreSummary summary = RestoreStickBackup::execute(f.restore);
+        assert(summary.status == RestoreSummary::Status::Failed);
+        assert(summary.message.find("damaged") != std::string::npos);
+        // 5 corrupted files of 7 archive entries -- the 6 files plus the
+        // manifest itself, which countUnreadableEntries also scans (it was
+        // never corrupted, so it does not add to the count, but it does
+        // count towards the total).
+        assert(summary.message.find("5 of 7") != std::string::npos);
+        // Refused before touching the target at all -- not "created
+        // thousands of directories, then failed every file individually".
+        assert(summary.directoriesCreated == 0 && summary.filesWritten == 0 && summary.writeErrors.empty());
+        assert(!fs::exists(f.target / "Contents"));
+        std::cout << "case 11 (bulk-corrupted archive: refused up front, target untouched) OK\n";
+    }
+
+    // ---- A single corrupted entry among many is still just one problem ----
+    //
+    // The other side of case 11's threshold: below a majority, this is the
+    // ordinary "one bad file" case (already covered content-wise by case
+    // 7's flipped byte), confirming unreadableEntries reports it without
+    // execute() refusing the whole restore over it.
+    {
+        Fixture f("one-corrupt");
+        fs::create_directories(f.archive.parent_path());
+        std::vector<std::string> names;
+        {
+            PosixArchiveFile file(f.archive, PosixArchiveFile::OpenMode::ReadWrite);
+            Zip64Writer writer(file, {});
+            BackupManifest manifest;
+            manifest.stickLabel = "ONE";
+            manifest.createdAtUnix = 1'757'200'000;
+            for (int i = 0; i < 6; ++i) {
+                std::string name = "Contents/track" + std::to_string(i) + ".mp3";
+                seabass::infrastructure::hashing::Sha256Digest sha;
+                CentralEntry e = writer.addFileFromMemory(name, 1'700'000'000 + i, zip::bytesOf(pseudoRandom(2'000, static_cast<std::uint64_t>(i))), &sha);
+                manifest.rows.push_back({ManifestRow::Kind::File, name, e.size, e.mtimeUnix, sha, "", e.crc32});
+                names.push_back(name);
+            }
+            writer.finish(manifest.serialize(), std::string(ManifestEntryName), manifest.createdAtUnix);
+            file.barrier();
+        }
+        {
+            PosixArchiveFile file(f.archive, PosixArchiveFile::OpenMode::ReadWrite);
+            Zip64Reader reader = Zip64Reader::open(file);
+            std::string bytes = readFile(f.archive);
+            std::uint64_t at = reader.entries()[*reader.findEntry(names[0])].localHeaderOffset;
+            for (std::uint64_t b = at; b < at + 16; ++b) {
+                bytes[static_cast<std::size_t>(b)] = '\0';
+            }
+            std::ofstream(f.archive, std::ios::binary) << bytes;
+        }
+
+        RestorePreview preview = RestoreStickBackup::preview(f.restore);
+        assert(preview.unreadableEntries == 1);
+
+        RestoreSummary summary = RestoreStickBackup::execute(f.restore);
+        assert(summary.status == RestoreSummary::Status::RestoredWithProblems);
+        assert(summary.filesWritten == 5);
+        assert(summary.writeErrors.size() == 1 && summary.writeErrors[0].find(names[0]) != std::string::npos);
+        for (std::size_t i = 1; i < names.size(); ++i) {
+            assert(fs::exists(f.target / pathFromUtf8(names[i])));
+        }
+        std::cout << "case 12 (one corrupted entry among six: reported, the rest still restores) OK\n";
+    }
+
     std::cout << "all cases passed\n";
     return 0;
 }
