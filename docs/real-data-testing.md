@@ -365,7 +365,30 @@ Each step leaves the tree building and every test passing.
    tree with the old leaks, and the new extraction supersedes it. The
    empty `roy-corsair/` directory is skipped by the runner today; make the
    runner print what it skipped and why.
-7. **Fill the matrix** in the corpus runner, one case per row, each built
+7. **Fill the matrix** in the corpus runner. **Done:** all nine rows exist
+   in `tests/corpus_test.cpp`, each staging its change class through
+   `runSaveLoop` and asserting through a fresh reader. Eight run against the
+   committed fixture; the orphaned-OneLibrary-row case needs a OneLibrary
+   database, which only the real sets have until step 5 lands. OneLibrary
+   itself now gets read and counted per set (case 2b), so the catalog the
+   plan called out as having no coverage at all has some.
+
+   Measured counts, recorded per set and asserted from then on. Against the
+   committed fixture, which has no OneLibrary database:
+
+   | Feature | pdb parses | SQLCipher opens (fixture / real stick) |
+   |---|---:|---|
+   | Add cue | 2 | 0 / 2 |
+   | Stray cue removal | 2 per track | 0 / 1 per track |
+   | Library Health repair | 2 | 0 / 4 |
+   | Clean Up duplicates | 2 | 0 / 4 |
+
+   The SQLCipher column is the 235 ms per item from
+   `docs/write-path-performance.md`, now a portable number. It is zero on
+   the fixture only because the fixture has no OneLibrary mirror, which is
+   itself a reason to finish step 5.
+
+   Original instruction, for reference: fill the matrix in the corpus runner, one case per row, each built
    the same way: copy the set into scratch, build a `SaveContext` over the
    scratch paths, stage the change class from step 1, run `runSaveLoop`,
    then construct a **fresh reader** over the scratch paths and assert on
