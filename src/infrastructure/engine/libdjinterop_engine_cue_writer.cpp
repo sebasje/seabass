@@ -101,9 +101,16 @@ void LibdjinteropEngineCueWriter::writeHotCues(const std::string &trackSourceId,
 
     track->set_hot_cues(slots);
     track->set_loops(loopSlots);
-    if (earliestMemoryCueMs) {
-        track->set_main_cue(*earliestMemoryCueMs / 1000.0 * sampleRate);
-    }
+    // `cues` is the complete replacement set, the same contract every
+    // CueWriter has, so no memory cue in it means the track has no main
+    // cue any more -- not "leave whatever was there". Skipping the call
+    // when the set was empty left the old main cue in place, which read
+    // back as a memory cue the caller had just removed. Engine stores
+    // "no main cue" as sample offset 0 (see the reader: main_cue() maps 0
+    // back to nothing), which is what set_main_cue(nullopt) writes.
+    track->set_main_cue(earliestMemoryCueMs
+                            ? std::optional<double>(*earliestMemoryCueMs / 1000.0 * sampleRate)
+                            : std::nullopt);
 }
 
 void LibdjinteropEngineCueWriter::propagateMissingFields(const std::string &trackSourceId,

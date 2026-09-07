@@ -74,6 +74,7 @@ Page {
     // the floating Save.
     EditSessionHost {
         id: editHost
+        feature: "addcue"
         anchors.fill: parent
         libraryId: typeof EditSessionRegistry !== "undefined"
             ? EditSessionRegistry.libraryIdForPath(root.rekordboxPath.length > 0 ? root.rekordboxPath : root.enginePath) : ""

@@ -164,6 +164,16 @@ void LibraryCatalogCache::invalidate(const std::string &format, const std::strin
     m_entries.erase(key);
 }
 
+void LibraryCatalogCache::invalidateEveryCatalogOn(const std::string &stickRoot)
+{
+    if (stickRoot.empty()) {
+        return;
+    }
+    const fs::path root(stickRoot);
+    invalidateWithOneLibraryMirror("rekordbox", (root / "PIONEER").string());
+    invalidate("engine", (root / "Engine Library").string());
+}
+
 void LibraryCatalogCache::invalidateWithOneLibraryMirror(const std::string &format, const std::string &path)
 {
     invalidate(format, path);

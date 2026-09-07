@@ -98,6 +98,14 @@ public:
     // any other format.
     void invalidateWithOneLibraryMirror(const std::string &format, const std::string &path);
 
+    // Every catalog on one stick at once, for a write that replaced files
+    // wholesale rather than editing one catalog: a backup restore, a
+    // stick clone, a format. Those all go through paths that never knew
+    // which formats they touched, and the mtime comparison alone is not
+    // enough -- a filesystem's timestamp granularity can be coarser than
+    // the gap between the write and the next read.
+    void invalidateEveryCatalogOn(const std::string &stickRoot);
+
 private:
     struct Entry
     {

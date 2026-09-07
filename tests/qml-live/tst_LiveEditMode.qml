@@ -234,7 +234,21 @@ TestCase {
         compare(summary.error, "");
         compare(summary.written, count);
         tryCompare(ctrl, "busy", false, 120000);
+
+        // The save is only real if a fresh scan no longer sees them. A test
+        // that never re-reads passes just as happily against a writer that
+        // quietly left the cue in place, which is exactly the bug the
+        // Engine main-cue path had.
+        ctrl.scan(rekordboxPath, enginePath);
+        waitIdle(ctrl, 300000);
+        compare(ctrl.junkCues.rowCount(), 0);
+        console.log("  rescan after save: " + ctrl.junkCues.rowCount() + " stray cues remain");
+
         undoAndWait();
+        ctrl.scan(rekordboxPath, enginePath);
+        waitIdle(ctrl, 300000);
+        compare(ctrl.junkCues.rowCount(), count);
+        console.log("  rescan after undo: " + ctrl.junkCues.rowCount() + " stray cues back");
     }
 
     // ---- 5. Library Health: stage repairs, leave the page, choose Discard ----

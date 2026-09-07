@@ -1,3 +1,4 @@
+#include "gui/library_catalog_cache.hpp"
 #include "clone_stick_controller.hpp"
 
 #include <QPointer>
@@ -345,6 +346,8 @@ void CloneStickController::onRunFinished()
 {
     QString thrown;
     std::shared_ptr<RunResult> result = takeResult(m_runWatcher, &thrown);
+    // The target stick's catalogs were replaced wholesale.
+    LibraryCatalogCache::instance().invalidateEveryCatalogOn(m_targetRoot.toStdString());
     m_writeHold.release();
     m_cloning = false;
     emit busyChanged();

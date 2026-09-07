@@ -1,3 +1,4 @@
+#include "gui/library_catalog_cache.hpp"
 #include "restore_stick_backup_controller.hpp"
 
 #include <QDateTime>
@@ -382,6 +383,7 @@ void RestoreStickBackupController::restore(const QString &targetRoot, bool exact
     RestoreOptions options;
     options.archivePath = fs::path(m_archivePath.toStdString());
     options.targetRoot = fs::path(targetRoot.toStdString());
+    m_restoreTarget = targetRoot;
     options.exact = exact;
     options.cancel = m_cancel;
     options.libraryCheck = infrastructure::engine::checkRestoredEngineLibrary;
@@ -434,6 +436,9 @@ void RestoreStickBackupController::onRestoreFinished()
 {
     QString thrown;
     std::shared_ptr<RestoreResult> result = takeResult(m_restoreWatcher, &thrown);
+    // A restore replaces the catalogs wholesale, so nothing that read them
+    // before may be trusted afterwards.
+    LibraryCatalogCache::instance().invalidateEveryCatalogOn(m_restoreTarget.toStdString());
     m_writeHold.release();
     m_restoring = false;
     if (!thrown.isEmpty()) {
