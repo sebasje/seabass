@@ -32,6 +32,38 @@ namespace
 
 constexpr std::string_view TempSuffix = ".seabass-restore-tmp";
 
+// A corrupted archive can still parse a perfectly plausible central
+// directory -- names, sizes and mtimes are metadata the writer commits
+// once, up front, and describe() / preview() never read a single content
+// byte to confirm it. The only cheap, whole-archive check available
+// before actually restoring is dataOffset(): it reads each entry's local
+// header (tens of bytes, no file content) and confirms it is still where
+// the central directory says it is. This is what caught a real archive
+// where 19818 of 19828 entries -- everything except the last few files
+// written -- had a well-formed central directory entry pointing at bytes
+// that were, on disk, all zero: the restore ground through the whole
+// plan file by file, created thousands of directories for content that
+// was never coming, and only reported "9 files, but with problems" at
+// the very end, past the point a person could still back out.
+//
+// Not a full CRC pass: that means reading the archive's entire content
+// once (comparable cost to the restore itself), which is a much bigger
+// ask to run before every preview. dataOffset() catches exactly the
+// failure mode above -- a header that isn't there -- while staying cheap
+// enough to run unconditionally.
+std::size_t countUnreadableEntries(const Zip64Reader &reader)
+{
+    std::size_t unreadable = 0;
+    for (std::size_t i = 0; i < reader.entries().size(); ++i) {
+        try {
+            reader.dataOffset(i);
+        } catch (const ArchiveFormatError &) {
+            ++unreadable;
+        }
+    }
+    return unreadable;
+}
+
 struct Opened
 {
     std::unique_ptr<PosixArchiveFile> archive;
@@ -39,6 +71,7 @@ struct Opened
     std::optional<Zip64Reader> reader;
     std::optional<BackupManifest> manifest;
     std::string error;
+    std::size_t unreadableEntries = 0;
 
     // `recover`: apply a leftover journal (truncating the archive back to
     // its pre-update length) before reading. Only an operation the user
@@ -85,6 +118,7 @@ struct Opened
             error = "the backup's manifest is missing or damaged: " + manifestError;
             return false;
         }
+        unreadableEntries = countUnreadableEntries(*reader);
         return true;
     }
 };
@@ -350,6 +384,7 @@ RestorePreview RestoreStickBackup::preview(const RestoreOptions &options)
     preview.stickIdentifier = opened.manifest->stickIdentifier;
     preview.status = opened.manifest->status;
     preview.createdAtUnix = opened.manifest->createdAtUnix;
+    preview.unreadableEntries = opened.unreadableEntries;
 
     RestorePlan plan = planRestore(*opened.reader, *opened.manifest, options.targetRoot);
     preview.entries = plan.directories.size() + plan.files.size();
@@ -374,6 +409,20 @@ RestoreSummary RestoreStickBackup::execute(const RestoreOptions &options, Progre
     Opened opened;
     if (!opened.open(options.archivePath, true)) {
         summary.message = opened.error;
+        return summary;
+    }
+    // Half is a deliberately blunt line. A handful of unreadable entries
+    // among thousands is already handled per-file below (one line in
+    // writeErrors, everything else still restores); this is for the other
+    // case, where the archive itself is not usable and every one of those
+    // per-file attempts is doomed before it starts. Refusing here is what
+    // stands between that and grinding through the whole plan file by
+    // file, creating a directory for every one of them, to land on
+    // "Restored 9 files, but with problems" as the first hint of the
+    // real scale of it -- past the point of taking the target stick back.
+    if (const std::size_t total = opened.reader->entries().size(); total > 0 && opened.unreadableEntries * 2 > total) {
+        summary.message = std::to_string(opened.unreadableEntries) + " of " + std::to_string(total)
+                          + " entries in this backup have no readable data -- the archive appears to be damaged; nothing was restored";
         return summary;
     }
     std::error_code ec;

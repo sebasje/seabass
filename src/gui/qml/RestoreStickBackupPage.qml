@@ -488,6 +488,24 @@ Page {
                             text: Theme.humanBytes(root.preview.freeBytes) + " available, " + Theme.humanBytes(root.preview.bytesToWrite) + " needed"
                         }
                     }
+                    // The central directory is metadata, written once, up
+                    // front -- it can list a perfectly plausible file count
+                    // and byte total while the entries themselves have no
+                    // data behind them. This is the one signal available
+                    // before actually restoring finds out file by file, so
+                    // it gets its own unmissable line rather than folding
+                    // into the ordinary "N problems" count restore reports
+                    // afterward.
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        visible: (root.info.unreadableEntries || 0) > 0
+                        color: Theme.danger
+                        text: "⚠ " + root.info.unreadableEntries + " of " + root.info.entries
+                            + " entries in this backup have no readable data. The archive may be damaged"
+                            + ((root.info.unreadableEntries || 0) * 2 > (root.info.entries || 1)
+                               ? " and this restore will be refused." : "; the rest can still be restored.")
+                    }
                     CheckBox {
                         objectName: "exactCheckBox"
                         text: "Exact restore: also remove files and folders that aren't in the backup"
