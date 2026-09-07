@@ -1,0 +1,11 @@
+# Written by corpus_test. Delete this file to re-record after a
+# deliberate change to the data set itself.
+engine.cues 1467
+engine.opensPerItem 1
+engine.tracks 1376
+engine.tracksWithCues 1376
+engine.writeRefusals 0
+rekordbox.cues 188
+rekordbox.tracks 1370
+rekordbox.tracksWithCues 42
+sync.matched 1370

@@ -820,7 +820,7 @@ add_test(NAME pdb_row_writer_test COMMAND pdb_row_writer_test)
 # the staleness guard compares the whole file's bytes, so exercising it
 # against a real 1.5MB export.pdb is closer to what it actually protects
 # than a hand-built two-page buffer would be. SEABASS_SOURCE_DIR is how
-# it finds that fixture, same as anonymized_fixture_integration_test.
+# it finds that fixture, same as the corpus runner below.
 add_executable(pdb_row_writer_staleness_test
     src/infrastructure/durable_file_write.cpp
     src/infrastructure/work_counters.cpp
@@ -1246,32 +1246,23 @@ if(NOT WIN32)
 endif()
 add_test(NAME onelibrary_reader_test COMMAND onelibrary_reader_test)
 
-# --- Integration suite: real use cases against tests/fixtures/anonymized_library ---
-# --- (a committed, de-identified copy of a real ~1,400-track library) ---
+# --- Integration suite: the real use cases against whole real libraries ---
 # --- -- slower, gated with CTest LABEL "integration" so a default ---
 # --- `ctest` run (or `ctest -LE integration`) skips them; run before a ---
 # --- larger change or release with `ctest -L integration`. See ---
-# --- docs/testing.md and BRAINSTORM.md's "For Developers, Maintainers ---
-# --- and Testing". Links the whole seabass_core (unlike every test ---
-# --- above, which links just the handful of .cpp files it needs) ---
-# --- since this genuinely exercises most of the real app's read/write/ ---
-# --- sync/stats/consistency machinery together, the same way seabass- ---
-# --- cli itself does. ---
+# --- docs/testing.md and docs/real-data-testing.md. Links the whole ---
+# --- seabass_core (unlike every test above, which links just the ---
+# --- handful of .cpp files it needs) since this genuinely exercises ---
+# --- most of the real app's read/write/sync/stats/consistency ---
+# --- machinery together, the same way seabass-cli itself does. ---
 
-add_executable(anonymized_fixture_integration_test
-    tests/anonymized_fixture_integration_test.cpp
-)
-target_include_directories(anonymized_fixture_integration_test PRIVATE src)
-target_link_libraries(anonymized_fixture_integration_test PRIVATE seabass_core)
-target_compile_definitions(anonymized_fixture_integration_test PRIVATE
-    SEABASS_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
-add_test(NAME anonymized_fixture_integration_test COMMAND anonymized_fixture_integration_test)
-set_tests_properties(anonymized_fixture_integration_test PROPERTIES LABELS "integration")
-
-# The corpus runner: the committed fixture plus every set under
+# The corpus runner: the committed anonymized fixture plus every set under
 # $SEABASS_CORPUS (real, un-anonymized libraries extracted with
 # tools/extract_testdata -- see docs/real-data-testing.md). Qt-free, runs
 # from local disk, asserts read-backs and work counts rather than seconds.
+# Each set records its own expected counts in SET-EXPECTATIONS.txt beside
+# it, so a real library nobody inspects by hand still gets a regression
+# guard on what the readers return.
 add_executable(corpus_test tests/corpus_test.cpp)
 target_include_directories(corpus_test PRIVATE src)
 target_link_libraries(corpus_test PRIVATE seabass_core)
