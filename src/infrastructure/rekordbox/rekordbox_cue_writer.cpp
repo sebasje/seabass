@@ -75,11 +75,21 @@ void writeCueList(AnlzFile &file, uint32_t listType, const std::vector<RawHotCue
 
 RekordboxCueWriter::RekordboxCueWriter(std::string pioneerRoot) : m_pioneerRoot(std::move(pioneerRoot)) {}
 
+RekordboxCueWriter::RekordboxCueWriter(std::string pioneerRoot, const AnlzPathIndex *pathIndex)
+    : m_pioneerRoot(std::move(pioneerRoot)), m_pathIndex(pathIndex)
+{
+}
+
+std::optional<std::string> RekordboxCueWriter::analyzePathFor(uint32_t trackId) const
+{
+    return m_pathIndex ? m_pathIndex->pathFor(trackId) : findAnlzPathForTrackId(m_pioneerRoot, trackId);
+}
+
 void RekordboxCueWriter::writeHotCues(const std::string &trackSourceId, const std::vector<domain::CuePoint> &cues)
 {
     uint32_t trackId = static_cast<uint32_t>(std::stoul(trackSourceId));
 
-    auto analyzePath = findAnlzPathForTrackId(m_pioneerRoot, trackId);
+    auto analyzePath = analyzePathFor(trackId);
     if (!analyzePath) {
         throw std::runtime_error("no rekordbox track with id=" + trackSourceId + " (or it has no analysis file)");
     }

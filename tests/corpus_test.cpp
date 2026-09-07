@@ -1064,8 +1064,11 @@ void caseStrayCueRemoval(const DataSet &set, const fs::path &scratch, const Cata
         // Exactly the stray cue went, and nothing else with it.
         check(reread->cues.size() == before - 1, "track " + id + " kept every other cue it had");
     }
-    expected.expect("matrix.strayCue.pdbParses", counts.trackDatabaseParses / std::max<size_t>(1, changes.size()),
-                    "stray-cue pdb parses per item unchanged");
+    // The total for the whole save, not a per-item average: the point of
+    // the index is that this stays flat as the batch grows, and a
+    // per-item figure rounds that win down to zero.
+    expected.expect("matrix.strayCue.pdbParsesPerSave", counts.trackDatabaseParses,
+                    "stray-cue pdb parses for the whole save unchanged");
     std::cout << "    stray cue removal (" << changes.size() << " tracks): " << counts.describe() << "\n";
     fs::remove_all(root);
     pass("matrix: stray cues go, and only they go");

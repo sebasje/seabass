@@ -6,6 +6,7 @@
 #include <unordered_map>
 
 #include "application/ports/cue_writer.hpp"
+#include "gui/edit/changes/change_helpers.hpp"
 #include "gui/edit/save_context.hpp"
 #include "gui/onelibrary_cue_writer_adapter.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cue_writer.hpp"
@@ -34,7 +35,8 @@ struct LocalCueWriterContext
     {
         std::string root = path.toStdString();
         if (format == "rekordbox") {
-            writer = std::make_unique<infrastructure::rekordbox::RekordboxCueWriter>(root);
+            writer = std::make_unique<infrastructure::rekordbox::RekordboxCueWriter>(
+                root, sharedAnlzPathIndex(ctx, path));
             // Best-effort secondary write target alongside the primary
             // rekordbox write -- see OneLibraryCueWriter's class comment
             // and docs/onelibrary-format.md.
@@ -105,8 +107,10 @@ ChangeOutcome MergeCuesChange::apply(SaveContext &ctx)
         // rekordbox stores cues per track (ANLZ files): back up this
         // track's own file, same as Sync's rekordbox path.
         std::string root = m_path.toStdString();
-        auto analyzePath =
-            infrastructure::rekordbox::findAnlzPathForTrackId(root, static_cast<uint32_t>(std::stoul(track.sourceId)));
+        const auto *pathIndex = sharedAnlzPathIndex(ctx, m_path);
+        const uint32_t trackId = static_cast<uint32_t>(std::stoul(track.sourceId));
+        auto analyzePath = pathIndex ? pathIndex->pathFor(trackId)
+                                     : infrastructure::rekordbox::findAnlzPathForTrackId(root, trackId);
         if (analyzePath) {
             ctx.backupOnce(infrastructure::rekordbox::extAnlzPath(root, *analyzePath), "local-restore");
         }
