@@ -34,11 +34,19 @@ LibdjinteropEngineCueWriter::LibdjinteropEngineCueWriter(std::string engineLibra
 {
 }
 
+djinterop::database &LibdjinteropEngineCueWriter::database()
+{
+    if (!m_database) {
+        WorkCounters::instance().noteEngineDatabaseOpen();
+        m_database = djinterop::engine::load_database(m_engineLibraryPath);
+    }
+    return *m_database;
+}
+
 void LibdjinteropEngineCueWriter::writeHotCues(const std::string &trackSourceId,
                                                 const std::vector<domain::CuePoint> &cues)
 {
-    WorkCounters::instance().noteEngineDatabaseOpen();
-    auto db = djinterop::engine::load_database(m_engineLibraryPath);
+    auto &db = database();
 
     auto track = db.track_by_id(std::stoll(trackSourceId));
     if (!track) {
@@ -121,8 +129,7 @@ void LibdjinteropEngineCueWriter::propagateMissingFields(const std::string &trac
     if (!bpm && !key) {
         return;
     }
-    WorkCounters::instance().noteEngineDatabaseOpen();
-    auto db = djinterop::engine::load_database(m_engineLibraryPath);
+    auto &db = database();
     auto track = db.track_by_id(std::stoll(trackSourceId));
     if (!track) {
         throw std::runtime_error("no Engine track with id=" + trackSourceId);

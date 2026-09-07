@@ -158,10 +158,12 @@ ChangeOutcome AddCueChange::apply(SaveContext &ctx)
         return ChangeOutcome::success();
     }
 
-    std::unique_ptr<application::CueWriter> writer;
+    application::CueWriter *writer = nullptr;
+    std::unique_ptr<application::CueWriter> ownedWriter;
     if (m_format == "rekordbox") {
         const auto *pathIndex = sharedAnlzPathIndex(ctx, m_path);
-        writer = std::make_unique<infrastructure::rekordbox::RekordboxCueWriter>(pioneerRoot, pathIndex);
+        ownedWriter = std::make_unique<infrastructure::rekordbox::RekordboxCueWriter>(pioneerRoot, pathIndex);
+        writer = ownedWriter.get();
         auto analyzePath = pathIndex
             ? pathIndex->pathFor(static_cast<uint32_t>(std::stoul(id)))
             : infrastructure::rekordbox::findAnlzPathForTrackId(pioneerRoot, static_cast<uint32_t>(std::stoul(id)));
@@ -169,7 +171,10 @@ ChangeOutcome AddCueChange::apply(SaveContext &ctx)
             ctx.backupOnce(infrastructure::rekordbox::extAnlzPath(pioneerRoot, *analyzePath), "add-cue");
         }
     } else {
-        writer = std::make_unique<infrastructure::engine::LibdjinteropEngineCueWriter>(pioneerRoot);
+        // Shared for the save: opening an Engine library is a full SQLite
+        // open plus schema detection, and a save adding several cues to
+        // the same library should pay that once.
+        writer = &sharedEngineCueWriter(ctx, pioneerRoot);
         ctx.backupOnce((fs::path(pioneerRoot) / "Database2" / "m.db").string(), "add-cue");
     }
 
