@@ -98,6 +98,30 @@ void OneLibraryCueWriter::refreshStalenessBaseline()
     m_originalChecksum = computeChecksum();
 }
 
+SqlCipherDb &OneLibraryCueWriter::writeConnection()
+{
+    if (!m_lib) {
+        m_lib = std::make_unique<SqlCipherLibrary>();
+    }
+    if (!m_writeDb) {
+        m_writeDb = std::make_unique<SqlCipherDb>(*m_lib, m_dbPath, /*readOnly=*/false);
+        m_writeDb->exec("PRAGMA key = '" + deriveOneLibraryKey() + "';");
+    }
+    return *m_writeDb;
+}
+
+SqlCipherDb &OneLibraryCueWriter::verifyConnection()
+{
+    if (!m_lib) {
+        m_lib = std::make_unique<SqlCipherLibrary>();
+    }
+    if (!m_verifyDb) {
+        m_verifyDb = std::make_unique<SqlCipherDb>(*m_lib, m_dbPath, /*readOnly=*/true);
+        m_verifyDb->exec("PRAGMA key = '" + deriveOneLibraryKey() + "';");
+    }
+    return *m_verifyDb;
+}
+
 void OneLibraryCueWriter::writeCuesForPath(const std::string &filePath, const std::vector<CuePoint> &cues)
 {
     // Staleness guard, adapted from PdbRowWriter's own convention to
@@ -112,12 +136,8 @@ void OneLibraryCueWriter::writeCuesForPath(const std::string &filePath, const st
     checkNotStale();
 
     std::string contentPath = toContentPath(m_stickRoot, filePath);
-    std::string key = deriveOneLibraryKey();
-
-    SqlCipherLibrary lib;
+    SqlCipherDb &db = writeConnection();
     {
-        SqlCipherDb db(lib, m_dbPath, /*readOnly=*/false);
-        db.exec("PRAGMA key = '" + key + "';");
 
         int64_t contentId = -1;
         {
@@ -199,9 +219,7 @@ void OneLibraryCueWriter::writeCuesForPath(const std::string &filePath, const st
     // PdbRowWriter::commit()'s "re-parse the edited result before
     // trusting it" check, adapted to "re-read the committed result
     // before trusting it" for a SQL store.
-    SqlCipherLibrary verifyLib;
-    SqlCipherDb verifyDb(verifyLib, m_dbPath, /*readOnly=*/true);
-    verifyDb.exec("PRAGMA key = '" + key + "';");
+    SqlCipherDb &verifyDb = verifyConnection();
     int64_t contentId = -1;
     {
         SqlCipherStatement find(verifyDb, "SELECT content_id FROM content WHERE path = ?");
@@ -236,12 +254,8 @@ void OneLibraryCueWriter::removeTrackByPath(const std::string &filePath)
     checkNotStale();
 
     std::string contentPath = toContentPath(m_stickRoot, filePath);
-    std::string key = deriveOneLibraryKey();
-
-    SqlCipherLibrary lib;
+    SqlCipherDb &db = writeConnection();
     {
-        SqlCipherDb db(lib, m_dbPath, /*readOnly=*/false);
-        db.exec("PRAGMA key = '" + key + "';");
 
         int64_t contentId = -1;
         {
@@ -297,9 +311,7 @@ void OneLibraryCueWriter::removeTrackByPath(const std::string &filePath)
     // Correctness verification: re-open fresh and confirm the row (and
     // its dependents) are actually gone, same "re-read the committed
     // result before trusting it" convention as writeCuesForPath().
-    SqlCipherLibrary verifyLib;
-    SqlCipherDb verifyDb(verifyLib, m_dbPath, /*readOnly=*/true);
-    verifyDb.exec("PRAGMA key = '" + key + "';");
+    SqlCipherDb &verifyDb = verifyConnection();
     SqlCipherStatement verify(verifyDb, "SELECT count(*) FROM content WHERE path = ?");
     verify.bindText(1, contentPath);
     verify.step();
@@ -322,12 +334,8 @@ void OneLibraryCueWriter::removeTrackByPathReplacingWith(const std::string &doom
 
     std::string doomedContentPath = toContentPath(m_stickRoot, doomedFilePath);
     std::string survivorContentPath = toContentPath(m_stickRoot, survivorFilePath);
-    std::string key = deriveOneLibraryKey();
-
-    SqlCipherLibrary lib;
+    SqlCipherDb &db = writeConnection();
     {
-        SqlCipherDb db(lib, m_dbPath, /*readOnly=*/false);
-        db.exec("PRAGMA key = '" + key + "';");
 
         int64_t doomedId = -1;
         {
@@ -407,9 +415,7 @@ void OneLibraryCueWriter::removeTrackByPathReplacingWith(const std::string &doom
     // survivor-lookup above would otherwise silently produce a no-op
     // reassignment followed by a real deletion, losing memberships
     // instead of moving them).
-    SqlCipherLibrary verifyLib;
-    SqlCipherDb verifyDb(verifyLib, m_dbPath, /*readOnly=*/true);
-    verifyDb.exec("PRAGMA key = '" + key + "';");
+    SqlCipherDb &verifyDb = verifyConnection();
     {
         SqlCipherStatement verify(verifyDb, "SELECT count(*) FROM content WHERE path = ?");
         verify.bindText(1, doomedContentPath);
@@ -442,11 +448,7 @@ void OneLibraryCueWriter::propagateMissingFieldsForPath(const std::string &donor
 
     std::string donorContentPath = toContentPath(m_stickRoot, donorFilePath);
     std::string targetContentPath = toContentPath(m_stickRoot, targetFilePath);
-    std::string key = deriveOneLibraryKey();
-
-    SqlCipherLibrary lib;
-    SqlCipherDb db(lib, m_dbPath, /*readOnly=*/false);
-    db.exec("PRAGMA key = '" + key + "';");
+    SqlCipherDb &db = writeConnection();
 
     int64_t donorId = -1;
     {

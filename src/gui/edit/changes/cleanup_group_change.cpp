@@ -10,6 +10,7 @@
 
 #include "application/ports/cue_writer.hpp"
 #include "application/ports/library_cleanup_writer.hpp"
+#include "gui/edit/changes/change_helpers.hpp"
 #include "gui/edit/format_write_session.hpp"
 #include "gui/edit/save_context.hpp"
 #include "gui/onelibrary_cue_writer_adapter.hpp"
@@ -231,8 +232,8 @@ ChangeOutcome CleanupGroupChange::apply(SaveContext &ctx)
         if (!fc.pioneerRoot.empty() && !plan.survivor.filePath.empty()
             && infrastructure::onelibrary::OneLibraryCueWriter::existsFor(fc.pioneerRoot)) {
             try {
-                infrastructure::onelibrary::OneLibraryCueWriter oneLibWriter(fc.pioneerRoot);
-                oneLibWriter.writeCuesForPath(plan.survivor.filePath, plan.mergedCuesForSurvivor);
+                sharedOneLibraryWriter(ctx, fc.pioneerRoot)
+                    .writeCuesForPath(plan.survivor.filePath, plan.mergedCuesForSurvivor);
                 log.record("cleanup: also wrote merged cues onto survivor into OneLibrary (id="
                            + plan.survivor.sourceId + ")");
             } catch (const std::exception &e) {
@@ -280,7 +281,7 @@ ChangeOutcome CleanupGroupChange::apply(SaveContext &ctx)
             w.session.noteItemApplied();
             log.record("cleanup: propagated missing bpm/key onto survivor track id=" + plan.survivor.sourceId);
         } else if (format == "onelibrary") {
-            infrastructure::onelibrary::OneLibraryCueWriter fieldWriter(w.effectiveRoot, w.realStickRootForOneLib);
+            auto &fieldWriter = sharedOneLibraryWriter(ctx, w.effectiveRoot, w.realStickRootForOneLib);
             if (plan.keyForSurvivor) {
                 std::string donorPath = findTrackFilePath(plan.keyDonorSourceId);
                 if (!donorPath.empty() && !plan.survivor.filePath.empty()) {
@@ -309,7 +310,7 @@ ChangeOutcome CleanupGroupChange::apply(SaveContext &ctx)
         if (format == "rekordbox" && !fc.pioneerRoot.empty() && !plan.survivor.filePath.empty()
             && infrastructure::onelibrary::OneLibraryCueWriter::existsFor(fc.pioneerRoot)) {
             try {
-                infrastructure::onelibrary::OneLibraryCueWriter oneLibFieldWriter(fc.pioneerRoot);
+                auto &oneLibFieldWriter = sharedOneLibraryWriter(ctx, fc.pioneerRoot);
                 if (plan.keyForSurvivor) {
                     std::string donorPath = findTrackFilePath(plan.keyDonorSourceId);
                     if (!donorPath.empty()) {
@@ -354,11 +355,11 @@ ChangeOutcome CleanupGroupChange::apply(SaveContext &ctx)
         if (!fc.pioneerRoot.empty() && !doomed.filePath.empty() && !plan.survivor.filePath.empty()
             && infrastructure::onelibrary::OneLibraryCueWriter::existsFor(fc.pioneerRoot)) {
             try {
-                infrastructure::onelibrary::OneLibraryCueWriter oneLibWriter(fc.pioneerRoot);
                 // Reassigns the doomed row's OneLibrary playlist
                 // memberships onto the survivor instead of dropping
                 // them -- see removeTrackByPathReplacingWith()'s comment.
-                oneLibWriter.removeTrackByPathReplacingWith(doomed.filePath, plan.survivor.filePath);
+                sharedOneLibraryWriter(ctx, fc.pioneerRoot)
+                    .removeTrackByPathReplacingWith(doomed.filePath, plan.survivor.filePath);
                 log.record("cleanup: also removed OneLibrary row for id=" + doomed.sourceId);
             } catch (const std::exception &e) {
                 log.record("cleanup: OneLibrary row removal failed for \"" + doomed.title + "\": " + e.what());

@@ -123,8 +123,7 @@ ChangeOutcome RepairIssueChange::apply(SaveContext &ctx)
             // survivor-cue mirror block.
             if (w.hasOneLibrary && !survivor.filePath.empty()) {
                 try {
-                    infrastructure::onelibrary::OneLibraryCueWriter oneLibWriter(root);
-                    oneLibWriter.writeCuesForPath(survivor.filePath, m_issue.survivorCues);
+                    sharedOneLibraryWriter(ctx, root).writeCuesForPath(survivor.filePath, m_issue.survivorCues);
                 } catch (const std::exception &e) {
                     ctx.log().record(std::string("consistency: OneLibrary cue mirror failed: ") + e.what());
                 }
@@ -137,11 +136,11 @@ ChangeOutcome RepairIssueChange::apply(SaveContext &ctx)
                              + "\"), replaced by survivor id=" + survivor.sourceId);
             if (w.hasOneLibrary && !broken.filePath.empty() && !survivor.filePath.empty()) {
                 try {
-                    infrastructure::onelibrary::OneLibraryCueWriter oneLibWriter(root);
                     // Reassigns playlist membership onto the survivor
                     // instead of dropping it -- see OneLibraryCueWriter::
                     // removeTrackByPathReplacingWith()'s own comment.
-                    oneLibWriter.removeTrackByPathReplacingWith(broken.filePath, survivor.filePath);
+                    sharedOneLibraryWriter(ctx, root).removeTrackByPathReplacingWith(broken.filePath,
+                                                                                     survivor.filePath);
                 } catch (const std::exception &e) {
                     ctx.log().record(std::string("consistency: OneLibrary row removal failed: ") + e.what());
                 }

@@ -116,8 +116,7 @@ ChangeOutcome RemoveJunkCueChange::apply(SaveContext &ctx)
         w.rekordbox->writeHotCues(m_track.sourceId, remainingCues);
         if (w.hasOneLibrary && !m_track.filePath.empty()) {
             try {
-                infrastructure::onelibrary::OneLibraryCueWriter oneLibWriter(root);
-                oneLibWriter.writeCuesForPath(m_track.filePath, remainingCues);
+                sharedOneLibraryWriter(ctx, root).writeCuesForPath(m_track.filePath, remainingCues);
             } catch (const std::exception &e) {
                 ctx.log().record(std::string("junk-cue: OneLibrary cue mirror failed: ") + e.what());
             }

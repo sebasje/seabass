@@ -2,11 +2,13 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
 
 #include "domain/track.hpp"
+#include "infrastructure/onelibrary/sqlcipher_dyn.hpp"
 
 namespace seabass::infrastructure::onelibrary
 {
@@ -127,6 +129,34 @@ public:
                                         bool copyBpm, bool copyKey, bool copyArtwork);
 
 private:
+    // The two connections this writer works through, opened on first use
+    // and then kept.
+    //
+    // Every method used to open its own read-write connection and then a
+    // second, read-only one to verify the commit, so each call paid two
+    // SQLCipher key derivations. That derivation, not the disk, is what
+    // makes a OneLibrary write cost 235 ms against a stick, and it is the
+    // single largest per-item cost in a save (see
+    // docs/write-path-performance.md).
+    //
+    // The verification keeps its own separate connection rather than
+    // re-reading through the one that just wrote. Reading the committed
+    // result back through a different connection is the property that
+    // check exists for; what it does not need is a fresh key derivation
+    // every time to do it.
+    //
+    // Safe to hold across calls because every method checks the staleness
+    // guard first and throws if the file changed underneath, so a held
+    // connection is never used against a database this writer no longer
+    // recognises. They close with the writer, which a save owns for its
+    // own duration.
+    SqlCipherDb &writeConnection();
+    SqlCipherDb &verifyConnection();
+
+    std::unique_ptr<SqlCipherLibrary> m_lib;
+    std::unique_ptr<SqlCipherDb> m_writeDb;
+    std::unique_ptr<SqlCipherDb> m_verifyDb;
+
     // Throws if the file no longer looks like the one this writer was
     // constructed against (or last wrote itself) -- shared by every
     // write method below rather than duplicated four times.

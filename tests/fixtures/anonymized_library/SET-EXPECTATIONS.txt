@@ -8,6 +8,7 @@ engine.writeRefusals 0
 matrix.addCue.pdbParses 1
 matrix.cleanup.pdbParses 2
 matrix.repair.pdbParses 1
+matrix.strayCue.encryptedOpensPerSave 1
 matrix.strayCue.pdbParsesPerSave 1
 matrix.sync.engineOpens 0
 onelibrary.tracks 1644

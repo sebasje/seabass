@@ -6,6 +6,9 @@
 
 #include "domain/library_consistency.hpp"
 #include "domain/track.hpp"
+#include <optional>
+
+#include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
 #include "infrastructure/rekordbox/anlz_path_index.hpp"
 
 namespace seabass::gui
@@ -48,5 +51,23 @@ QString describeCues(const std::vector<domain::CuePoint> &cues);
 // Returns nullptr when the database cannot be read at all, which leaves
 // every caller on the old per-call lookup rather than failing the save.
 const infrastructure::rekordbox::AnlzPathIndex *sharedAnlzPathIndex(SaveContext &ctx, const QString &pioneerRoot);
+
+// The save's one OneLibrary writer for this database, built by whichever
+// change asks first and shared by the rest.
+//
+// Nine call sites used to construct one per item. Each construction is
+// cheap, but the first write through it opens two SQLCipher connections,
+// and each open derives the key from a passphrase: 115 ms of CPU that a
+// scratch copy or a faster disk does nothing for. That derivation is the
+// single largest per-item cost in a save against a real stick. One writer
+// per save pays it once.
+//
+// realStickRoot matters when the database being written is a scratch copy:
+// its parent is a temp directory, not the stick, and every content-path
+// lookup resolves against the real stick's layout. Pass it explicitly
+// there.
+infrastructure::onelibrary::OneLibraryCueWriter &sharedOneLibraryWriter(
+    SaveContext &ctx, const std::string &pioneerRoot,
+    const std::optional<std::string> &realStickRoot = std::nullopt);
 
 }  // namespace seabass::gui

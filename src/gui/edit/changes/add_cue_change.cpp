@@ -152,8 +152,7 @@ ChangeOutcome AddCueChange::apply(SaveContext &ctx)
             return ChangeOutcome::failure("This track has no known file path in OneLibrary -- can't write a cue.");
         }
         ctx.backupOnce(infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(pioneerRoot), "add-cue");
-        infrastructure::onelibrary::OneLibraryCueWriter writer(pioneerRoot);
-        writer.writeCuesForPath(track->filePath, cues);
+        sharedOneLibraryWriter(ctx, pioneerRoot).writeCuesForPath(track->filePath, cues);
         ctx.log().record("add-cue: added " + kind + " cue at " + positionText + "ms to OneLibrary track id=" + id
                          + " (\"" + track->title + "\")");
         return ChangeOutcome::success();
@@ -185,8 +184,7 @@ ChangeOutcome AddCueChange::apply(SaveContext &ctx)
         && infrastructure::onelibrary::OneLibraryCueWriter::existsFor(pioneerRoot)) {
         try {
             ctx.backupOnce(infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(pioneerRoot), "add-cue");
-            infrastructure::onelibrary::OneLibraryCueWriter oneLibWriter(pioneerRoot);
-            oneLibWriter.writeCuesForPath(track->filePath, cues);
+            sharedOneLibraryWriter(ctx, pioneerRoot).writeCuesForPath(track->filePath, cues);
             ctx.log().record("add-cue: also wrote into OneLibrary");
         } catch (const std::exception &e) {
             ctx.log().record(std::string("add-cue: OneLibrary write failed: ") + e.what());

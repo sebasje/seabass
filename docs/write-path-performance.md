@@ -354,3 +354,45 @@ per save (the corpus counts show 1 to 5 SQLCipher opens per save today,
 each paying a PBKDF2 derivation, which is the 235 ms/item cost), reuse the
 Engine database handle, keep the operation log's stream open, and fix the
 two O(n^2) loops in `FilesystemBackupStore`.
+
+## Round 4, 2026-09-07: one OneLibrary connection per save
+
+The 235 ms per item. Every SQLCipher open derives the key from a
+passphrase, roughly 115 ms of CPU, and the writer opened two connections
+per call: one to write through, one to read the committed result back.
+Nine call sites then constructed a writer per item, so a save paid that
+derivation once per item at least, often twice.
+
+Two changes, both needed. `OneLibraryCueWriter` now holds its two
+connections instead of opening them per call, and the save holds one writer
+per database in `SaveContext::shared` instead of nine call sites each
+building their own.
+
+The verification keeps its own separate connection rather than re-reading
+through the one that just wrote. Reading the committed result back through
+a different connection is the property that check exists for; what it did
+not need was a fresh key derivation each time to do it. Holding the
+connections is safe because every method checks the staleness guard first
+and throws if the file changed underneath, so a held connection is never
+used against a database the writer no longer recognises.
+
+Measured on the real RV2 set by `corpus_test`:
+
+| Save | SQLCipher opens before | After |
+|---|---:|---:|
+| Remove 5 stray cues | 5 | 1 |
+| Library Health repair | 4 | 2 |
+| Clean Up one group | 4 | 2 |
+
+Flat in the number of items rather than linear, which is the shape that
+matters. The remaining 2 is the floor: one write connection and one verify
+connection, opened once per save.
+
+The first attempt at this changed nothing measurable, because holding the
+connections inside a writer that is still constructed per item just moves
+where the derivation happens. The counts said so immediately, which is the
+argument for having them.
+
+**Still open, in order:** reuse the Engine database handle (20 opens for 20
+items today), keep the operation log's stream open, and fix the two O(n^2)
+loops in `FilesystemBackupStore`.
