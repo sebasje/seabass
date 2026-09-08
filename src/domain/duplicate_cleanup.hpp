@@ -57,12 +57,17 @@ struct DuplicateCleanupPlan
     bool differs = false;
 
     // Distinct from `differs` above: true when two or more copies in
-    // the group carry a genuinely different rating, comment, play
-    // count, or last-played timestamp -- none of which this planner (or
-    // any writer in this codebase) propagates onto the survivor, unlike
-    // bpm/key/artwork above. Removing the other copies would silently
-    // and permanently lose whichever of those values didn't happen to
-    // land on the survivor. A group where only the survivor has a value
+    // the group carry a genuinely different rating or comment -- neither
+    // of which this planner (or any writer in this codebase) propagates
+    // onto the survivor, unlike bpm/key/artwork above. Removing the
+    // other copies would silently and permanently lose whichever value
+    // didn't happen to land on the survivor.
+    //
+    // Play counts and last-played timestamps are deliberately excluded,
+    // see the comment at the assignment in duplicate_cleanup.cpp: they
+    // are per-application counters that do not mean the same thing in
+    // two different DJ applications, and including them made this flag
+    // fire on 36 groups where 2 was the honest number. A group where only the survivor has a value
     // (nothing to lose) or every copy already agrees is NOT flagged --
     // this is specifically "real, differing, unpreservable data is
     // about to be discarded", not "some copy has more metadata than
@@ -70,6 +75,68 @@ struct DuplicateCleanupPlan
     // too, same as `differs`, but with different UI text: this is about
     // per-copy DJ data (usage/opinion), not encode quality.
     bool hasUnpreservableDataAtRisk = false;
+
+    // The unreferenced files (Track::isUnreferenced) among `toRemove`,
+    // split into the ones this plan would delete and the ones it refuses
+    // to. `toRemove` keeps its meaning -- every copy that is not the
+    // survivor -- but the two kinds of copy are removed by entirely
+    // different acts: a catalogued copy loses a database row and its
+    // file stays, while a stray file has no row to drop, so removing it
+    // means deleting the file. That is irreversible and no catalog will
+    // ever mention the file again, so it is accounted for here rather
+    // than left for each caller to infer from a flag on a Track.
+    //
+    // A stray is held back when the group is flagged `differs` (the
+    // copies may be different edits, so the file may not be a duplicate
+    // at all) or when any copy in the group had an estimated duration
+    // (see Track::durationIsEstimated: the grouping itself is then in
+    // doubt, which is a stronger reason than the one file's own length
+    // being uncertain -- a wrongly grouped estimate could equally make
+    // the *other* copies look redundant).
+    //
+    // `hasUnpreservableDataAtRisk` deliberately does NOT hold these
+    // back, and that is a decision rather than an oversight. It protects
+    // a rating or comment that only one copy carries; a stray file has
+    // no row and so carries neither, and can only ever be caught by the
+    // flag because two *catalogued* rows in its group disagree with each
+    // other. Deleting the file loses none of the data the flag exists to
+    // protect. On a real 3-catalog stick the coupling held back 2 of 632
+    // stray files over a disagreement neither was party to -- and 57 of
+    // them before play counts stopped counting as data at risk, which is
+    // the shape of the mistake rather than its current size. Callers
+    // still default such a group to excluded for the row-level cleanup,
+    // exactly as before.
+    std::vector<Track> unreferencedFilesToDelete;
+    std::vector<Track> unreferencedFilesHeldBack;
+
+    // True when some copy to remove is written in a format the survivor
+    // is NOT written in, so dropping its row there would leave that
+    // format with no row for this recording at all.
+    //
+    // This state is already a defect before cleanup touches it. The
+    // formats are one library written three times and are meant to list
+    // the same tracks (see Track::catalogRows), so a survivor missing
+    // from one of them means they have diverged. Cleanup's job is not to
+    // repair that, but it must not deepen it: removing the doomed row
+    // would take the recording out of that format entirely, leaving the
+    // formats further apart than it found them.
+    //
+    // Removing a row repoints that format's playlists at the surviving
+    // file, which needs the survivor to have a row there. Where it does
+    // not, the alternatives are to strand the format or to rewrite the
+    // doomed row to point at the survivor's file -- and that second one
+    // is a different and much larger feature (no writer here adds or
+    // repoints a row's file reference; see
+    // docs/deduplication-roadmap.md).
+    //
+    // Unlike `differs` and `hasUnpreservableDataAtRisk`, this is not a
+    // judgement call to default away from and let the DJ override: there
+    // is no correct way to apply such a group yet, so callers must
+    // refuse to stage it rather than merely unchecking it. Measured on a
+    // real stick carrying all three formats it never fires -- 235
+    // groups, all covered -- which is what makes holding affordable
+    // insurance rather than a limitation anyone will meet.
+    bool wouldStrandAFormat = false;
 };
 
 // Decides survivor/removal/cue-merge for one DuplicateGroup. Only

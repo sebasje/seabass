@@ -1,5 +1,6 @@
 #include "gui/edit/changes/cleanup_group_change.hpp"
 
+#include <algorithm>
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -184,9 +185,68 @@ QStringList CleanupGroupChange::formatsTouched() const
     return {m_format};
 }
 
+namespace
+{
+
+// A stray file has no catalog row to remove and no sourceId a writer
+// would recognise -- its sourceId is a file path -- so it never reaches a
+// cleanup writer. It gets a manifest line routing it to "Delete Orphaned
+// Files" and nothing else. unreferencedFilesHeldBack gets no line at all:
+// the planner refused those, and this is not the place to second-guess it.
+void recordStrayFilesForDeletion(infrastructure::cleanup::PendingDeletionManifest &manifest,
+                                 const domain::DuplicateCleanupPlan &plan, const std::string &format,
+                                 application::OperationLog &log)
+{
+    for (const auto &stray : plan.unreferencedFilesToDelete) {
+        infrastructure::cleanup::PendingDeletion pending;
+        pending.format = format;
+        pending.filePath = stray.filePath;
+        pending.title = stray.title;
+        pending.artist = stray.artist;
+        manifest.append(pending);
+        log.record("cleanup: no catalog references \"" + stray.filePath
+                   + "\"; recorded for deletion, kept copy is id=" + plan.survivor.sourceId);
+    }
+}
+
+// True when applying this plan would write nothing to any catalog: no row
+// to remove, no cue to merge onto the survivor, no field to fill in.
+//
+// Not only the all-stray group. The commonest shape on a real stick is one
+// catalogued row plus one stray copy of it: the catalogued row survives,
+// so the plan's only removal is a file, and a stray carries no cues, bpm,
+// key or artwork to propagate. Such a plan is a line in the
+// pending-deletion manifest and nothing else -- opening a write session
+// for it would back up the database, possibly copy the whole file to
+// scratch and back, and change not one byte of it.
+bool writesToCatalog(const domain::DuplicateCleanupPlan &plan)
+{
+    if (plan.mergedCuesForSurvivor.size() > plan.survivor.cues.size()) {
+        return true;
+    }
+    if (plan.bpmForSurvivor || plan.keyForSurvivor || plan.artworkPathForSurvivor) {
+        return true;
+    }
+    return std::any_of(plan.toRemove.begin(), plan.toRemove.end(),
+                       [](const domain::Track &t) { return !t.isUnreferenced; });
+}
+
+}  // namespace
+
 ChangeOutcome CleanupGroupChange::apply(SaveContext &ctx)
 {
     const auto &plan = m_plan;
+
+    // A plan that writes to no catalog is one or more manifest lines and
+    // nothing else, so it deliberately opens no write session: the
+    // manifest is append-per-call precisely so it needs none.
+    if (!writesToCatalog(plan)) {
+        infrastructure::cleanup::PendingDeletionManifest manifest(
+            (fs::path(m_path.toStdString()).parent_path() / ".seabass-pending-deletions.jsonl").string());
+        recordStrayFilesForDeletion(manifest, plan, m_format.toStdString(), ctx.log());
+        return ChangeOutcome::success();
+    }
+
     std::string key = "cleanup:" + m_format.toStdString();
     std::unordered_map<std::string, std::string> oneLibrarySourceIdToPath;
     if (m_format == "onelibrary") {
@@ -342,6 +402,12 @@ ChangeOutcome CleanupGroupChange::apply(SaveContext &ctx)
     }
 
     for (const auto &doomed : plan.toRemove) {
+        if (doomed.isUnreferenced) {
+            // No catalog row to remove and no sourceId a writer would
+            // recognise -- its sourceId is a file path. Handled after this
+            // loop, by recordStrayFilesForDeletion().
+            continue;
+        }
         fc.cleanupWriter->removeTrackReplacingWith(doomed.sourceId, plan.survivor.sourceId);
         w.session.noteItemApplied();
         log.record("cleanup: removed duplicate track id=" + doomed.sourceId + " (\"" + doomed.title
@@ -376,6 +442,8 @@ ChangeOutcome CleanupGroupChange::apply(SaveContext &ctx)
         pending.backupId = w.dbBackupId;
         w.manifest.append(pending);
     }
+
+    recordStrayFilesForDeletion(w.manifest, plan, format.toStdString(), log);
     return ChangeOutcome::success();
 }
 

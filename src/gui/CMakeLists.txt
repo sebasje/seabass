@@ -41,6 +41,8 @@ set(SEABASS_GUI_QML_FILES
     qml/common/MessagePopup.qml
     qml/common/PageTitle.qml
     qml/common/SeabassDialog.qml
+    qml/common/SpaceReclaimBar.qml
+    qml/common/UnreferencedFilesNotice.qml
     qml/common/StatValue.qml
     qml/common/StatusBadge.qml
     qml/common/Subtitle.qml
@@ -157,6 +159,8 @@ set(SEABASS_GUI_SOURCES
     write_guard.hpp
     write_guard.cpp
     qt_progress_reporter.hpp
+    stick_catalogs.hpp
+    stick_catalogs.cpp
     edit/library_edit_session.hpp
     edit/library_edit_session.cpp
     edit/edit_session_registry.hpp

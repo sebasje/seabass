@@ -135,10 +135,49 @@ Page {
                         + "ratings or comments that cannot be preserved, are left unchecked for you to "
                         + "decide. Use \"what's conserved\" on any group to see exactly what the surviving "
                         + "copy would end up with.\n\n"
+                        + "Play counts are not carried over. Each application counts for itself -- rekordbox "
+                        + "keeps a running total, Engine remembers only when you last played a track -- so "
+                        + "there is no honest way to combine them when the copies come from different "
+                        + "libraries, and Seabass does not try. Within one library, adding them up would be "
+                        + "the right answer, but no format Seabass writes lets it set a play count, so those "
+                        + "counts are lost with the copies that are removed. Ratings and comments are "
+                        + "different: those it will not discard without asking.\n\n"
                         + "Saving here changes the catalogs only. The copies it drops are recorded as "
                         + "orphaned files and stay on disk until you review them under \"Delete Orphaned "
                         + "Files\", which re-checks that nothing still references them before removing "
                         + "anything. The sizes shown on this page are what that later step would free."
+                }
+            }
+
+            // The files no catalog references -- see the component for
+            // why this never shows a count without its basis.
+            UnreferencedFilesNotice {
+                Layout.fillWidth: true
+                info: cleanupController.unreferencedFiles
+            }
+
+            // What all this actually buys, drawn against the stick's real
+            // capacity. A byte count alone says nothing about whether it
+            // matters; the same figure as a block on a nearly-full stick
+            // says it immediately.
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.topMargin: 4
+                visible: plansListView.count > 0 && spaceBar.known
+                implicitHeight: spaceBar.implicitHeight + 28
+                color: Theme.groupBackground
+                border.color: Theme.borderSubtle
+                border.width: 1
+                radius: 4
+
+                SpaceReclaimBar {
+                    id: spaceBar
+                    anchors.fill: parent
+                    anchors.margins: 14
+                    totalBytes: cleanupController.stickTotalBytes
+                    freeBytes: cleanupController.stickFreeBytes
+                    reclaimBytes: cleanupController.includedWastedBytes
+                    reclaimableBytes: cleanupController.totalWastedBytes
                 }
             }
 
@@ -299,6 +338,8 @@ Page {
                 required property var toRemove
                 required property bool differs
                 required property bool hasUnpreservableDataAtRisk
+                required property int unreferencedCount
+                required property int unreferencedHeldBackCount
                 required property string wastedBytesHuman
                 required property int newCueCount
                 required property bool included
@@ -374,6 +415,25 @@ Page {
                                     + "hardware), so this group is excluded by default. Check it above to include it anyway."
                             }
                             StatusBadge {
+                                visible: delegateRoot.unreferencedCount > 0
+                                label: delegateRoot.unreferencedCount + " uncatalogued file(s)"
+                                badgeColor: Theme.textMuted
+                                tooltipText: "This many of the copies below are audio files on the stick that no "
+                                    + "catalog references -- there is no library entry to remove, only the file "
+                                    + "itself. Saving lists them under \"Delete Orphaned Files\", which re-checks "
+                                    + "every catalog again before deleting anything."
+                            }
+                            StatusBadge {
+                                visible: delegateRoot.unreferencedHeldBackCount > 0
+                                label: "⚠ " + delegateRoot.unreferencedHeldBackCount + " file(s) kept back"
+                                badgeColor: Theme.conflictText
+                                tooltipText: "These uncatalogued files are left on the stick whatever you choose "
+                                    + "here. Either this group's copies differ in a way that might be deliberate, "
+                                    + "or a length in it had to be estimated from the bitrate rather than read -- "
+                                    + "in which case these copies might not be the same recording at all, and no "
+                                    + "file is deleted on a guess."
+                            }
+                            StatusBadge {
                                 visible: delegateRoot.hasUnpreservableDataAtRisk
                                 label: "⚠ data would be lost"
                                 badgeColor: Theme.conflictText
@@ -440,10 +500,15 @@ Page {
                                 formatLabelText: root.formatLabel(modelData.side) + " - "
                                     + (modelData.bitrate > 0 ? modelData.bitrate + " kbps, " : "")
                                     + root.formatDuration(modelData.durationMs) + ", " + modelData.sizeHuman
-                                statusBadgeText: "REMOVING"
-                                statusBadgeBg: Theme.dangerBg
-                                statusBadgeBorder: Theme.dangerBorder
-                                statusBadgeTextColor: Theme.dangerText
+                                // Three different things happen to a
+                                // copy here, so it says which: a catalog
+                                // row goes, a file is listed for
+                                // deletion, or nothing happens at all.
+                                statusBadgeText: modelData.heldBack ? "KEPT BACK"
+                                    : modelData.isUnreferenced ? "FILE ONLY" : "REMOVING"
+                                statusBadgeBg: modelData.heldBack ? Theme.groupBackground : Theme.dangerBg
+                                statusBadgeBorder: modelData.heldBack ? Theme.borderSubtle : Theme.dangerBorder
+                                statusBadgeTextColor: modelData.heldBack ? Theme.textMuted : Theme.dangerText
                                 playbackController: root.playbackController
                                 playbackPath: root.currentPath()
                             }
