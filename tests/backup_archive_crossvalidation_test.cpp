@@ -108,6 +108,19 @@ std::string pseudoRandom(std::size_t size, std::uint64_t seed)
 
 // name -> (size, crc) as Python sees it. The script is written to a file
 // so no shell quoting of Python source is involved.
+// Text-shaped, so deflate has something to do. pseudoRandom() above is
+// deliberately incompressible and would prove nothing here.
+std::string compressibleText(std::size_t size)
+{
+    static const std::string unit = "memory cue at 0:00 for track ";
+    std::string out;
+    while (out.size() < size) {
+        out += unit + std::to_string(out.size());
+    }
+    out.resize(size);
+    return out;
+}
+
 std::map<std::string, std::pair<std::uint64_t, std::uint32_t>> pythonListing(const std::string &python, const fs::path &script,
                                                                            const fs::path &archive)
 {
@@ -203,6 +216,14 @@ int main()
         writer.addFileFromMemory("Contents/empty.txt", 1'700'000'004, zip::bytesOf(""));
         writer.addDirectory("Engine Library/Music", 1'700'000'005);
         writer.addFileFromMemory("Engine Library/Database2/m.db", 1'700'000'006, zip::bytesOf(pseudoRandom(300'000, 3)));
+        // Deflated entries go through the same gauntlet as stored ones.
+        // Our writer's own comment claims every mainstream reader copes
+        // with a streamed entry; this is what actually checks that, for
+        // the compressed case as well as the stored one.
+        writer.addFileFromMemory("PIONEER/USBANLZ/ANLZ0000.EXT", 1'700'000'007,
+                                 zip::bytesOf(compressibleText(200'000)), nullptr, Compression::Deflate);
+        writer.addFileFromMemory("PIONEER/USBANLZ/empty.EXT", 1'700'000'008, zip::bytesOf(""), nullptr,
+                                 Compression::Deflate);
         BackupManifest manifest;
         manifest.stickIdentifier = "uuid";
         manifest.stickLabel = "WHALESHARK2";
