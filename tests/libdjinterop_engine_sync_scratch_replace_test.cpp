@@ -100,10 +100,17 @@ int main()
         auto readBack = seabass::application::ScanLibrary(reader).execute();
         assert(static_cast<int>(readBack.size()) == TrackCount);
 
-        LibdjinteropEngineCueWriter scratchWriter(scratchDir.string());
-        for (const auto &t : readBack) {
-            int index = std::stoi(t.title.substr(std::string("Song ").size()));
-            scratchWriter.writeHotCues(t.sourceId, cuesFor(index));
+        // Scoped so the writer's own SQLite connection to the scratch
+        // m.db is closed before copyFileDurablyAtomic() reads it and
+        // remove_all() deletes it below -- POSIX happily unlinks a file
+        // still open elsewhere in the same process (frees it on last
+        // close), so this only ever showed up on Windows, which locks it.
+        {
+            LibdjinteropEngineCueWriter scratchWriter(scratchDir.string());
+            for (const auto &t : readBack) {
+                int index = std::stoi(t.title.substr(std::string("Song ").size()));
+                scratchWriter.writeHotCues(t.sourceId, cuesFor(index));
+            }
         }
 
         bool committed = seabass::infrastructure::copyFileDurablyAtomic(

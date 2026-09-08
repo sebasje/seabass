@@ -182,7 +182,12 @@ int main()
             assert(!plan.survivor.isUnreferenced);
             assert(plan.survivor.sourceId == "1");
             assert(plan.unreferencedFilesToDelete.size() == 1);
-            assert(plan.unreferencedFilesToDelete[0].filePath == stray.string());
+            // walkAudioFiles() stores generic_string() (forward slashes)
+            // for a stray file's path, deliberately -- not native
+            // separators. Identical to .string() on Linux (where this
+            // test was first written), so compare against it explicitly
+            // rather than the platform-dependent one.
+            assert(plan.unreferencedFilesToDelete[0].filePath == stray.generic_string());
             assert(plan.unreferencedFilesHeldBack.empty());
         } else if (plan.survivor.title == "Sky and Sand") {
             sawSkyAndSand = true;
@@ -190,7 +195,8 @@ int main()
             // one recording at all: nothing here is deleted.
             assert(plan.unreferencedFilesToDelete.empty());
             assert(plan.unreferencedFilesHeldBack.size() == 1);
-            assert(plan.unreferencedFilesHeldBack[0].filePath == guessed.string());
+            // See the same fix on unreferencedFilesToDelete above.
+            assert(plan.unreferencedFilesHeldBack[0].filePath == guessed.generic_string());
         } else {
             assert(false && "no other group should exist");
         }
