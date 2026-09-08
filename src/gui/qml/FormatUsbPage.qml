@@ -116,31 +116,19 @@ Page {
     // below, which gates the actual write. This one's job is just making
     // sure a real, existing library was actually noticed before the
     // person goes any further, not confirming the write itself.
-    Dialog {
+    MessageDialog {
         id: djLibraryWarningDialog
         objectName: "djLibraryWarningDialog"
-        anchors.centerIn: parent
-        modal: true
-        width: 420
+        severity: SeabassDialog.Warning
         title: "This Drive Has a DJ Library"
-        // No Escape/click-outside dismissal -- must be acknowledged via
-        // its own button, so it can't be skipped past accidentally.
+        headline: "\"" + (root.selectedDisk ? root.selectedDisk.label : "") + "\" has an existing DJ "
+            + "library on it: tracks, playlists, cues, all of it. Formatting will erase it permanently."
+        // Acknowledgement, not a decision -- and not dismissable by Escape
+        // either, so it cannot be skipped past accidentally.
+        showReject: false
+        acceptText: "I Understand"
+        acceptObjectName: "djLibraryWarningAcknowledgeButton"
         closePolicy: Popup.NoAutoClose
-
-        footer: DialogButtonBox {
-            Button {
-                objectName: "djLibraryWarningAcknowledgeButton"
-                text: "I Understand"
-                DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
-            }
-        }
-
-        Label {
-            width: parent.width
-            wrapMode: Text.WordWrap
-            text: "\"" + (root.selectedDisk ? root.selectedDisk.label : "") + "\" has an existing DJ "
-                + "library on it: tracks, playlists, cues, all of it. Formatting will erase it permanently."
-        }
     }
 
     Dialog {

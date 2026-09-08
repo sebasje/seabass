@@ -156,55 +156,43 @@ Page {
         }
     }
 
-    Dialog {
+    MessageDialog {
         id: confirmSelectAllDialog
-        anchors.centerIn: parent
-        modal: true
-        width: 480
+        severity: SeabassDialog.Question
         title: "Select All " + plansListView.count + " Duplicate Group(s)?"
-        footer: DialogButtonBox {
-            Button { text: "Select All"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
-            Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
-        }
+        headline: "This marks all " + plansListView.count + " currently listed duplicate group(s) - "
+            + cleanupController.totalWastedBytesHuman + " total if every copy kept only one file - "
+            + "for the next \"Clean Up Selected\" click, including groups excluded by default because "
+            + "their copies differ in quality (marked with ⚠ below)."
+        detailText: searchField.text.length > 0
+            ? "Your search (\"" + searchField.text + "\") is currently narrowing this list. Clear it "
+                + "first if you meant to select across your whole library, or leave it as-is to select "
+                + "only these matching groups."
+            : "No search filter is active, so this selects every duplicate group found across your "
+                + "whole library."
+        acceptText: "Select All"
         onAccepted: cleanupController.setAllIncluded(true)
-
-        Label {
-            width: parent.width
-            wrapMode: Text.WordWrap
-            text: "This marks all " + plansListView.count + " currently listed duplicate group(s) - "
-                + cleanupController.totalWastedBytesHuman + " total if every copy kept only one file - "
-                + "for the next \"Clean Up Selected\" click, including groups excluded by default because "
-                + "their copies differ in quality (marked with ⚠ below).\n\n"
-                + (searchField.text.length > 0
-                    ? "Your search (\"" + searchField.text + "\") is currently narrowing this list. Clear it "
-                        + "first if you meant to select across your whole library, or leave it as-is to select "
-                        + "only these matching groups."
-                    : "No search filter is active, so this selects every duplicate group found across your "
-                        + "whole library.")
-        }
     }
 
-    Dialog {
+    MessageDialog {
         id: confirmCleanupDialog
-        anchors.centerIn: parent
-        modal: true
-        width: 480
+        severity: SeabassDialog.Question
         title: "Stage cleaning up " + cleanupController.includedCount + " duplicate group(s)?"
-        footer: DialogButtonBox {
-            Button { text: "Stage Clean-Up"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
-            Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
-        }
+        headline: "For each selected group, every copy except the one kept will be removed from the "
+            + "library: its hot/memory cues are merged onto the surviving copy first (nothing is lost), "
+            + "and any playlist it belonged to is updated to reference the surviving copy instead."
+        detailText: "This does NOT delete the removed copies' audio files. Their library entries are "
+            + "removed and they're recorded for you to review and delete separately."
+        acceptText: "Stage Clean-Up"
         onAccepted: cleanupController.apply()
 
         Label {
-            width: parent.width
+            Layout.fillWidth: true
             wrapMode: Text.WordWrap
-            text: "For each selected group, every copy except the one kept will be removed from the library: "
-                + "its hot/memory cues are merged onto the surviving copy first (nothing is lost), and any "
-                + "playlist it belonged to is updated to reference the surviving copy instead.\n\n"
-                + "This does NOT delete the removed copies' audio files. Their library entries are removed "
-                + "and they're recorded for you to review and delete separately.\n\n"
-                + "Nothing is written until you press Save. Everything touched is backed up first and can be undone."
+            color: Theme.textMuted
+            font.pointSize: Theme.fontSmall
+            text: "Nothing is written until you press Save. Everything touched is backed up first and "
+                + "can be undone."
         }
     }
 

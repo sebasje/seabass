@@ -117,14 +117,17 @@ Page {
     }
 
     // ---- Cancel decision: keep for later or discard ----
-    Dialog {
+    SeabassDialog {
         id: cancelDecisionDialog
         objectName: "cancelDecisionDialog"
-        anchors.centerIn: parent
-        modal: true
+        severity: SeabassDialog.Question
         closePolicy: Popup.NoAutoClose
-        width: 460
         title: "Backup stopped"
+        headline: "The files copied so far are complete. Keep them, and the next backup continues from "
+            + "here -- or discard them"
+            + (root.hasBackup ? ", which leaves the previous backup exactly as it was."
+                              : " and remove the partial backup file.")
+        detailText: "Nothing on the stick is affected either way."
         footer: DialogButtonBox {
             Button {
                 objectName: "keepPartialButton"
@@ -142,34 +145,17 @@ Page {
             }
         }
         onAccepted: root.controller.keepPartial()
-        ColumnLayout {
-            width: parent.width
-            spacing: 8
-            Label {
-                Layout.fillWidth: true
-                wrapMode: Text.WordWrap
-                text: "The files copied so far are complete. Keep them, and the next backup continues from here -- "
-                    + "or discard them"
-                    + (root.hasBackup ? ", which leaves the previous backup exactly as it was." : " and remove the partial backup file.")
-            }
-            Label {
-                Layout.fillWidth: true
-                wrapMode: Text.WordWrap
-                color: Theme.textMuted
-                text: "Nothing on the stick is affected either way."
-            }
-        }
     }
 
     // ---- Compaction ----
-    Dialog {
+    SeabassDialog {
         id: compactDialog
         objectName: "compactDialog"
         property var preflight: ({})
-        anchors.centerIn: parent
-        modal: true
-        width: 460
+        severity: SeabassDialog.Question
         title: "Compact " + root.stickLabel + ".zip?"
+        headline: "Rewrites the backup without the space left behind by replaced and removed files."
+        detailText: "Every file is checked against its checksum on the way."
         footer: DialogButtonBox {
             Button {
                 objectName: "compactAcceptButton"
@@ -181,14 +167,8 @@ Page {
         }
         onAccepted: root.controller.compact()
         ColumnLayout {
-            width: parent.width
+            Layout.fillWidth: true
             spacing: 10
-            Label {
-                Layout.fillWidth: true
-                wrapMode: Text.WordWrap
-                text: "Rewrites the backup without the space left behind by replaced and removed files. "
-                    + "Every file is checked against its checksum on the way."
-            }
             GridLayout {
                 columns: 2
                 columnSpacing: 12

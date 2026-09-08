@@ -103,130 +103,73 @@ Page {
         }
     }
 
-    Dialog {
+    MessageDialog {
         id: confirmRepairAllDialog
-        anchors.centerIn: parent
-        modal: true
-        width: 460
+        severity: SeabassDialog.Question
         title: "Stage repairing " + consistencyController.repairableCount + " row(s)?"
-        footer: DialogButtonBox {
-            Button { text: "Stage Repairs"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
-            Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
-        }
+        headline: "Merges any cues these rows have onto their already-valid survivor (only where the "
+            + "survivor doesn't already have them), then removes the broken row."
+        detailText: "Nothing is written until you press Save; everything is backed up first."
+        acceptText: "Stage Repairs"
         onAccepted: consistencyController.repairAll()
-
-        Label {
-            width: parent.width
-            wrapMode: Text.WordWrap
-            text: "Merges any cues these rows have onto their already-valid survivor (only where the "
-                + "survivor doesn't already have them), then removes the broken row. Nothing is written until "
-                + "you press Save; everything is backed up first."
-        }
     }
 
-    Dialog {
+    MessageDialog {
         id: confirmRepairOneDialog
         property int pendingIndex: -1
-        anchors.centerIn: parent
-        modal: true
-        width: 460
+        severity: SeabassDialog.Question
         title: "Stage repairing this row?"
-        footer: DialogButtonBox {
-            Button { text: "Stage Repair"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
-            Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
-        }
+        headline: "Merges any cues this row has onto its already-valid survivor (only where the survivor "
+            + "doesn't already have them), then removes the broken row."
+        detailText: "Backed up first."
+        acceptText: "Stage Repair"
         onAccepted: if (pendingIndex >= 0) consistencyController.repairOne(pendingIndex)
-
-        Label {
-            width: parent.width
-            wrapMode: Text.WordWrap
-            text: "Merges any cues this row has onto its already-valid survivor (only where the survivor "
-                + "doesn't already have them), then removes the broken row. Backed up first."
-        }
     }
 
-    Dialog {
+    MessageDialog {
         id: confirmDeleteOrphanDialog
         property int pendingIndex: -1
-        anchors.centerIn: parent
-        modal: true
-        width: 460
+        severity: SeabassDialog.Warning
+        destructive: true
         title: "Stage deleting this orphaned entry?"
-        footer: DialogButtonBox {
-            Button { text: "Stage Deletion"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
-            Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
-        }
+        headline: "No copy of this track was found anywhere else in this catalog. It's really gone."
+        detailText: "Backed up first, but there's nothing to restore it from besides re-adding the track "
+            + "via Rekordbox or Engine's own software and re-exporting."
+        acceptText: "Stage Deletion"
         onAccepted: if (pendingIndex >= 0) consistencyController.deleteOrphan(pendingIndex)
-
-        Label {
-            width: parent.width
-            wrapMode: Text.WordWrap
-            text: "No copy of this track was found anywhere else in this catalog. It's really gone. "
-                + "Backed up first, but there's nothing to restore it from besides re-adding the track "
-                + "via Rekordbox or Engine's own software and re-exporting."
-        }
     }
 
-    Dialog {
+    MessageDialog {
         id: confirmRemoveJunkCueDialog
         property int pendingIndex: -1
-        anchors.centerIn: parent
-        modal: true
-        width: 420
+        severity: SeabassDialog.Question
         title: "Stage removing this cue?"
-        footer: DialogButtonBox {
-            Button { text: "Stage Removal"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
-            Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
-        }
+        headline: "Removes this memory cue sitting at 0:00 from the track."
+        detailText: "Backed up first."
+        acceptText: "Stage Removal"
         onAccepted: if (pendingIndex >= 0) consistencyController.removeJunkCue(pendingIndex)
-
-        Label {
-            width: parent.width
-            wrapMode: Text.WordWrap
-            text: "Removes this memory cue sitting at 0:00 from the track. Backed up first."
-        }
     }
 
-    Dialog {
+    MessageDialog {
         id: confirmRemoveAllJunkCuesDialog
-        anchors.centerIn: parent
-        modal: true
-        width: 460
+        severity: SeabassDialog.Warning
+        destructive: true
         title: "Stage removing all " + junkCueRepeater.count + " memory cue(s) at 0:00?"
-        footer: DialogButtonBox {
-            Button { text: "Stage Removal"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
-            Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
-        }
+        headline: "This stages removing every memory cue at 0:00 currently listed, across every catalog on "
+            + "this stick -- once you press Save that is a real write, not just dismissing them from view."
+        detailText: "Everything is backed up first, but make sure this is really what you want."
+        acceptText: "Stage Removal"
         onAccepted: consistencyController.removeAllJunkCues()
-
-        Label {
-            width: parent.width
-            wrapMode: Text.WordWrap
-            text: "This stages removing every memory cue at 0:00 currently listed, across every catalog on "
-                + "this stick -- once you press Save that is a real write, not just dismissing them from view. "
-                + "Everything is backed up first, but make sure this is really what you want."
-            color: Theme.conflictText
-        }
     }
 
-    Dialog {
+    MessageDialog {
         id: confirmIgnoreAllJunkCuesDialog
-        anchors.centerIn: parent
-        modal: true
-        width: 420
+        severity: SeabassDialog.Question
         title: "Ignore all memory cues at 0:00"
-        footer: DialogButtonBox {
-            Button { text: "Ignore All"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
-            Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
-        }
+        headline: "Dismisses every memory cue at 0:00 currently listed, just for this view."
+        detailText: "Nothing is written, they'll show up again the next time you scan."
+        acceptText: "Ignore All"
         onAccepted: consistencyController.ignoreAllJunkCues()
-
-        Label {
-            width: parent.width
-            wrapMode: Text.WordWrap
-            text: "Dismisses every memory cue at 0:00 currently listed, just for this view. Nothing is "
-                + "written, they'll show up again the next time you scan."
-        }
     }
 
     // Step 2 of resolving a Conflict row manually: review the plan
