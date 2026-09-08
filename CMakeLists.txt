@@ -246,6 +246,7 @@ add_library(seabass_core STATIC
     src/application/path_key.cpp
     src/application/use_cases/collapse_catalog_rows.cpp
     src/application/use_cases/find_unreferenced_files.cpp
+    src/infrastructure/stick_layout.cpp
     src/application/use_cases/unreferenced_tracks.cpp
     src/infrastructure/cleanup/audio_file_walk.cpp
     src/infrastructure/local/duration_cache.cpp
@@ -608,6 +609,11 @@ add_executable(unreferenced_tracks_test tests/unreferenced_tracks_test.cpp)
 target_include_directories(unreferenced_tracks_test PRIVATE src)
 target_link_libraries(unreferenced_tracks_test PRIVATE seabass_core)
 add_test(NAME unreferenced_tracks_test COMMAND unreferenced_tracks_test)
+
+add_executable(stick_layout_test tests/stick_layout_test.cpp)
+target_include_directories(stick_layout_test PRIVATE src)
+target_link_libraries(stick_layout_test PRIVATE seabass_core)
+add_test(NAME stick_layout_test COMMAND stick_layout_test)
 
 add_executable(find_unreferenced_files_test tests/find_unreferenced_files_test.cpp)
 target_include_directories(find_unreferenced_files_test PRIVATE src)
@@ -1397,6 +1403,7 @@ add_test(NAME clone_stick_test COMMAND clone_stick_test)
 add_executable(pending_deletion_resolver_test
     src/application/path_key.cpp
     src/application/use_cases/find_unreferenced_files.cpp
+    src/infrastructure/stick_layout.cpp
     src/infrastructure/cleanup/pending_deletion_resolver.cpp
     tests/pending_deletion_resolver_test.cpp
 )

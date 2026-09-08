@@ -5,6 +5,7 @@
 #include "gui/library_catalog_cache.hpp"
 #include "infrastructure/engine/engine_library_layout.hpp"
 #include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
+#include "infrastructure/stick_layout.hpp"
 
 namespace seabass::gui
 {

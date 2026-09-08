@@ -54,4 +54,5 @@ struct StickCatalogRead
 StickCatalogRead readAllStickCatalogs(const std::string &libraryPath, application::ProgressReporter &progress,
                                         const application::CancellationToken &cancel);
 
+
 }  // namespace seabass::gui
