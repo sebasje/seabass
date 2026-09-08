@@ -61,6 +61,16 @@ namespace seabass::application
 // guessing would merge two real files. Same for a streaming track, whose
 // path names a cache on some other machine -- callers filter those out
 // before this, and this refuses to fold them together regardless.
+// Order matters when an operation is scoped to less than the whole
+// library: collapse FIRST, then domain::filterByScope() the files.
+//
+// Scoping the rows first would hand the collapse a partial set, and a
+// file would come out carrying only the rows that happened to be in
+// scope -- so removing it would drop those and leave the others still
+// pointing at it, which is the exact state the formats are supposed to
+// never be in. Collapsing first gives whole files, and TrackScope
+// matches a file on any of its rows, so a playlist or a selection that
+// names the track in one format still selects the file.
 std::vector<domain::Track> collapseCatalogRows(const std::vector<domain::Track> &rows);
 
 }  // namespace seabass::application

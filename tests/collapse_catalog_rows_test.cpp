@@ -8,6 +8,7 @@
 #include "application/use_cases/collapse_catalog_rows.hpp"
 #include "domain/duplicate_cleanup.hpp"
 #include "domain/duplicate_cue_consolidation.hpp"
+#include "domain/track_scope.hpp"
 
 using namespace seabass;
 using seabass::application::collapseCatalogRows;
@@ -178,6 +179,65 @@ int main()
         }
         assert(plan.toRemove[0].catalogRows.size() == 3);
         std::cout << "case 8 (six rows, two files: one group, one removal, three rows to drop) OK\n";
+    }
+
+    // Playlist membership is the union across formats. A cleanup scoped
+    // to a playlist has to see a file whose membership was only recorded
+    // in the format it is not reading -- otherwise scoping silently
+    // changes which files are candidates, and the formats are meant to
+    // carry the same playlists anyway.
+    {
+        Track rb = row("rekordbox", "11", "/stick/Contents/a.mp3", "Sorry", 200.0, 256);
+        rb.playlists = {{"Techno/Peak Time", 3}};
+        Track en = row("engine", "22", "/stick/Contents/a.mp3", "Sorry", 200.0, 0);
+        en.playlists = {{"Techno/Peak Time", 9}, {"Warmup", 1}};
+        auto files = collapseCatalogRows({rb, en});
+        assert(files.size() == 1);
+        assert(files[0].playlists.size() == 2);
+        // First position wins, like every other field here.
+        assert(files[0].playlists[0].name == "Techno/Peak Time" && files[0].playlists[0].position == 3);
+        assert(domain::TrackScope::playlist("Warmup").matches(files[0]));
+        std::cout << "case 9 (playlists are the union across a file's formats) OK\n";
+    }
+
+    // A selection names a file, not a row. Picking the track by its
+    // Engine row must still select the file when the collapse happened
+    // to make rekordbox's row the base.
+    {
+        std::vector<Track> rows = {
+            row("rekordbox", "11", "/stick/Contents/a.mp3", "Sorry", 200.0, 256),
+            row("engine", "22", "/stick/Contents/a.mp3", "Sorry", 200.0, 0),
+        };
+        auto files = collapseCatalogRows(rows);
+        assert(files.size() == 1 && files[0].format == "rekordbox");
+        auto byEngineRow = domain::TrackScope::arbitrary({{"engine", "22"}});
+        assert(byEngineRow.matches(files[0]));
+        auto byRekordboxRow = domain::TrackScope::arbitrary({{"rekordbox", "11"}});
+        assert(byRekordboxRow.matches(files[0]));
+        auto bySomethingElse = domain::TrackScope::arbitrary({{"engine", "99"}});
+        assert(!bySomethingElse.matches(files[0]));
+        std::cout << "case 10 (a selection by any format's row selects the file) OK\n";
+    }
+
+    // Collapse then scope, never the other way round: scoping rows first
+    // hands the collapse a partial set, and the file comes out missing
+    // the rows that would have had to go with it.
+    {
+        Track rb = row("rekordbox", "11", "/stick/Contents/a.mp3", "Sorry", 200.0, 256);
+        rb.playlists = {{"Techno", 1}};
+        Track en = row("engine", "22", "/stick/Contents/a.mp3", "Sorry", 200.0, 0);
+        // Engine never recorded this file's membership -- the formats
+        // have diverged, which is exactly when order starts to matter.
+        auto scope = domain::TrackScope::playlist("Techno");
+
+        auto collapsedThenScoped = domain::filterByScope(collapseCatalogRows({rb, en}), scope);
+        assert(collapsedThenScoped.size() == 1);
+        assert(collapsedThenScoped[0].catalogRows.size() == 2);  // both rows still go with it
+
+        auto scopedThenCollapsed = collapseCatalogRows(domain::filterByScope({rb, en}, scope));
+        assert(scopedThenCollapsed.size() == 1);
+        assert(scopedThenCollapsed[0].catalogRows.size() == 1);  // Engine's row silently lost
+        std::cout << "case 11 (collapse then scope keeps every row that must go with the file) OK\n";
     }
 
     std::cout << "all collapse_catalog_rows_test cases passed\n";

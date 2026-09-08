@@ -1,5 +1,6 @@
 #include "application/use_cases/collapse_catalog_rows.hpp"
 
+#include <algorithm>
 #include <map>
 
 #include "application/path_key.hpp"
@@ -50,6 +51,26 @@ void fillGapsFrom(domain::Track &into, const domain::Track &from)
         into.lastPlayedAt = from.lastPlayedAt;
     }
     into.cues = domain::LocalRestorePlanner::mergeCues(into.cues, from.cues);
+
+    // Playlist membership is the union by name, first position kept.
+    // A file is in a playlist if any format says so: the formats are
+    // meant to carry the same playlists, so a membership only one of
+    // them records is one the others are missing, not one that only
+    // half-counts. This is what lets a playlist-scoped cleanup see a
+    // file whose membership happens to be recorded in the format it is
+    // not currently reading. Where two formats disagree about the
+    // position within a playlist, the first wins, like every other field
+    // here -- and that disagreement is divergence for synchronization to
+    // settle, not something to average.
+    for (const auto &membership : from.playlists) {
+        bool known = std::any_of(into.playlists.begin(), into.playlists.end(),
+                                  [&membership](const domain::PlaylistMembership &existing) {
+                                      return existing.name == membership.name;
+                                  });
+        if (!known) {
+            into.playlists.push_back(membership);
+        }
+    }
 }
 
 }  // namespace
