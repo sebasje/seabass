@@ -322,7 +322,15 @@ AnonymizationVerification verifyAnonymizedExport(const std::string &exportRoot, 
                 fail(where + " still has a real filename: \"" + filename + "\"");
             }
             if (!filePath.empty()) {
-                const size_t slash = filePath.find_last_of('/');
+                // Unlike the ANLZ-embedded paths checked above (always
+                // forward-slash, straight out of rekordbox's own binary
+                // format regardless of host OS), this filePath comes from
+                // this app's own readers and is in native form -- '\' on
+                // Windows. Checking only '/' let a Windows path's real
+                // basename hide behind the drive/directory prefix,
+                // failing the whole path against the placeholder check
+                // instead of just the actual filename.
+                const size_t slash = filePath.find_last_of("/\\");
                 const std::string basename = slash == std::string::npos ? filePath : filePath.substr(slash + 1);
                 if (!looksLikeFilenamePlaceholder(trimPadding(basename))) {
                     fail(where + " still has a real file path: \"" + filePath + "\"");
