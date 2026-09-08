@@ -88,6 +88,25 @@ find_program(SEVENZIP_EXECUTABLE NAMES 7z 7zz 7za)
 # prove StickWriteLock actually excludes a concurrent locker.
 find_package(Threads REQUIRED)
 
+# TagLib: reads artist/title/duration/bitrate straight out of an audio
+# file, for files no catalog references and for catalog rows that left
+# fields empty. Optional, exactly like Qt6::Multimedia below -- without
+# it every caller falls back to application::NullTrackMetadataProbe and
+# behaves correctly, just less usefully.
+#
+# find_package(TagLib) only works with TagLib 2.x, which ships a CMake
+# config; 1.x (what Debian/Ubuntu's libtag1-dev and MSYS2's
+# mingw-w64-ucrt-x86_64-taglib still provide) ships only taglib.pc, so
+# pkg-config is tried first and is the path that actually resolves on
+# both platforms today.
+find_package(PkgConfig QUIET)
+if(PkgConfig_FOUND)
+    pkg_check_modules(TAGLIB QUIET IMPORTED_TARGET taglib)
+endif()
+if(NOT TAGLIB_FOUND)
+    find_package(TagLib QUIET)
+endif()
+
 add_library(kaitai_cpp_stl_runtime STATIC
     third_party/kaitai_struct_cpp_stl_runtime/kaitai/kaitaistream.cpp
 )
@@ -219,6 +238,7 @@ add_library(seabass_core STATIC
     src/application/use_cases/clone_stick.cpp
     src/application/use_cases/fill_missing_durations.cpp
     src/infrastructure/local/duration_cache.cpp
+    src/infrastructure/local/metadata_cache.cpp
 )
 target_include_directories(seabass_core PUBLIC src)
 target_link_libraries(seabass_core PUBLIC rekordbox_format DjInterop ZLIB::ZLIB)
@@ -338,6 +358,23 @@ find_package(Qt6 QUIET COMPONENTS Core Gui Qml Quick QuickControls2 QuickLayouts
 #
 # No AUTOMOC: QtMultimediaDurationProbe has no Q_OBJECT of its own (it
 # connects with a context object + lambda), so nothing needs moc'ing.
+# TagLib-backed metadata probe. Same optional shape as seabass_audio_qt
+# below, and independent of it: a build can have either, both or
+# neither.
+if(TAGLIB_FOUND OR TARGET TagLib::tag)
+    add_library(seabass_taglib STATIC src/infrastructure/audio/taglib_metadata_probe.cpp)
+    target_include_directories(seabass_taglib PUBLIC src)
+    if(TARGET PkgConfig::TAGLIB)
+        target_link_libraries(seabass_taglib PUBLIC PkgConfig::TAGLIB)
+    else()
+        target_link_libraries(seabass_taglib PUBLIC TagLib::tag)
+    endif()
+    target_compile_definitions(seabass_taglib PUBLIC SEABASS_HAVE_TAGLIB)
+    # seabass-cli is declared above this point, so it is linked here
+    # rather than at its own definition, same as seabass_audio_qt.
+    target_link_libraries(seabass-cli PRIVATE seabass_taglib)
+endif()
+
 if(TARGET Qt6::Multimedia)
     add_library(seabass_audio_qt STATIC src/infrastructure/audio/qt_multimedia_duration_probe.cpp)
     target_include_directories(seabass_audio_qt PUBLIC src)
@@ -365,6 +402,9 @@ if(Qt6_FOUND)
     add_subdirectory(src/gui)
     if(TARGET seabass_audio_qt)
         target_link_libraries(seabass PRIVATE seabass_audio_qt)
+    endif()
+    if(TARGET seabass_taglib)
+        target_link_libraries(seabass PRIVATE seabass_taglib)
     endif()
     target_compile_definitions(seabass PRIVATE
         $<$<BOOL:${SEABASS_EXPERIMENTAL}>:SEABASS_EXPERIMENTAL_BUILD>)
@@ -464,6 +504,18 @@ add_executable(duration_cache_test tests/duration_cache_test.cpp)
 target_include_directories(duration_cache_test PRIVATE src)
 target_link_libraries(duration_cache_test PRIVATE seabass_core)
 add_test(NAME duration_cache_test COMMAND duration_cache_test)
+
+add_executable(metadata_cache_test tests/metadata_cache_test.cpp)
+target_include_directories(metadata_cache_test PRIVATE src)
+target_link_libraries(metadata_cache_test PRIVATE seabass_core)
+add_test(NAME metadata_cache_test COMMAND metadata_cache_test)
+
+# Only built when TagLib was found, same as the probe it covers.
+if(TARGET seabass_taglib)
+    add_executable(taglib_metadata_probe_test tests/taglib_metadata_probe_test.cpp)
+    target_link_libraries(taglib_metadata_probe_test PRIVATE seabass_taglib)
+    add_test(NAME taglib_metadata_probe_test COMMAND taglib_metadata_probe_test)
+endif()
 
 add_executable(duplicate_cue_consolidation_test
     src/domain/duplicate_cue_consolidation.cpp
