@@ -238,6 +238,7 @@ add_library(seabass_core STATIC
     src/application/use_cases/clone_stick.cpp
     src/application/use_cases/fill_missing_durations.cpp
     src/application/use_cases/find_unreferenced_files.cpp
+    src/application/use_cases/unreferenced_tracks.cpp
     src/infrastructure/cleanup/audio_file_walk.cpp
     src/infrastructure/local/duration_cache.cpp
     src/infrastructure/local/metadata_cache.cpp
@@ -511,6 +512,11 @@ add_executable(metadata_cache_test tests/metadata_cache_test.cpp)
 target_include_directories(metadata_cache_test PRIVATE src)
 target_link_libraries(metadata_cache_test PRIVATE seabass_core)
 add_test(NAME metadata_cache_test COMMAND metadata_cache_test)
+
+add_executable(unreferenced_tracks_test tests/unreferenced_tracks_test.cpp)
+target_include_directories(unreferenced_tracks_test PRIVATE src)
+target_link_libraries(unreferenced_tracks_test PRIVATE seabass_core)
+add_test(NAME unreferenced_tracks_test COMMAND unreferenced_tracks_test)
 
 add_executable(find_unreferenced_files_test tests/find_unreferenced_files_test.cpp)
 target_include_directories(find_unreferenced_files_test PRIVATE src)

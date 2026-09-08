@@ -53,7 +53,24 @@ struct PlaylistMembership
 struct Track
 {
     std::string sourceId;  // adapter-specific unique id (e.g. rekordbox track id, engine track id)
-    std::string format;    // "rekordbox" or "engine", which catalog this copy was read from
+    // "rekordbox", "engine" or "onelibrary" -- which catalog this copy
+    // was read from -- or "disk" for a file no catalog references at all.
+    std::string format;
+
+    // True for the "disk" case above: an audio file found on the stick
+    // that no catalog mentions, built from its own tags rather than from
+    // a database row (see application::findUnreferencedFiles). It has no
+    // row, so sourceId is its path, and rating/comment/playCount are
+    // always empty -- there is nowhere for them to have been stored.
+    //
+    // A bool rather than a `format == "disk"` test because two rules in
+    // DuplicateCleanupPlanner turn on it and one of them ends in a file
+    // being deleted: such a copy may only be the survivor when every
+    // copy in the group is one too (keeping it over a catalogued copy
+    // would leave that catalog pointing at a file we then deleted), and
+    // "removing" it means deleting the file itself rather than dropping
+    // a row. A misspelt format string would fail both silently.
+    bool isUnreferenced = false;
     std::string title;
     std::string artist;
     std::string filename;
@@ -71,6 +88,16 @@ struct Track
     std::uint64_t fileSizeBytes = 0;  // best-effort size of the file at filePath on disk, 0 if unresolved/unreadable
     int bitrate = 0;  // kbps, 0 if unknown, used as the primary "which copy is higher quality" signal
     double durationSeconds = 0.0;
+
+    // True when durationSeconds was not read but computed from bitrate
+    // and stream size -- application::FileMetadata's own flag, carried
+    // into the domain because the decision that needs it is here.
+    // DuplicateTrackFinder groups on duration within a 2-second
+    // tolerance and a guess can be seconds out, so a group holding an
+    // estimate might not be one track at all; DuplicateCleanupPlanner
+    // therefore proposes no file deletion at all from such a group.
+    // Catalog rows carry a stored length and leave this false.
+    bool durationIsEstimated = false;
     double bpm = 0.0;
     std::string key;  // human-readable, e.g. "Fm" or "F#m", empty if unknown
     std::vector<CuePoint> cues;
