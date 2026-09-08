@@ -5,13 +5,13 @@ Scope notes taken while building the unreferenced-file cleanup
 decision already made or a deliberate deferral -- the point is that
 neither gets rediscovered from scratch later.
 
-## Stray File Audit (v1, read-only)
+## Stray File Statistics (v1, read-only)
 
 **Decided 2026-09-08: ships in v1, read-only.** It reports and never
 deletes. Reachable from the Clean Up page's explanation two ways -- the
 space diagram itself is clickable, and a button sits beneath it for
 everyone who does not guess a chart is a link. See
-`library-synchronization-plan.md` for the entry points; the content
+`sync-hub-plan.md` for the entry points; the content
 template is below.
 
 ## What made the page work (the template)
