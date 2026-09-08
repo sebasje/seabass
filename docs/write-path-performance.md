@@ -612,3 +612,602 @@ the save is two to three times faster than it was.
 save are backups, and moving them off the stick, or batching them into one
 archive written at the end, remains the largest single lever available. It
 does not depend on which of these numbers is right.
+
+## Round 9, 2026-09-08: it is the file count, not the flushing
+
+Sebastian asked whether flushing the backup to the stick in one go -- one
+write, one fsync -- would beat the many small writes plus fsync the backup
+store does today. It would, by a factor of twenty, and round 1 missed it
+because round 1 never tested that shape. Its three "strategies" were three
+ways of writing 400 separate files; the difference between them was the
+durability barrier, and the barrier is not the cost.
+
+A throwaway rig (not committed -- see the last paragraph of this round for
+where it belongs), four shapes, 64.1 MiB of payload each time (400
+files of 164 KiB, the mean `.EXT`), medians of three rotated runs with an
+unmount, remount and three-second settle before every timed run:
+
+| Shape | Syncs | A3 (empty) | RV2 (95% full) |
+|---|---:|---:|---:|
+| A one file, 1 MiB writes, one fsync | 2 | **2.07 s** | 49.93 s |
+| B one file, 160 KiB writes, one fsync | 2 | **2.07 s** | 52.72 s |
+| C 400 files, fsync each (today) | 800 | 49.21 s | 56.93 s |
+| D 400 files, one syncfs at the end | 1 | 45.78 s | 50.59 s |
+
+Read the A3 column, which is the one taken on a healthy device:
+
+- **Dropping 800 fsyncs to one buys 7%** (C to D). That is round 1's answer
+  and it still holds: the barrier is not where the time goes.
+- **Putting the same bytes in one file instead of 400 buys 22x** (D to B).
+  That is the whole cost, and it is the shape round 1 never measured.
+- **The write size inside the file does not matter** (A equals B to within
+  0.01 s). So an archive can be streamed entry by entry as the save runs;
+  it does not need a tmpfs mirror, a memory buffer, or a size cap.
+
+Per durable whole-file write, C works out at 123 ms on A3 and 142 ms on
+RV2, against the 136 ms round 1 measured on RV2 as half of its 272 ms
+backup-and-rewrite pair. Three independent measurements agree: **a durable
+whole-file replacement on a USB stick costs about 130 ms, and it is a fixed
+per-file cost, not a function of size.** 400 of them is 50 s.
+
+*(Round 12 narrows this: the 130 ms is Linux-specific. Windows measures
+24.6 ms for the same operation. The claim holds across Linux devices, not
+across platforms.)* That is the
+write half of a 200-cue save, and it is spent on file creation, allocation
+and directory-entry updates, not on flushing.
+
+### RV2 is no longer a valid benchmark device for this
+
+RV2 cannot show the win at all: 49.93 s for a single sequential 64 MiB
+write, against 2.07 s on A3. It is 24x slower at the one thing flash is
+supposed to be good at, while its **per-file** cost is within 16% of A3's.
+A filesystem difference (RV2 exFAT, A3 FAT32) would show up in both
+numbers; only the sequential number collapsed. The obvious suspect is that
+RV2 is 95% full with 1.6 GB free, which leaves its controller no spare
+blocks and puts it permanently in garbage collection.
+
+*(Round 12 undermines this: manta's stick is 97% full and writes at 16-20
+MB/s. Fullness alone does not produce a 1.4 MB/s ceiling. Treat the
+suspicion as unproven and RV2 as probably just a worn device.)*
+
+This retroactively explains round 1's flat table. All three of its
+strategies were measured on a device whose ceiling was already 1.3 MB/s, so
+they could not differ by much whatever they did.
+
+**Consequence for the method:** every write-half number in rounds 1 and 6
+to 8 was taken on RV2 and is a measurement of a saturated stick, not of the
+code. The read-half and work-count results are unaffected -- those are
+counters, which is exactly why they were made counters.
+
+### What this changes in the plan
+
+Step 4 of `temporal-stirring-pine` recorded that "the benchmark did NOT
+support this" and kept the per-file flush. That verdict was against the
+wrong three options. The one-archive shape is worth 22x on the write half
+and, unlike relaxed batching, it is *safer* than today rather than riskier:
+one archive written and made durable before the first live overwrite is a
+strict barrier, where today the backup of item 201 lands only after items 1
+to 200 have already been overwritten.
+
+The project already has the pieces. `stick_backup/archive_journal.hpp`
+writes a 24-byte journal before the first appended byte and clears it after
+the write verifies, and `archive_recovery.cpp` rolls a torn archive back on
+the next open. `zip64_writer` already streams entries.
+
+The cost is on the restore side: `FilesystemBackupStore::restore()` copies
+files back and would need an archive-backed record. That is a real piece of
+work, not a refactor.
+
+**Not yet measured:** the same four shapes against the real backup store
+rather than a synthetic rig, and on a stick that is neither empty nor full.
+Both belong in `stick_write_bench` with a fourth option, so the result
+inherits the remount discipline rather than depending on a scratch script.
+
+## Round 10, 2026-09-08: zipping the backup is the wrong default
+
+Round 9 showed that one file beats 400. The obvious next question is
+whether that one file should be compressed. It should not, on a healthy
+stick -- and the reason is worth writing down, because it inverts on a slow
+one and the crossover is inside the range of sticks people actually use.
+
+400 **real** `.EXT` files from RV2 (64.9 MB; random bytes would have made
+this measurement meaningless), streamed entry by entry into one file, one
+fsync, medians of three rotated runs with remount and settle:
+
+| Shape | Bytes written | A3 (32.6 MB/s) | RV2 (1.4 MB/s) |
+|---|---:|---:|---:|
+| 400 files, fsync each (today) | 64.9 MB | 49.07 s | 56.93 s* |
+| One file, stored | 64.9 MB | **1.99 s** | 44.86 s |
+| One file, deflate -1 | 46.7 MB | 2.49 s | 29.19 s |
+| One file, deflate -6 | 45.5 MB | 4.12 s | **26.83 s** |
+
+\* from round 9, which used synthetic bytes; the per-file cost does not
+depend on content.
+
+Compression alone, no stick involved: deflate -1 takes 1.02 s of CPU and
+reaches 72%; deflate -6 takes 2.69 s and reaches 70%.
+
+**ANLZ waveform data barely compresses.** Thirty percent off is a poor
+return, and it is what sets the whole trade-off. Deflate -1 saves 18.2 MB
+at a cost of 1.02 s, so it only pays where the stick writes slower than
+about 18 MB/s; deflate -6 saves 19.4 MB for 2.69 s and needs a stick slower
+than about 7 MB/s.
+
+A3 writes at 32.6 MB/s, so compressing costs 25% (level 1) to 107% (level
+6) more wall clock than just storing. RV2 writes at 1.4 MB/s, so
+compressing saves 35% to 40%. Both sticks are 30 GB USB 3 devices bought
+for the same purpose. **The right level is a property of the device, not of
+the format**, which means a hardcoded choice is wrong for half the users
+either way.
+
+### What to build
+
+Store, and get the 24x from the single file rather than from the codec.
+`zip64_writer` is already STORE-only (`zip_format.hpp:38`), so this needs no
+new compression code at all -- which is the strongest argument for it.
+
+**Worth measuring before settling, though:** compressing on one thread while
+writing on another makes the total `max(cpu, io)` instead of `cpu + io`. On
+A3 that projects to 46.7 MB at 32.6 MB/s = 1.43 s of writing with 1.02 s of
+compression hidden behind it, which would beat storing (1.99 s) on the fast
+stick as well as on the slow one, and remove the device-dependent choice
+entirely. That is arithmetic, not a measurement, and this document has been
+burned by exactly that distinction before -- so it is a hypothesis to test
+in `stick_write_bench`, not a design decision yet.
+
+## Round 11, 2026-09-08: threads alone do nothing; threads plus early writeback work
+
+Round 10 projected that compressing on worker threads while writing would
+make the total `max(cpu, io)` and let deflate beat storing on a fast stick.
+Tested on A3, same 400 real `.EXT` files, medians of three rotated runs with
+remount and settle. The projection was right about the destination and wrong
+about the route.
+
+First attempt, worker threads only:
+
+| Shape | Median | Bytes out |
+|---|---:|---:|
+| Stored, serial | 2.10 s | 64.9 MB |
+| deflate -1, serial | 2.54 s | 46.7 MB |
+| deflate -1, pipeline x1 | 2.50 s | 46.7 MB |
+| deflate -6, serial | 4.19 s | 45.5 MB |
+| deflate -6, pipeline x1 | 4.14 s | 45.5 MB |
+| deflate -6, pipeline x4 | 2.20 s | 45.5 MB |
+
+One worker bought 0.04 s. Four bought 1.99 s, but still lost to storing.
+The suspicion was the GIL, so it was checked rather than assumed: zlib
+compression alone scales 1.94x / 3.61x / 6.02x on 2 / 4 / 8 threads. Not the
+GIL.
+
+**The real reason: there is nothing to overlap with.** Buffered writes land
+in the page cache almost free, and the entire device cost is the single
+fsync at the end. So the total is `compression_wall + flush`, and adding
+compressor threads only shrinks the first term. The arithmetic confirms it
+to within 0.05 s on every row: serial -6 is 2.78 CPU + 1.40 flush = 4.18
+against 4.19 measured; stored is 0.13 + 2.0 = 2.13 against 2.10.
+
+Real overlap needs writeback *started* while compression is still running.
+`sync_file_range(fd, 0, 0, SYNC_FILE_RANGE_WRITE)` every 4 MB queues it
+without waiting:
+
+| Shape | Median | Bytes out |
+|---|---:|---:|
+| Stored | 2.06 s | 64.9 MB |
+| Stored + writeback | 2.04 s | 64.9 MB |
+| deflate -6 x4 | 2.20 s | 45.5 MB |
+| deflate -6 x4 + writeback | 1.77 s | 45.5 MB |
+| **deflate -6 x8 + writeback** | **1.59 s** | 45.5 MB |
+
+Both halves are needed and neither works alone. Writeback does nothing for
+the stored case (2.04 against 2.06) because there is no CPU to hide. Threads
+did nothing without it. Together they reach 1.59 s against an overlapped
+ideal of 1.40 s, so 88% of the available win, and they beat storing by 23%
+while putting 30% fewer bytes on the stick. Output verified byte-identical
+to the serial archive in every configuration.
+
+### It still does not change the recommendation
+
+Store, and here is why the faster option loses anyway:
+
+- On a fast stick the whole prize is **0.47 s** (2.06 to 1.59) on a save
+  that costs 49 s today. It buys a thread pool, a writeback policy and a
+  codec to win half a second.
+- `sync_file_range` is **Linux-only**, and there is no clean non-blocking
+  equivalent on Windows. So the 23% is unavailable on a platform this
+  project targets, while the 24x from the single file is portable.
+- On a slow stick the win is real and large (round 10: 26.83 s against
+  44.86 s on RV2), but it comes from writing fewer bytes, not from
+  threading -- the compression term is already small next to a 31 s write.
+
+So: single stored archive first, for 24x and no new code. If compression is
+ever added, add it for slow devices, where plain serial deflate already
+captures most of it.
+
+### Windows: requested, not yet measured
+
+Everything in rounds 9 to 11 is Linux. The Windows claims in those rounds --
+that a durable write costs the same order there, that the single-file win
+survives NTFS and exFAT under `FlushFileBuffers` + `MoveFileEx`, and that
+`sync_file_range` has no clean non-blocking analogue -- are reasoning from
+the API surface, not measurements, and are flagged here so nobody builds on
+them by accident.
+
+A run was handed to the `windows` session on manta on 2026-09-08 with a
+port of the rig that drops the two shapes Windows cannot express (no
+user-mode volume sync, no `sync_file_range`). The three numbers it should
+settle: whether the single-file win is still roughly 24x, what one durable
+whole-file write costs in ms against Linux's device-independent ~130 ms, and
+which side of the deflate crossover manta's stick falls on. Update this
+section with the result rather than leaving the assertions standing.
+
+## Round 12, 2026-09-08: Windows confirms the shape, denies the magnitude
+
+Run on manta by the `windows` session, same rig minus the two shapes
+Windows cannot express. Device: `D:`, FAT32, 29.28 GB with 0.82 GB free --
+97% full, and the user's real stick rather than a scratch one, cleared with
+them first and read-only apart from the scratch directory. Python 3.14.7.
+Same 400 real `.EXT` files, 64.9 MB.
+
+| Shape | Median | Runs | Bytes out |
+|---|---:|---|---:|
+| 400 files, flush each (today) | 9.82 s | 9.45 / 11.14 / 9.82 | 64.9 MB |
+| **One file, stored** | **3.91 s** | 3.91 / 4.46 / 3.15 | 64.9 MB |
+| One file, deflate -1 | 5.49 s | 5.60 / 5.10 / 5.49 | 46.7 MB |
+| One file, deflate -6 | 9.09 s | 9.09 / 9.11 / 8.96 | 45.5 MB |
+
+Compression alone: deflate -1 2.22 s (29 MB/s), deflate -6 5.77 s (11 MB/s),
+reaching the same 72% and 70% as on Linux. The ratios are a property of ANLZ
+data and travel; the CPU rates are manta's, roughly half this machine's.
+
+**Two of the three answers hold, one does not.**
+
+*The single-file win is real but far smaller: 2.5x, not 24x.* Still worth
+having, still the right design, and now confirmed on the platform where
+`sync_file_range` was never available anyway.
+
+*Deflate loses to stored here too*, and for the predicted reason: this stick
+writes at 16-20 MB/s stored, above the ~18 MB/s deflate -1 break-even. Two
+platforms, two filesystems, three devices, same verdict. **Store.**
+
+*But the ~130 ms durable write is Linux-specific, not device-independent.*
+Windows costs 24.6 ms per file gross, 14.8 ms net of the sequential floor,
+against 123 ms on an empty Linux stick and 142 ms on a full one. Round 9
+called that constant device-independent on the strength of two Linux
+devices; it is platform-dependent, and the wording there is now wrong.
+
+**Retracted in round 13 -- round 9's own table refutes it.** The likely
+mechanism, and it is a hypothesis, not a measurement: on Linux
+`fsync` to removable media issues a real cache-flush round trip to the
+device per call, and this rig makes two per file (the file and its
+directory). Windows mounts removable devices under the "quick removal"
+policy with write caching disabled, so the writes are already write-through
+and `FlushFileBuffers` has little left to do -- and the directory flush has
+no equivalent and is not needed. Flush count alone does not close the gap
+(2 x 24.6 is 49 ms, not 123), so the per-flush cost has to differ too.
+
+### This also undermines round 9's explanation of RV2
+
+Round 9 blamed RV2's 1.4 MB/s sequential write on it being 95% full.
+Manta's stick is **97% full and writes at 16-20 MB/s**. Different OS,
+filesystem and device, so this is not conclusive -- but fullness alone
+clearly does not produce a 1.4 MB/s ceiling, and RV2 is better explained as
+simply a worn or poor device. Round 9's suspicion should be read as
+unproven.
+
+### Still open
+
+Manta had only the one, very full device, so there is no Windows equivalent
+of the empty-stick comparison and no way to separate "Windows is cheap per
+file" from "this particular stick is". A follow-up asking for a D:-read /
+C:-write split has been sent, which isolates the syscall cost from the
+medium, along with the write-caching policy of the device, which would
+confirm or kill the mechanism above.
+
+## Round 13, 2026-09-08: the per-file cost is real everywhere, and my mechanism was wrong
+
+Follow-up on manta, same 400 real `.EXT` files read from `D:`, written to
+`C:` (internal disk) instead of the stick:
+
+| Shape | C: internal | D: stick | Linux A3 |
+|---|---:|---:|---:|
+| 400 files, flush each | 1.48 s | 9.82 s | 49.21 s |
+| One file, stored | 0.40 s | 3.91 s | 2.06 s |
+| Ratio | 3.7x | 2.5x | 24x |
+
+**The shapes do not converge off the stick.** The ratio widens on the faster
+medium, which settles the question that run was for: the per-file cost is a
+genuine `CreateFile` + `WriteFile` + `FlushFileBuffers` + `MoveFileEx` path
+cost, not stick latency. Net of the single-write floor it is 2.7 ms/file on
+C:, 14.8 ms/file on D:, and about 118 ms/file on A3 under Linux.
+
+### Retracting the quick-removal explanation
+
+Round 12 proposed that Windows is cheaper per file because removable devices
+default to Quick Removal with write caching off, so `FlushFileBuffers` has
+nothing to flush, while Linux `fsync` pays a device cache-flush round trip
+per call.
+
+**Round 9's own table already refuted this and I did not notice.** On A3,
+400 files with an `fsync` each cost 49.21 s and 400 files with a *single*
+`syncfs` at the end cost 45.78 s. Removing 799 of 800 flushes bought 7%. If
+flush round trips were the Linux cost, that number would have collapsed.
+They are not, so the asymmetry with Windows is not explained by having
+fewer of them.
+
+The manta session could not read the effective policy either
+(`Get-StorageAdvancedProperty` returns ErrorCode 40001 for this device
+class; no `UserRemovalPolicy` override exists in the registry, which is
+consistent with the default but does not confirm it) and correctly declined
+to claim otherwise. That check is now moot -- the hypothesis it was meant to
+test is dead on other evidence.
+
+**What is left is a description, not a mechanism:** writing 400 small files
+into a directory costs roughly 118 ms each on Linux's exFAT-over-USB path
+and roughly 15 ms each on Windows' FAT32-over-USB path, and neither figure
+is dominated by the durability barrier. Somewhere in allocation, directory
+entries and FAT chain updates, Linux is paying about eight times what
+Windows pays for the same logical work. That is worth knowing and is not
+worth guessing about further here; it changes no decision below.
+
+### Nothing about the decision changes
+
+Three media, two platforms, two filesystems:
+
+- One stored archive beats 400 durable files everywhere: 24x, 3.7x, 2.5x.
+- Compression loses everywhere a healthy device is involved, and loses worst
+  where the medium is fastest -- on C: deflate -1 costs 2.63 s against 0.40 s
+  stored, exactly as the ~18 MB/s break-even predicts for a 160 MB/s disk.
+- `zip64_writer` is already STORE-only, so this needs no codec.
+
+Build the single stored archive. The remaining work is on the restore side,
+where `FilesystemBackupStore::restore()` copies files back and needs an
+archive-backed record.
+
+### Gap: threading was never tested on Windows
+
+Rounds 12 and 13 have no threaded shape. When the rig was ported, the
+worker-thread shapes were dropped along with the early-writeback ones --
+but only `sync_file_range` is Linux-only; threads are not. That was an
+over-correction and it left the question unanswered rather than answered
+negatively.
+
+It could plausibly come out differently there. Round 11 found that threads
+alone buy nothing on Linux because buffered writes are free and the entire
+device cost sits in the closing fsync, leaving no in-flight I/O to hide
+compression behind. If Windows removable media are genuinely write-through,
+the I/O is spread through the write loop instead and threads would pay with
+no extra syscall. That reasoning leans on the same quick-removal story round
+13 retracted, so it is a reason to measure, not a prediction.
+
+Arithmetic on manta's round 12 numbers, pending the real thing: deflate -6
+costs 5.77 s of CPU and 45.5 MB at D:'s stored rate is about 2.74 s, so
+perfect overlap on 8 threads projects to ~2.7 s against 3.91 s stored --
+a possible win on the stick, and still a clear loss on C: (~0.90 s against
+0.40 s). Same crossover as Linux, one medium further along it.
+
+A run has been requested on both `D:` and `C:`. Even if it wins on the
+stick, the prize is about a second against an option that needs no codec
+and no thread pool, so it is unlikely to move the recommendation -- but
+"not measured" is not the same as "does not help", and the doc should not
+imply the second when it means the first.
+
+## Round 14, 2026-09-08: threading does pay on Windows
+
+Run on manta, both destinations. Same 400 files, 4 cores.
+
+| Shape | D: stick | C: internal | Bytes out |
+|---|---:|---:|---:|
+| Stored | 14.53 s | 0.40 s | 64.9 MB |
+| deflate -6 serial | 19.29 s | 5.96 s | 45.5 MB |
+| deflate -6 threads x4 | 12.54 s | 2.68 s | 45.5 MB |
+| **deflate -6 threads x8** | **11.54 s** | 2.41 s | 45.5 MB |
+
+Threaded output byte-identical to serial in every configuration.
+
+**On the stick, threaded deflate beats storing.** On the internal disk it
+loses badly. That is the same crossover as Linux, and Windows reaches it
+without `sync_file_range`: the CPU column shows real overlap on D: (wall
+time falls from 19.29 to 11.54 while CPU stays flat at 6.1-6.6 s) and none
+on C: (CPU flat at 6.8-7.1 s regardless of worker count, because there is no
+I/O wait to hide behind). Round 11 predicted exactly this if Windows
+removable media are write-through. That is consistent with the buffering
+half of the quick-removal story; it says nothing about the flush-count half,
+which round 13 retracted for separate reasons.
+
+**Magnitude caveat, raised by the manta session and worth keeping.** `D:`
+had degraded roughly 4x by this run -- stored measured 3.91 s earlier in the
+day and 14.53 s here, on the same stick with *more* free space than before.
+In between it absorbed about 26 GB of write traffic. So the direction of the
+threading result is sound (all four shapes share the degraded state) but the
+absolute figures are not comparable to round 12's.
+
+That degradation is itself the useful finding. A stick drops into a slow
+regime after heavy write traffic and climbs out later -- which is precisely
+the state a DJ stick is in immediately after a library sync, which is
+precisely when a Save runs. **The slow regime is not the exceptional case;
+it is the normal one for this application.** It also finishes off round 9's
+fullness theory: free space went up while throughput went down 4x.
+
+## Round 15, 2026-09-08: space is the constraint, and it changes the answer
+
+Sebastian's point, which none of rounds 9 to 14 costed: a cue backup is left
+on the stick permanently, so its size is not a transient cost like seconds
+are. Measured cluster sizes are 32 KB on RV2 (exFAT) and 16 KB on A3
+(FAT32). On-disk footprint of one 400-file backup:
+
+| Shape | RV2, 32 KB clusters | A3, 16 KB clusters |
+|---|---:|---:|
+| 400 separate files | 71.50 MB | 68.22 MB |
+| One stored archive | 64.88 MB | 64.88 MB |
+| One deflate -6 archive | **45.55 MB** | **45.55 MB** |
+
+The archive alone recovers 6.62 MB of slack on RV2 (400 files, each rounded
+up to a 32 KB boundary). Compression recovers a further 19.33 MB. Together
+that is 36% of the footprint, about 26 MB per save, or roughly three tracks.
+
+**And backups accumulate.** `prune()` exists but nothing calls it
+automatically -- only `cli/main.cpp:685` with an explicit keep count, and
+the Backups page deleting one record at a time. So this is permanent,
+growing consumption on devices that are 95% and 97% full in the only two
+real samples available.
+
+### Revised recommendation: deflate the archive, at level 1
+
+Rounds 10 to 12 said store, on the strength of wall clock alone. Adding the
+space axis and the threading result reverses it.
+
+*Level 1, not 6.* Level 1 reaches 46.7 MB, level 6 reaches 45.5 MB. That
+last 1.2 MB costs 2.6x the CPU (1.02 s against 2.69 s here, 2.22 s against
+5.77 s on manta). Level 1 captures 93% of the space saving for 40% of the
+work.
+
+*And the time cost mostly vanishes on the media that actually hold backups:*
+
+| Device | Stored | Best deflate | Winner |
+|---|---:|---:|---|
+| A3, healthy Linux stick | 2.06 s | 1.59 s (-6 x8 + writeback) | deflate |
+| D:, degraded Windows stick | 14.53 s | 11.54 s (-6 x8) | deflate |
+| RV2, slow Linux stick | 44.86 s | 26.83 s (-6 serial) | deflate |
+| C:, internal disk | 0.40 s | 2.41 s | stored |
+
+Deflate wins on every stick measured and loses only on an internal disk,
+which is not where backups live. It always saves about 30% of permanent
+space. The earlier verdict came from measuring one axis on one healthy
+device and calling it the answer.
+
+*Costs this adds:* a thread pool, and deflate support in `zip64_writer`,
+which is STORE-only today. The `sync_file_range` kick stays a Linux-only
+refinement; Windows gets its overlap for free.
+
+**Not measured, and it should be before this is built:** threaded deflate
+*level 1* anywhere -- every threaded number above is level 6 -- and any
+threaded run on a Windows stick in a healthy state.
+
+## Round 16, 2026-09-08: level 1 threaded, and what the spread will and will not support
+
+Manta added level-1 shapes alongside the level-6 ones in a single run, so
+all seven are comparable under one device state. Pooling both Windows
+sessions on the degraded `D:` (all runs, not just the reported medians):
+
+| Shape | n | min | median | max | spread |
+|---|---:|---:|---:|---:|---:|
+| Stored | 6 | 10.41 | 14.09 | 18.39 | 57% |
+| deflate -6 serial | 6 | 13.50 | 15.75 | 19.88 | 41% |
+| deflate -6 x4 | 6 | 10.19 | 11.69 | 12.79 | 22% |
+| deflate -6 x8 | 6 | 9.03 | 11.28 | 12.42 | 30% |
+| deflate -1 serial | 3 | 12.26 | 13.06 | 16.04 | 29% |
+| deflate -1 x4 | 3 | 6.99 | 8.49 | 11.91 | 58% |
+| deflate -1 x8 | 3 | 10.61 | 10.77 | 13.15 | 24% |
+
+**What survives:** threaded compression beats storing. Stored sits at 14.09
+across six runs, every threaded shape sits between 8.5 and 11.7, and the
+ranges barely overlap. Threading also clearly beats serial at both levels.
+
+**What does not survive:** the ranking among the threaded shapes. With
+spreads of 22-58% on three to six samples, level-1 x4 at 8.49 cannot be
+called faster than level-6 x8 at 11.28, and level-1 x8 landing *slower*
+than level-1 x4 while level-6 x8 lands *faster* than level-6 x4 is not a
+mechanism, it is noise on a 4-core box. The manta session flagged the
+variance and was right to; the "fastest shape in the table" reading is one
+step further than the data goes.
+
+**The level-1 decision does not need that ranking anyway.** It rests on two
+low-variance measurements instead:
+
+- *Space:* 46.7 MB against 45.5 MB. Level 6 buys 1.2 MB out of a 26 MB
+  saving.
+- *CPU:* 2.3-2.8 s against 6.2-6.6 s, consistent across every run in the
+  table. In a GUI application doing this during a save, that is the number
+  that shows up as responsiveness, and it is two and a half times better.
+
+Wall clock is at worst a wash between the two levels. So: **level 1,
+threaded.** The recommendation from round 15 stands and now rests on
+measurements whose error bars do not swallow it.
+
+### The device did not recover
+
+Before this run, `D:` measured 12.45 s for a single stored write, against
+3.83-3.91 s earlier in the day and 12.05-18.39 s while degraded. Several
+minutes of idle time did not bring it back, and its *variance* got worse as
+well as its median. RV2 here shows the same permanence.
+
+That is worth more than the benchmark it interrupted. **These devices enter
+a slow regime after heavy write traffic and do not climb out on a timescale
+a user would notice.** A DJ stick that has just had a library synced onto it
+is in that state for the rest of the session, which is exactly when saves
+happen. Round 14 called the slow regime the normal operating condition; this
+says it is also a sticky one.
+
+Gap 2 -- threaded deflate on a *healthy* Windows stick -- stays open, and
+waiting on this device is not the way to close it. It does not gate the
+decision: the space case is independent of it, and on Linux the healthy-stick
+case is already measured (A3, threaded deflate 1.59 s against stored 2.06 s).
+
+## Why the sticks are slow, and why "the normal case" is the slow one
+
+Rounds 14 and 16 established that a stick drops into a slow regime after
+heavy write traffic and does not climb out. The cause is checkable and was
+checked: **neither stick supports TRIM.**
+
+```
+$ lsblk -D -o NAME,DISC-GRAN,DISC-MAX /dev/sda /dev/sdb
+NAME   DISC-GRAN DISC-MAX
+sda           0B       0B
+sdb           0B       0B
+$ fstrim /media/sebas/RV2
+fstrim: FITRIM ioctl failed: Operation not permitted
+```
+
+`discard_max_bytes` is 0 on both, so the block layer knows the devices
+advertise no discard capability. USB mass storage over the BOT protocol has
+no TRIM path at all.
+
+**The filesystem can free space; the controller is never told.** That single
+fact explains the observation that made no sense otherwise -- manta's stick
+got 4x slower while its *free space went up*. Deleting 1.83 GB returned
+clusters to the FAT and told the flash translation layer nothing. Every LBA
+ever written still looks like live data to the controller.
+
+The rest is standard flash behaviour rather than anything measured here, but
+it follows directly. NAND is programmed a page at a time and erased only a
+block at a time, blocks being a thousand times larger than the pages. A
+controller stays fast by keeping a pool of pre-erased blocks to write into.
+When the pool runs low it must garbage-collect: choose a block, copy the
+still-valid pages out, erase it -- and erase is the slow operation, now on
+the critical path of every write. Cheap sticks additionally absorb incoming
+data into a small pseudo-SLC region and fold it down to TLC afterwards, which
+is why a fresh device looks fast (A3: 32.5 MB/s) and the same class of device
+looks slow once that region is full and the folding is backlogged (manta:
+16-20 MB/s falling to ~5).
+
+Without TRIM the pool is never replenished by deletion, only by internal
+garbage collection, which needs idle time and has little it can legitimately
+reclaim. Hence "did not recover after several minutes".
+
+**This also settles round 9 properly.** Fullness was the wrong variable, but
+it was pointing at the right one. What matters is how much of the device the
+FTL believes is live, which is a function of everything ever written to it,
+not of what the filesystem currently uses. A 97%-full stick written once
+sequentially can be fast; a half-empty stick that has had hundreds of
+gigabytes written and deleted over its life looks entirely full to its
+controller and behaves accordingly.
+
+So A3 at 32.5 MB/s is the anomaly, not the norm. It was empty and barely
+used. **A DJ's working stick, months into its life with no TRIM ever issued,
+lives permanently in the slow regime**, and that is the device this feature
+runs on.
+
+### What follows for the design
+
+- It confirms the archive. Few large contiguous writes are exactly what a
+  controller with no free blocks handles least badly; four hundred scattered
+  164 KB writes are the worst case.
+- **It strengthens compression more than the timing did.** On a device that
+  never receives TRIM, every byte ever written is permanent pressure on the
+  FTL, and deleting a backup later gives the controller nothing back. Writing
+  26 MB less per save is not merely 26 MB of visible free space; it is 26 MB
+  the device never has to carry.
+- Unrelated and still unexplained: the per-small-file cost asymmetry between
+  Linux (~118 ms) and Windows (~15 ms). That is a host-side path difference,
+  not a device one -- both platforms were measured against the same class of
+  hardware -- and round 13 retracted the one explanation offered for it.
