@@ -99,9 +99,17 @@ builds and runs fine, but every OneLibrary write silently fails (throws,
 caught as the best-effort failure it's designed to be) with "could not
 load libsqlcipher-0.dll".
 
-This deploy step still isn't wired into the CMake build itself or packaged
-into a real installer (no CPack/NSIS/WiX step)
-— real follow-up work, tracked here rather than silently skipped.
+This deploy step still isn't wired into the CMake build itself, but it is
+now packaged into a real installer: `tools\windows-installer.iss` (Inno
+Setup 6) consumes `deploy-windows.ps1`'s output directly. Build sequence
+is documented in that script's own header comment. `PrivilegesRequired=
+lowest` means it installs per-user without UAC elevation by default (pass
+`/ALLUSERS` on the command line for a per-machine install instead), which
+is what makes headless/CI installer testing possible at all -- the admin
+default silently aborts (Inno exit code 2, no log) when there's no
+interactive session to answer the UAC prompt. Verified end-to-end on a
+real machine: build -> deploy -> `ISCC.exe` -> silent install -> smoke-run
+`seabass-cli.exe` from the install dir -> silent uninstall, all clean.
 
 ## Known gaps
 
@@ -123,8 +131,6 @@ into a real installer (no CPack/NSIS/WiX step)
   likely test-only, but worth confirming the product itself never emits
   mixed separators on Windows).
 - No CI (`.github/` doesn't exist).
-- No installer/packaging step (CPack, NSIS, WiX, MSIX, ...) — only the
-  `tools\deploy-windows.ps1` script above.
 - `seabass-cli.exe` (the CLI) links `-static -static-libgcc -static-libstdc++`
   but its dependency on `zlib1.dll` (found via MSYS2's `libz.dll.a` import
   library, not a static `libz.a`) is still dynamic — so despite those flags

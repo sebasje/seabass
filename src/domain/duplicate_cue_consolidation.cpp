@@ -33,23 +33,22 @@ void unite(std::vector<size_t> &parent, size_t a, size_t b)
 
 std::vector<DuplicateGroup> DuplicateTrackFinder::find(const std::vector<Track> &tracks)
 {
-    // Two tracks are candidates if they share a filename OR share a
-    // title+artist -- union-find merges both criteria transitively into
-    // one candidate set per underlying song.
+    // Tracks are candidates for the same underlying song when they share
+    // a title+artist. Filename is deliberately NOT a matching criterion:
+    // it carries an export-assigned track-number prefix and a copy
+    // suffix (`034_Artist-Title.mp3`, `...-1.mp3`) that differ between
+    // copies of the same song, and conversely two genuinely different
+    // songs can be exported under the same truncated name. Measured on a
+    // real 1469-track Engine stick, adding filename matching found
+    // exactly zero groups that title+artist did not already find, so it
+    // only ever contributed risk.
     std::vector<size_t> parent(tracks.size());
     std::iota(parent.begin(), parent.end(), size_t{0});
 
-    std::map<std::string, std::vector<size_t>> byFilename;
     std::map<std::string, std::vector<size_t>> byTitleArtist;
     for (size_t i = 0; i < tracks.size(); ++i) {
-        byFilename[normalizeFilename(tracks[i].filename)].push_back(i);
         if (auto key = titleArtistKey(tracks[i])) {
             byTitleArtist[*key].push_back(i);
-        }
-    }
-    for (const auto &[key, indices] : byFilename) {
-        for (size_t k = 1; k < indices.size(); ++k) {
-            unite(parent, indices[0], indices[k]);
         }
     }
     for (const auto &[key, indices] : byTitleArtist) {
@@ -86,20 +85,28 @@ std::vector<DuplicateGroup> DuplicateTrackFinder::find(const std::vector<Track> 
                 }
                 // durationSeconds == 0 means "unreadable/unknown" here,
                 // same fallback convention as the rest of Track's fields
-                // (e.g. bitrate), not a real zero-length track. Splitting
-                // on a mismatch only when *both* sides have a real
-                // reading avoids a real bug found on real data: three
-                // copies of the same song shared a title+artist match,
-                // but two had duration 0 (a read failure, not a real
-                // duration) and one had a real reading -- the two
-                // zero-duration copies "matched" each other by
-                // coincidence, while the copy with a real reading was
-                // wrongly split off as unrelated, even though it's the
-                // exact same duplicate cluster.
+                // (e.g. bitrate), not a real zero-length track.
+                //
+                // An unknown duration is treated as "cannot confirm these
+                // are the same recording", NOT as "close enough". This
+                // reverses an earlier rule that grouped a pair whenever
+                // either side's duration was missing: that rule was
+                // introduced to stop a real duplicate cluster being split
+                // when two of three copies had a failed duration reading,
+                // but it is the wrong trade for a *destructive* caller.
+                // Measured on a real Engine stick where 77.6% of rows had
+                // no duration (Engine leaves `length` NULL until it has
+                // analyzed a track), the permissive rule put a radio edit
+                // and an extended mix of the same title+artist in one
+                // group 40 times, and the Clean Up planner had them
+                // checked for deletion in 39 of those -- roughly an hour
+                // of unique audio, silently. Title+artist alone cannot
+                // tell a 2:47 edit from a 6:31 extended mix; only the
+                // length can, so without a length there is no match.
                 double durationA = tracks[indices[i]].durationSeconds;
                 double durationB = tracks[indices[j]].durationSeconds;
                 bool bothDurationsKnown = durationA > 0.0 && durationB > 0.0;
-                if (!bothDurationsKnown || std::abs(durationA - durationB) <= DurationToleranceSeconds) {
+                if (bothDurationsKnown && std::abs(durationA - durationB) <= DurationToleranceSeconds) {
                     group.tracks.push_back(tracks[indices[j]]);
                     used[j] = true;
                 }

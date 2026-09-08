@@ -16,6 +16,8 @@
 #include "domain/duplicate_cue_consolidation.hpp"
 #include "gui/qt_progress_reporter.hpp"
 #include "gui/edit/changes/copy_cues_change.hpp"
+#include "gui/staged_cue_edit_controller.hpp"
+#include "gui/staged_plan_model.hpp"
 
 namespace seabass::gui
 {
@@ -26,7 +28,7 @@ class LibraryEditSession;
 // last computed. Only Unambiguous (fixable) and Conflict (informational)
 // plans are exposed -- NoCues/AlreadyConsistent groups need no attention,
 // same filtering cli/main.cpp's handleDuplicates applies.
-class ConsolidationPlanListModel : public QAbstractListModel
+class ConsolidationPlanListModel : public QAbstractListModel, public StagedPlanModel
 {
     Q_OBJECT
     QML_ELEMENT
@@ -65,9 +67,13 @@ public:
     // at all (see runRescanTask's own filtering), and DuplicateTrackFinder
     // groups by filename/title+artist+duration only, never cues, so
     // removing it can't change any other group's own classification.
-    void removePlanAt(int index);
-    void setStaged(int index, bool staged, const QString &description);
-    void clearStaged();
+    void removePlanAt(int index) override;
+    void setStaged(int index, bool staged, const QString &description) override;
+    void clearStaged() override;
+
+    int planCount() const override { return static_cast<int>(m_plans.size()); }
+    // A group's identity across rescans: its member track ids, sorted.
+    QString planKeyAt(int index) const override;
 
 private:
     std::vector<domain::ConsolidationPlan> m_plans;
@@ -100,31 +106,11 @@ struct DuplicatesTaskResult
 //
 // The scan itself runs on a background thread (see ScanController for
 // the same reasoning): it can take several seconds for a large library.
-class DuplicatesController : public QObject
+class DuplicatesController : public StagedCueEditController
 {
     Q_OBJECT
     QML_ELEMENT
     Q_PROPERTY(seabass::gui::ConsolidationPlanListModel *plans READ plansModel CONSTANT)
-    Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
-    // True while the read-only rescan runs (never during a write): it can
-    // be stopped via cancelScan(), after which scanCancelled() fires.
-    Q_PROPERTY(bool scanCancellable READ scanCancellable NOTIFY busyChanged)
-    Q_PROPERTY(int scanCurrent READ scanCurrent NOTIFY scanProgressChanged)
-    Q_PROPERTY(int scanTotal READ scanTotal NOTIFY scanProgressChanged)
-    // What's actually happening right now -- e.g. "Scanning rekordbox
-    // tracks" while the reader runs (scanCurrent/scanTotal move), then
-    // "Finding duplicates..." for the grouping pass afterward (no
-    // per-item progress for that one, scanTotal resets to 0 =
-    // indeterminate). Without this, the progress bar used to sit frozen
-    // at 100% for several seconds once the raw scan finished, with no
-    // indication anything was still happening.
-    Q_PROPERTY(QString scanLabel READ scanLabel NOTIFY scanProgressChanged)
-    Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
-    Q_PROPERTY(QString statusMessage READ statusMessage NOTIFY statusMessageChanged)
-    Q_PROPERTY(bool canUndo READ canUndo NOTIFY canUndoChanged)
-    // Mirrors the session: true while a save is writing to the stick.
-    Q_PROPERTY(bool writing READ writing NOTIFY writingChanged)
-    Q_PROPERTY(int stagedCount READ stagedCount NOTIFY plansChanged)
     // Sum, across every duplicate group currently listed (Unambiguous and
     // Conflict alike -- being a duplicate doesn't depend on cue-consolidation
     // status), of every group's file sizes minus its single largest copy:
@@ -137,16 +123,7 @@ public:
     explicit DuplicatesController(QObject *parent = nullptr);
 
     ConsolidationPlanListModel *plansModel() { return &m_model; }
-    bool busy() const { return m_busy; }
     QString totalWastedBytesHuman() const;
-    bool writing() const;
-    int scanCurrent() const { return m_scanCurrent; }
-    int scanTotal() const { return m_scanTotal; }
-    QString scanLabel() const { return m_scanLabel; }
-    QString errorMessage() const { return m_errorMessage; }
-    QString statusMessage() const { return m_statusMessage; }
-    bool canUndo() const;
-    int stagedCount() const { return static_cast<int>(m_stagedByGroup.size()); }
 
     // format is "rekordbox", "engine", or "onelibrary"; path is the
     // corresponding DetectedStick.rekordboxPath / .enginePath (OneLibrary
@@ -169,56 +146,29 @@ public:
     // ConsolidationPlan::Kind::Conflict's doc comment). Staging a second
     // choice for the same group replaces the first.
     Q_INVOKABLE void copyFromTrack(int index, const QString &sourceTrackId);
-    Q_INVOKABLE void unstage(int index);
-
-    // Reverts every file the last save touched (the session's undo).
-    Q_INVOKABLE void undoLastOperation();
-
-    bool scanCancellable() const { return m_busy && !writing(); }
-    Q_INVOKABLE void cancelScan();
 
 signals:
-    void scanCancelled();
-    void busyChanged();
-    void scanProgressChanged();
-    void errorMessageChanged();
-    void statusMessageChanged();
-    void canUndoChanged();
-    void writingChanged();
+    // Also covers totalWastedBytesHuman and the staged descriptions the
+    // rows carry -- everything this page derives from the plan list.
+    // Staging alone is the base's stagedChanged().
     void plansChanged();
+
+protected:
+    StagedPlanModel *stagedPlanModel() override { return &m_model; }
+    void reanalyzeAfterUndo() override { rescan(); }
+    void onStagedChangeApplied(bool) override { emit plansChanged(); }
+    void onStagedCleared() override { emit plansChanged(); }
 
 private:
     void rescan();
     void onRescanFinished();
     void attachSession();
     void stageCopy(int index, const DuplicatesCopyOp &op);
-    void setBusy(bool busy);
-    void setScanProgress(int current, int total);
-    void setScanLabel(const QString &label);
-    void setErrorMessage(const QString &message);
-    void setStatusMessage(const QString &message);
-    std::shared_ptr<QtProgressReporter> makeReporter();
-    static QString groupKeyFor(const domain::ConsolidationPlan &plan);
-    int indexOfGroupKey(const QString &groupKey) const;
 
     ConsolidationPlanListModel m_model;
     QFutureWatcher<DuplicatesTaskResult> m_watcher;
-    application::CancellationToken m_scanCancel;  // fresh per rescan()
-    QPointer<LibraryEditSession> m_session;
-    struct StagedInfo
-    {
-        QString changeId;
-        QString description;
-    };
-    std::map<QString, StagedInfo> m_stagedByGroup;  // group key -> what is staged for it
     QString m_format;
     QString m_path;
-    bool m_busy = false;
-    int m_scanCurrent = 0;
-    int m_scanTotal = 0;
-    QString m_scanLabel;
-    QString m_errorMessage;
-    QString m_statusMessage;
 };
 
 }  // namespace seabass::gui

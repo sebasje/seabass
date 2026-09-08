@@ -88,6 +88,60 @@ Page {
                 }
             }
 
+            // What this page is for, in three sentences. Real libraries
+            // accumulate several files of one track through repeated
+            // exports, and someone about to let a tool merge their cue
+            // points deserves to know what it considers a duplicate
+            // before they trust a checkbox. The third sentence matters
+            // most: this page consolidates catalog rows and records what
+            // it orphaned, it does NOT delete audio -- "Delete Orphaned
+            // Files" does that, and saying so here stops the space
+            // figures above reading as a promise this page keeps.
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+                Label {
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    color: Theme.textMuted
+                    text: "Exporting the same track more than once leaves several copies of it on the stick, "
+                        + "each catalogued separately and each taking up space. In this step Seabass groups "
+                        + "the copies that agree on artist, track title and length, and consolidates their "
+                        + "metadata -- cue points, ratings, playlist membership -- onto the single copy it "
+                        + "keeps. No audio is deleted here: the files this leaves unneeded are removed "
+                        + "afterwards under \"Delete Orphaned Files\", which is where the space is actually "
+                        + "freed."
+                }
+                InfoButton {
+                    explanationTitle: "What counts as a duplicate?"
+                    explanationText: "Three things have to match: artist, track title, and length (within "
+                        + "two seconds).\n\n"
+                        + "Filenames are deliberately ignored. A re-export writes the same recording out "
+                        + "under a new name -- the leading track number changes with playlist position, and "
+                        + "a copy landing next to an existing file gets a \"-1\" or \"-2\" appended. So "
+                        + "\"05_Kollektiv Turmstrasse-Flaschenpost.mp3\", "
+                        + "\"21_Kollektiv Turmstrasse-Flaschenpost.mp3\" and "
+                        + "\"33_Kollektiv Turmstrasse-Flaschenpost.mp3\" are one track exported three "
+                        + "times; the numbering is an artifact of the export, not a difference in the "
+                        + "music. Those group together.\n\n"
+                        + "Length is what stops a real mistake. A radio edit and an extended mix carry the "
+                        + "same artist and title, so matching on those alone would offer to delete one of "
+                        + "them: Paul Kalkbrenner's \"No Goodbye\" exists here as both a 2:47 edit and a "
+                        + "6:31 extended mix. Those are different recordings and are never grouped.\n\n"
+                        + "Where a catalog has not recorded a length, Seabass reads it from the audio file "
+                        + "itself and remembers it on the stick, so only the first scan pays for it. A "
+                        + "track whose length cannot be established is left alone rather than guessed at.\n\n"
+                        + "Groups where the copies differ in a way that might be deliberate, or that carry "
+                        + "ratings or comments that cannot be preserved, are left unchecked for you to "
+                        + "decide. Use \"what's conserved\" on any group to see exactly what the surviving "
+                        + "copy would end up with.\n\n"
+                        + "Saving here changes the catalogs only. The copies it drops are recorded as "
+                        + "orphaned files and stay on disk until you review them under \"Delete Orphaned "
+                        + "Files\", which re-checks that nothing still references them before removing "
+                        + "anything. The sizes shown on this page are what that later step would free."
+                }
+            }
+
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 12
