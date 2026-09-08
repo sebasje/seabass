@@ -428,11 +428,11 @@ int main()
         std::cout << "case 24 (a stray file never trips hasUnpreservableDataAtRisk) OK\n";
     }
 
-    // --- one file, several catalogs -----------------------------------
+    // --- one file, written in several formats -------------------------
     //
-    // Removing a copy drops its row from every catalog that lists it,
-    // and each of those removals repoints that catalog's playlists at
-    // the surviving file -- which needs the survivor to be listed there
+    // Removing a copy drops its row from every format that carries it,
+    // and each of those removals repoints that format's playlists at the
+    // surviving file -- which needs the survivor to be carried there
     // too. When it is, the group is ordinary.
     {
         Track keep = makeTrack("rb-1", 200.0, 320, 8'000'000);
@@ -444,15 +444,16 @@ int main()
         DuplicateGroup group{{keep, drop}};
         auto plan = DuplicateCleanupPlanner::plan(group);
         assert(plan.survivor.sourceId == "rb-1");
-        assert(!plan.wouldStrandACatalog);
+        assert(!plan.wouldStrandAFormat);
         assert(plan.toRemove.size() == 1 && plan.toRemove[0].catalogRows.size() == 2);
-        std::cout << "case 25 (a copy carries every catalog row that must go with it) OK\n";
+        std::cout << "case 25 (a copy carries every format's row that must go with it) OK\n";
     }
 
-    // But when the doomed copy is listed somewhere the survivor is not,
-    // dropping that row would leave the catalog with no row for this
-    // recording at all. Nothing here can repoint it, so the group is
-    // held -- not merely unchecked.
+    // But when the doomed copy is written somewhere the survivor is not,
+    // the formats have already diverged, and dropping that row would
+    // take the recording out of that format altogether -- leaving them
+    // further apart. Nothing here can repoint it, so the group is held,
+    // not merely unchecked.
     {
         Track keep = makeTrack("rb-1", 200.0, 320, 8'000'000);
         keep.filePath = "/stick/Contents/a.mp3";
@@ -463,16 +464,16 @@ int main()
         DuplicateGroup group{{keep, drop}};
         auto plan = DuplicateCleanupPlanner::plan(group);
         assert(plan.survivor.sourceId == "rb-1");
-        assert(plan.wouldStrandACatalog);
-        std::cout << "case 26 (a removal that would strand a catalog is held) OK\n";
+        assert(plan.wouldStrandAFormat);
+        std::cout << "case 26 (a removal that would strand a format is held) OK\n";
     }
 
-    // A caller working one catalog at a time sets no catalogRows at all,
+    // A caller working one format at a time sets no catalogRows at all,
     // and must see exactly the behaviour it always did.
     {
         DuplicateGroup group{{makeTrack("a", 200.0, 320, 8'000'000), makeTrack("b", 200.0, 128, 3'000'000)}};
         auto plan = DuplicateCleanupPlanner::plan(group);
-        assert(!plan.wouldStrandACatalog);
+        assert(!plan.wouldStrandAFormat);
         std::cout << "case 27 (no catalogRows -- the rule cannot fire) OK\n";
     }
 
