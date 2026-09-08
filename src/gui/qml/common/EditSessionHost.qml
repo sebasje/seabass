@@ -48,21 +48,22 @@ Item {
     // is worth knowing before staging the first change rather than after
     // doing the work, so the question is asked here, on entering edit mode.
     //
-    // The worst case is the library's whole analysis payload, because at
-    // this point nothing is staged and there is no file list yet. Being
-    // pessimistic is right: the question is whether this stick has room to
-    // be edited against at all.
+    // The rule itself lives in C++ (infrastructure/backup/stick_space.hpp)
+    // because the save has to make the same decision for real when it picks
+    // where to write; this only displays it. The numbers are here for the
+    // message, which has to name them -- "low on space" alone does not let
+    // anyone decide.
     //
-    // All three come from C++ (std::filesystem::space() on the stick root,
-    // and the library's own .EXT total). Until that lands they are 0, which
-    // reads as "nothing to warn about" and keeps every existing page silent.
-    property real stickBytesFree: 0
-    property real stickBytesCapacity: 0
-    property real backupBytesWorstCase: 0
-
-    readonly property real spaceHeadroom: Math.max(1073741824, host.stickBytesCapacity * 0.02)
-    readonly property bool backupWouldGoLocal: host.stickBytesCapacity > 0
-        && (host.stickBytesFree - host.backupBytesWorstCase) < host.spaceHeadroom
+    // A session that has not measured (or no session at all) reports zeros
+    // and false, which keeps every page silent.
+    readonly property real stickBytesFree: internal.session && internal.session.stickBytesFree !== undefined
+        ? internal.session.stickBytesFree : 0
+    readonly property real stickBytesCapacity: internal.session && internal.session.stickBytesCapacity !== undefined
+        ? internal.session.stickBytesCapacity : 0
+    readonly property real backupBytesWorstCase: internal.session
+        && internal.session.backupBytesWorstCase !== undefined ? internal.session.backupBytesWorstCase : 0
+    readonly property bool backupWouldGoLocal: internal.session
+        && internal.session.backupGoesLocal === true
 
     // Accepted: edit anyway, backups land on this computer. Declined: the
     // page takes the user back where they came from, as it does for Back.

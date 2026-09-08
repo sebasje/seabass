@@ -116,6 +116,15 @@ void LibraryEditSession::setLibraryPaths(const QString &rekordboxPath, const QSt
     if (!enginePath.isEmpty()) {
         m_enginePath = enginePath;
     }
+
+    // Measured once here rather than per save: this is where the stick
+    // root becomes known, and the answer is shown when an edit page opens
+    // so the user can back out before staging anything.
+    const QString &any = m_rekordboxPath.isEmpty() ? m_enginePath : m_rekordboxPath;
+    if (!any.isEmpty()) {
+        m_stickSpace = infrastructure::backup::measureStickSpace(
+            infrastructure::backup::stickRootForCatalogPath(any.toStdString()));
+    }
 }
 
 bool LibraryEditSession::acquireLock()
