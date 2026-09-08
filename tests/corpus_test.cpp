@@ -1073,6 +1073,14 @@ void caseStrayCueRemoval(const DataSet &set, const fs::path &scratch, const Cata
     // about 115 ms of CPU that no faster disk helps with.
     expected.expect("matrix.strayCue.encryptedOpensPerSave", counts.encryptedDatabaseOpens,
                     "stray-cue SQLCipher opens for the whole save unchanged");
+    // The number this whole write-path effort is about, and until now the
+    // only one of the four that was printed but never asserted -- so the
+    // change from a durable write per backed-up file to one deflated
+    // archive could have landed without anything noticing either way.
+    // Batch total, not a per-item average: an average rounds a 200-to-1
+    // win down to nothing.
+    expected.expect("matrix.strayCue.durableWritesPerSave", counts.durableFileWrites,
+                    "stray-cue durable whole-file writes for the whole save unchanged");
     std::cout << "    stray cue removal (" << changes.size() << " tracks): " << counts.describe() << "\n";
     fs::remove_all(root);
     pass("matrix: stray cues go, and only they go");

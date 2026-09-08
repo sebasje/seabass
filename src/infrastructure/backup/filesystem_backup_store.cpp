@@ -201,27 +201,28 @@ BackupRecord FilesystemBackupStore::backup(const std::vector<std::string> &fileP
     return record;
 }
 
-BackupRecord FilesystemBackupStore::backupToArchive(const std::vector<std::string> &filePaths,
-                                                    const std::string &label)
+std::pair<std::vector<std::pair<std::string, std::string>>, std::uint64_t>
+FilesystemBackupStore::writeArchiveEntries(const fs::path &dir, const std::vector<std::string> &filePaths)
 {
-    std::string baseId = timestampNow() + "-" + sanitize(label);
-    std::string id = baseId;
-    fs::path dir = fs::path(m_baseDirectory) / id;
-    for (int suffix = 1; fs::exists(dir); ++suffix) {
-        id = baseId + "-" + std::to_string(suffix);
-        dir = fs::path(m_baseDirectory) / id;
+    // Carry whatever the archive already holds, so an append lists the
+    // earlier entries in the new central directory too.
+    std::vector<stick_backup::CentralEntry> carried;
+    const fs::path archivePath = dir / ArchiveFileName;
+    std::error_code ec;
+    if (fs::exists(archivePath, ec)) {
+        stick_backup::PosixArchiveFile existing(archivePath, stick_backup::PosixArchiveFile::OpenMode::ReadOnly);
+        if (auto reader = stick_backup::Zip64Reader::tryOpen(existing)) {
+            carried = reader->entries();
+        }
     }
-    fs::create_directories(dir);
 
     std::vector<std::pair<std::string, std::string>> written;
     std::uint64_t archiveBytes = 0;
     {
-        stick_backup::PosixArchiveFile file(dir / ArchiveFileName,
-                                            stick_backup::PosixArchiveFile::OpenMode::ReadWrite);
-        stick_backup::Zip64Writer writer(file, {});
+        stick_backup::PosixArchiveFile file(archivePath, stick_backup::PosixArchiveFile::OpenMode::ReadWrite);
+        stick_backup::Zip64Writer writer(file, carried);
         for (const auto &filePath : filePaths) {
             fs::path source(filePath);
-            std::error_code ec;
             if (!fs::exists(source, ec)) {
                 continue;
             }
@@ -240,22 +241,36 @@ BackupRecord FilesystemBackupStore::backupToArchive(const std::vector<std::strin
             const std::string contents = readWholeFile(source);
             std::int64_t mtime = 0;
             if (auto stamp = fs::last_write_time(source, ec); !ec) {
-                mtime = std::chrono::duration_cast<std::chrono::seconds>(
-                            stamp.time_since_epoch())
-                            .count();
+                mtime = std::chrono::duration_cast<std::chrono::seconds>(stamp.time_since_epoch()).count();
             }
             writer.addFileFromMemory(entryName, mtime,
                                      std::as_bytes(std::span<const char>(contents.data(), contents.size())),
                                      nullptr, stick_backup::Compression::Deflate);
             written.emplace_back(entryName, recorded);
         }
-        // The archive's own manifest entry is required by Zip64Writer and
-        // is not part of the record; ours is the .manifest beside it.
+        // A central directory after every call, so the record is complete
+        // and readable at every point a crash could happen -- the loose
+        // layout's guarantee, kept.
         writer.finish("{}", "backup-manifest.json", 0);
-        // Durable before anything is told this record exists.
         file.barrier();
         archiveBytes = file.size();
     }
+    return {std::move(written), archiveBytes};
+}
+
+BackupRecord FilesystemBackupStore::backupToArchive(const std::vector<std::string> &filePaths,
+                                                    const std::string &label)
+{
+    std::string baseId = timestampNow() + "-" + sanitize(label);
+    std::string id = baseId;
+    fs::path dir = fs::path(m_baseDirectory) / id;
+    for (int suffix = 1; fs::exists(dir); ++suffix) {
+        id = baseId + "-" + std::to_string(suffix);
+        dir = fs::path(m_baseDirectory) / id;
+    }
+    fs::create_directories(dir);
+
+    auto [written, archiveBytes] = writeArchiveEntries(dir, filePaths);
 
     {
         std::ofstream manifest(dir / ManifestFileName, std::ios::app);
@@ -274,6 +289,36 @@ BackupRecord FilesystemBackupStore::backupToArchive(const std::vector<std::strin
     record.label = label;
     record.sizeBytes = archiveBytes;
     for (const auto &[entryName, recorded] : written) {
+        record.filePaths.push_back(recorded);
+    }
+    return record;
+}
+
+BackupRecord FilesystemBackupStore::addToArchive(const std::string &id, const std::vector<std::string> &filePaths)
+{
+    fs::path dir = fs::path(m_baseDirectory) / id;
+    std::error_code ec;
+    if (!fs::is_directory(dir, ec)) {
+        throw std::runtime_error("no backup with id " + id + " to add to");
+    }
+    if (readManifest(dir).version < ArchiveManifestFormatVersion) {
+        throw std::runtime_error("backup " + id + " is not an archive record");
+    }
+
+    auto [written, archiveBytes] = writeArchiveEntries(dir, filePaths);
+    {
+        std::ofstream manifest(dir / ManifestFileName, std::ios::app);
+        for (const auto &[entryName, recorded] : written) {
+            manifest << entryName << '\t' << recorded << '\n';
+        }
+    }
+    stateFor(dir).sizeBytes = archiveBytes;
+
+    BackupRecord record;
+    record.id = id;
+    record.path = dir.string();
+    record.sizeBytes = archiveBytes;
+    for (const auto &[entryName, recorded] : readManifest(dir).entries) {
         record.filePaths.push_back(recorded);
     }
     return record;

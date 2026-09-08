@@ -16,6 +16,11 @@
 #include "application/ports/progress_reporter.hpp"
 #include "gui/undo_tracking.hpp"
 
+namespace seabass::infrastructure::backup
+{
+class FilesystemBackupStore;
+}
+
 namespace seabass::gui
 {
 
@@ -58,6 +63,9 @@ public:
 
     application::OperationLog &log();
     application::BackupStore &backupStore();
+    // The same store, as itself: the archive-backed record is a
+    // FilesystemBackupStore feature, not part of the port.
+    infrastructure::backup::FilesystemBackupStore &archiveStore();
 
     // Backs `file` up under `label` unless this save already did; records
     // the backup for undo. Returns true when a backup was made now.
@@ -91,7 +99,7 @@ private:
     QString m_rekordboxPath;
     QString m_enginePath;
     std::unique_ptr<application::OperationLog> m_log;
-    std::unique_ptr<application::BackupStore> m_backupStore;
+    std::unique_ptr<infrastructure::backup::FilesystemBackupStore> m_backupStore;
     std::map<std::string, std::string> m_backedUp;  // file -> backup id
     std::map<std::string, std::string> m_recordByLabel;  // label -> this save's record for it
     std::vector<UndoableBackup> m_backups;
