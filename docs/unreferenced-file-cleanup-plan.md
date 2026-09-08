@@ -144,6 +144,52 @@ returns null precisely when TagLib had to fall back to
 format we meet reports a container-derived length, which is never
 estimated.
 
+## What the rules would actually delete (RV2)
+
+Simulated over all three catalogs, with the DJ metadata each row really
+carries, using a field-for-field port of `DuplicateTrackFinder::find`
+and `DuplicateCleanupPlanner::plan`:
+
+| | files | size |
+|---|---|---|
+| unreferenced on disk | 632 | 8.66 GB |
+| **proposed for deletion** | **575** | **7.76 GB** |
+| held back by `hasUnpreservableDataAtRisk` | 57 | 0.91 GB |
+| held back by `differs`, or by an estimated duration | 0 | 0 |
+
+435 duplicate groups contain a stray file (247 with one stray, 182 with
+two, 6 with three or four). **Every one of the 435 carries at least two
+catalogued rows**, because OneLibrary mirrors rekordbox track for track
+-- which is why that one flag reaches so far.
+
+Zero groups consist only of unreferenced files, so the "a stray may be
+survivor when the whole group is stray" rule never fires on this stick.
+It is insurance for other sticks; this data does not exercise it.
+
+In 9 groups the "survivor must be catalogued" rule overrode the planner's
+own pick. All 9 are benign and instructive: the catalogued row and the
+stray file are the *same byte size*, but the catalogued row reports
+0 kbps because Engine never analyzed it, while TagLib reads 256 kbps
+off the file. Without the rule the planner would have kept the abandoned
+copy purely because it was the only one that knew its own bitrate. It
+also points at a free improvement: the same probe can fill in bitrate on
+catalogued rows, sharpening survivor selection everywhere.
+
+### The open decision: 575 or 632
+
+`hasUnpreservableDataAtRisk` flags a group when a copy being removed
+carries a rating, comment, play count or last-played the survivor lacks,
+and such groups default to excluded. A stray file has no database row,
+so it carries none of those and can never *cause* the flag -- but it is
+caught by it whenever two catalogued rows disagree, which with three
+catalogs on the stick they routinely do (rekordbox keeps a play count,
+Engine keeps only a last-played timestamp, and the same track carries
+both).
+
+Deleting the stray *file* loses none of the data that flag protects, so
+decoupling the two looks right. It is a judgement call about the DJ's
+own data, though, so nothing has been changed. **Unresolved.**
+
 ## Design
 
 ### 1. `TrackMetadataProbe`
