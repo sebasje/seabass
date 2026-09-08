@@ -6,6 +6,7 @@
 
 #include <filesystem>
 
+#include "application/path_key.hpp"
 #include "infrastructure/backup/filesystem_backup_store.hpp"
 #include "infrastructure/backup/stick_locks.hpp"
 #include "infrastructure/logging/file_operation_log.hpp"
@@ -75,11 +76,20 @@ void SaveContext::backupAllNow(const std::vector<BackupTarget> &targets)
 {
     // Grouped by label, in first-seen order, because a save may hold
     // several kinds of change from one page and each keeps its own record.
+    //
+    // Deduplicated (both here and against m_backedUp) by
+    // normalizedPathKey(), not the raw string: two call sites can spell
+    // the same file differently (one built with fs::path's native
+    // separators, another by plain string concatenation with a literal
+    // '/') and did, on Windows -- the raw-string dedup let export.pdb
+    // through twice, backed up under two "different" keys for the one
+    // real file.
     std::vector<std::string> labelOrder;
     std::map<std::string, std::vector<std::string>> byLabel;
     std::set<std::string> seen;
     for (const auto &target : targets) {
-        if (target.file.empty() || m_backedUp.contains(target.file) || !seen.insert(target.file).second) {
+        if (target.file.empty() || m_backedUp.contains(application::normalizedPathKey(target.file))
+            || !seen.insert(application::normalizedPathKey(target.file)).second) {
             continue;
         }
         if (!byLabel.contains(target.label)) {
@@ -102,14 +112,17 @@ void SaveContext::backupAllNow(const std::vector<BackupTarget> &targets)
         }
         log().record(label + ": backed up " + std::to_string(files.size()) + " file(s) -> " + record.path);
         for (const std::string &file : files) {
-            m_backedUp[file] = record.id;
+            m_backedUp[application::normalizedPathKey(file)] = record.id;
         }
     }
 }
 
 bool SaveContext::backupOnce(const std::string &file, const std::string &label)
 {
-    if (file.empty() || m_backedUp.contains(file)) {
+    // See backupAllNow()'s own comment: keyed by normalizedPathKey(), not
+    // the raw string, so a file already backed up under one spelling of
+    // its path is recognised under another.
+    if (file.empty() || m_backedUp.contains(application::normalizedPathKey(file))) {
         return false;
     }
     auto existing = m_recordByLabel.find(label);
@@ -131,13 +144,13 @@ bool SaveContext::backupOnce(const std::string &file, const std::string &label)
         record = archiveStore().addToArchive(existing->second, {file});
     }
     log().record(label + ": backed up " + fs::path(file).filename().string() + " -> " + record.path);
-    m_backedUp[file] = record.id;
+    m_backedUp[application::normalizedPathKey(file)] = record.id;
     return true;
 }
 
 std::string SaveContext::backupIdOf(const std::string &file) const
 {
-    auto it = m_backedUp.find(file);
+    auto it = m_backedUp.find(application::normalizedPathKey(file));
     return it == m_backedUp.end() ? std::string() : it->second;
 }
 
