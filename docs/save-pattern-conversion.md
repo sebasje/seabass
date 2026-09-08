@@ -83,6 +83,27 @@ archive commits -- an apparent 11-to-5 improvement that was really the
 metric going dark. Without the guard recorded first, a conversion that
 achieves nothing looks identical to one that works.
 
+### The counters cannot see the thing this is mostly for
+
+Measured while converting: `merge_cues` went from 3 durable writes to 2,
+but `device_setting` and `delete_orphan` stayed at 1. A change that touches
+a single file pays one archive barrier whether the backup is declared up
+front or taken on the way past -- the count is identical.
+
+What changes for those two is **ordering**, which no work counter observes.
+So the conversion needs a guard of a different kind, and it does not exist
+yet:
+
+> Interrupt a save after *n* of *m* items and assert the backup record
+> contains all *m* declared files, not the *n* already overwritten.
+
+That is the property the whole conversion is for, and today nothing tests
+it for any workflow. `duplicate_cleanup_interruption_test` is the closest
+existing shape to copy. Worth writing before converting the harder
+workflows, because for the multi-file ones the count improvement and the
+ordering fix arrive together and it is easy to accept the visible one as
+evidence for both.
+
 ### Step 1: the three that need only a declaration
 
 `device_setting`, `delete_orphan` and `merge_cues` name their files from
