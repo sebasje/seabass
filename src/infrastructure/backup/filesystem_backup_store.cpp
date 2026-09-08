@@ -10,7 +10,12 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <span>
 #include <sstream>
+
+#include "infrastructure/stick_backup/posix_archive_file.hpp"
+#include "infrastructure/stick_backup/zip64_reader.hpp"
+#include "infrastructure/stick_backup/zip64_writer.hpp"
 
 namespace seabass::infrastructure::backup
 {
@@ -84,7 +89,16 @@ std::string readWholeFile(const fs::path &path)
 // additional branch in readManifest() below -- the actual backwards-
 // compatibility guarantee (see LocalCueStore's identical pattern for
 // snapshot blobs, which this mirrors).
+// Version 3 changes only what the FIRST field means: instead of a file
+// sitting loose in the record directory, it names an entry inside
+// `backup.zip` in that directory. The second field is unchanged, so the
+// re-rooting v2 introduced applies identically. A v3 record is written
+// only by backupToArchive(); backup()/addToBackup() still write v2, and
+// restore() branches on the version it finds, so records made by any
+// earlier build restore exactly as they always did.
 constexpr int CurrentManifestFormatVersion = 2;
+constexpr int ArchiveManifestFormatVersion = 3;
+constexpr const char *ArchiveFileName = "backup.zip";
 
 struct Manifest
 {
@@ -185,6 +199,118 @@ BackupRecord FilesystemBackupStore::backup(const std::vector<std::string> &fileP
     record.label = label;
     record.sizeBytes = stateFor(dir).sizeBytes;
     return record;
+}
+
+BackupRecord FilesystemBackupStore::backupToArchive(const std::vector<std::string> &filePaths,
+                                                    const std::string &label)
+{
+    std::string baseId = timestampNow() + "-" + sanitize(label);
+    std::string id = baseId;
+    fs::path dir = fs::path(m_baseDirectory) / id;
+    for (int suffix = 1; fs::exists(dir); ++suffix) {
+        id = baseId + "-" + std::to_string(suffix);
+        dir = fs::path(m_baseDirectory) / id;
+    }
+    fs::create_directories(dir);
+
+    std::vector<std::pair<std::string, std::string>> written;
+    std::uint64_t archiveBytes = 0;
+    {
+        stick_backup::PosixArchiveFile file(dir / ArchiveFileName,
+                                            stick_backup::PosixArchiveFile::OpenMode::ReadWrite);
+        stick_backup::Zip64Writer writer(file, {});
+        for (const auto &filePath : filePaths) {
+            fs::path source(filePath);
+            std::error_code ec;
+            if (!fs::exists(source, ec)) {
+                continue;
+            }
+            // The recorded path doubles as the entry name, so files that
+            // share a basename need no _1/_2 disambiguation at all -- the
+            // clash the loose layout has to guard against cannot arise.
+            const std::string recorded = recordedPathFor(source);
+            std::string entryName = recorded;
+            std::replace(entryName.begin(), entryName.end(), '\\', '/');
+            while (!entryName.empty() && entryName.front() == '/') {
+                entryName.erase(entryName.begin());
+            }
+            if (entryName.empty()) {
+                continue;
+            }
+            const std::string contents = readWholeFile(source);
+            std::int64_t mtime = 0;
+            if (auto stamp = fs::last_write_time(source, ec); !ec) {
+                mtime = std::chrono::duration_cast<std::chrono::seconds>(
+                            stamp.time_since_epoch())
+                            .count();
+            }
+            writer.addFileFromMemory(entryName, mtime,
+                                     std::as_bytes(std::span<const char>(contents.data(), contents.size())),
+                                     nullptr, stick_backup::Compression::Deflate);
+            written.emplace_back(entryName, recorded);
+        }
+        // The archive's own manifest entry is required by Zip64Writer and
+        // is not part of the record; ours is the .manifest beside it.
+        writer.finish("{}", "backup-manifest.json", 0);
+        // Durable before anything is told this record exists.
+        file.barrier();
+        archiveBytes = file.size();
+    }
+
+    {
+        std::ofstream manifest(dir / ManifestFileName, std::ios::app);
+        manifest << "MANIFEST-VERSION\t" << ArchiveManifestFormatVersion << '\n';
+        for (const auto &[entryName, recorded] : written) {
+            manifest << entryName << '\t' << recorded << '\n';
+        }
+    }
+
+    DirectoryState &state = stateFor(dir);
+    state.sizeBytes = archiveBytes;
+
+    BackupRecord record;
+    record.id = id;
+    record.path = dir.string();
+    record.label = label;
+    record.sizeBytes = archiveBytes;
+    for (const auto &[entryName, recorded] : written) {
+        record.filePaths.push_back(recorded);
+    }
+    return record;
+}
+
+bool FilesystemBackupStore::restoreFromArchive(const fs::path &dir,
+                                               const std::vector<std::pair<std::string, std::string>> &entries)
+{
+    std::error_code ec;
+    if (!fs::exists(dir / ArchiveFileName, ec)) {
+        return false;
+    }
+    stick_backup::PosixArchiveFile file(dir / ArchiveFileName,
+                                        stick_backup::PosixArchiveFile::OpenMode::ReadOnly);
+    std::string error;
+    auto reader = stick_backup::Zip64Reader::tryOpen(file, &error);
+    if (!reader.has_value()) {
+        return false;  // damaged archive: say so rather than restore a prefix
+    }
+
+    bool anyRestored = false;
+    for (const auto &[entryName, originalPath] : entries) {
+        auto index = reader->findEntry(entryName);
+        if (!index.has_value()) {
+            continue;
+        }
+        // Refuse a mismatch rather than write bytes that failed their own
+        // checksum over a live file -- exactly the case restore exists for.
+        if (!reader->verifyCrc(*index)) {
+            continue;
+        }
+        const std::string contents = reader->readEntryToString(*index);
+        const fs::path target = resolveRecordedPath(originalPath);
+        fs::create_directories(target.parent_path(), ec);
+        anyRestored = writeFileDurablyAtomic(target.string(), contents) || anyRestored;
+    }
+    return anyRestored;
 }
 
 BackupRecord FilesystemBackupStore::addToBackup(const std::string &id, const std::vector<std::string> &filePaths)
@@ -335,7 +461,7 @@ bool FilesystemBackupStore::restore(const std::string &id)
     if (manifest.entries.empty()) {
         return false;  // predates restore support, or nothing was ever backed up for this id
     }
-    if (manifest.version > CurrentManifestFormatVersion) {
+    if (manifest.version > ArchiveManifestFormatVersion) {
         // Written by some future Seabass version this build doesn't
         // understand -- refuse rather than misinterpret it (the same
         // guarantee LocalCueStore's snapshot versioning makes).
@@ -344,7 +470,9 @@ bool FilesystemBackupStore::restore(const std::string &id)
 
     // Preserve the "always back up before writing" invariant for restore
     // itself: the current on-disk contents of every target path get their
-    // own backup (label "pre-restore") before being overwritten.
+    // own backup (label "pre-restore") before being overwritten. Same for
+    // both layouts -- it is keyed on the recorded original path, which v3
+    // did not change.
     std::vector<std::string> currentPaths;
     for (const auto &[onDisk, originalPath] : manifest.entries) {
         const fs::path target = resolveRecordedPath(originalPath);
@@ -354,6 +482,10 @@ bool FilesystemBackupStore::restore(const std::string &id)
     }
     if (!currentPaths.empty()) {
         backup(currentPaths, "pre-restore");
+    }
+
+    if (manifest.version >= ArchiveManifestFormatVersion) {
+        return restoreFromArchive(dir, manifest.entries);
     }
 
     bool anyRestored = false;

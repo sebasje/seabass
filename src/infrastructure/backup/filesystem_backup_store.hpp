@@ -5,22 +5,45 @@
 #include <map>
 #include <set>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "application/ports/backup_store.hpp"
 
 namespace seabass::infrastructure::backup
 {
 
-// Stores backups as plain directories under baseDirectory, one per backup:
-// baseDirectory/<timestamp>-<label>/<original file basenames>. Deliberately
-// simple (no compression/archive format) so a user can just look inside and
-// copy a file back by hand if Seabass itself is not available.
+// Stores backups under baseDirectory, one directory per backup:
+// baseDirectory/<timestamp>-<label>/. A record holds either loose copies
+// named after the originals' basenames, or a single deflated `backup.zip`
+// -- see backupToArchive() for why, and readManifest() in the .cpp for how
+// both keep working.
+//
+// Either way a user can still get a file back by hand without Seabass: a
+// zip opens in every file manager, and unlike the loose layout its entry
+// names carry the whole relative path, so 200 files all called
+// ANLZ0000.EXT are told apart by where they came from rather than by a
+// _1/_2 suffix.
 class FilesystemBackupStore : public application::BackupStore
 {
 public:
     explicit FilesystemBackupStore(std::string baseDirectory);
 
     application::BackupRecord backup(const std::vector<std::string> &filePaths, const std::string &label) override;
+
+    // One record, one archive, written in a single pass and deflated.
+    //
+    // The loose layout costs one durable whole-file write per file, and
+    // that is the whole cost of a save: about 118 ms each on Linux and
+    // 15 ms on Windows, against roughly 2 s for the same bytes as one
+    // file. It is also permanent -- a backup stays on the stick, nothing
+    // prunes automatically, and 400 loose analysis files occupy 71.5 MB
+    // against 45.5 MB deflated. See docs/write-path-performance.md.
+    //
+    // Unlike backup()+addToBackup() this needs the whole file list up
+    // front, because an archive gets one central directory rather than
+    // one per appended file.
+    application::BackupRecord backupToArchive(const std::vector<std::string> &filePaths, const std::string &label);
     std::vector<application::BackupRecord> list() override;
     application::BackupRecord addToBackup(const std::string &id,
                                           const std::vector<std::string> &filePaths) override;
@@ -38,6 +61,8 @@ private:
     // restores after the stick comes back at a different mount point or
     // drive letter. See CurrentManifestFormatVersion in the .cpp.
     std::filesystem::path stickRoot() const;
+    bool restoreFromArchive(const std::filesystem::path &dir,
+                            const std::vector<std::pair<std::string, std::string>> &entries);
     std::string recordedPathFor(const std::filesystem::path &source) const;
     std::filesystem::path resolveRecordedPath(const std::string &recorded) const;
 
