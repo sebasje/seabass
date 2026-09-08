@@ -614,6 +614,28 @@ void recordStrayFilesForDeletion(infrastructure::cleanup::PendingDeletionManifes
     }
 }
 
+// True when applying this plan would write nothing to any catalog: no
+// row to remove, no cue to merge onto the survivor, no field to fill in.
+//
+// That is not only the all-stray group. The commonest shape on a real
+// stick is one catalogued row plus one stray copy of it: the catalogued
+// row survives, so the plan's ONLY removal is a file, and a stray
+// carries no cues, bpm, key or artwork to propagate. Such a plan is a
+// line in the pending-deletion manifest and nothing else -- opening a
+// write session for it would back up the database, possibly copy the
+// whole file to scratch and back, and change not one byte of it.
+bool writesToCatalog(const domain::DuplicateCleanupPlan &plan)
+{
+    if (plan.mergedCuesForSurvivor.size() > plan.survivor.cues.size()) {
+        return true;
+    }
+    if (plan.bpmForSurvivor || plan.keyForSurvivor || plan.artworkPathForSurvivor) {
+        return true;
+    }
+    return std::any_of(plan.toRemove.begin(), plan.toRemove.end(),
+                        [](const domain::Track &t) { return !t.isUnreferenced; });
+}
+
 // survivor, its missing bpm/key/artwork filled in, the doomed rows removed
 // (playlists repointed), each doomed file recorded for later deletion.
 // What used to be one iteration of runApplyTask()'s loop.
@@ -663,12 +685,12 @@ public:
     {
         const auto &plan = m_plan;
 
-        // A group of nothing but stray files touches no catalog at all:
-        // no row to remove, no survivor row to merge cues onto, nothing
-        // to back up. It is one or more manifest lines and nothing else,
-        // so it deliberately opens no write session -- the manifest is
-        // append-per-call precisely so it needs no session of its own.
-        if (plan.survivor.isUnreferenced) {
+        // A plan that writes to no catalog is one or more manifest
+        // lines and nothing else, so it deliberately opens no write
+        // session: the manifest is append-per-call precisely so it needs
+        // none. See writesToCatalog() for why this is the common case
+        // rather than only the all-stray one.
+        if (!writesToCatalog(plan)) {
             infrastructure::cleanup::PendingDeletionManifest manifest(
                 (fs::path(m_path.toStdString()).parent_path() / ".seabass-pending-deletions.jsonl").string());
             recordStrayFilesForDeletion(manifest, plan, m_format.toStdString(), ctx.log());
@@ -1362,7 +1384,14 @@ int CleanupController::cleanupItemCountHint() const
 {
     int count = 0;
     for (const auto &plan : m_model.plans()) {
-        count += static_cast<int>(plan.toRemove.size());
+        // Catalogued removals only. This hint is what
+        // shouldUseWholeFileReplace() weighs a whole-database copy
+        // against, so it has to mean "database writes coming" -- and a
+        // stray file's removal is a line in a manifest, not a row. On a
+        // real stick counting them added 632 phantom writes, which would
+        // push a two-group cleanup onto the scratch-copy path.
+        count += static_cast<int>(plan.toRemove.size()) - static_cast<int>(plan.unreferencedFilesToDelete.size())
+            - static_cast<int>(plan.unreferencedFilesHeldBack.size());
         if (plan.mergedCuesForSurvivor.size() > plan.survivor.cues.size()) {
             count++;
         }

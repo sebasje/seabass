@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cassert>
 #include <chrono>
 #include <iostream>
@@ -324,7 +325,17 @@ int main()
         assert(plan.unreferencedFilesToDelete.size() == 1);
         assert(plan.unreferencedFilesToDelete[0].sourceId == "/stick/Contents/song.mp3");
         assert(plan.unreferencedFilesHeldBack.empty());
-        std::cout << "case 18 (a catalogued copy outranks a better stray file for survivor) OK\n";
+        // The commonest shape on a real stick, and the reason applying
+        // it needs no write session at all: the only removal is a file,
+        // and a stray carries nothing to propagate onto the survivor.
+        // cleanup_controller's writesToCatalog() reads exactly these
+        // three facts, so if the planner ever starts propagating from a
+        // stray, this is what says so.
+        assert(plan.mergedCuesForSurvivor.size() == plan.survivor.cues.size());
+        assert(!plan.bpmForSurvivor && !plan.keyForSurvivor && !plan.artworkPathForSurvivor);
+        assert(std::none_of(plan.toRemove.begin(), plan.toRemove.end(),
+                             [](const Track &t) { return !t.isUnreferenced; }));
+        std::cout << "case 18 (a catalogued copy outranks a better stray file; nothing to write) OK\n";
     }
 
     // ...but a group of only stray files is a real case -- several

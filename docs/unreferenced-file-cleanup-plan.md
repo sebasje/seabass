@@ -186,10 +186,27 @@ Zero groups consist only of unreferenced files, so the "a stray may be
 survivor when the whole group is stray" rule never fires on this stick.
 It is insurance for other sticks; this data does not exercise it.
 
-In **86** groups the "survivor must be catalogued" rule overrode the
-planner's own pick -- measured by the shipped code on the stick
-(`stray_scan_live_test`). The simulation said 9, and the difference is
-worth more than the number:
+The "survivor must be catalogued" rule overrides the planner's own pick
+far more often than the simulation suggested, and how often depends on
+which catalog the page is working in -- the Clean Up page groups one
+catalog's rows plus the strays, so each page gets its own answer:
+
+| page | groups where the rule fired | of 435 |
+|---|---|---|
+| rekordbox | 86 | |
+| OneLibrary | 86 | |
+| **Engine** | **435** | every single one |
+
+**Every group on the Engine page.** Engine stores no bitrate at all --
+0 kbps on all 1564 rows -- so any stray, whose bitrate TagLib reads off
+the file, outranks the catalogued row it was copied from. Without the
+rule, a cleanup run from the Engine side would have kept the file no
+catalog knows about and proposed deleting the catalogued one, in all 435
+groups. That is the rule's entire job, and this stick exercises it
+completely.
+
+On the other two pages it fires 86 times. The simulation said 9, and the
+difference is worth more than the number:
 
 - **9** are the case this document originally described: no catalogued
   row in the group knows its own bitrate (Engine leaves it unset until
@@ -203,15 +220,15 @@ worth more than the number:
   simulation could not see these because it read the stray files with
   mutagen, which happens to round the way rekordbox does.
 
-The second group is the useful finding. Left to the quality rule alone,
-77 groups on this one stick would have kept the file no catalog knows
-about and proposed deleting the catalogued one, over a rounding
-difference. The survivor rule turns all 86 into a non-event, which is
-the point of having it. It also sharpens the free improvement noted
-earlier -- the same probe could fill in bitrate on catalogued rows --
-into a caution: a probe-read bitrate and a catalog-stored one are not
-the same measurement, and mixing them in a comparison is what produced
-this.
+The second group is the useful finding. Over a 1 kbps rounding
+difference, 77 groups would have kept the uncatalogued file. Together
+with Engine's 435, the conclusion is the same one twice: **a probe-read
+bitrate and a catalog-stored one are not the same measurement.** One is
+computed from the bytes, the other is whatever the exporting application
+chose to record, and the two disagree both by rounding and by absence.
+That is a caution against the "fill in bitrate on catalogued rows" idea
+noted above -- it would be mixing exactly these two -- and it is the
+reason the survivor rule is a rule rather than a tie-break.
 
 ### 630 or 632 (once "575 or 632"): decided, 632
 
@@ -410,4 +427,10 @@ toggle rather than in the default path.
    of the code that produced the list -- not one of them referenced by
    any catalog. Cold scan 3.4 s (cache deleted, stick remounted), warm
    0.2 s. The 22-66 s in "Reading the metadata" was for probing *every*
-   file on the stick; only the 632 unreferenced ones are probed here
+   file on the stick; only the 632 unreferenced ones are probed here.
+   It measures once per catalog, because that is what the page composes
+   (one format's rows plus the strays), and once over every catalog at
+   once for the "what is on this stick" answer; it fills in missing
+   lengths first, exactly as `LibraryCatalogCache` does, since without
+   that step Engine's 1213 length-less rows would make it measure a
+   different library than the app sees
