@@ -25,6 +25,7 @@
 // data nobody has looked at by hand.
 
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -900,6 +901,17 @@ void caseWorkCounts(const DataSet &set, const fs::path &scratch, const Catalogs 
 
 // ---------------------------------------------------------- matrix cases
 //
+// Cue positions round-trip through each format's own units -- frames in
+// one, integer milliseconds in another -- so comparing them needs a
+// tolerance. Exact double equality looks stricter and is simply wrong: it
+// fails on a cue that landed perfectly.
+constexpr double CuePositionToleranceMs = 1.0;
+
+inline bool samePosition(double a, double b)
+{
+    return std::abs(a - b) <= CuePositionToleranceMs;
+}
+
 // One case per editing feature, each built the same way: copy the set into
 // scratch, stage the change class the page stages, run it through the real
 // save loop, then construct a FRESH reader and assert on what comes back.
@@ -1441,18 +1453,56 @@ void caseSync(const DataSet &set, const fs::path &scratch, const Catalogs &catal
     fs::remove_all(engineRoot);
     fs::copy(*set.engineRoot, engineRoot, fs::copy_options::recursive);
 
-    auto now = std::chrono::system_clock::now();
-    auto plans = application::SyncLibraries().execute(catalogs.rekordbox, catalogs.engine, now, now);
+    // Plan against the COPIES, not the originals. These changes are applied
+    // to these roots, and a track's filePath is what OneLibrary resolves a
+    // row by -- planning from the original scan hands every change a path
+    // outside the stick it writes to, so the OneLibrary half of a rekordbox
+    // write finds no row and silently does nothing. On a real stick the
+    // scan and the save share a root; this makes the harness match that.
+    std::vector<domain::Track> rekordboxHere = rescanRekordbox(rekordboxRoot);
+    std::vector<domain::Track> engineHere;
+    try {
+        engineHere = rescanEngine(engineRoot);
+    } catch (const std::exception &e) {
+        check(false, std::string("could not read the copied Engine catalog: ") + e.what());
+        fs::remove_all(rekordboxRoot);
+        fs::remove_all(engineRoot);
+        return;
+    }
 
-    // Take a handful of plans that actually carry cues to write.
+    auto now = std::chrono::system_clock::now();
+    auto plans = application::SyncLibraries().execute(rekordboxHere, engineHere, now, now);
+
+    // Plans carrying at least one HOT cue, preferred over ones carrying
+    // only memory cues at 0:00. Formats disagree about memory cues by
+    // design -- Engine keeps one whatever you write -- so a plan made only
+    // of those can verify nothing on either the target or its mirror, and
+    // the fixture has plenty of them.
     std::vector<domain::SyncPlan> withCues;
+    std::vector<domain::SyncPlan> memoryOnly;
     for (const auto &plan : plans) {
-        if (!plan.cuesToApply.empty()) {
+        if (plan.cuesToApply.empty()) {
+            continue;
+        }
+        bool hasHot = false;
+        for (const auto &c : plan.cuesToApply) {
+            if (c.kind == domain::CuePoint::Kind::Hot) {
+                hasHot = true;
+            }
+        }
+        if (hasHot && withCues.size() < 5) {
             withCues.push_back(plan);
+        } else if (!hasHot && memoryOnly.size() < 5) {
+            memoryOnly.push_back(plan);
         }
         if (withCues.size() >= 5) {
             break;
         }
+    }
+    if (withCues.empty()) {
+        std::cout << "    matrix/sync: no plan in this set carries a hot cue; falling back to memory-only plans, "
+                     "which cannot verify a cue landed\n";
+        withCues = memoryOnly;
     }
     if (withCues.empty()) {
         std::cout << "    skipped matrix/sync: no plan carries cues to write\n";
@@ -1503,7 +1553,7 @@ void caseSync(const DataSet &set, const fs::path &scratch, const Catalogs &catal
             bool landed = false;
             for (const auto &actual : reread->cues) {
                 if (actual.kind == domain::CuePoint::Kind::Hot && actual.hotCueNumber == planned.hotCueNumber
-                    && actual.positionMs == planned.positionMs) {
+                    && samePosition(actual.positionMs, planned.positionMs)) {
                     landed = true;
                 }
             }
@@ -1511,6 +1561,111 @@ void caseSync(const DataSet &set, const fs::path &scratch, const Catalogs &catal
                               + target.format + " track " + target.sourceId);
         }
     }
+    // Three formats, one library. export.pdb and exportLibrary.db are the
+    // same rekordbox library written twice, so a cue synced onto one and
+    // not the other leaves rekordbox 7 disagreeing with the older export
+    // about the same track. Every other cue-writing workflow mirrors;
+    // Sync did not until this was asserted.
+    if (infrastructure::onelibrary::OneLibraryCueWriter::existsFor(rekordboxRoot.string())) {
+        std::vector<domain::Track> oneLibraryAfter;
+        try {
+            infrastructure::onelibrary::OneLibraryReader reader(rekordboxRoot.string());
+            oneLibraryAfter = reader.readAll();
+        } catch (const std::exception &e) {
+            check(false, std::string("could not re-read OneLibrary after the sync: ") + e.what());
+        }
+        int checked = 0;
+        for (const auto &plan : withCues) {
+            const domain::Track &target =
+                plan.direction == domain::SyncPlan::Direction::ToB ? plan.match.trackB : plan.match.trackA;
+            if (target.format != "rekordbox" || target.filePath.empty()) {
+                continue;
+            }
+            // Matched on basename, not full path. The two catalogs record
+            // the same file differently -- and in this fixture the
+            // rekordbox path is space-padded, because the anonymizer must
+            // preserve each field's original byte length.
+            auto basename = [](std::string path) {
+                while (!path.empty() && path.back() == ' ') {
+                    path.pop_back();
+                }
+                return fs::path(path).filename().string();
+            };
+            const std::string wanted = basename(target.filePath);
+            const domain::Track *mirrored = nullptr;
+            for (const auto &t : oneLibraryAfter) {
+                if (basename(t.filePath) == wanted) {
+                    mirrored = &t;
+                }
+            }
+            if (mirrored == nullptr) {
+                continue;  // this track has no OneLibrary row at all
+            }
+            // Hot cues only, for the same reason the target check above
+            // uses them: the formats disagree about memory cues by design.
+            for (const auto &planned : plan.cuesToApply) {
+                if (planned.kind != domain::CuePoint::Kind::Hot) {
+                    continue;
+                }
+                bool landed = false;
+                for (const auto &actual : mirrored->cues) {
+                    if (actual.kind == domain::CuePoint::Kind::Hot && actual.hotCueNumber == planned.hotCueNumber
+                        && samePosition(actual.positionMs, planned.positionMs)) {
+                        landed = true;
+                    }
+                }
+                ++checked;
+                check(landed, "the OneLibrary copy of rekordbox track " + target.sourceId + " also has the cue at "
+                                  + std::to_string(static_cast<long long>(planned.positionMs))
+                                  + " ms -- one library written twice must not disagree with itself");
+            }
+        }
+        int rekordboxTargets = 0;
+        for (const auto &plan : withCues) {
+            const domain::Track &target =
+                plan.direction == domain::SyncPlan::Direction::ToB ? plan.match.trackB : plan.match.trackA;
+            if (target.format == "rekordbox") {
+                ++rekordboxTargets;
+            }
+        }
+        if (checked > 0) {
+            std::cout << "    sync: " << checked << " cue(s) verified in the OneLibrary copy too\n";
+        } else {
+            // Say so rather than pass quietly: an assertion that examines
+            // nothing is indistinguishable from one that holds.
+            //
+            // On the committed fixture it examines nothing for a reason
+            // worth knowing: the anonymizer renamed each catalog's files
+            // independently, so the same audio file has a different
+            // placeholder name in export.pdb and in exportLibrary.db. The
+            // cross-catalog identity the three-format work depends on is
+            // exactly what the anonymization destroys, which means no
+            // OneLibrary mirror -- not this one, and not the three that
+            // predate it -- has ever been verified by this fixture.
+            auto basenameOf = [](std::string path) {
+                while (!path.empty() && path.back() == ' ') {
+                    path.pop_back();
+                }
+                return fs::path(path).filename().string();
+            };
+            std::set<std::string> oneLibraryNames;
+            for (const auto &t : oneLibraryAfter) {
+                oneLibraryNames.insert(basenameOf(t.filePath));
+            }
+            int shared = 0;
+            for (const auto &t : catalogs.rekordbox) {
+                if (oneLibraryNames.count(basenameOf(t.filePath))) {
+                    ++shared;
+                }
+            }
+            std::cout << "    sync: OneLibrary mirror NOT exercised -- " << rekordboxTargets << " of "
+                      << withCues.size() << " plans target rekordbox, but only " << shared << " of "
+                      << catalogs.rekordbox.size()
+                      << " rekordbox tracks share a filename with any OneLibrary row, so the two catalogs "
+                         "cannot be matched up in this data set at all\n";
+        }
+    }
+
     expected.expect("matrix.sync.engineOpens", counts.engineDatabaseOpens, "sync Engine opens unchanged");
     expected.expect("matrix.sync.durableWritesPerSave", counts.durableFileWrites,
                     "sync durable whole-file writes for the whole save unchanged");
