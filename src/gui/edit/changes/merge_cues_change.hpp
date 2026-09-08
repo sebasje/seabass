@@ -21,6 +21,7 @@ public:
     QString description() const override;
     QString unit() const override;
     QStringList formatsTouched() const override;
+    std::vector<BackupTarget> filesToBackup(SaveContext &ctx) const override;
     ChangeOutcome apply(SaveContext &ctx) override;
 
 private:

@@ -1016,6 +1016,8 @@ void caseAddCue(const DataSet &set, const fs::path &scratch, const Catalogs &cat
     }
 
     expected.expect("matrix.addCue.pdbParses", counts.trackDatabaseParses, "add-cue pdb parses per item unchanged");
+    expected.expect("matrix.addCue.durableWritesPerSave", counts.durableFileWrites,
+                    "add-cue durable whole-file writes for the whole save unchanged");
     std::cout << "    add cue: " << counts.describe() << "\n";
     fs::remove_all(root);
     pass("matrix: add cue reads back, and a hot slot holds one cue");
@@ -1184,6 +1186,8 @@ void caseSync(const DataSet &set, const fs::path &scratch, const Catalogs &catal
         }
     }
     expected.expect("matrix.sync.engineOpens", counts.engineDatabaseOpens, "sync Engine opens unchanged");
+    expected.expect("matrix.sync.durableWritesPerSave", counts.durableFileWrites,
+                    "sync durable whole-file writes for the whole save unchanged");
     std::cout << "    sync (" << withCues.size() << " plans): " << counts.describe() << "\n";
     fs::remove_all(rekordboxRoot);
     fs::remove_all(engineRoot);
@@ -1193,7 +1197,7 @@ void caseSync(const DataSet &set, const fs::path &scratch, const Catalogs &catal
 // Matrix: Device settings. The written field reads back, and every other
 // byte of the file is untouched -- a settings writer that rewrites the
 // whole file would pass a read-back check and still be wrong.
-void caseDeviceSettings(const DataSet &set, const fs::path &scratch)
+void caseDeviceSettings(const DataSet &set, const fs::path &scratch, Expectations &expected)
 {
     if (!set.rekordboxRoot) {
         return;
@@ -1253,7 +1257,12 @@ void caseDeviceSettings(const DataSet &set, const fs::path &scratch)
     auto change = std::make_shared<gui::DeviceSettingChange>(
         QString::fromStdString(root.string()), "MYSETTING.DAT", QString::fromStdString(label),
         QString::fromStdString(current), QString::fromStdString(wanted));
+    WorkCounters::instance().reset();
     auto result = runChanges({change}, root, {});
+    const auto counts = WorkCounters::instance().snapshot();
+    expected.expect("matrix.deviceSetting.durableWritesPerSave", counts.durableFileWrites,
+                    "device-setting durable whole-file writes for the whole save unchanged");
+    std::cout << "    device setting: " << counts.describe() << "\n";
     if (!check(result.error.isEmpty(), "the settings save reported no error: " + result.error.toStdString())) {
         fs::remove_all(root);
         return;
@@ -1297,7 +1306,7 @@ void caseDeviceSettings(const DataSet &set, const fs::path &scratch)
 
 // Matrix: copy cues between duplicates. The destination ends up with the
 // source's cues; the source is untouched.
-void caseCopyCues(const DataSet &set, const fs::path &scratch, const Catalogs &catalogs)
+void caseCopyCues(const DataSet &set, const fs::path &scratch, const Catalogs &catalogs, Expectations &expected)
 {
     const domain::Track *source = nullptr;
     const domain::Track *target = nullptr;
@@ -1325,7 +1334,12 @@ void caseCopyCues(const DataSet &set, const fs::path &scratch, const Catalogs &c
     op.targets = {*target};
     auto change = std::make_shared<gui::CopyCuesChange>("rekordbox", QString::fromStdString(root.string()),
                                                         QString::fromStdString(targetId), op);
+    WorkCounters::instance().reset();
     auto result = runChanges({change}, root, {});
+    const auto counts = WorkCounters::instance().snapshot();
+    expected.expect("matrix.copyCues.durableWritesPerSave", counts.durableFileWrites,
+                    "copy-cues durable whole-file writes for the whole save unchanged");
+    std::cout << "    copy cues: " << counts.describe() << "\n";
     if (!check(result.error.isEmpty(), "the copy-cues save reported no error: " + result.error.toStdString())) {
         fs::remove_all(root);
         return;
@@ -1357,7 +1371,7 @@ void caseCopyCues(const DataSet &set, const fs::path &scratch, const Catalogs &c
 // Matrix: local cue restore. The merged set is what the candidate carried,
 // which is the stick's own cues plus whatever the backup filled in --
 // never fewer, since a cue writer replaces the whole set.
-void caseLocalCueRestore(const DataSet &set, const fs::path &scratch, const Catalogs &catalogs)
+void caseLocalCueRestore(const DataSet &set, const fs::path &scratch, const Catalogs &catalogs, Expectations &expected)
 {
     const domain::Track *target = nullptr;
     for (const auto &t : catalogs.rekordbox) {
@@ -1383,7 +1397,12 @@ void caseLocalCueRestore(const DataSet &set, const fs::path &scratch, const Cata
     candidate.mergedCues = {restored};
 
     auto change = std::make_shared<gui::MergeCuesChange>("rekordbox", QString::fromStdString(root.string()), candidate);
+    WorkCounters::instance().reset();
     auto result = runChanges({change}, root, {});
+    const auto counts = WorkCounters::instance().snapshot();
+    expected.expect("matrix.mergeCues.durableWritesPerSave", counts.durableFileWrites,
+                    "merge-cues durable whole-file writes for the whole save unchanged");
+    std::cout << "    merge cues: " << counts.describe() << "\n";
     if (!check(result.error.isEmpty(), "the local-restore save reported no error: " + result.error.toStdString())) {
         fs::remove_all(root);
         return;
@@ -1475,6 +1494,8 @@ void caseLibraryHealthRepair(const DataSet &set, const fs::path &scratch, const 
         }
     }
     expected.expect("matrix.repair.pdbParses", counts.trackDatabaseParses, "repair pdb parses unchanged");
+    expected.expect("matrix.repair.durableWritesPerSave", counts.durableFileWrites,
+                    "repair durable whole-file writes for the whole save unchanged");
     std::cout << "    library health repair: " << counts.describe() << "\n";
     fs::remove_all(root);
     pass("matrix: a repair merges cues onto the survivor and removes the broken row");
@@ -1565,6 +1586,8 @@ void caseCleanUpDuplicates(const DataSet &set, const fs::path &scratch, const Ca
         check(named, "the removed copy's file is named in the pending-deletion manifest");
     }
     expected.expect("matrix.cleanup.pdbParses", counts.trackDatabaseParses, "cleanup pdb parses unchanged");
+    expected.expect("matrix.cleanup.durableWritesPerSave", counts.durableFileWrites,
+                    "cleanup durable whole-file writes for the whole save unchanged");
     std::cout << "    clean up duplicates: " << counts.describe() << "\n";
     fs::remove_all(root);
     fs::remove(manifestPath);
@@ -1574,7 +1597,7 @@ void caseCleanUpDuplicates(const DataSet &set, const fs::path &scratch, const Ca
 // Matrix: delete orphaned OneLibrary rows. OneLibrary only, because it is
 // the one catalog whose rows are deleted outright rather than repointed at
 // a survivor.
-void caseDeleteOrphan(const DataSet &set, const fs::path &scratch, const Catalogs &catalogs)
+void caseDeleteOrphan(const DataSet &set, const fs::path &scratch, const Catalogs &catalogs, Expectations &expected)
 {
     if (catalogs.oneLibrary.empty()) {
         std::cout << "    skipped matrix/delete-orphan: this set has no OneLibrary database\n";
@@ -1603,7 +1626,12 @@ void caseDeleteOrphan(const DataSet &set, const fs::path &scratch, const Catalog
     issue.brokenGroup = {doomed};
 
     auto change = std::make_shared<gui::DeleteOrphanChange>(QString::fromStdString(root.string()), issue);
+    WorkCounters::instance().reset();
     auto result = runChanges({change}, root, {});
+    const auto counts = WorkCounters::instance().snapshot();
+    expected.expect("matrix.deleteOrphan.durableWritesPerSave", counts.durableFileWrites,
+                    "delete-orphan durable whole-file writes for the whole save unchanged");
+    std::cout << "    delete orphan: " << counts.describe() << "\n";
     if (!check(result.error.isEmpty(), "the orphan-deletion save reported no error: " + result.error.toStdString())) {
         fs::remove_all(root);
         return;
@@ -1636,12 +1664,12 @@ void runMatrix(const DataSet &set, const fs::path &scratch, const Catalogs &cata
     caseAddCue(set, scratch, catalogs, expected);
     caseStrayCueRemoval(set, scratch, catalogs, expected);
     caseSync(set, scratch, catalogs, expected);
-    caseDeviceSettings(set, scratch);
-    caseCopyCues(set, scratch, catalogs);
-    caseLocalCueRestore(set, scratch, catalogs);
+    caseDeviceSettings(set, scratch, expected);
+    caseCopyCues(set, scratch, catalogs, expected);
+    caseLocalCueRestore(set, scratch, catalogs, expected);
     caseLibraryHealthRepair(set, scratch, catalogs, expected);
     caseCleanUpDuplicates(set, scratch, catalogs, expected);
-    caseDeleteOrphan(set, scratch, catalogs);
+    caseDeleteOrphan(set, scratch, catalogs, expected);
 #else
     (void)set;
     (void)scratch;

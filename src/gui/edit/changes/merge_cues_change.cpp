@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 
@@ -89,6 +90,42 @@ QString MergeCuesChange::unit() const
 QStringList MergeCuesChange::formatsTouched() const
 {
     return {m_format};
+}
+
+// Same shape as RemoveJunkCueChange: the format decides which catalog is
+// written, and rekordbox additionally writes this track's own analysis
+// file, whose path needs the shared index apply() would use anyway.
+std::vector<BackupTarget> MergeCuesChange::filesToBackup(SaveContext &ctx) const
+{
+    const domain::Track &track = m_candidate.stickTrack;
+    const std::string root = m_path.toStdString();
+    const std::string label = "local-restore";
+    std::vector<BackupTarget> targets;
+
+    if (m_format == "rekordbox") {
+        const auto *pathIndex = sharedAnlzPathIndex(ctx, m_path);
+        std::optional<std::string> analyzePath;
+        try {
+            const uint32_t trackId = static_cast<uint32_t>(std::stoul(track.sourceId));
+            analyzePath = pathIndex ? pathIndex->pathFor(trackId)
+                                    : infrastructure::rekordbox::findAnlzPathForTrackId(root, trackId);
+        } catch (const std::exception &) {
+            return {};  // apply() reports the unusable id; do not guess a path from it
+        }
+        if (analyzePath) {
+            targets.push_back({infrastructure::rekordbox::extAnlzPath(root, *analyzePath), label});
+        }
+        // The OneLibrary mirror is a best-effort second write on this same
+        // path, so it needs the same backup.
+        if (infrastructure::onelibrary::OneLibraryCueWriter::existsFor(root)) {
+            targets.push_back({infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(root), label});
+        }
+    } else if (m_format == "engine") {
+        targets.push_back({(fs::path(root) / "Database2" / "m.db").string(), label});
+    } else {
+        targets.push_back({infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(root), label});
+    }
+    return targets;
 }
 
 ChangeOutcome MergeCuesChange::apply(SaveContext &ctx)

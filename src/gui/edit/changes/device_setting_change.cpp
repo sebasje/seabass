@@ -40,6 +40,19 @@ QStringList DeviceSettingChange::formatsTouched() const
     return {};
 }
 
+// One settings file, named entirely from members. apply() still calls
+// backupOnce() on the same path -- that is the fallback, and it skips a
+// file the upfront pass already covered.
+std::vector<BackupTarget> DeviceSettingChange::filesToBackup(SaveContext &ctx) const
+{
+    (void)ctx;
+    const std::string filePath = m_pioneerRoot.toStdString() + "/" + m_fileName.toStdString();
+    if (!fs::exists(filePath)) {
+        return {};  // apply() reports the missing file; do not record one that is not there
+    }
+    return {{filePath, "device-settings"}};
+}
+
 ChangeOutcome DeviceSettingChange::apply(SaveContext &ctx)
 {
     std::string filePath = m_pioneerRoot.toStdString() + "/" + m_fileName.toStdString();
