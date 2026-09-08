@@ -539,6 +539,14 @@ if(TARGET seabass_taglib)
     add_executable(taglib_metadata_probe_test tests/taglib_metadata_probe_test.cpp)
     target_link_libraries(taglib_metadata_probe_test PRIVATE seabass_taglib)
     add_test(NAME taglib_metadata_probe_test COMMAND taglib_metadata_probe_test)
+
+    # The whole unreferenced-file scan, composed the way the GUI
+    # composes it -- which is only meaningful with a real probe behind
+    # it, hence inside this same if().
+    add_executable(stray_file_scan_test tests/stray_file_scan_test.cpp)
+    target_include_directories(stray_file_scan_test PRIVATE src)
+    target_link_libraries(stray_file_scan_test PRIVATE seabass_core seabass_taglib)
+    add_test(NAME stray_file_scan_test COMMAND stray_file_scan_test)
 endif()
 
 add_executable(duplicate_cue_consolidation_test

@@ -17,6 +17,12 @@ QtObject {
     function label(format) {
         if (format === "engine") return "Engine";
         if (format === "onelibrary") return "OneLibrary";
+        // Not a catalog at all: an audio file on the stick that no
+        // catalog references (domain::Track::isUnreferenced). It reaches
+        // the same track lists as the three formats, and falling through
+        // to "DeviceLibrary" below would claim a catalog entry that does
+        // not exist -- on a page whose next step is deleting the file.
+        if (format === "disk") return "Not in any catalog";
         return "DeviceLibrary";
     }
 }

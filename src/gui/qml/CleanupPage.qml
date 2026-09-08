@@ -149,6 +149,13 @@ Page {
                 }
             }
 
+            // The files no catalog references -- see the component for
+            // why this never shows a count without its basis.
+            UnreferencedFilesNotice {
+                Layout.fillWidth: true
+                info: cleanupController.unreferencedFiles
+            }
+
             // What all this actually buys, drawn against the stick's real
             // capacity. A byte count alone says nothing about whether it
             // matters; the same figure as a block on a nearly-full stick
@@ -343,6 +350,8 @@ Page {
                 required property var toRemove
                 required property bool differs
                 required property bool hasUnpreservableDataAtRisk
+                required property int unreferencedCount
+                required property int unreferencedHeldBackCount
                 required property string wastedBytesHuman
                 required property int newCueCount
                 required property bool included
@@ -418,6 +427,25 @@ Page {
                                     + "hardware), so this group is excluded by default. Check it above to include it anyway."
                             }
                             StatusBadge {
+                                visible: delegateRoot.unreferencedCount > 0
+                                label: delegateRoot.unreferencedCount + " uncatalogued file(s)"
+                                badgeColor: Theme.textMuted
+                                tooltipText: "This many of the copies below are audio files on the stick that no "
+                                    + "catalog references -- there is no library entry to remove, only the file "
+                                    + "itself. Saving lists them under \"Delete Orphaned Files\", which re-checks "
+                                    + "every catalog again before deleting anything."
+                            }
+                            StatusBadge {
+                                visible: delegateRoot.unreferencedHeldBackCount > 0
+                                label: "⚠ " + delegateRoot.unreferencedHeldBackCount + " file(s) kept back"
+                                badgeColor: Theme.conflictText
+                                tooltipText: "These uncatalogued files are left on the stick whatever you choose "
+                                    + "here. Either this group's copies differ in a way that might be deliberate, "
+                                    + "or a length in it had to be estimated from the bitrate rather than read -- "
+                                    + "in which case these copies might not be the same recording at all, and no "
+                                    + "file is deleted on a guess."
+                            }
+                            StatusBadge {
                                 visible: delegateRoot.hasUnpreservableDataAtRisk
                                 label: "⚠ data would be lost"
                                 badgeColor: Theme.conflictText
@@ -484,10 +512,15 @@ Page {
                                 formatLabelText: root.formatLabel(modelData.side) + " - "
                                     + (modelData.bitrate > 0 ? modelData.bitrate + " kbps, " : "")
                                     + root.formatDuration(modelData.durationMs) + ", " + modelData.sizeHuman
-                                statusBadgeText: "REMOVING"
-                                statusBadgeBg: Theme.dangerBg
-                                statusBadgeBorder: Theme.dangerBorder
-                                statusBadgeTextColor: Theme.dangerText
+                                // Three different things happen to a
+                                // copy here, so it says which: a catalog
+                                // row goes, a file is listed for
+                                // deletion, or nothing happens at all.
+                                statusBadgeText: modelData.heldBack ? "KEPT BACK"
+                                    : modelData.isUnreferenced ? "FILE ONLY" : "REMOVING"
+                                statusBadgeBg: modelData.heldBack ? Theme.groupBackground : Theme.dangerBg
+                                statusBadgeBorder: modelData.heldBack ? Theme.borderSubtle : Theme.dangerBorder
+                                statusBadgeTextColor: modelData.heldBack ? Theme.textMuted : Theme.dangerText
                                 playbackController: root.playbackController
                                 playbackPath: root.currentPath()
                             }
