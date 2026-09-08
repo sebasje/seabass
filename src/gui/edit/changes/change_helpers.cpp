@@ -2,12 +2,61 @@
 
 #include <QStringList>
 
+#include <filesystem>
 #include <memory>
+#include <optional>
+#include <stdexcept>
 
 #include "gui/edit/save_context.hpp"
+#include "infrastructure/rekordbox/pdb_lookup.hpp"
 
 namespace seabass::gui
 {
+
+namespace fs = std::filesystem;
+
+std::vector<std::string> filesWrittenFor(WriteKind kind, const domain::TrackId &track, const QString &root,
+                                         SaveContext &ctx)
+{
+    const std::string &format = track.first;
+    const std::string &sourceId = track.second;
+    const std::string rootPath = root.toStdString();
+    std::vector<std::string> files;
+
+    if (format == "rekordbox") {
+        // Cues live in this track's own analysis file. Resolved through the
+        // save's shared index when there is one, falling back to the direct
+        // lookup exactly as the writers do.
+        const auto *index = sharedAnlzPathIndex(ctx, root);
+        std::optional<std::string> analyzePath;
+        try {
+            const auto id = static_cast<std::uint32_t>(std::stoul(sourceId));
+            analyzePath = index ? index->pathFor(id)
+                                : infrastructure::rekordbox::findAnlzPathForTrackId(rootPath, id);
+        } catch (const std::exception &) {
+            return {};
+        }
+        if (analyzePath) {
+            files.push_back(infrastructure::rekordbox::extAnlzPath(rootPath, *analyzePath));
+        }
+        if (kind == WriteKind::CuesAndCatalogRows) {
+            files.push_back((fs::path(rootPath) / "rekordbox" / "export.pdb").string());
+        }
+        // OneLibrary is the same library in a newer format, written
+        // alongside rekordbox whenever it is present -- so it is changed by
+        // the same write and needs the same backup.
+        if (infrastructure::onelibrary::OneLibraryCueWriter::existsFor(rootPath)) {
+            files.push_back(infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(rootPath));
+        }
+    } else if (format == "engine") {
+        // One shared database, whatever the track: the same file every
+        // time, deduplicated by the caller.
+        files.push_back((fs::path(rootPath) / "Database2" / "m.db").string());
+    } else {
+        files.push_back(infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(rootPath));
+    }
+    return files;
+}
 
 QString issueFormat(const domain::LibraryConsistencyIssue &issue)
 {

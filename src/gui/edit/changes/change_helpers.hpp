@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "domain/library_consistency.hpp"
+#include "domain/track_scope.hpp"
 #include "domain/track.hpp"
 #include <optional>
 
@@ -41,6 +42,36 @@ QString junkKeyFor(const domain::Track &track);
 // "3 hot, 1 memory (...)" -- the human summary of a cue set. Mirrors the
 // command line's own wording so both report a sync identically.
 QString describeCues(const std::vector<domain::CuePoint> &cues);
+
+// What a write does, which decides which files it touches. rekordbox keeps
+// cue data in per-track analysis files and rows in export.pdb, so a
+// cue-only write never touches the catalog -- naming it anyway would put a
+// file in the backup record that the save does not change, and Undo would
+// then restore a file this save never touched.
+enum class WriteKind
+{
+    Cues,
+    CuesAndCatalogRows,
+};
+
+// Every file a write of `kind` to `track` under `root` would overwrite.
+//
+// Path resolution ONLY: no writers, no databases opened, no scratch copy.
+// That is the whole reason it exists apart from each change's own
+// makeContext(), which resolves the same paths but also constructs
+// everything -- calling that from filesToBackup() would open every
+// database before the save had decided to proceed.
+//
+// Keyed on domain::TrackId (format + sourceId) rather than a bare id.
+// A sourceId is not unique across formats, and this function decides which
+// file gets overwritten; the pair exists precisely so that cannot be got
+// wrong silently.
+//
+// Returns nothing for an unusable sourceId rather than guessing a path
+// from it -- apply() reports the bad id, and a wrong path here would back
+// up one file while the save overwrote another.
+std::vector<std::string> filesWrittenFor(WriteKind kind, const domain::TrackId &track, const QString &root,
+                                         SaveContext &ctx);
 
 // The save's one analysis-path index for this catalog, built by whichever
 // change asks first and shared by the rest.

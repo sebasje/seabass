@@ -39,6 +39,7 @@
 #include "application/use_cases/sync_libraries.hpp"
 #include "domain/library_consistency.hpp"
 #include "domain/library_statistics.hpp"
+#include "domain/track_scope.hpp"
 #include "application/use_cases/find_unreferenced_files.hpp"
 #include "infrastructure/backup/filesystem_backup_store.hpp"
 #include "infrastructure/backup/stick_locks.hpp"
@@ -66,6 +67,8 @@
 #include "domain/local_restore.hpp"
 #include "domain/sync_planning.hpp"
 #include "gui/edit/changes/add_cue_change.hpp"
+#include "gui/edit/changes/change_helpers.hpp"
+#include "infrastructure/rekordbox/pdb_lookup.hpp"
 #include "gui/edit/changes/cleanup_group_change.hpp"
 #include "gui/edit/changes/copy_cues_change.hpp"
 #include "gui/edit/changes/delete_orphan_change.hpp"
@@ -1038,6 +1041,77 @@ void caseAddCue(const DataSet &set, const fs::path &scratch, const Catalogs &cat
 
 // Matrix: stray cue removal. After the save a fresh scan finds none on the
 // touched tracks, and the tracks' other cues are untouched.
+// The path-only resolver every workflow's filesToBackup() is built on.
+// It decides which file a write will overwrite, so a wrong answer means the
+// save backs up one file and overwrites another -- silently, because every
+// write still succeeds.
+//
+// Checked against the real fixture rather than a synthetic one: the
+// rekordbox branch resolves a track id through export.pdb, which is
+// exactly the step that can go wrong.
+void caseBackupPathResolver(const DataSet &set, const fs::path &scratch, const Catalogs &catalogs)
+{
+    if (catalogs.rekordbox.empty()) {
+        std::cout << "    skipped matrix/path-resolver: no rekordbox catalog in this set\n";
+        return;
+    }
+    const fs::path root = freshRekordboxCopy(set, scratch, "matrix-resolver");
+
+    application::CancellationToken cancel;
+    gui::SaveContext ctx(cancel, application::NullProgressReporter::instance(), nullptr,
+                         QString::fromStdString(root.string()), QString());
+    const QString qroot = QString::fromStdString(root.string());
+
+    const domain::Track &track = catalogs.rekordbox.front();
+    const domain::TrackId id{"rekordbox", track.sourceId};
+
+    auto has = [](const std::vector<std::string> &files, const std::string &needle) {
+        for (const auto &f : files) {
+            if (f.find(needle) != std::string::npos) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    const auto cuesOnly = gui::filesWrittenFor(gui::WriteKind::Cues, id, qroot, ctx);
+    check(has(cuesOnly, ".EXT"), "a cue write names this track's analysis file");
+    check(!has(cuesOnly, "export.pdb"),
+          "a cue write does NOT name export.pdb -- rekordbox keeps cues outside the catalog, and backing it "
+          "up would put a file Undo restores but the save never changed into the record");
+
+    const auto withRows = gui::filesWrittenFor(gui::WriteKind::CuesAndCatalogRows, id, qroot, ctx);
+    check(has(withRows, ".EXT"), "a row-rewriting write still names the analysis file");
+    check(has(withRows, "export.pdb"), "a row-rewriting write also names export.pdb");
+
+    // The resolver must agree with the lookup the writers themselves use.
+    const auto direct = infrastructure::rekordbox::findAnlzPathForTrackId(
+        root.string(), static_cast<std::uint32_t>(std::stoul(track.sourceId)));
+    if (check(direct.has_value(), "the fixture resolves this track's analysis path directly")) {
+        const std::string expected = infrastructure::rekordbox::extAnlzPath(root.string(), *direct);
+        check(has(cuesOnly, fs::path(expected).parent_path().filename().string()),
+              "the resolver names the same analysis file the writers would open");
+    }
+
+    // A sourceId that is not a number at all: report nothing rather than
+    // guess a path from it.
+    check(gui::filesWrittenFor(gui::WriteKind::Cues, {"rekordbox", "not-a-track-id"}, qroot, ctx).empty(),
+          "an unusable sourceId resolves to no files rather than to a wrong one");
+
+    // A well-formed id no catalog holds: no analysis file, and in
+    // particular not some neighbouring track's.
+    const auto missing = gui::filesWrittenFor(gui::WriteKind::Cues, {"rekordbox", "4294967000"}, qroot, ctx);
+    check(!has(missing, ".EXT"), "an id absent from the catalog resolves to no analysis file");
+
+    // Engine names one shared database whatever the track.
+    const auto engine = gui::filesWrittenFor(gui::WriteKind::Cues, {"engine", track.sourceId},
+                                             QString::fromStdString((root / "Engine Library").string()), ctx);
+    check(has(engine, "m.db"), "an Engine write names m.db");
+
+    fs::remove_all(root);
+    pass("matrix: the backup path resolver names what a write would touch, and nothing else");
+}
+
 // Wraps a change so the save cancels itself once `cancelAfter` of them have
 // been applied. Everything else is delegated, filesToBackup() included, so
 // the wrapped change behaves exactly as the page stages it.
@@ -1811,6 +1885,7 @@ void runMatrix(const DataSet &set, const fs::path &scratch, const Catalogs &cata
     caseAddCue(set, scratch, catalogs, expected);
     caseStrayCueRemoval(set, scratch, catalogs, expected);
     caseBackupPrecedesWrites(set, scratch, catalogs);
+    caseBackupPathResolver(set, scratch, catalogs);
     caseSync(set, scratch, catalogs, expected);
     caseDeviceSettings(set, scratch, expected);
     caseCopyCues(set, scratch, catalogs, expected);
