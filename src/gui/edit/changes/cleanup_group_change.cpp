@@ -32,17 +32,13 @@ namespace fs = std::filesystem;
 namespace
 {
 
-// One format's writers for a clean-up, plus the extra (not tied to any one
-// track) files that need backing up once per save: rekordbox's export.pdb,
-// touched regardless of which track triggered the write, unlike Engine's
-// m.db which filesToBackUpFor already covers per-track (same file every
-// time, deduped by SaveContext::backupOnce()).
+// One format's writers for a clean-up. Which files a cleanup overwrites is
+// answered by filesWrittenFor() in change_helpers -- one definition, so
+// what the save declares and what it backs up cannot disagree.
 struct CleanupFormatContext
 {
     std::unique_ptr<application::CueWriter> cueWriter;
     std::unique_ptr<application::LibraryCleanupWriter> cleanupWriter;
-    std::function<std::vector<std::string>(const std::string &)> filesToBackUpFor;
-    std::vector<std::string> extraFilesToBackUp;
     // Non-empty only for rekordbox, used to best-effort also write
     // cues into OneLibrary/exportLibrary.db if it exists alongside
     // export.pdb on this stick.
@@ -71,28 +67,13 @@ CleanupFormatContext makeContext(const QString &format, const QString &path,
         ctx.cueWriter = std::make_unique<infrastructure::rekordbox::RekordboxCueWriter>(pioneerRoot);
         ctx.cleanupWriter =
             std::make_unique<infrastructure::rekordbox::RekordboxCleanupWriter>(writeRoot.value_or(pioneerRoot));
-        ctx.filesToBackUpFor = [pioneerRoot](const std::string &trackSourceId) -> std::vector<std::string> {
-            auto analyzePath = infrastructure::rekordbox::findAnlzPathForTrackId(
-                pioneerRoot, static_cast<uint32_t>(std::stoul(trackSourceId)));
-            if (!analyzePath) {
-                return {};
-            }
-            return {infrastructure::rekordbox::extAnlzPath(pioneerRoot, *analyzePath)};
-        };
-        ctx.extraFilesToBackUp = {pioneerRoot + "/rekordbox/export.pdb"};
         ctx.pioneerRoot = pioneerRoot;
-        if (infrastructure::onelibrary::OneLibraryCueWriter::existsFor(pioneerRoot)) {
-            ctx.extraFilesToBackUp.push_back(infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(pioneerRoot));
-        }
     } else if (format == "engine") {
         std::string engineLibraryPath = path.toStdString();
         std::string effectivePath = writeRoot.value_or(engineLibraryPath);
         ctx.cueWriter = std::make_unique<infrastructure::engine::LibdjinteropEngineCueWriter>(effectivePath);
         ctx.cleanupWriter = std::make_unique<infrastructure::engine::LibdjinteropEngineCleanupWriter>(effectivePath);
         std::string engineDbFile = (fs::path(engineLibraryPath) / "Database2" / "m.db").string();
-        ctx.filesToBackUpFor = [engineDbFile](const std::string &) -> std::vector<std::string> {
-            return {engineDbFile};
-        };
     } else {
         // onelibrary. `path` here is the PIONEER root, same as the
         // rekordbox branch -- OneLibrary lives alongside export.pdb.
@@ -109,8 +90,6 @@ CleanupFormatContext makeContext(const QString &format, const QString &path,
             std::make_unique<OneLibraryCueWriterAdapter>(effectivePath, oneLibrarySourceIdToPath, realStickRoot);
         ctx.cleanupWriter = std::make_unique<OneLibraryCleanupWriterAdapter>(effectivePath, oneLibrarySourceIdToPath,
                                                                              realStickRoot);
-        ctx.extraFilesToBackUp = {infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(pioneerRoot)};
-        ctx.filesToBackUpFor = [](const std::string &) -> std::vector<std::string> { return {}; };
     }
     return ctx;
 }
@@ -133,9 +112,6 @@ struct CleanupWriterContext
             writeRoot = session.writeRoot();
         }
         context = makeContext(format, path, oneLibrarySourceIdToPath, writeRoot);
-        for (const auto &f : context.extraFilesToBackUp) {
-            ctx.backupOnce(f, "duplicate-file-cleanup");
-        }
         effectiveRoot = session.writeRoot();
         realStickRootForOneLib = fs::path(path.toStdString()).parent_path().string();
         // Named in every pending-deletion entry, so the review page can
@@ -233,6 +209,30 @@ bool writesToCatalog(const domain::DuplicateCleanupPlan &plan)
 
 }  // namespace
 
+// A cleanup merges cues onto the survivor, then removes the doomed rows and
+// repoints playlists -- catalog rows and the OneLibrary copy of them.
+//
+// The doomed tracks' own analysis files are deliberately absent: a cleanup
+// removes their catalog rows, it does not write their cue files. Only the
+// survivor's is written.
+//
+// A plan that writes to no catalog backs nothing up. It is a line in the
+// pending-deletion manifest and nothing else, so declaring files for it
+// would have Undo restore files this save never touched.
+std::vector<BackupTarget> CleanupGroupChange::filesToBackup(SaveContext &ctx) const
+{
+    if (!writesToCatalog(m_plan)) {
+        return {};
+    }
+    const WriteScope scope{.cueData = true, .catalogRows = true, .oneLibraryMirror = true};
+    std::vector<BackupTarget> targets;
+    for (const auto &file :
+         filesWrittenFor(scope, {m_format.toStdString(), m_plan.survivor.sourceId}, m_path, ctx)) {
+        targets.push_back({file, "duplicate-file-cleanup"});
+    }
+    return targets;
+}
+
 ChangeOutcome CleanupGroupChange::apply(SaveContext &ctx)
 {
     const auto &plan = m_plan;
@@ -264,7 +264,12 @@ ChangeOutcome CleanupGroupChange::apply(SaveContext &ctx)
     application::OperationLog &log = ctx.log();
     const QString &format = m_format;
 
-    for (const auto &f : fc.filesToBackUpFor(plan.survivor.sourceId)) {
+    // Fallback for anything filesToBackup() did not declare, resolved the
+    // same way so it cannot disagree with it -- and so it costs no second
+    // export.pdb parse.
+    for (const auto &f :
+         filesWrittenFor({.cueData = true, .catalogRows = true, .oneLibraryMirror = true},
+                         {m_format.toStdString(), plan.survivor.sourceId}, m_path, ctx)) {
         ctx.backupOnce(f, "duplicate-file-cleanup");
     }
 

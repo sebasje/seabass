@@ -96,6 +96,26 @@ QStringList RepairIssueChange::formatsTouched() const
     return {issueFormat(m_issue)};
 }
 
+// A repair merges cues onto the survivor and then removes the broken rows,
+// so it touches the catalog as well as, when there is something to merge,
+// the survivor's analysis file. It mirrors both onto OneLibrary.
+std::vector<BackupTarget> RepairIssueChange::filesToBackup(SaveContext &ctx) const
+{
+    if (!m_issue.survivor) {
+        return {};  // apply() reports the missing survivor
+    }
+    const QString format = issueFormat(m_issue);
+    const WriteScope scope{.cueData = !m_issue.survivorCues.empty(),
+                           .catalogRows = true,
+                           .oneLibraryMirror = true};
+    std::vector<BackupTarget> targets;
+    for (const auto &file :
+         filesWrittenFor(scope, {format.toStdString(), m_issue.survivor->sourceId}, m_path, ctx)) {
+        targets.push_back({file, "consistency-repair"});
+    }
+    return targets;
+}
+
 ChangeOutcome RepairIssueChange::apply(SaveContext &ctx)
 {
     if (!m_issue.survivor) {
