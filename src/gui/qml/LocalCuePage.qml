@@ -109,7 +109,7 @@ Page {
     Connections {
         target: localCueController
         function onActionFeedback(message, isError) {
-            messagePopup.show(message, isError ? Theme.danger : Theme.good);
+            messagePopup.show(message, isError);
         }
     }
 

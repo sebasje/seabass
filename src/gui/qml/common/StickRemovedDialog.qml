@@ -6,7 +6,7 @@ import SeabassGui
 // The stick a library is being edited on was pulled. Two ways out: throw
 // the staged changes away, or plug the *same* stick back in -- Understood
 // only enables once the hardware identity matches (session.stickPresent).
-Dialog {
+SeabassDialog {
     id: dialog
     // A LibraryEditSession (or null when nothing is going on).
     property var session: null
@@ -33,11 +33,12 @@ Dialog {
     onSessionChanged: sync()
     Component.onCompleted: sync()
 
-    anchors.centerIn: parent
-    modal: true
+    severity: SeabassDialog.Warning
     closePolicy: Popup.NoAutoClose
-    width: 520
     title: "USB stick removed"
+    headline: (dialog.stickLabel.length > 0 ? "USB Stick " + dialog.stickLabel : "Your USB stick")
+        + " has been removed while editing. Either discard changes or plug the stick back in. If "
+        + "anything changed on the USB stick while it was unplugged, these changes will likely be lost."
 
     footer: DialogButtonBox {
         Button {
@@ -59,32 +60,20 @@ Dialog {
     }
     onAccepted: dialog.understood()
 
-    ColumnLayout {
-        width: parent.width
-        spacing: 12
-        Label {
-            objectName: "messageLabel"
-            color: Theme.text
-            Layout.fillWidth: true
-            wrapMode: Text.WordWrap
-            text: (dialog.stickLabel.length > 0 ? "USB Stick " + dialog.stickLabel : "Your USB stick")
-                + " has been removed while editing. Either discard changes or plug "
-                + "the stick back in. If anything changed on the USB stick while it was unplugged, these changes "
-                + "will likely be lost."
-        }
-        Label {
-            objectName: "presenceLabel"
-            Layout.fillWidth: true
-            wrapMode: Text.WordWrap
-            color: dialog.present ? Theme.good : Theme.textMuted
-            font.pointSize: Theme.fontSmall
-            text: {
-                if (!dialog.present) return "Waiting for the stick to be plugged back in...";
-                switch (dialog.strength) {
-                case "hardware": return "The same stick is back (verified by its serial number).";
-                case "filesystem": return "The same stick is back (matched by its filesystem id).";
-                default: return "A stick with the same label and size is back; this cannot verify it is the same one.";
-                }
+    // Live, and its colour changes with the answer, so it stays a real
+    // Label in the content slot rather than becoming detailText.
+    Label {
+        objectName: "presenceLabel"
+        Layout.fillWidth: true
+        wrapMode: Text.WordWrap
+        color: dialog.present ? Theme.good : Theme.textMuted
+        font.pointSize: Theme.fontSmall
+        text: {
+            if (!dialog.present) return "Waiting for the stick to be plugged back in...";
+            switch (dialog.strength) {
+            case "hardware": return "The same stick is back (verified by its serial number).";
+            case "filesystem": return "The same stick is back (matched by its filesystem id).";
+            default: return "A stick with the same label and size is back; this cannot verify it is the same one.";
             }
         }
     }

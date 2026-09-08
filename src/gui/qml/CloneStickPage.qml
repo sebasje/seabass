@@ -78,7 +78,7 @@ Page {
             lockedDialog.openFor(libraryId, holder);
         }
         function onActionFeedback(message, isError) {
-            messagePopup.show(message, isError ? Theme.danger : Theme.good);
+            messagePopup.show(message, isError);
         }
     }
 

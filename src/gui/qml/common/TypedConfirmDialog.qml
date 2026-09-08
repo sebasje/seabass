@@ -8,7 +8,7 @@ import SeabassGui
 // field appear only when `needsTypedConfirmation` is set (a blank drive
 // needs neither); the page puts its own summary rows (a GridLayout,
 // usually) inside as children.
-Dialog {
+SeabassDialog {
     id: dialog
 
     property string confirmTarget: ""          // what has to be typed, and what the warning names
@@ -20,9 +20,10 @@ Dialog {
     property string warningText: ""
     default property alias summary: summaryColumn.data
 
-    anchors.centerIn: parent
-    modal: true
-    width: 480
+    severity: SeabassDialog.Warning
+    // It draws its own, deliberately heavier warning block below; a second
+    // badge beside it would just be two warning icons.
+    showBadge: false
 
     footer: DialogButtonBox {
         Button {
@@ -36,7 +37,7 @@ Dialog {
     onOpened: confirmField.text = ""
 
     ColumnLayout {
-        width: parent.width
+        Layout.fillWidth: true
         spacing: 14
         Rectangle {
             Layout.fillWidth: true
