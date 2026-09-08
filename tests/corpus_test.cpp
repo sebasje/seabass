@@ -41,6 +41,7 @@
 #include "domain/library_statistics.hpp"
 #include "application/use_cases/find_unreferenced_files.hpp"
 #include "infrastructure/backup/filesystem_backup_store.hpp"
+#include "infrastructure/backup/stick_locks.hpp"
 #include "infrastructure/cleanup/pending_deletion_applier.hpp"
 #include "infrastructure/cleanup/pending_deletion_manifest.hpp"
 #include "infrastructure/cleanup/pending_deletion_resolver.hpp"
@@ -910,7 +911,19 @@ void caseWorkCounts(const DataSet &set, const fs::path &scratch, const Catalogs 
 namespace
 {
 
-// A save, driven exactly as a page drives one.
+// A save, driven exactly as a page drives one. The overload taking a token
+// lets a case cancel itself partway through, which is the only way to
+// observe what a half-finished save left behind.
+gui::SaveLoopResult runChanges(const std::vector<std::shared_ptr<gui::PendingChange>> &changes,
+                               const fs::path &rekordboxRoot, const fs::path &engineRoot,
+                               application::CancellationToken cancel)
+{
+    gui::SaveContext ctx(cancel, application::NullProgressReporter::instance(), nullptr,
+                         QString::fromStdString(rekordboxRoot.string()),
+                         QString::fromStdString(engineRoot.string()));
+    return runSaveLoop(changes, ctx);
+}
+
 gui::SaveLoopResult runChanges(const std::vector<std::shared_ptr<gui::PendingChange>> &changes,
                                const fs::path &rekordboxRoot, const fs::path &engineRoot)
 {
@@ -1025,6 +1038,140 @@ void caseAddCue(const DataSet &set, const fs::path &scratch, const Catalogs &cat
 
 // Matrix: stray cue removal. After the save a fresh scan finds none on the
 // touched tracks, and the tracks' other cues are untouched.
+// Wraps a change so the save cancels itself once `cancelAfter` of them have
+// been applied. Everything else is delegated, filesToBackup() included, so
+// the wrapped change behaves exactly as the page stages it.
+class CancelAfterApplies : public gui::PendingChange
+{
+public:
+    CancelAfterApplies(std::shared_ptr<gui::PendingChange> inner, application::CancellationToken cancel,
+                       std::shared_ptr<int> applied, int cancelAfter)
+        : m_inner(std::move(inner)), m_cancel(std::move(cancel)), m_applied(std::move(applied)),
+          m_cancelAfter(cancelAfter)
+    {
+    }
+
+    QString id() const override { return m_inner->id(); }
+    QString description() const override { return m_inner->description(); }
+    QString unit() const override { return m_inner->unit(); }
+    QStringList formatsTouched() const override { return m_inner->formatsTouched(); }
+    QString owner() const override { return m_inner->owner(); }
+    std::vector<gui::BackupTarget> filesToBackup(gui::SaveContext &ctx) const override
+    {
+        return m_inner->filesToBackup(ctx);
+    }
+    gui::ChangeOutcome apply(gui::SaveContext &ctx) override
+    {
+        gui::ChangeOutcome outcome = m_inner->apply(ctx);
+        if (++(*m_applied) >= m_cancelAfter) {
+            m_cancel.cancel();
+        }
+        return outcome;
+    }
+
+private:
+    std::shared_ptr<gui::PendingChange> m_inner;
+    application::CancellationToken m_cancel;
+    std::shared_ptr<int> m_applied;
+    int m_cancelAfter;
+};
+
+// The property the whole backup-first conversion exists for, and the one no
+// work counter can see: when a save is interrupted partway, the backup must
+// already describe EVERY file the save was going to touch -- not only the
+// ones it got to.
+//
+// Without it, a stick pulled after item n leaves items 1..n rewritten and
+// backed up, items n+1.. untouched and absent, and no single record that
+// returns the library to where it started. The count of durable writes is
+// identical either way, which is exactly why this needs its own guard: for
+// a single-file change the conversion cannot be seen in the counters at all.
+void caseBackupPrecedesWrites(const DataSet &set, const fs::path &scratch, const Catalogs &catalogs)
+{
+    std::vector<const domain::Track *> withJunk;
+    for (const auto &t : catalogs.rekordbox) {
+        for (const auto &c : t.cues) {
+            if (c.kind == domain::CuePoint::Kind::Memory && c.positionMs == 0.0) {
+                withJunk.push_back(&t);
+                break;
+            }
+        }
+        if (withJunk.size() >= 4) {
+            break;
+        }
+    }
+    if (withJunk.size() < 3) {
+        std::cout << "    skipped matrix/backup-ordering: needs at least 3 tracks with a 0:00 memory cue\n";
+        return;
+    }
+    // Its own stick root, not the shared scratch one: every other matrix
+    // case copies into scratch/<name>, so they all share one
+    // .seabass-backups and this case would happily count another case's
+    // record as its own. That is how the first version of this test passed
+    // while the property it checks was disabled.
+    const fs::path stickRoot = scratch / "matrix-ordering-stick";
+    fs::remove_all(stickRoot);
+    fs::create_directories(stickRoot);
+    const fs::path root = stickRoot / fs::path(*set.rekordboxRoot).filename();
+    fs::copy(*set.rekordboxRoot, root, fs::copy_options::recursive);
+
+    application::CancellationToken cancel;
+    auto applied = std::make_shared<int>(0);
+    const int cancelAfter = 2;
+
+    std::vector<std::shared_ptr<gui::PendingChange>> changes;
+    std::set<std::string> declared;
+    for (const auto *t : withJunk) {
+        domain::Track copy = *t;
+        auto inner = std::make_shared<gui::RemoveJunkCueChange>(QString::fromStdString(root.string()), copy);
+        changes.push_back(std::make_shared<CancelAfterApplies>(inner, cancel, applied, cancelAfter));
+    }
+
+    auto result = runChanges(changes, root, {}, cancel);
+    check(result.cancelled, "the save reported itself cancelled");
+    check(static_cast<int>(result.appliedIds.size()) == cancelAfter,
+          "exactly " + std::to_string(cancelAfter) + " of " + std::to_string(changes.size())
+              + " changes were applied before the interruption");
+
+    // What did the backup record end up describing?
+    // `root` is the PIONEER folder; the backups sit beside it under the
+    // stick root, which is its parent.
+    infrastructure::backup::FilesystemBackupStore store(
+        infrastructure::backup::backupDirForCatalogPath(root.string()));
+    std::set<std::string> backedUp;
+    for (const auto &record : store.list()) {
+        if (record.label != "junk-cue-cleanup") {
+            continue;
+        }
+        for (const auto &recorded : record.filePaths) {
+            const fs::path p(recorded);
+            // Analysis files only. The save also backs up the OneLibrary
+            // mirror, which is one file however many tracks are touched --
+            // counting it would make the threshold mean something other
+            // than "one per track".
+            if (p.extension() != ".EXT") {
+                continue;
+            }
+            // Every one of them is named ANLZ0000.EXT; the containing
+            // directory is what tells them apart.
+            backedUp.insert(p.parent_path().filename().string());
+        }
+    }
+
+    // One entry per track, whichever the save reached. Analysis files are
+    // all named ANLZ0000.EXT, so they are counted by their containing
+    // directory, which is what distinguishes them.
+    const size_t expectedFiles = withJunk.size();
+    if (!check(backedUp.size() == expectedFiles,
+               "the backup describes all " + std::to_string(expectedFiles) + " analysis files the save would touch, not the "
+                   + std::to_string(cancelAfter) + " it reached (found " + std::to_string(backedUp.size()) + ")")) {
+        std::cout << "      the interrupted save left a backup covering only part of what it set out to change\n";
+    }
+
+    fs::remove_all(stickRoot);
+    pass("matrix: an interrupted save has already backed up everything it meant to touch");
+}
+
 void caseStrayCueRemoval(const DataSet &set, const fs::path &scratch, const Catalogs &catalogs, Expectations &expected)
 {
     std::vector<const domain::Track *> withJunk;
@@ -1663,6 +1810,7 @@ void runMatrix(const DataSet &set, const fs::path &scratch, const Catalogs &cata
     std::cout << "  matrix: one editing feature per case, staged through the real save loop\n";
     caseAddCue(set, scratch, catalogs, expected);
     caseStrayCueRemoval(set, scratch, catalogs, expected);
+    caseBackupPrecedesWrites(set, scratch, catalogs);
     caseSync(set, scratch, catalogs, expected);
     caseDeviceSettings(set, scratch, expected);
     caseCopyCues(set, scratch, catalogs, expected);
