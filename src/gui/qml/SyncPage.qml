@@ -156,45 +156,44 @@ Page {
         }
     }
 
-    Dialog {
+    MessageDialog {
         id: confirmDialog
-        anchors.centerIn: parent
-        modal: true
+        severity: SeabassDialog.Question
         title: "Stage all changes?"
-        footer: DialogButtonBox {
-            Button { text: "Stage All"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
-            Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
-        }
+        acceptText: "Stage All"
         onAccepted: syncController.apply()
 
-        ColumnLayout {
-            spacing: 8
-            Repeater {
-                model: syncController.directionCounts
-                delegate: Label {
-                    required property var modelData
-                    text: "Copy cues to " + root.formatLabel(modelData.targetFormat) + " from "
-                        + root.formatLabel(modelData.sourceFormat) + " for " + modelData.count + " track(s)."
-                    wrapMode: Text.WordWrap
-                }
-            }
-            Label {
-                visible: {
-                    for (var i = 0; i < syncController.directionCounts.length; i++) {
-                        if (syncController.directionCounts[i].targetFormat === "rekordbox") return true;
-                    }
-                    return false;
-                }
-                text: "DeviceLibrary writing is the least-proven part of Seabass. Verify the result\non real hardware before trusting it for a gig."
-                color: Theme.conflictText
+        // A per-direction list rather than one sentence, so it stays in the
+        // content slot instead of being flattened into `headline`.
+        Repeater {
+            model: syncController.directionCounts
+            delegate: Label {
+                required property var modelData
+                Layout.fillWidth: true
+                text: "Copy cues to " + root.formatLabel(modelData.targetFormat) + " from "
+                    + root.formatLabel(modelData.sourceFormat) + " for " + modelData.count + " track(s)."
                 wrapMode: Text.WordWrap
             }
-            Label {
-                text: "Nothing is written yet: this stages the changes, and Save writes them. Every catalog "
-                    + "involved is backed up first; afterwards \"Undo Last Save\" reverts every file it touched."
-                color: Theme.textMuted
-                wrapMode: Text.WordWrap
+        }
+        Label {
+            Layout.fillWidth: true
+            visible: {
+                for (var i = 0; i < syncController.directionCounts.length; i++) {
+                    if (syncController.directionCounts[i].targetFormat === "rekordbox") return true;
+                }
+                return false;
             }
+            text: "DeviceLibrary writing is the least-proven part of Seabass. Verify the result\non real hardware before trusting it for a gig."
+            color: Theme.conflictText
+            wrapMode: Text.WordWrap
+        }
+        Label {
+            Layout.fillWidth: true
+            text: "Nothing is written yet: this stages the changes, and Save writes them. Every catalog "
+                + "involved is backed up first; afterwards \"Undo Last Save\" reverts every file it touched."
+            color: Theme.textMuted
+            font.pointSize: Theme.fontSmall
+            wrapMode: Text.WordWrap
         }
     }
 

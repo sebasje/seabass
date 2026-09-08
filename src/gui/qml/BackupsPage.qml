@@ -107,65 +107,45 @@ Page {
         }
     }
 
-    Dialog {
+    MessageDialog {
         id: confirmCleanDialog
-        anchors.centerIn: parent
-        modal: true
+        severity: SeabassDialog.Warning
+        destructive: true
         title: "Clean Up Backups?"
-        footer: DialogButtonBox {
-            Button { text: "Clean Up"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
-            Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
-        }
+        headline: "This permanently deletes the "
+            + Math.max(0, backupsListView.count - keepSpinBox.value)
+            + " oldest backup(s) under " + backupsController.backupDir + "."
+        detailText: "It never touches the stick's live DeviceLibrary/Engine data."
+        acceptText: "Clean Up"
         onAccepted: root.runWrite(() => backupsController.clean(keepSpinBox.value))
-
-        Label {
-            text: "This permanently deletes the " + Math.max(0, backupsListView.count - keepSpinBox.value)
-                + " oldest backup(s) under " + backupsController.backupDir
-                + ".\nIt never touches the stick's live DeviceLibrary/Engine data."
-            wrapMode: Text.WordWrap
-        }
     }
 
-    Dialog {
+    MessageDialog {
         id: confirmRestoreDialog
         property string targetId: ""
-        anchors.centerIn: parent
-        modal: true
+        severity: SeabassDialog.Warning
         title: "Restore This Backup?"
-        footer: DialogButtonBox {
-            Button { text: "Restore"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
-            Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
-        }
+        headline: "This overwrites the current files on the stick with this backup's copies."
+        detailText: "The files being overwritten are themselves backed up first, so this can be undone."
+        acceptText: "Restore"
         onAccepted: {
             const id = targetId;
             root.runWrite(() => backupsController.restoreBackup(id));
         }
-
-        Label {
-            text: "This overwrites the current files on the stick with this backup's copies.\n"
-                + "The files being overwritten are themselves backed up first, so this can be undone."
-            wrapMode: Text.WordWrap
-        }
     }
 
-    Dialog {
+    MessageDialog {
         id: confirmDeleteDialog
         property string targetId: ""
-        anchors.centerIn: parent
-        modal: true
+        severity: SeabassDialog.Warning
+        destructive: true
         title: "Delete This Backup?"
-        footer: DialogButtonBox {
-            Button { text: "Delete"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
-            Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
-        }
+        headline: "This permanently deletes this one backup copy."
+        detailText: "It never touches the stick's live data."
+        acceptText: "Delete"
         onAccepted: {
             const id = targetId;
             root.runWrite(() => backupsController.deleteBackup(id));
-        }
-
-        Label {
-            text: "This permanently deletes this one backup copy. It never touches the stick's live data."
-            wrapMode: Text.WordWrap
         }
     }
 

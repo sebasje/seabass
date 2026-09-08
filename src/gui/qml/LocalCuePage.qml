@@ -134,55 +134,33 @@ Page {
         }
     }
 
-    Dialog {
+    MessageDialog {
         id: confirmDialog
         property string sourceDescription: ""
-        anchors.centerIn: parent
-        modal: true
+        severity: SeabassDialog.Question
         title: "Stage merging cues onto the stick?"
-        footer: DialogButtonBox {
-            Button { text: "Stage Merge"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
-            Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
-        }
+        headline: "Add new cues from this computer's backup onto " + restoreListView.count + " track(s): "
+            + "any cue already on the stick is kept exactly as it is, never overwritten."
+            + (confirmDialog.sourceDescription.length > 0
+                ? "\nSource: " + confirmDialog.sourceDescription : "")
+        detailText: "Nothing is written yet: this stages the merges, and Save writes them. The stick is "
+            + "backed up first; afterwards \"Undo Last Save\" reverts every file it touched."
+        acceptText: "Stage Merge"
         onAccepted: localCueController.applyRestore()
-
-        ColumnLayout {
-            spacing: 8
-            Label {
-                text: "Add new cues from this computer's backup onto " + restoreListView.count + " track(s): "
-                    + "any cue already on the stick is kept exactly as it is, never overwritten."
-                    + (confirmDialog.sourceDescription.length > 0
-                        ? "\nSource: " + confirmDialog.sourceDescription : "")
-                wrapMode: Text.WordWrap
-            }
-            Label {
-                text: "Nothing is written yet: this stages the merges, and Save writes them. The stick is "
-                    + "backed up first; afterwards \"Undo Last Save\" reverts every file it touched."
-                color: Theme.textMuted
-                wrapMode: Text.WordWrap
-            }
-        }
     }
 
-    Dialog {
+    MessageDialog {
         id: confirmDeleteSnapshotDialog
         property int targetId: -1
-        anchors.centerIn: parent
-        modal: true
+        severity: SeabassDialog.Warning
+        destructive: true
         title: "Delete This Backup?"
-        footer: DialogButtonBox {
-            Button { text: "Delete"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
-            Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
-        }
+        headline: "This permanently deletes this one backup snapshot from this computer."
+        detailText: "It never touches the stick, and never touches any other backup."
+        acceptText: "Delete"
         onAccepted: {
             localCueController.deleteSnapshot(targetId);
             root.refreshSnapshots();
-        }
-
-        Label {
-            text: "This permanently deletes this one backup snapshot from this computer. It never "
-                + "touches the stick, and never touches any other backup."
-            wrapMode: Text.WordWrap
         }
     }
 

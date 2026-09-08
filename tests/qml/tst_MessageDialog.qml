@@ -30,6 +30,11 @@ TestCase {
             property bool dirty: false
             property bool writing: false
             property int pendingCount: 0
+            property string writeLabel: ""
+            property int writeCurrent: 0
+            property int writeTotal: 0
+            property bool cancelRequested: false
+            property string state: "idle"
             signal saveFinished(var summary)
             signal lockRefused(var holder)
             function save() {}
@@ -123,6 +128,13 @@ TestCase {
         compare(accept.highlighted, false);
         compare(reject.highlighted, true);
 
+        // And it has to survive open(), which is when it matters -- the
+        // value is assigned imperatively, so nothing re-establishes it.
+        dialog.open();
+        tryCompare(dialog, "opened", true);
+        compare(accept.highlighted, false);
+        compare(reject.highlighted, true);
+
         // And the other way round for an ordinary confirmation.
         var plain = createTemporaryObject(messageComponent, testCase, {title: "y"});
         compare(findByObjectName(plain.footer, "acceptButton").highlighted, true);
@@ -155,6 +167,49 @@ TestCase {
     Component {
         id: signalSpy
         SignalSpy {}
+    }
+
+    function test_screenshotEverySeverity() {
+        if (!screenshotDir || screenshotDir.length === 0) {
+            skip("SEABASS_SCREENSHOT_DIR not set");
+        }
+        var shots = [
+            {name: "dialog-destructive", props: {
+                severity: SeabassDialog.Warning, destructive: true,
+                title: "Delete This Backup?",
+                headline: "This permanently deletes this one backup copy.",
+                detailText: "It never touches the stick's live data.",
+                acceptText: "Delete"}},
+            {name: "dialog-question", props: {
+                severity: SeabassDialog.Question,
+                title: "Stage all changes?",
+                headline: "Copy cues to Engine from DeviceLibrary for 201 track(s).",
+                detailText: "Nothing is written yet: Save writes them.",
+                acceptText: "Stage All"}},
+            {name: "dialog-error", props: {
+                severity: SeabassDialog.Error, showReject: false,
+                title: "Could not read the library",
+                headline: "The database on WHALESHARK could not be opened.",
+                detailText: "The stick may have been removed, or the file may be damaged."}},
+            {name: "dialog-lowspace", props: {
+                severity: SeabassDialog.Warning,
+                title: "Not enough room on WHALESHARK",
+                headline: "Editing this library needs to back up 812 MB before anything changes, "
+                    + "and WHALESHARK has 1.2 GB free.",
+                detailText: "The backup will be written to this computer instead. Undo will then "
+                    + "work only here, not from another machine with the stick.",
+                acceptText: "Back up here and edit"}}
+        ];
+        for (var i = 0; i < shots.length; ++i) {
+            var dialog = createTemporaryObject(messageComponent, testCase, shots[i].props);
+            dialog.open();
+            tryCompare(dialog, "opened", true);
+            waitForRendering(testCase);
+            var image = grabImage(testCase);
+            image.save(screenshotDir + "/" + shots[i].name + ".png");
+            dialog.close();
+            tryCompare(dialog, "opened", false);
+        }
     }
 
     // --- its first user: the low-space gate -------------------------------

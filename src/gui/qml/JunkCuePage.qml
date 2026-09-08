@@ -120,67 +120,38 @@ Page {
         }
     }
 
-    Dialog {
+    MessageDialog {
         id: confirmRemoveJunkCueDialog
         property int pendingIndex: -1
-        anchors.centerIn: parent
-        modal: true
-        width: 420
+        severity: SeabassDialog.Question
         title: "Remove This Cue?"
-        footer: DialogButtonBox {
-            Button { text: "Stage Removal"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
-            Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
-        }
+        headline: "Stages removing this memory cue sitting at 0:00 from the track; Save writes it."
+        detailText: "Backed up first."
+        acceptText: "Stage Removal"
         onAccepted: if (pendingIndex >= 0) consistencyController.removeJunkCue(pendingIndex)
-
-        Label {
-            width: parent.width
-            wrapMode: Text.WordWrap
-            text: "Stages removing this memory cue sitting at 0:00 from the track; Save writes it. Backed up first."
-        }
     }
 
-    Dialog {
+    MessageDialog {
         id: confirmRemoveAllJunkCuesDialog
-        anchors.centerIn: parent
-        modal: true
-        width: 460
+        severity: SeabassDialog.Warning
+        destructive: true
         title: "Remove All " + junkCueListView.count + " Memory Cue(s) at 0:00?"
-        footer: DialogButtonBox {
-            Button { text: "Stage Removal"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
-            Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
-        }
+        headline: "This permanently removes every memory cue at 0:00 currently listed, across every "
+            + "catalog on this stick -- a real write, not just dismissing them from view."
+        detailText: "Everything is backed up first, but make sure this is really what you want before "
+            + "continuing."
+        acceptText: "Stage Removal"
         onAccepted: consistencyController.removeAllJunkCues()
-
-        Label {
-            width: parent.width
-            wrapMode: Text.WordWrap
-            text: "This permanently removes every memory cue at 0:00 currently listed, across every "
-                + "catalog on this stick, this is a real write, not just dismissing them from view. "
-                + "Everything is backed up first, but make sure this is really what you want before "
-                + "continuing."
-            color: Theme.conflictText
-        }
     }
 
-    Dialog {
+    MessageDialog {
         id: confirmIgnoreAllJunkCuesDialog
-        anchors.centerIn: parent
-        modal: true
-        width: 420
+        severity: SeabassDialog.Question
         title: "Ignore all memory cues at 0:00"
-        footer: DialogButtonBox {
-            Button { text: "Ignore All"; DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
-            Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
-        }
+        headline: "Dismisses every memory cue at 0:00 currently listed, just for this view."
+        detailText: "Nothing is written, they'll show up again the next time you scan."
+        acceptText: "Ignore All"
         onAccepted: consistencyController.ignoreAllJunkCues()
-
-        Label {
-            width: parent.width
-            wrapMode: Text.WordWrap
-            text: "Dismisses every memory cue at 0:00 currently listed, just for this view. Nothing is "
-                + "written, they'll show up again the next time you scan."
-        }
     }
 
     ColumnLayout {
