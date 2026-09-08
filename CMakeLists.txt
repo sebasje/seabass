@@ -237,6 +237,8 @@ add_library(seabass_core STATIC
     src/application/use_cases/restore_stick_backup.cpp
     src/application/use_cases/clone_stick.cpp
     src/application/use_cases/fill_missing_durations.cpp
+    src/application/path_key.cpp
+    src/application/use_cases/collapse_catalog_rows.cpp
     src/application/use_cases/find_unreferenced_files.cpp
     src/application/use_cases/unreferenced_tracks.cpp
     src/infrastructure/cleanup/audio_file_walk.cpp
@@ -518,6 +520,11 @@ add_executable(metadata_cache_test tests/metadata_cache_test.cpp)
 target_include_directories(metadata_cache_test PRIVATE src)
 target_link_libraries(metadata_cache_test PRIVATE seabass_core)
 add_test(NAME metadata_cache_test COMMAND metadata_cache_test)
+
+add_executable(collapse_catalog_rows_test tests/collapse_catalog_rows_test.cpp)
+target_include_directories(collapse_catalog_rows_test PRIVATE src)
+target_link_libraries(collapse_catalog_rows_test PRIVATE seabass_core)
+add_test(NAME collapse_catalog_rows_test COMMAND collapse_catalog_rows_test)
 
 add_executable(unreferenced_tracks_test tests/unreferenced_tracks_test.cpp)
 target_include_directories(unreferenced_tracks_test PRIVATE src)
@@ -1282,6 +1289,7 @@ target_link_libraries(clone_stick_test PRIVATE ZLIB::ZLIB SQLite::SQLite3)
 add_test(NAME clone_stick_test COMMAND clone_stick_test)
 
 add_executable(pending_deletion_resolver_test
+    src/application/path_key.cpp
     src/application/use_cases/find_unreferenced_files.cpp
     src/infrastructure/cleanup/pending_deletion_resolver.cpp
     tests/pending_deletion_resolver_test.cpp
@@ -1356,6 +1364,7 @@ add_test(NAME onelibrary_reader_test COMMAND onelibrary_reader_test)
 # --- cli itself does. ---
 
 add_executable(anonymized_fixture_integration_test
+    src/application/path_key.cpp
     src/application/use_cases/find_unreferenced_files.cpp
     tests/anonymized_fixture_integration_test.cpp
 )

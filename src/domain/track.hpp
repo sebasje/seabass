@@ -47,6 +47,13 @@ struct PlaylistMembership
     int position = -1;
 };
 
+// One catalog's record of a file: which catalog, and its row id there.
+struct CatalogRowRef
+{
+    std::string format;
+    std::string sourceId;
+};
+
 // A track as read from either a rekordbox USB export or an Engine Library,
 // normalized to a common shape. This is the shared intermediate
 // representation the application layer's use cases operate on.
@@ -110,6 +117,20 @@ struct Track
     // DJ actually rated" vs. "how many are literally 0 stars").
     std::optional<int> rating;
     std::string comment;  // the DJ's own free-text comment field, empty if none
+
+    // Every catalog row that points at this same file, this one
+    // included -- set by application::collapseCatalogRows(), empty on
+    // anything that has not been through it (every reader leaves it so,
+    // and an unreferenced file has no rows at all).
+    //
+    // A file is what duplicates; a row is only one catalog's record of
+    // one. The three catalogs on a stick overlap heavily -- 4369 rows
+    // for 1564 files on a real one, 1451 of those files listed more than
+    // once -- so code that treats a row as a copy sees a file as a
+    // duplicate of itself. Anything that removes a copy has to remove
+    // its row from every catalog here, or it leaves the others pointing
+    // at a file that is about to go.
+    std::vector<CatalogRowRef> catalogRows;
 
     // Every playlist this track belongs to. Best-effort: populated where
     // the reader supports it, empty otherwise.
