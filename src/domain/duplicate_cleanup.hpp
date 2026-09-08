@@ -75,6 +75,39 @@ struct DuplicateCleanupPlan
     // too, same as `differs`, but with different UI text: this is about
     // per-copy DJ data (usage/opinion), not encode quality.
     bool hasUnpreservableDataAtRisk = false;
+
+    // The unreferenced files (Track::isUnreferenced) among `toRemove`,
+    // split into the ones this plan would delete and the ones it refuses
+    // to. `toRemove` keeps its meaning -- every copy that is not the
+    // survivor -- but the two kinds of copy are removed by entirely
+    // different acts: a catalogued copy loses a database row and its
+    // file stays, while a stray file has no row to drop, so removing it
+    // means deleting the file. That is irreversible and no catalog will
+    // ever mention the file again, so it is accounted for here rather
+    // than left for each caller to infer from a flag on a Track.
+    //
+    // A stray is held back when the group is flagged `differs` (the
+    // copies may be different edits, so the file may not be a duplicate
+    // at all) or when any copy in the group had an estimated duration
+    // (see Track::durationIsEstimated: the grouping itself is then in
+    // doubt, which is a stronger reason than the one file's own length
+    // being uncertain -- a wrongly grouped estimate could equally make
+    // the *other* copies look redundant).
+    //
+    // `hasUnpreservableDataAtRisk` deliberately does NOT hold these
+    // back, and that is a decision rather than an oversight. It protects
+    // a rating or comment that only one copy carries; a stray file has
+    // no row and so carries neither, and can only ever be caught by the
+    // flag because two *catalogued* rows in its group disagree with each
+    // other. Deleting the file loses none of the data the flag exists to
+    // protect. On a real 3-catalog stick the coupling held back 2 of 632
+    // stray files over a disagreement neither was party to -- and 57 of
+    // them before play counts stopped counting as data at risk, which is
+    // the shape of the mistake rather than its current size. Callers
+    // still default such a group to excluded for the row-level cleanup,
+    // exactly as before.
+    std::vector<Track> unreferencedFilesToDelete;
+    std::vector<Track> unreferencedFilesHeldBack;
 };
 
 // Decides survivor/removal/cue-merge for one DuplicateGroup. Only

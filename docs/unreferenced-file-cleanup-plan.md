@@ -131,6 +131,15 @@ database will ever mention again. So:
 
 > **A file whose duration we had to estimate is never deleted.**
 
+Implemented slightly wider than that sentence, deliberately: one
+estimate holds back *every* stray in its group, not only the file whose
+length was guessed. The doubt an estimate creates is about the grouping,
+not about that one file -- a guess that dragged a foreign file into the
+group could as easily make the group's other copies look redundant, and
+those are the ones that would then be deleted. Holding the whole group
+costs nothing on real data (zero files on RV2) and closes the case where
+the rule as written would still lose a track.
+
 We list it, we say why, and we leave it on the stick. Being wrong costs
 the DJ a track they own; being conservative costs them disk space they
 can reclaim by hand. Those are not comparable. The probe therefore has
@@ -153,14 +162,25 @@ and `DuplicateCleanupPlanner::plan`:
 | | files | size |
 |---|---|---|
 | unreferenced on disk | 632 | 8.66 GB |
-| **proposed for deletion** | **575** | **7.76 GB** |
-| held back by `hasUnpreservableDataAtRisk` | 57 | 0.91 GB |
+| **proposed for deletion** | **632** | **8.66 GB** |
 | held back by `differs`, or by an estimated duration | 0 | 0 |
+| (would have been held back by `hasUnpreservableDataAtRisk`) | 2 | 0.02 GB |
+
+Two numbers in that table moved after they were first written down, and
+both moves were decisions rather than measurements:
+
+- **575 → 630** when play counts left `hasUnpreservableDataAtRisk`. The
+  57 files / 0.91 GB the first draft recorded were nearly all a
+  rekordbox play count meeting an Engine last-played timestamp. With
+  that comparison gone, the flag holds back **2** stray files.
+- **630 → 632** with the decision below: the flag no longer holds a
+  *file* back at all, only the row-level cleanup.
 
 435 duplicate groups contain a stray file (247 with one stray, 182 with
 two, 6 with three or four). **Every one of the 435 carries at least two
 catalogued rows**, because OneLibrary mirrors rekordbox track for track
--- which is why that one flag reaches so far.
+-- which is why a flag about two rows disagreeing could reach so many
+files that have no row at all.
 
 Zero groups consist only of unreferenced files, so the "a stray may be
 survivor when the whole group is stray" rule never fires on this stick.
@@ -175,20 +195,27 @@ copy purely because it was the only one that knew its own bitrate. It
 also points at a free improvement: the same probe can fill in bitrate on
 catalogued rows, sharpening survivor selection everywhere.
 
-### The open decision: 575 or 632
+### 630 or 632 (once "575 or 632"): decided, 632
 
 `hasUnpreservableDataAtRisk` flags a group when a copy being removed
-carries a rating, comment, play count or last-played the survivor lacks,
-and such groups default to excluded. A stray file has no database row,
-so it carries none of those and can never *cause* the flag -- but it is
-caught by it whenever two catalogued rows disagree, which with three
-catalogs on the stick they routinely do (rekordbox keeps a play count,
-Engine keeps only a last-played timestamp, and the same track carries
-both).
+carries a rating or comment the survivor lacks, and such groups default
+to excluded. A stray file has no database row, so it carries neither and
+can never *cause* the flag -- but it was caught by it whenever two
+catalogued rows in its group disagreed, which on a three-catalog stick
+is an ordinary thing for them to do.
 
-Deleting the stray *file* loses none of the data that flag protects, so
-decoupling the two looks right. It is a judgement call about the DJ's
-own data, though, so nothing has been changed. **Unresolved.**
+**Decided 2026-09-08: the two are decoupled.** Deleting the stray *file*
+loses none of the data that flag protects -- the disagreement is between
+two catalog rows, and the file is party to neither. The flag still
+defaults the group to excluded for the row-level cleanup, unchanged;
+it simply no longer holds back the file deletion, which is what makes
+the table above read 632 rather than 630. `DuplicateCleanupPlanner`
+states this at the point where it splits the strays, so it reads as the
+decision it is rather than as an oversight.
+
+The rules that *do* hold a stray back are the two about the group's
+identity rather than its data: `differs`, and an estimated duration
+anywhere in the group.
 
 ## Design
 
@@ -313,8 +340,16 @@ toggle rather than in the default path.
    verified on RV2 by `tools/unreferenced_scan`, which reads all three
    catalogs with the project's own readers and reproduces the 632 files /
    8.66 GB above, path for path, against the earlier analysis
-4. `DuplicateCleanupPlanner` survivor rule + the estimated-duration
-   exclusion, with tests for both
+4. ~~`DuplicateCleanupPlanner` survivor rule + the estimated-duration
+   exclusion, with tests for both~~ **done** -- plus
+   `unreferencedFilesAsTracks()`, the probe-and-cache step that turns
+   walked files into `domain::Track`s so they can go through the
+   existing `DuplicateTrackFinder`. Two fields carry the rules:
+   `Track::isUnreferenced` and `Track::durationIsEstimated`. Re-running
+   the RV2 simulation against the shipped rules reproduces this
+   document's numbers: 632 files / 8.66 GB proposed, 9 groups where the
+   survivor rule forced a catalogued copy over a better stray, 0 groups
+   of only strays, 0 held back
 5. Clean Up Duplicates page shows unreferenced files in the review
 6. Route confirmed-redundant ones to Delete Orphaned Files
 7. Live run on RV2 against the numbers in this document
