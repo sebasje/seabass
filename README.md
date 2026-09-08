@@ -1,8 +1,9 @@
 # Seabass
 
 Seabass's home is on [KDE Invent](https://invent.kde.org/sebas/seabass);
-the [GitHub mirror](https://github.com/sebasje/djconvert) exists for wider
-reach, but KDE Invent is the canonical repository.
+the [GitHub mirror](https://github.com/sebasje/seabass) exists for wider
+reach, but KDE Invent is the canonical repository. The mirror used to live
+at `sebasje/djconvert`, which is now an archived pointer to this one.
 
 Reads and manages DJ track libraries across the three catalogs found on a
 rekordbox/Engine DJ USB stick: rekordbox's classic per-device export
