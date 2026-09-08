@@ -163,11 +163,31 @@ DuplicateCleanupPlan DuplicateCleanupPlanner::plan(const DuplicateGroup &group)
         losesDataFromRemoval(result.survivor, result.toRemove, [](const Track &t) -> std::optional<std::string> {
             return t.comment.empty() ? std::nullopt : std::optional<std::string>(t.comment);
         });
-    bool playCountLoses = losesDataFromRemoval(result.survivor, result.toRemove,
-                                                [](const Track &t) -> std::optional<int> { return t.playCount; });
-    bool lastPlayedLoses = losesDataFromRemoval(result.survivor, result.toRemove,
-                                                 [](const Track &t) { return t.lastPlayedAt; });
-    result.hasUnpreservableDataAtRisk = ratingLoses || commentLoses || playCountLoses || lastPlayedLoses;
+    // playCount and lastPlayedAt are deliberately NOT part of this.
+    //
+    // They used to be, and it made the flag fire almost everywhere:
+    // measured on a real 3-catalog stick, including them held back 57
+    // audio files across 36 groups, against 2 files across 2 groups
+    // without them. Nearly every one of those was a rekordbox row
+    // carrying a play count meeting an Engine row carrying only a
+    // last-played timestamp -- the two applications simply count
+    // different things, so "they disagree" was being read off a
+    // comparison that never had meaning.
+    //
+    // A play count belongs to the application that kept it. Merging one
+    // across library types is not a thing that can be done correctly, and
+    // it is not valuable enough to hold a cleanup hostage over. Within a
+    // single library type the honest answer would be to add the counts
+    // up, which is a real intent -- but no writer in this project can
+    // write a play count into any of the three formats today, so that is
+    // a follow-up needing a write path, not something to pretend at here.
+    // The Clean Up page says so in as many words rather than leaving it
+    // to be discovered.
+    //
+    // rating and comment stay: both are the DJ's own deliberate input,
+    // both mean the same thing in every format, and losing one silently
+    // is a real loss.
+    result.hasUnpreservableDataAtRisk = ratingLoses || commentLoses;
 
     return result;
 }

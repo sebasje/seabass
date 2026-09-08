@@ -57,12 +57,17 @@ struct DuplicateCleanupPlan
     bool differs = false;
 
     // Distinct from `differs` above: true when two or more copies in
-    // the group carry a genuinely different rating, comment, play
-    // count, or last-played timestamp -- none of which this planner (or
-    // any writer in this codebase) propagates onto the survivor, unlike
-    // bpm/key/artwork above. Removing the other copies would silently
-    // and permanently lose whichever of those values didn't happen to
-    // land on the survivor. A group where only the survivor has a value
+    // the group carry a genuinely different rating or comment -- neither
+    // of which this planner (or any writer in this codebase) propagates
+    // onto the survivor, unlike bpm/key/artwork above. Removing the
+    // other copies would silently and permanently lose whichever value
+    // didn't happen to land on the survivor.
+    //
+    // Play counts and last-played timestamps are deliberately excluded,
+    // see the comment at the assignment in duplicate_cleanup.cpp: they
+    // are per-application counters that do not mean the same thing in
+    // two different DJ applications, and including them made this flag
+    // fire on 36 groups where 2 was the honest number. A group where only the survivor has a value
     // (nothing to lose) or every copy already agrees is NOT flagged --
     // this is specifically "real, differing, unpreservable data is
     // about to be discarded", not "some copy has more metadata than
