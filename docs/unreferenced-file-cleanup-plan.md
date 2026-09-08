@@ -321,6 +321,25 @@ encountered.
 gate, unchanged in spirit but widened to check every catalog rather than
 one format's.
 
+Two things fell out of building it that the plan had not said:
+
+- **Saving a group is now two different acts, and the page says which.**
+  A catalogued copy loses its rows; a stray file only gains a manifest
+  line. They are counted apart in the staged description and marked
+  apart on each copy ("REMOVING" / "FILE ONLY" / "KEPT BACK"), because
+  "removes 3 copies" would otherwise cover both.
+- **A group of nothing but stray files opens no write session at all.**
+  There is no row to remove, no survivor row to merge onto and nothing
+  to back up, so it skips the writers entirely and appends to the
+  manifest, which is append-per-call precisely so it needs no session.
+  Without that guard the survivor's own *path* would have been handed to
+  a cleanup writer as a row id.
+
+And one refusal, which is the shape the rest of this area already has:
+if a catalog's database is present on the stick but could not be read,
+no stray file is listed at all and the page says why. Absent is fine;
+unreadable is not, and the two must not collapse into each other.
+
 Files matching nothing are never touched, only listed. Zero of those on
 RV2, but on another stick they are real music that fell out of the
 database -- re-import candidates, not deletion candidates.
@@ -350,6 +369,17 @@ toggle rather than in the default path.
    document's numbers: 632 files / 8.66 GB proposed, 9 groups where the
    survivor rule forced a catalogued copy over a better stray, 0 groups
    of only strays, 0 held back
-5. Clean Up Duplicates page shows unreferenced files in the review
-6. Route confirmed-redundant ones to Delete Orphaned Files
+5. ~~Clean Up Duplicates page shows unreferenced files in the review~~
+   **done** -- `scanStrayFiles()` (`infrastructure/cleanup/`) composes
+   walk + `findUnreferencedFiles` + probe + cache the way
+   `audio/duration_fill.hpp` composes the duration probe, and the Clean
+   Up scan runs it against *every* catalog on the stick before grouping
+   the result with the current format's rows. `UnreferencedFilesNotice`
+   says what was found and what it was checked against; the group rows
+   mark which copies are files rather than rows, and which are held back
+6. ~~Route confirmed-redundant ones to Delete Orphaned Files~~ **done**
+   -- a stray file is already orphaned, so saving appends it to
+   `.seabass-pending-deletions.jsonl` and touches no catalog at all.
+   The deletion itself still happens only there, behind
+   `resolvePendingDeletions()`' fresh all-catalog re-check
 7. Live run on RV2 against the numbers in this document

@@ -1,6 +1,8 @@
 #pragma once
 
 #include <QAbstractListModel>
+#include <QStringList>
+#include <QVariantMap>
 #include <QFutureWatcher>
 #include <QObject>
 #include <QPointer>
@@ -41,6 +43,13 @@ public:
         NewCueCountRole,
         IncludedRole,
         HasUnpreservableDataAtRiskRole,
+        // How many of this group's copies are files no catalog
+        // references, and how many of those the planner refuses to
+        // delete. Separate from toRemove's own count because the two are
+        // removed by different acts -- a row is dropped, a file is
+        // deleted -- and the page has to say which it is about to do.
+        UnreferencedCountRole,
+        UnreferencedHeldBackCountRole,
         // This group's clean-up is staged in the edit session.
         StagedRole,
         StagedDescriptionRole,
@@ -153,12 +162,34 @@ private:
     std::vector<bool> m_included;
 };
 
+// The stray-file half of a scan, as the page needs to talk about it.
+// A count on its own would be the failure mode this whole area has:
+// every field here exists so the page can say what the number is based
+// on rather than presenting a partial answer as a complete one. See
+// infrastructure/cleanup/stray_file_scan.hpp.
+struct StrayFileSummary
+{
+    int filesFound = 0;
+    qulonglong bytesFound = 0;
+    int unreadable = 0;
+    // The catalogs' own format names ("rekordbox", "engine",
+    // "onelibrary"), not display text: FormatLabels.qml is the single
+    // source of truth for what a DJ is shown a format called, and this
+    // side of the app has no business deciding it.
+    QStringList catalogsConsulted;
+    bool walkIncomplete = false;
+    bool probeAvailable = false;
+    bool usable = false;
+    QString refusal;  // shown instead of a count when !usable
+};
+
 // Result of a background scan+plan task, see CleanupController::
 // rescan(). Built entirely on a worker thread, no access to the
 // controller.
 struct CleanupTaskResult
 {
     std::vector<domain::DuplicateCleanupPlan> plans;
+    StrayFileSummary strays;
     QString errorMessage;
     bool cancelled = false;  // stopped via cancelScan(); nothing else is set
 };
@@ -229,6 +260,13 @@ class CleanupController : public QObject
     Q_PROPERTY(qlonglong stickTotalBytes READ stickTotalBytes NOTIFY plansChanged)
     Q_PROPERTY(qlonglong stickFreeBytes READ stickFreeBytes NOTIFY plansChanged)
     Q_PROPERTY(int includedCount READ includedCount NOTIFY includedChanged)
+    // The stray-file half of the last scan, for the page's own account
+    // of what it looked at: {filesFound, bytesHuman, unreadable,
+    // catalogsConsulted, walkIncomplete, probeAvailable, usable,
+    // refusal}. A map rather than eight properties because it is one
+    // paragraph of text on one page, and every field of it is only ever
+    // read together with the others.
+    Q_PROPERTY(QVariantMap unreferencedFiles READ unreferencedFiles NOTIFY plansChanged)
     Q_PROPERTY(seabass::gui::PendingDeletionListModel *pendingDeletions READ pendingDeletionsModel CONSTANT)
     Q_PROPERTY(int pendingDeletionsIncludedCount READ pendingDeletionsIncludedCount NOTIFY pendingDeletionsChanged)
     Q_PROPERTY(QString totalPendingBytesHuman READ totalPendingBytesHuman NOTIFY pendingDeletionsChanged)
@@ -252,6 +290,7 @@ public:
     qlonglong stickTotalBytes() const;
     qlonglong stickFreeBytes() const;
     int includedCount() const { return m_model.includedCount(); }
+    QVariantMap unreferencedFiles() const;
     PendingDeletionListModel *pendingDeletionsModel() { return &m_pendingModel; }
     int pendingDeletionsIncludedCount() const { return m_pendingModel.includedCount(); }
     QString totalPendingBytesHuman() const;
@@ -366,6 +405,7 @@ private:
     CleanupPlanListModel m_model;
     PendingDeletionListModel m_pendingModel;
     QFutureWatcher<CleanupTaskResult> m_watcher;
+    StrayFileSummary m_strays;
     application::CancellationToken m_scanCancel;  // fresh per rescan()/planManualMerge()
     application::CancellationToken m_pendingDeleteCancel;  // fresh per deleteSelectedPendingFiles()
     bool m_holdsDirectWrite = false;
