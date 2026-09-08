@@ -965,11 +965,57 @@ CleanupController::CleanupController(QObject *parent) : QObject(parent)
 
 QString CleanupController::totalWastedBytesHuman() const
 {
+    return humanSize(static_cast<std::uint64_t>(totalWastedBytes()));
+}
+
+qlonglong CleanupController::totalWastedBytes() const
+{
     std::uint64_t total = 0;
     for (const auto &plan : m_model.plans()) {
         total += wastedBytes(plan);
     }
-    return humanSize(total);
+    return static_cast<qlonglong>(total);
+}
+
+qlonglong CleanupController::includedWastedBytes() const
+{
+    std::uint64_t total = 0;
+    const auto &plans = m_model.plans();
+    for (size_t i = 0; i < plans.size(); ++i) {
+        if (m_model.included(i)) {
+            total += wastedBytes(plans[i]);
+        }
+    }
+    return static_cast<qlonglong>(total);
+}
+
+namespace
+{
+// fs::space() on the stick the library lives on. Reported as 0/0 when it
+// cannot be read, which the page treats as "unknown" -- a stick that is
+// unplugged mid-scan must not render as a disk with nothing on it.
+std::pair<qlonglong, qlonglong> stickSpace(const QString &libraryPath)
+{
+    if (libraryPath.isEmpty()) {
+        return {0, 0};
+    }
+    std::error_code ec;
+    const auto info = fs::space(fs::path(libraryPath.toStdString()), ec);
+    if (ec || info.capacity == 0 || info.capacity == static_cast<std::uintmax_t>(-1)) {
+        return {0, 0};
+    }
+    return {static_cast<qlonglong>(info.capacity), static_cast<qlonglong>(info.available)};
+}
+}  // namespace
+
+qlonglong CleanupController::stickTotalBytes() const
+{
+    return stickSpace(m_path).first;
+}
+
+qlonglong CleanupController::stickFreeBytes() const
+{
+    return stickSpace(m_path).second;
 }
 
 void CleanupController::scan(const QString &format, const QString &path)

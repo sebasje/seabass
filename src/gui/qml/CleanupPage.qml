@@ -142,6 +142,31 @@ Page {
                 }
             }
 
+            // What all this actually buys, drawn against the stick's real
+            // capacity. A byte count alone says nothing about whether it
+            // matters; the same figure as a block on a nearly-full stick
+            // says it immediately.
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.topMargin: 4
+                visible: plansListView.count > 0 && spaceBar.known
+                implicitHeight: spaceBar.implicitHeight + 28
+                color: Theme.groupBackground
+                border.color: Theme.borderSubtle
+                border.width: 1
+                radius: 4
+
+                SpaceReclaimBar {
+                    id: spaceBar
+                    anchors.fill: parent
+                    anchors.margins: 14
+                    totalBytes: cleanupController.stickTotalBytes
+                    freeBytes: cleanupController.stickFreeBytes
+                    reclaimBytes: cleanupController.includedWastedBytes
+                    reclaimableBytes: cleanupController.totalWastedBytes
+                }
+            }
+
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 12

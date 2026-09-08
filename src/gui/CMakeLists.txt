@@ -39,6 +39,7 @@ set(SEABASS_GUI_QML_FILES
     qml/common/InfoButton.qml
     qml/common/MessagePopup.qml
     qml/common/PageTitle.qml
+    qml/common/SpaceReclaimBar.qml
     qml/common/StatValue.qml
     qml/common/StatusBadge.qml
     qml/common/Subtitle.qml
