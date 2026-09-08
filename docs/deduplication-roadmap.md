@@ -5,7 +5,16 @@ Scope notes taken while building the unreferenced-file cleanup
 decision already made or a deliberate deferral -- the point is that
 neither gets rediscovered from scratch later.
 
-## Stray File Audit (v2, possibly a v1 preview)
+## Stray File Audit (v1, read-only)
+
+**Decided 2026-09-08: ships in v1, read-only.** It reports and never
+deletes. Reachable from the Clean Up page's explanation two ways -- the
+space diagram itself is clickable, and a button sits beneath it for
+everyone who does not guess a chart is a link. See
+`library-synchronization-plan.md` for the entry points; the content
+template is below.
+
+## What made the page work (the template)
 
 The measurement page produced for RV2 works as a feature, not just as a
 one-off report. Given a stick it can answer, without anyone reading a
@@ -33,10 +42,9 @@ The shape that worked, as a template:
    comparison produced provably false results and was discarded; a page
    that hides that is less trustworthy, not more.
 
-**Why not v1:** it is a reporting surface over machinery that is still
-being built, and the deletion path it would report on is only just
-correct. A v1 preview showing items 1-3 read-only, with no action
-buttons, would be cheap and safe if it earns its place.
+Read-only keeps it cheap and safe: no survivor picking, no deletion, no
+staging. Everything it shows is already computed by `walkAudioFiles` +
+`findUnreferencedFiles` + `DuplicateCleanupPlanner`.
 
 ## rekordbox's two formats disagree (v2 for repair; report only, if anything, in v1)
 
