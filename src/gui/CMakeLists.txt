@@ -37,8 +37,10 @@ set(SEABASS_GUI_QML_FILES
     qml/common/BigScrollBar.qml
     qml/common/BusyOverlay.qml
     qml/common/InfoButton.qml
+    qml/common/MessageDialog.qml
     qml/common/MessagePopup.qml
     qml/common/PageTitle.qml
+    qml/common/SeabassDialog.qml
     qml/common/StatValue.qml
     qml/common/StatusBadge.qml
     qml/common/Subtitle.qml
