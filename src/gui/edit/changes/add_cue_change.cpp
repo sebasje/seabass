@@ -93,6 +93,16 @@ QVariantMap AddCueChange::summary() const
     };
 }
 
+std::vector<BackupTarget> AddCueChange::filesToBackup(SaveContext &ctx) const
+{
+    std::vector<BackupTarget> targets;
+    for (const auto &file :
+         filesWrittenFor(WriteKind::Cues, {m_format.toStdString(), m_sourceId.toStdString()}, m_path, ctx)) {
+        targets.push_back({file, "add-cue"});
+    }
+    return targets;
+}
+
 ChangeOutcome AddCueChange::apply(SaveContext &ctx)
 {
     // Never trust whatever cue list the calling page had cached --
