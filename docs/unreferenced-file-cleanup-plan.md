@@ -179,7 +179,7 @@ Scanning 2100 files costs 22-66 s cold; with the cache the second scan
 of an unchanged stick costs a `stat` per file. Worth having from the
 start rather than bolted on later.
 
-### 3. Finding the unreferenced files
+### 3. Finding the unreferenced files  *(done)*
 
 Walk `Contents/` via `infrastructure/long_paths.hpp` -- **not**
 `fs::recursive_directory_iterator`, whose MAX_PATH limits that header
@@ -188,7 +188,27 @@ Subtract every path referenced by rekordbox **and** Engine **and**
 OneLibrary. Checking a single format would delete files the other
 catalog still plays; that is the one bug in this feature that would be
 unforgivable, so the "all catalogs" requirement belongs in the API
-shape, not in a comment.
+shape, not in a comment. `CatalogTracks` therefore names the three
+catalogs as separate optional fields rather than taking one pre-merged
+`vector<Track>`, and the result reports which catalogs it actually
+consulted so a partial check reaches the screen instead of dying in a
+log. `findUnreferencedFiles()` with no catalog at all returns
+`usable = false` rather than "everything is unreferenced".
+
+That shape immediately earned itself: the first run of
+`tools/unreferenced_scan` on RV2 consulted only rekordbox and Engine,
+and said so in its output -- the stick does have a third catalog
+(`PIONEER/rekordbox/exportLibrary.db`, 1644 rows). Wiring OneLibrary in
+left the answer at 632 files, so the earlier figure was right, but it
+was right by luck until the tool proved it.
+
+Path comparison normalizes separators **and case**. Case matters because
+exFAT and NTFS are case-insensitive: a catalog row saying
+`Contents/A/b.mp3` and a directory entry saying `Contents/a/b.mp3` are
+one physical file, and a case-sensitive comparison would call it
+unreferenced and offer it for deletion. Normalizing case can only move a
+file from "unreferenced" to "referenced", which is the harmless
+direction.
 
 ### 4. Grouping
 
@@ -240,10 +260,13 @@ toggle rather than in the default path.
 
 ## Order of work
 
-1. `TrackMetadataProbe` port + `TagLibMetadataProbe` + optional CMake
-   wiring + unit tests over `testdata/`
-2. `MetadataCache` mirroring `DurationCache`, with its tests
-3. Unreferenced-file walk (all three catalogs), with tests
+1. ~~`TrackMetadataProbe` port + `TagLibMetadataProbe` + optional CMake
+   wiring + unit tests~~ **done**
+2. ~~`MetadataCache` mirroring `DurationCache`, with its tests~~ **done**
+3. ~~Unreferenced-file walk (all three catalogs), with tests~~ **done** --
+   verified on RV2 by `tools/unreferenced_scan`, which reads all three
+   catalogs with the project's own readers and reproduces the 632 files /
+   8.66 GB above, path for path, against the earlier analysis
 4. `DuplicateCleanupPlanner` survivor rule + the estimated-duration
    exclusion, with tests for both
 5. Clean Up Duplicates page shows unreferenced files in the review

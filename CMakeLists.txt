@@ -237,6 +237,8 @@ add_library(seabass_core STATIC
     src/application/use_cases/restore_stick_backup.cpp
     src/application/use_cases/clone_stick.cpp
     src/application/use_cases/fill_missing_durations.cpp
+    src/application/use_cases/find_unreferenced_files.cpp
+    src/infrastructure/cleanup/audio_file_walk.cpp
     src/infrastructure/local/duration_cache.cpp
     src/infrastructure/local/metadata_cache.cpp
 )
@@ -509,6 +511,16 @@ add_executable(metadata_cache_test tests/metadata_cache_test.cpp)
 target_include_directories(metadata_cache_test PRIVATE src)
 target_link_libraries(metadata_cache_test PRIVATE seabass_core)
 add_test(NAME metadata_cache_test COMMAND metadata_cache_test)
+
+add_executable(find_unreferenced_files_test tests/find_unreferenced_files_test.cpp)
+target_include_directories(find_unreferenced_files_test PRIVATE src)
+target_link_libraries(find_unreferenced_files_test PRIVATE seabass_core)
+add_test(NAME find_unreferenced_files_test COMMAND find_unreferenced_files_test)
+
+add_executable(audio_file_walk_test tests/audio_file_walk_test.cpp)
+target_include_directories(audio_file_walk_test PRIVATE src)
+target_link_libraries(audio_file_walk_test PRIVATE seabass_core)
+add_test(NAME audio_file_walk_test COMMAND audio_file_walk_test)
 
 # Only built when TagLib was found, same as the probe it covers.
 if(TARGET seabass_taglib)
