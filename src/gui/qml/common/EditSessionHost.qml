@@ -41,6 +41,34 @@ Item {
     readonly property bool dirty: internal.session !== null && internal.session.dirty === true
     readonly property bool writing: internal.session !== null && internal.session.writing === true
 
+    // --- Where this session's backups will go -----------------------------
+    // A cue backup is written before anything on the stick changes and it
+    // stays there afterwards, so a stick that cannot hold one sends its
+    // backups to local disk instead -- and undo stops being portable. That
+    // is worth knowing before staging the first change rather than after
+    // doing the work, so the question is asked here, on entering edit mode.
+    //
+    // The worst case is the library's whole analysis payload, because at
+    // this point nothing is staged and there is no file list yet. Being
+    // pessimistic is right: the question is whether this stick has room to
+    // be edited against at all.
+    //
+    // All three come from C++ (std::filesystem::space() on the stick root,
+    // and the library's own .EXT total). Until that lands they are 0, which
+    // reads as "nothing to warn about" and keeps every existing page silent.
+    property real stickBytesFree: 0
+    property real stickBytesCapacity: 0
+    property real backupBytesWorstCase: 0
+
+    readonly property real spaceHeadroom: Math.max(1073741824, host.stickBytesCapacity * 0.02)
+    readonly property bool backupWouldGoLocal: host.stickBytesCapacity > 0
+        && (host.stickBytesFree - host.backupBytesWorstCase) < host.spaceHeadroom
+
+    // Accepted: edit anyway, backups land on this computer. Declined: the
+    // page takes the user back where they came from, as it does for Back.
+    signal backupLocationAccepted()
+    signal backupLocationDeclined()
+
     z: 900  // above page content, below BusyOverlay (1000): a scan's scrim covers the Save button
 
     QtObject {
@@ -64,6 +92,17 @@ Item {
             internal.session = host.registry.openSession(host.libraryId, host.stickLabel, host.rekordboxPath,
                                                          host.enginePath);
         }
+        if (host.backupWouldGoLocal) {
+            lowSpaceDialog.open();
+        }
+    }
+
+    // Bytes as the user reads them, for the one place that needs it.
+    function humanSize(bytes) {
+        if (bytes >= 1073741824) {
+            return (bytes / 1073741824).toFixed(1) + " GB";
+        }
+        return Math.round(bytes / 1048576) + " MB";
     }
     Component.onDestruction: {
         if (internal.session !== null && host.registry) {
@@ -132,6 +171,27 @@ Item {
         id: lockedDialog
         objectName: "lockedDialog"
         onRemoveLockRequested: host.registry.removeLock(host.libraryId)
+    }
+
+    // The first user of MessageDialog. Nothing has been staged yet when
+    // this opens, so Cancel costs the user nothing -- which is the whole
+    // reason the question is asked here and not at save time.
+    MessageDialog {
+        id: lowSpaceDialog
+        objectName: "lowSpaceDialog"
+        severity: SeabassDialog.Warning
+        title: host.stickLabel.length > 0 ? "Not enough room on " + host.stickLabel
+                                          : "Not enough room on the stick"
+        headline: "Editing this library needs to back up "
+            + host.humanSize(host.backupBytesWorstCase) + " before anything changes, and "
+            + (host.stickLabel.length > 0 ? host.stickLabel : "the stick") + " has "
+            + host.humanSize(host.stickBytesFree) + " free."
+        detailText: "The backup will be written to this computer instead. Undo will then work only "
+            + "here, not from another machine with the stick."
+        acceptText: "Back up here and edit"
+        rejectText: "Cancel"
+        onAccepted: host.backupLocationAccepted()
+        onRejected: host.backupLocationDeclined()
     }
 
     // A second page tried to stage into a library another page is already
