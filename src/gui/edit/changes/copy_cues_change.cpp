@@ -7,6 +7,7 @@
 #include <unordered_map>
 
 #include "application/ports/cue_writer.hpp"
+#include "gui/edit/changes/change_helpers.hpp"
 #include "gui/edit/save_context.hpp"
 #include "gui/onelibrary_cue_writer_adapter.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cue_writer.hpp"
@@ -25,10 +26,12 @@ namespace
 // One format's cue writer plus the rule for which files a given track's
 // write needs backed up first. rekordbox names a different file per
 // track (its analysis file); the database formats name one file for all.
+// Writers only. Which files a write touches is answered by
+// filesWrittenFor() in change_helpers -- one definition, so a change cannot
+// back up one file while overwriting another.
 struct DuplicatesFormatContext
 {
     std::unique_ptr<application::CueWriter> writer;
-    std::function<std::vector<std::string>(const std::string &)> filesToBackUpFor;
 };
 
 // oneLibrarySourceIdToPath is only consulted when format == "onelibrary"
@@ -43,26 +46,12 @@ std::unique_ptr<DuplicatesFormatContext> makeContext(
     if (format == "rekordbox") {
         std::string pioneerRoot = path.toStdString();
         ctx->writer = std::make_unique<infrastructure::rekordbox::RekordboxCueWriter>(pioneerRoot);
-        ctx->filesToBackUpFor = [pioneerRoot](const std::string &trackSourceId) -> std::vector<std::string> {
-            auto analyzePath = infrastructure::rekordbox::findAnlzPathForTrackId(
-                pioneerRoot, static_cast<uint32_t>(std::stoul(trackSourceId)));
-            if (!analyzePath) {
-                return {};
-            }
-            return {infrastructure::rekordbox::extAnlzPath(pioneerRoot, *analyzePath)};
-        };
     } else if (format == "onelibrary") {
         std::string pioneerRoot = path.toStdString();  // same PIONEER root rekordbox uses, see scan()'s own comment
         ctx->writer = std::make_unique<OneLibraryCueWriterAdapter>(pioneerRoot, oneLibrarySourceIdToPath);
-        std::string dbFile = infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(pioneerRoot);
-        ctx->filesToBackUpFor = [dbFile](const std::string &) -> std::vector<std::string> { return {dbFile}; };
     } else {
         std::string engineLibraryPath = path.toStdString();
         ctx->writer = std::make_unique<infrastructure::engine::LibdjinteropEngineCueWriter>(engineLibraryPath);
-        std::string engineDbFile = (fs::path(engineLibraryPath) / "Database2" / "m.db").string();
-        ctx->filesToBackUpFor = [engineDbFile](const std::string &) -> std::vector<std::string> {
-            return {engineDbFile};
-        };
     }
     return ctx;
 }
@@ -100,6 +89,21 @@ QStringList CopyCuesChange::formatsTouched() const
     return {m_format};
 }
 
+// Every target this copy writes to. The source is only read, so it is
+// deliberately absent -- naming it would put an unchanged file in the
+// backup record for Undo to restore over.
+std::vector<BackupTarget> CopyCuesChange::filesToBackup(SaveContext &ctx) const
+{
+    std::vector<BackupTarget> targets;
+    for (const auto &target : m_op.targets) {
+        for (const auto &file :
+             filesWrittenFor(WriteKind::Cues, {m_format.toStdString(), target.sourceId}, m_path, ctx)) {
+            targets.push_back({file, "duplicate-cue-consolidation"});
+        }
+    }
+    return targets;
+}
+
 ChangeOutcome CopyCuesChange::apply(SaveContext &ctx)
 {
     std::string key = "dup:" + m_format.toStdString();
@@ -115,7 +119,8 @@ ChangeOutcome CopyCuesChange::apply(SaveContext &ctx)
         key, [&]() { return makeContext(m_format, m_path, oneLibrarySourceIdToPath); });
 
     for (const auto &target : m_op.targets) {
-        for (const auto &file : format.filesToBackUpFor(target.sourceId)) {
+        for (const auto &file :
+             filesWrittenFor(WriteKind::Cues, {m_format.toStdString(), target.sourceId}, m_path, ctx)) {
             ctx.backupOnce(file, "duplicate-cue-consolidation");
         }
         format.writer->writeHotCues(target.sourceId, m_op.source.cues);

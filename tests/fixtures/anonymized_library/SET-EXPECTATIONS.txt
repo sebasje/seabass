@@ -5,7 +5,7 @@ engine.opensPerBatch 1
 engine.tracks 1564
 engine.tracksWithCues 1561
 engine.writeRefusals 0
-matrix.addCue.durableWritesPerSave 3
+matrix.addCue.durableWritesPerSave 2
 matrix.addCue.pdbParses 1
 matrix.cleanup.durableWritesPerSave 5
 matrix.cleanup.pdbParses 2

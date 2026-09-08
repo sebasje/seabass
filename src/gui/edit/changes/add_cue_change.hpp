@@ -22,6 +22,7 @@ public:
     QString description() const override;
     QString unit() const override;
     QStringList formatsTouched() const override;
+    std::vector<BackupTarget> filesToBackup(SaveContext &ctx) const override;
 
     // What the page shows for this staged cue, so it can draw the marker
     // before the save runs.
