@@ -47,7 +47,8 @@ struct PlaylistMembership
     int position = -1;
 };
 
-// One catalog's record of a file: which catalog, and its row id there.
+// One format's row for a file: which format wrote it, and its row id
+// there. Not "which library" -- see Track::catalogRows.
 struct CatalogRowRef
 {
     std::string format;
@@ -118,18 +119,29 @@ struct Track
     std::optional<int> rating;
     std::string comment;  // the DJ's own free-text comment field, empty if none
 
-    // Every catalog row that points at this same file, this one
-    // included -- set by application::collapseCatalogRows(), empty on
-    // anything that has not been through it (every reader leaves it so,
-    // and an unreferenced file has no rows at all).
+    // Every row that points at this same file, in each format that has
+    // one, this row included -- set by
+    // application::collapseCatalogRows(), empty on anything that has not
+    // been through it (every reader leaves it so, and an unreferenced
+    // file has no rows in any format).
     //
-    // A file is what duplicates; a row is only one catalog's record of
-    // one. The three catalogs on a stick overlap heavily -- 4369 rows
-    // for 1564 files on a real one, 1451 of those files listed more than
-    // once -- so code that treats a row as a copy sees a file as a
-    // duplicate of itself. Anything that removes a copy has to remove
-    // its row from every catalog here, or it leaves the others pointing
-    // at a file that is about to go.
+    // DeviceLibrary (export.pdb), OneLibrary (exportLibrary.db) and
+    // Engine (m.db) are not three libraries. They are ONE library
+    // written three times, for three hardware products, and they are
+    // meant to hold the same tracks; keeping them that way is what this
+    // whole project is for. So a track appearing in all three is not
+    // duplication, it is the normal, correct state -- what duplicates is
+    // a FILE, when a re-export writes the same recording to disk again
+    // and every format then lists both.
+    //
+    // Code that treats a row as a copy therefore sees one file as three
+    // duplicates of itself. On a real stick that is 4369 rows for 1564
+    // files, 1451 of them written in more than one format.
+    //
+    // The corollary is the other half of this field: removing a copy
+    // means removing its row from every format listed here, because they
+    // are supposed to keep saying the same thing. Leaving one behind
+    // does not just orphan a row, it makes the formats disagree.
     std::vector<CatalogRowRef> catalogRows;
 
     // Every playlist this track belongs to. Best-effort: populated where

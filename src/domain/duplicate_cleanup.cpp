@@ -221,10 +221,10 @@ DuplicateCleanupPlan DuplicateCleanupPlanner::plan(const DuplicateGroup &group)
     // is a real loss.
     result.hasUnpreservableDataAtRisk = ratingLoses || commentLoses;
 
-    // Every catalog a doomed copy is listed by must also list the
-    // survivor, or removing that copy's row strands the catalog -- see
+    // Every format a doomed copy is written in must also carry the
+    // survivor, or removing that copy's row strands the format -- see
     // the header. Checked over catalogRows, which only a caller that has
-    // collapsed rows into files sets; a caller working in one catalog at
+    // collapsed rows into files sets; a caller working in one format at
     // a time leaves it empty and this never fires.
     for (const auto &doomed : result.toRemove) {
         for (const auto &row : doomed.catalogRows) {
@@ -232,7 +232,7 @@ DuplicateCleanupPlan DuplicateCleanupPlanner::plan(const DuplicateGroup &group)
                 std::any_of(result.survivor.catalogRows.begin(), result.survivor.catalogRows.end(),
                              [&row](const CatalogRowRef &s) { return s.format == row.format; });
             if (!survivorListedThere) {
-                result.wouldStrandACatalog = true;
+                result.wouldStrandAFormat = true;
             }
         }
     }
