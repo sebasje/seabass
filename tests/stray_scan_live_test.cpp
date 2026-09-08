@@ -33,6 +33,7 @@
 #include <string>
 #include <vector>
 
+#include "application/use_cases/collapse_catalog_rows.hpp"
 #include "domain/duplicate_cleanup.hpp"
 #include "domain/duplicate_cue_consolidation.hpp"
 #include "infrastructure/audio/duration_fill.hpp"
@@ -334,16 +335,45 @@ int main()
         }
     }
 
-    // And every catalog at once: not what any page shows, but the answer
-    // to "what is on this stick", and what the plan's simulation
-    // reported.
+    // And every catalog at once, collapsed to files first -- what the
+    // page is being reworked to do. Without the collapse this pass
+    // groups a file with itself, so it also reports how much of that
+    // there would be.
     std::vector<domain::Track> everyCatalog;
     for (const auto *catalog : {&catalogs.rekordbox, &catalogs.engine, &catalogs.oneLibrary}) {
         if (catalog->has_value()) {
             everyCatalog.insert(everyCatalog.end(), (*catalog)->begin(), (*catalog)->end());
         }
     }
-    Measurement whole = measure("every catalog at once", everyCatalog);
+    auto files = application::collapseCatalogRows(everyCatalog);
+    std::cout << "\n" << everyCatalog.size() << " catalog rows collapse to " << files.size() << " files\n";
+    int multiCatalog = 0;
+    for (const auto &f : files) {
+        if (f.catalogRows.size() > 1) {
+            ++multiCatalog;
+        }
+    }
+    std::cout << "  " << multiCatalog << " of them are listed by more than one catalog\n";
+    Measurement whole = measure("every catalog, collapsed to files", files);
+
+    // Any row for the survivor's own file in a removal list is the
+    // mistake the collapse exists to prevent, so it is checked, not
+    // assumed.
+    for (const auto &group : domain::DuplicateTrackFinder::find(files)) {
+        auto plan = domain::DuplicateCleanupPlanner::plan(group);
+        for (const auto &doomed : plan.toRemove) {
+            for (const auto &r : doomed.catalogRows) {
+                for (const auto &s : plan.survivor.catalogRows) {
+                    if (r.format == s.format && r.sourceId == s.sourceId) {
+                        std::cerr << "FAIL: a row for the surviving file is in its own removal list: " << r.format
+                                  << ":" << r.sourceId << "\n";
+                        return 1;
+                    }
+                }
+            }
+        }
+    }
+    std::cout << "  no removal list holds a row for the file it keeps\n";
     checkExpected("SEABASS_LIVE_EXPECT_DELETABLE", whole.deletable);
     checkExpected("SEABASS_LIVE_EXPECT_SURVIVOR_RULE", whole.survivorRule);
 
