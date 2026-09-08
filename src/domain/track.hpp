@@ -47,13 +47,38 @@ struct PlaylistMembership
     int position = -1;
 };
 
+// One format's row for a file: which format wrote it, and its row id
+// there. Not "which library" -- see Track::catalogRows.
+struct CatalogRowRef
+{
+    std::string format;
+    std::string sourceId;
+};
+
 // A track as read from either a rekordbox USB export or an Engine Library,
 // normalized to a common shape. This is the shared intermediate
 // representation the application layer's use cases operate on.
 struct Track
 {
     std::string sourceId;  // adapter-specific unique id (e.g. rekordbox track id, engine track id)
-    std::string format;    // "rekordbox" or "engine", which catalog this copy was read from
+    // "rekordbox", "engine" or "onelibrary" -- which catalog this copy
+    // was read from -- or "disk" for a file no catalog references at all.
+    std::string format;
+
+    // True for the "disk" case above: an audio file found on the stick
+    // that no catalog mentions, built from its own tags rather than from
+    // a database row (see application::findUnreferencedFiles). It has no
+    // row, so sourceId is its path, and rating/comment/playCount are
+    // always empty -- there is nowhere for them to have been stored.
+    //
+    // A bool rather than a `format == "disk"` test because two rules in
+    // DuplicateCleanupPlanner turn on it and one of them ends in a file
+    // being deleted: such a copy may only be the survivor when every
+    // copy in the group is one too (keeping it over a catalogued copy
+    // would leave that catalog pointing at a file we then deleted), and
+    // "removing" it means deleting the file itself rather than dropping
+    // a row. A misspelt format string would fail both silently.
+    bool isUnreferenced = false;
     std::string title;
     std::string artist;
     std::string filename;
@@ -71,6 +96,16 @@ struct Track
     std::uint64_t fileSizeBytes = 0;  // best-effort size of the file at filePath on disk, 0 if unresolved/unreadable
     int bitrate = 0;  // kbps, 0 if unknown, used as the primary "which copy is higher quality" signal
     double durationSeconds = 0.0;
+
+    // True when durationSeconds was not read but computed from bitrate
+    // and stream size -- application::FileMetadata's own flag, carried
+    // into the domain because the decision that needs it is here.
+    // DuplicateTrackFinder groups on duration within a 2-second
+    // tolerance and a guess can be seconds out, so a group holding an
+    // estimate might not be one track at all; DuplicateCleanupPlanner
+    // therefore proposes no file deletion at all from such a group.
+    // Catalog rows carry a stored length and leave this false.
+    bool durationIsEstimated = false;
     double bpm = 0.0;
     std::string key;  // human-readable, e.g. "Fm" or "F#m", empty if unknown
     std::vector<CuePoint> cues;
@@ -83,6 +118,31 @@ struct Track
     // DJ actually rated" vs. "how many are literally 0 stars").
     std::optional<int> rating;
     std::string comment;  // the DJ's own free-text comment field, empty if none
+
+    // Every row that points at this same file, in each format that has
+    // one, this row included -- set by
+    // application::collapseCatalogRows(), empty on anything that has not
+    // been through it (every reader leaves it so, and an unreferenced
+    // file has no rows in any format).
+    //
+    // DeviceLibrary (export.pdb), OneLibrary (exportLibrary.db) and
+    // Engine (m.db) are not three libraries. They are ONE library
+    // written three times, for three hardware products, and they are
+    // meant to hold the same tracks; keeping them that way is what this
+    // whole project is for. So a track appearing in all three is not
+    // duplication, it is the normal, correct state -- what duplicates is
+    // a FILE, when a re-export writes the same recording to disk again
+    // and every format then lists both.
+    //
+    // Code that treats a row as a copy therefore sees one file as three
+    // duplicates of itself. On a real stick that is 4369 rows for 1564
+    // files, 1451 of them written in more than one format.
+    //
+    // The corollary is the other half of this field: removing a copy
+    // means removing its row from every format listed here, because they
+    // are supposed to keep saying the same thing. Leaving one behind
+    // does not just orphan a row, it makes the formats disagree.
+    std::vector<CatalogRowRef> catalogRows;
 
     // Every playlist this track belongs to. Best-effort: populated where
     // the reader supports it, empty otherwise.
