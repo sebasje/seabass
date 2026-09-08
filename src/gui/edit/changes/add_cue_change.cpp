@@ -97,7 +97,7 @@ std::vector<BackupTarget> AddCueChange::filesToBackup(SaveContext &ctx) const
 {
     std::vector<BackupTarget> targets;
     for (const auto &file :
-         filesWrittenFor(WriteKind::Cues, {m_format.toStdString(), m_sourceId.toStdString()}, m_path, ctx)) {
+         filesWrittenFor(WriteScope{.catalogRows = false, .oneLibraryMirror = true}, {m_format.toStdString(), m_sourceId.toStdString()}, m_path, ctx)) {
         targets.push_back({file, "add-cue"});
     }
     return targets;

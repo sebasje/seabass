@@ -15,7 +15,7 @@ namespace seabass::gui
 
 namespace fs = std::filesystem;
 
-std::vector<std::string> filesWrittenFor(WriteKind kind, const domain::TrackId &track, const QString &root,
+std::vector<std::string> filesWrittenFor(WriteScope scope, const domain::TrackId &track, const QString &root,
                                          SaveContext &ctx)
 {
     const std::string &format = track.first;
@@ -39,13 +39,13 @@ std::vector<std::string> filesWrittenFor(WriteKind kind, const domain::TrackId &
         if (analyzePath) {
             files.push_back(infrastructure::rekordbox::extAnlzPath(rootPath, *analyzePath));
         }
-        if (kind == WriteKind::CuesAndCatalogRows) {
+        if (scope.catalogRows) {
             files.push_back((fs::path(rootPath) / "rekordbox" / "export.pdb").string());
         }
-        // OneLibrary is the same library in a newer format, written
-        // alongside rekordbox whenever it is present -- so it is changed by
-        // the same write and needs the same backup.
-        if (infrastructure::onelibrary::OneLibraryCueWriter::existsFor(rootPath)) {
+        // Only when this workflow actually mirrors there. Presence of the
+        // database is not the test -- Sync leaves it alone even when it
+        // exists.
+        if (scope.oneLibraryMirror && infrastructure::onelibrary::OneLibraryCueWriter::existsFor(rootPath)) {
             files.push_back(infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(rootPath));
         }
     } else if (format == "engine") {

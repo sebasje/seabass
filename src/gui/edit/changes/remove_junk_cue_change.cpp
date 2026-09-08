@@ -110,7 +110,7 @@ std::vector<BackupTarget> RemoveJunkCueChange::filesToBackup(SaveContext &ctx) c
     // Cues only: this path never writes export.pdb (see
     // RekordboxCueWriter's own header), so the catalog must not be named.
     std::vector<BackupTarget> targets;
-    for (const auto &file : filesWrittenFor(WriteKind::Cues, {m_track.format, m_track.sourceId}, m_path, ctx)) {
+    for (const auto &file : filesWrittenFor(WriteScope{.catalogRows = false, .oneLibraryMirror = true}, {m_track.format, m_track.sourceId}, m_path, ctx)) {
         targets.push_back({file, "junk-cue-cleanup"});
     }
     return targets;

@@ -48,10 +48,21 @@ QString describeCues(const std::vector<domain::CuePoint> &cues);
 // cue-only write never touches the catalog -- naming it anyway would put a
 // file in the backup record that the save does not change, and Undo would
 // then restore a file this save never touched.
-enum class WriteKind
+struct WriteScope
 {
-    Cues,
-    CuesAndCatalogRows,
+    // Also rewrites rows in the catalog itself (rekordbox's export.pdb).
+    // A cue write does not: rekordbox keeps cue data in per-track analysis
+    // files, so naming the catalog would put a file in the backup record
+    // that the save never changes, and Undo would restore it.
+    bool catalogRows = false;
+    // Also writes the OneLibrary copy of the same library. Some workflows
+    // mirror there and some do not, and it is not inferable from the
+    // format -- Add Cue, Local Cue restore and stray-cue removal mirror;
+    // Sync and duplicate-cue consolidation do not. Getting this wrong in
+    // either direction is a real defect: too few leaves a file overwritten
+    // with no backup, too many has Undo restore a file the save never
+    // touched.
+    bool oneLibraryMirror = false;
 };
 
 // Every file a write of `kind` to `track` under `root` would overwrite.
@@ -70,7 +81,7 @@ enum class WriteKind
 // Returns nothing for an unusable sourceId rather than guessing a path
 // from it -- apply() reports the bad id, and a wrong path here would back
 // up one file while the save overwrote another.
-std::vector<std::string> filesWrittenFor(WriteKind kind, const domain::TrackId &track, const QString &root,
+std::vector<std::string> filesWrittenFor(WriteScope scope, const domain::TrackId &track, const QString &root,
                                          SaveContext &ctx);
 
 // The save's one analysis-path index for this catalog, built by whichever
