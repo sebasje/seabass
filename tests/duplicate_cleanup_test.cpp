@@ -202,8 +202,7 @@ int main()
         std::cout << "case 12 (agreeing rating/comment -- not at risk) OK\n";
     }
 
-    // Differing comment, playCount, and lastPlayedAt each independently
-    // trip the flag too, not just rating.
+    // A differing comment trips the flag too, not just rating.
     {
         Track a = makeTrack("a", 200.0, 320, 8'000'000);
         a.comment = "keeper";
@@ -214,6 +213,13 @@ int main()
         assert(plan.hasUnpreservableDataAtRisk);
         std::cout << "case 13 (differing comment -> hasUnpreservableDataAtRisk) OK\n";
     }
+    // Play counts and last-played timestamps do NOT trip it, on purpose.
+    // They are per-application counters: rekordbox keeps a running count,
+    // Engine keeps only the timestamp of the last play, and the same
+    // track routinely carries both. Comparing them across library types
+    // asks a question with no answer, and treating the non-answer as
+    // "data at risk" held back 57 audio files on a real stick where 2 was
+    // the honest number. See duplicate_cleanup.cpp's own comment.
     {
         Track a = makeTrack("a", 200.0, 320, 8'000'000);
         a.playCount = 10;
@@ -221,8 +227,8 @@ int main()
         b.playCount = 3;
         DuplicateGroup group{{a, b}};
         auto plan = DuplicateCleanupPlanner::plan(group);
-        assert(plan.hasUnpreservableDataAtRisk);
-        std::cout << "case 14 (differing playCount -> hasUnpreservableDataAtRisk) OK\n";
+        assert(!plan.hasUnpreservableDataAtRisk);
+        std::cout << "case 14 (differing playCount alone does NOT flag) OK\n";
     }
     {
         Track a = makeTrack("a", 200.0, 320, 8'000'000);
@@ -231,8 +237,22 @@ int main()
         b.lastPlayedAt = std::chrono::system_clock::time_point{std::chrono::seconds{2000}};
         DuplicateGroup group{{a, b}};
         auto plan = DuplicateCleanupPlanner::plan(group);
+        assert(!plan.hasUnpreservableDataAtRisk);
+        std::cout << "case 15 (differing lastPlayedAt alone does NOT flag) OK\n";
+    }
+    // ...but a rating still does, even alongside differing play counts:
+    // dropping the counters must not have dropped the real signal too.
+    {
+        Track a = makeTrack("a", 200.0, 320, 8'000'000);
+        a.rating = 5;
+        a.playCount = 10;
+        Track b = makeTrack("b", 200.0, 128, 3'000'000);
+        b.rating = 2;
+        b.playCount = 3;
+        DuplicateGroup group{{a, b}};
+        auto plan = DuplicateCleanupPlanner::plan(group);
         assert(plan.hasUnpreservableDataAtRisk);
-        std::cout << "case 15 (differing lastPlayedAt -> hasUnpreservableDataAtRisk) OK\n";
+        std::cout << "case 15b (rating still flags alongside play counts) OK\n";
     }
 
     // `differs` (quality/length disagreement) and
