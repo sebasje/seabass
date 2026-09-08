@@ -24,8 +24,19 @@ namespace
 // exportLibrary.db's content.path column uses, confirmed against a
 // real stick's data during development, e.g.
 // "/Contents/Artist/Track/01_Artist-Track.mp3".
-std::string toContentPath(const std::string &stickRoot, const std::string &filePath)
+std::string toContentPath(const std::string &stickRoot, const std::string &trackPath)
 {
+    // Trailing whitespace is not part of a filename. rekordbox's pdb
+    // stores strings in fixed-length fields and pads them, so a path read
+    // back from export.pdb can arrive space-padded -- and an unpadded
+    // lookup then finds no content row and writes nothing, silently.
+    // Windows does not permit a trailing space in a filename anyway, so
+    // there is no file this could wrongly match.
+    std::string filePath = trackPath;
+    while (!filePath.empty() && (filePath.back() == ' ' || filePath.back() == '\t')) {
+        filePath.pop_back();
+    }
+
     std::error_code ec;
     fs::path rel = fs::relative(fs::path(filePath), fs::path(stickRoot), ec);
     std::string relStr = ec ? filePath : rel.generic_string();

@@ -102,9 +102,8 @@ QStringList SyncPlanChange::formatsTouched() const
     return {QString::fromStdString(target().format)};
 }
 
-// Only the target is written; the source is read. No OneLibrary mirror --
-// Sync writes whichever catalog is the target and leaves the others alone,
-// even when the stick has all three.
+// Only the target is written; the source is read. A rekordbox target also
+// writes the OneLibrary copy of that same library -- see apply().
 std::vector<BackupTarget> SyncPlanChange::filesToBackup(SaveContext &ctx) const
 {
     const domain::Track &tgt = target();
@@ -113,7 +112,8 @@ std::vector<BackupTarget> SyncPlanChange::filesToBackup(SaveContext &ctx) const
         return {};  // apply() reports the missing catalog path
     }
     std::vector<BackupTarget> targets;
-    for (const auto &file : filesWrittenFor(WriteScope{}, {tgt.format, tgt.sourceId}, path, ctx)) {
+    const WriteScope scope{.cueData = true, .catalogRows = false, .oneLibraryMirror = true};
+    for (const auto &file : filesWrittenFor(scope, {tgt.format, tgt.sourceId}, path, ctx)) {
         targets.push_back({file, "sync"});
     }
     return targets;
@@ -144,6 +144,25 @@ ChangeOutcome SyncPlanChange::apply(SaveContext &ctx)
             ctx.backupOnce(infrastructure::rekordbox::extAnlzPath(catalogPath, *analyzePath), "sync");
         }
         writer.rekordbox->writeHotCues(tgt.sourceId, m_plan.cuesToApply);
+        // export.pdb and exportLibrary.db are the SAME library in two
+        // formats, not two catalogs, so a cue written to one and not the
+        // other leaves rekordbox 7 showing a track the older export says
+        // has cues and this one says does not. Every other cue-writing
+        // workflow mirrors here; Sync did not, which is what made a
+        // rekordbox sync a two-way sync on a three-format stick.
+        //
+        // Best-effort and logged, the same convention Add Cue, Local Cue
+        // restore and stray-cue removal use: the primary write has already
+        // landed, and failing the save over the mirror would leave the
+        // user worse off than a stale copy they can re-sync.
+        if (!tgt.filePath.empty() && infrastructure::onelibrary::OneLibraryCueWriter::existsFor(catalogPath)) {
+            try {
+                sharedOneLibraryWriter(ctx, catalogPath).writeCuesForPath(tgt.filePath, m_plan.cuesToApply);
+                ctx.log().record("sync: also wrote cues to the OneLibrary copy of track id=" + tgt.sourceId);
+            } catch (const std::exception &e) {
+                ctx.log().record(std::string("sync: OneLibrary cue mirror failed: ") + e.what());
+            }
+        }
     } else if (targetFormat == "engine") {
         writer.engine->writeHotCues(tgt.sourceId, m_plan.cuesToApply);
     } else {
