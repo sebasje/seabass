@@ -48,7 +48,7 @@ std::vector<BackupTarget> DeleteOrphanChange::filesToBackup(SaveContext &ctx) co
     std::vector<BackupTarget> targets;
     // The row id is irrelevant for OneLibrary -- one shared database
     // whatever the track -- but the format is what selects that branch.
-    for (const auto &file : filesWrittenFor(WriteKind::Cues, {"onelibrary", std::string()}, m_path, ctx)) {
+    for (const auto &file : filesWrittenFor(WriteScope{}, {"onelibrary", std::string()}, m_path, ctx)) {
         targets.push_back({file, "consistency-delete-orphan"});
     }
     return targets;

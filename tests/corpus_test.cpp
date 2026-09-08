@@ -1074,13 +1074,13 @@ void caseBackupPathResolver(const DataSet &set, const fs::path &scratch, const C
         return false;
     };
 
-    const auto cuesOnly = gui::filesWrittenFor(gui::WriteKind::Cues, id, qroot, ctx);
+    const auto cuesOnly = gui::filesWrittenFor(gui::WriteScope{}, id, qroot, ctx);
     check(has(cuesOnly, ".EXT"), "a cue write names this track's analysis file");
     check(!has(cuesOnly, "export.pdb"),
           "a cue write does NOT name export.pdb -- rekordbox keeps cues outside the catalog, and backing it "
           "up would put a file Undo restores but the save never changed into the record");
 
-    const auto withRows = gui::filesWrittenFor(gui::WriteKind::CuesAndCatalogRows, id, qroot, ctx);
+    const auto withRows = gui::filesWrittenFor(gui::WriteScope{.catalogRows = true}, id, qroot, ctx);
     check(has(withRows, ".EXT"), "a row-rewriting write still names the analysis file");
     check(has(withRows, "export.pdb"), "a row-rewriting write also names export.pdb");
 
@@ -1095,16 +1095,26 @@ void caseBackupPathResolver(const DataSet &set, const fs::path &scratch, const C
 
     // A sourceId that is not a number at all: report nothing rather than
     // guess a path from it.
-    check(gui::filesWrittenFor(gui::WriteKind::Cues, {"rekordbox", "not-a-track-id"}, qroot, ctx).empty(),
+    check(gui::filesWrittenFor(gui::WriteScope{}, {"rekordbox", "not-a-track-id"}, qroot, ctx).empty(),
           "an unusable sourceId resolves to no files rather than to a wrong one");
 
     // A well-formed id no catalog holds: no analysis file, and in
     // particular not some neighbouring track's.
-    const auto missing = gui::filesWrittenFor(gui::WriteKind::Cues, {"rekordbox", "4294967000"}, qroot, ctx);
+    const auto missing = gui::filesWrittenFor(gui::WriteScope{}, {"rekordbox", "4294967000"}, qroot, ctx);
     check(!has(missing, ".EXT"), "an id absent from the catalog resolves to no analysis file");
 
+    // The OneLibrary mirror is opt-in per workflow, not inferred from the
+    // database being present. Sync leaves it alone even on a stick that
+    // has one; Add Cue writes it. Both directions are defects.
+    const auto mirrored = gui::filesWrittenFor(gui::WriteScope{.oneLibraryMirror = true}, id, qroot, ctx);
+    if (infrastructure::onelibrary::OneLibraryCueWriter::existsFor(root.string())) {
+        check(has(mirrored, "exportLibrary.db"), "a mirroring write names the OneLibrary database");
+        check(!has(cuesOnly, "exportLibrary.db"),
+              "a non-mirroring write does NOT name it, even though the stick has one");
+    }
+
     // Engine names one shared database whatever the track.
-    const auto engine = gui::filesWrittenFor(gui::WriteKind::Cues, {"engine", track.sourceId},
+    const auto engine = gui::filesWrittenFor(gui::WriteScope{}, {"engine", track.sourceId},
                                              QString::fromStdString((root / "Engine Library").string()), ctx);
     check(has(engine, "m.db"), "an Engine write names m.db");
 

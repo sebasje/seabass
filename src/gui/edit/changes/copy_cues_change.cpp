@@ -97,7 +97,7 @@ std::vector<BackupTarget> CopyCuesChange::filesToBackup(SaveContext &ctx) const
     std::vector<BackupTarget> targets;
     for (const auto &target : m_op.targets) {
         for (const auto &file :
-             filesWrittenFor(WriteKind::Cues, {m_format.toStdString(), target.sourceId}, m_path, ctx)) {
+             filesWrittenFor(WriteScope{}, {m_format.toStdString(), target.sourceId}, m_path, ctx)) {
             targets.push_back({file, "duplicate-cue-consolidation"});
         }
     }
@@ -120,7 +120,7 @@ ChangeOutcome CopyCuesChange::apply(SaveContext &ctx)
 
     for (const auto &target : m_op.targets) {
         for (const auto &file :
-             filesWrittenFor(WriteKind::Cues, {m_format.toStdString(), target.sourceId}, m_path, ctx)) {
+             filesWrittenFor(WriteScope{}, {m_format.toStdString(), target.sourceId}, m_path, ctx)) {
             ctx.backupOnce(file, "duplicate-cue-consolidation");
         }
         format.writer->writeHotCues(target.sourceId, m_op.source.cues);

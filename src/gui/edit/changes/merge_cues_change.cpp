@@ -99,7 +99,7 @@ std::vector<BackupTarget> MergeCuesChange::filesToBackup(SaveContext &ctx) const
 {
     std::vector<BackupTarget> targets;
     const domain::TrackId track{m_format.toStdString(), m_candidate.stickTrack.sourceId};
-    for (const auto &file : filesWrittenFor(WriteKind::Cues, track, m_path, ctx)) {
+    for (const auto &file : filesWrittenFor(WriteScope{.catalogRows = false, .oneLibraryMirror = true}, track, m_path, ctx)) {
         targets.push_back({file, "local-restore"});
     }
     return targets;
