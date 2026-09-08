@@ -39,6 +39,7 @@
 #include "application/use_cases/sync_libraries.hpp"
 #include "domain/library_consistency.hpp"
 #include "domain/library_statistics.hpp"
+#include "application/use_cases/find_unreferenced_files.hpp"
 #include "infrastructure/backup/filesystem_backup_store.hpp"
 #include "infrastructure/cleanup/pending_deletion_applier.hpp"
 #include "infrastructure/cleanup/pending_deletion_manifest.hpp"
@@ -246,6 +247,18 @@ std::vector<DataSet> discoverSets()
         }
     }
     return sets;
+}
+
+// Case 7 works from one catalog by construction: it removes a row from the
+// rekordbox export and checks the resolver against a fresh read of that
+// same catalog. resolvePendingDeletions() takes them named rather than
+// merged so that "I only passed one catalog" cannot be invisible at the
+// call site -- here it genuinely is one, and this says so.
+application::CatalogTracks asRekordboxCatalog(std::vector<domain::Track> tracks)
+{
+    application::CatalogTracks catalogs;
+    catalogs.rekordbox = std::move(tracks);
+    return catalogs;
 }
 
 // ---------------------------------------------------------- expectations
@@ -663,7 +676,7 @@ void casePendingDeletion(const DataSet &set, const fs::path &scratch, const Cata
     // manifest still lists it.
     auto staleScan = postRemoval;
     staleScan[0].filePath = doomed.filePath;
-    auto stale = infrastructure::cleanup::resolvePendingDeletions(manifest.list(), staleScan);
+    auto stale = infrastructure::cleanup::resolvePendingDeletions(manifest.list(), asRekordboxCatalog(staleScan));
     check(stale.safeToDelete.empty(), "a still-referenced path is not offered for deletion");
     if (check(stale.stillReferenced.size() == 1, "the still-referenced path is reported as such")) {
         check(stale.stillReferenced[0].filePath == doomed.filePath, "the right path was protected");
@@ -671,7 +684,7 @@ void casePendingDeletion(const DataSet &set, const fs::path &scratch, const Cata
     check(fs::exists(victim), "the protected file is still on disk");
     pass("case 7b: a stale manifest entry is refused, not acted on");
 
-    auto real = infrastructure::cleanup::resolvePendingDeletions(manifest.list(), postRemoval);
+    auto real = infrastructure::cleanup::resolvePendingDeletions(manifest.list(), asRekordboxCatalog(postRemoval));
     if (check(real.safeToDelete.size() == 1, "the genuinely orphaned file is offered for deletion")) {
         check(real.stillReferenced.empty(), "nothing else was flagged");
         auto outcomes = infrastructure::cleanup::applyPendingDeletions(real.safeToDelete, manifest);
