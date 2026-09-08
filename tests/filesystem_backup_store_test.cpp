@@ -322,6 +322,78 @@ int main()
         std::cout << "case 11 (a version 1 manifest with absolute paths still restores) OK\n";
     }
 
+    // ---- archive-backed records --------------------------------------
+    // One record, one deflated archive: what a save's backup becomes.
+    {
+        fs::path stick = root / "arch";
+        fs::path a = stick / "PIONEER" / "USBANLZ" / "P001" / "ANLZ0000.EXT";
+        fs::path b = stick / "PIONEER" / "USBANLZ" / "P002" / "ANLZ0000.EXT";
+        const std::string aBody(200000, 'a');
+        const std::string bBody = "cue at 0:00, and again, and again, and again";
+        writeFile(a, aBody);
+        writeFile(b, bBody);
+
+        FilesystemBackupStore store((stick / ".seabass-backups").string());
+        auto record = store.backupToArchive({a.string(), b.string()}, "stray-cues");
+        assert(record.filePaths.size() == 2);
+        assert(fs::exists(fs::path(record.path) / "backup.zip"));
+        // Both files are called ANLZ0000.EXT. The loose layout has to
+        // rename the second one; the archive tells them apart by path.
+        assert(record.filePaths[0] != record.filePaths[1]);
+
+        writeFile(a, "clobbered");
+        writeFile(b, "clobbered too");
+        assert(store.restore(record.id));
+        assert(readFile(a) == aBody);
+        assert(readFile(b) == bBody);
+        std::cout << "case 12 (an archive record restores both files that share a basename) OK\n";
+
+        // It listed like any other record, and the restore made its own
+        // pre-restore backup as the loose path does.
+        auto records = store.list();
+        bool sawPreRestore = false;
+        for (const auto &r : records) {
+            if (r.label == "pre-restore") {
+                sawPreRestore = true;
+            }
+        }
+        assert(sawPreRestore);
+        std::cout << "case 13 (restoring an archive still backs up what it overwrites) OK\n";
+    }
+
+    // A damaged archive must refuse rather than half-restore: writing a
+    // prefix over a live file is worse than doing nothing.
+    {
+        fs::path stick = root / "arch-damaged";
+        fs::path a = stick / "PIONEER" / "export.pdb";
+        writeFile(a, "the original");
+        FilesystemBackupStore store((stick / ".seabass-backups").string());
+        auto record = store.backupToArchive({a.string()}, "sync");
+
+        fs::path archive = fs::path(record.path) / "backup.zip";
+        fs::resize_file(archive, fs::file_size(archive) / 2);
+
+        writeFile(a, "current contents");
+        assert(!store.restore(record.id));
+        assert(readFile(a) == "current contents");
+        std::cout << "case 14 (a truncated archive refuses to restore) OK\n";
+    }
+
+    // Everything above must not have broken the loose layout: a v2 record
+    // made the old way still restores.
+    {
+        fs::path stick = root / "still-loose";
+        fs::path a = stick / "PIONEER" / "export.pdb";
+        writeFile(a, "loose original");
+        FilesystemBackupStore store((stick / ".seabass-backups").string());
+        auto record = store.backup({a.string()}, "sync");
+        assert(!fs::exists(fs::path(record.path) / "backup.zip"));
+        writeFile(a, "changed");
+        assert(store.restore(record.id));
+        assert(readFile(a) == "loose original");
+        std::cout << "case 15 (the loose layout is untouched) OK\n";
+    }
+
     std::cout << "all cases passed\n";
     return 0;
 }

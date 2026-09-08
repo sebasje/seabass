@@ -716,13 +716,27 @@ add_executable(bulk_write_strategy_test
 target_include_directories(bulk_write_strategy_test PRIVATE src)
 add_test(NAME bulk_write_strategy_test COMMAND bulk_write_strategy_test)
 
+# Defined here rather than beside the archive tests further down: the
+# backup store itself now writes archives, and its test is the first
+# target that needs these.
+set(SEABASS_STICK_BACKUP_FORMAT_SOURCES
+    src/infrastructure/hashing/sha256.cpp
+    src/infrastructure/stick_backup/posix_archive_file.cpp
+    src/infrastructure/stick_backup/zip_format.cpp
+    src/infrastructure/stick_backup/zip64_writer.cpp
+    src/infrastructure/stick_backup/zip64_reader.cpp
+    src/infrastructure/stick_backup/backup_manifest.cpp
+)
+
 add_executable(filesystem_backup_store_test
     src/infrastructure/durable_file_write.cpp
     src/infrastructure/work_counters.cpp
     src/infrastructure/backup/filesystem_backup_store.cpp
+    ${SEABASS_STICK_BACKUP_FORMAT_SOURCES}
     tests/filesystem_backup_store_test.cpp
 )
 target_include_directories(filesystem_backup_store_test PRIVATE src)
+target_link_libraries(filesystem_backup_store_test PRIVATE ZLIB::ZLIB)
 add_test(NAME filesystem_backup_store_test COMMAND filesystem_backup_store_test)
 
 add_executable(stick_write_lock_test
@@ -926,10 +940,11 @@ add_executable(duplicate_cleanup_interruption_test
     src/infrastructure/backup/filesystem_backup_store.cpp
     src/infrastructure/durable_file_write.cpp
     src/infrastructure/work_counters.cpp
+    ${SEABASS_STICK_BACKUP_FORMAT_SOURCES}
     tests/duplicate_cleanup_interruption_test.cpp
 )
 target_include_directories(duplicate_cleanup_interruption_test PRIVATE src)
-target_link_libraries(duplicate_cleanup_interruption_test PRIVATE DjInterop)
+target_link_libraries(duplicate_cleanup_interruption_test PRIVATE DjInterop ZLIB::ZLIB)
 add_test(NAME duplicate_cleanup_interruption_test COMMAND duplicate_cleanup_interruption_test)
 
 add_executable(libdjinterop_engine_anonymizer_test
@@ -1006,14 +1021,6 @@ add_executable(archive_file_test
 target_include_directories(archive_file_test PRIVATE src)
 add_test(NAME archive_file_test COMMAND archive_file_test)
 
-set(SEABASS_STICK_BACKUP_FORMAT_SOURCES
-    src/infrastructure/hashing/sha256.cpp
-    src/infrastructure/stick_backup/posix_archive_file.cpp
-    src/infrastructure/stick_backup/zip_format.cpp
-    src/infrastructure/stick_backup/zip64_writer.cpp
-    src/infrastructure/stick_backup/zip64_reader.cpp
-    src/infrastructure/stick_backup/backup_manifest.cpp
-)
 
 add_executable(backup_archive_roundtrip_test
     ${SEABASS_STICK_BACKUP_FORMAT_SOURCES}
