@@ -44,6 +44,17 @@ public:
     // front, because an archive gets one central directory rather than
     // one per appended file.
     application::BackupRecord backupToArchive(const std::vector<std::string> &filePaths, const std::string &label);
+
+    // Appends to an archive record, the way addToBackup() appends to a
+    // loose one, so a save that discovers its files as it goes can still
+    // use an archive. Each call re-writes the archive's central directory
+    // and makes it durable, so the record is complete and readable after
+    // every item -- the same guarantee the loose layout gives, since it
+    // fsyncs every copy. The superseded central directories become dead
+    // space; archive_compactor reclaims it.
+    //
+    // Throws if `id` is not an archive record.
+    application::BackupRecord addToArchive(const std::string &id, const std::vector<std::string> &filePaths);
     std::vector<application::BackupRecord> list() override;
     application::BackupRecord addToBackup(const std::string &id,
                                           const std::vector<std::string> &filePaths) override;
@@ -63,6 +74,11 @@ private:
     std::filesystem::path stickRoot() const;
     bool restoreFromArchive(const std::filesystem::path &dir,
                             const std::vector<std::pair<std::string, std::string>> &entries);
+    // Appends `filePaths` to the archive in `dir`, returns the entry
+    // name / recorded path pairs actually written and the archive's new
+    // size. Shared by backupToArchive() and addToArchive().
+    std::pair<std::vector<std::pair<std::string, std::string>>, std::uint64_t>
+    writeArchiveEntries(const std::filesystem::path &dir, const std::vector<std::string> &filePaths);
     std::string recordedPathFor(const std::filesystem::path &source) const;
     std::filesystem::path resolveRecordedPath(const std::string &recorded) const;
 

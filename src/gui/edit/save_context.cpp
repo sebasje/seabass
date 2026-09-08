@@ -55,6 +55,11 @@ application::OperationLog &SaveContext::log()
 
 application::BackupStore &SaveContext::backupStore()
 {
+    return archiveStore();
+}
+
+infrastructure::backup::FilesystemBackupStore &SaveContext::archiveStore()
+{
     if (!m_backupStore) {
         m_backupStore = std::make_unique<infrastructure::backup::FilesystemBackupStore>(
             infrastructure::backup::backupDirForStickRoot(stickRoot()));
@@ -69,13 +74,21 @@ bool SaveContext::backupOnce(const std::string &file, const std::string &label)
     }
     auto existing = m_recordByLabel.find(label);
     application::BackupRecord record;
+    // One deflated archive per save rather than a directory of loose
+    // copies. A save that removes a cue from 200 tracks used to make 200
+    // durable whole-file writes here -- about 118 ms each on Linux -- and
+    // leave 71.5 MB on a stick permanently; the same files are 45.5 MB in
+    // an archive. The central directory is rewritten and made durable
+    // after every file, so the record stays complete and readable at
+    // every point a crash could happen, exactly as the loose layout was.
+    // See docs/write-path-performance.md, rounds 9-16.
     if (existing == m_recordByLabel.end()) {
-        record = backupStore().backup({file}, label);
+        record = archiveStore().backupToArchive({file}, label);
         m_recordByLabel[label] = record.id;
         m_backups.push_back({QString::fromStdString(fs::path(record.path).parent_path().string()),
                              QString::fromStdString(record.id)});
     } else {
-        record = backupStore().addToBackup(existing->second, {file});
+        record = archiveStore().addToArchive(existing->second, {file});
     }
     log().record(label + ": backed up " + fs::path(file).filename().string() + " -> " + record.path);
     m_backedUp[file] = record.id;
