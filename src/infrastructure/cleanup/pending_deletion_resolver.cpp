@@ -23,22 +23,51 @@ std::string normalize(const std::string &path)
     // manifest-vs-scan safety check) depend on which OS it's running on.
     std::string slashed = path;
     std::replace(slashed.begin(), slashed.end(), '\\', '/');
-    return fs::path(slashed).lexically_normal().generic_string();
+    std::string normalized = fs::path(slashed).lexically_normal().generic_string();
+    // ASCII-lowercased for the same reason findUnreferencedFiles() does
+    // it: exFAT and NTFS are case-insensitive, so two spellings that
+    // differ only in case name one physical file, and comparing them
+    // case-sensitively would call a referenced file safe to delete.
+    // Normalizing can only ever move an entry toward "still referenced".
+    for (auto &c : normalized) {
+        if (c >= 'A' && c <= 'Z') {
+            c = static_cast<char>(c - 'A' + 'a');
+        }
+    }
+    return normalized;
+}
+
+void collect(const std::optional<std::vector<domain::Track>> &catalog, std::set<std::string> &referenced)
+{
+    if (!catalog) {
+        return;
+    }
+    for (const auto &track : *catalog) {
+        if (!track.filePath.empty()) {
+            referenced.insert(normalize(track.filePath));
+        }
+    }
 }
 
 }  // namespace
 
 PendingDeletionResolution resolvePendingDeletions(const std::vector<PendingDeletion> &pending,
-                                                    const std::vector<domain::Track> &currentTracks)
+                                                    const application::CatalogTracks &catalogs)
 {
-    std::set<std::string> referenced;
-    for (const auto &track : currentTracks) {
-        if (!track.filePath.empty()) {
-            referenced.insert(normalize(track.filePath));
-        }
+    PendingDeletionResolution result;
+
+    if (catalogs.present().empty()) {
+        // Nothing was read, so nothing can be shown to be unreferenced.
+        // Protect every entry rather than clearing the stick.
+        result.stillReferenced = pending;
+        return result;
     }
 
-    PendingDeletionResolution result;
+    std::set<std::string> referenced;
+    collect(catalogs.rekordbox, referenced);
+    collect(catalogs.engine, referenced);
+    collect(catalogs.oneLibrary, referenced);
+
     for (const auto &entry : pending) {
         // No resolved path to check at all -- never guess, leave it alone.
         if (entry.filePath.empty() || referenced.contains(normalize(entry.filePath))) {

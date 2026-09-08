@@ -157,6 +157,8 @@ set(SEABASS_GUI_SOURCES
     qt_progress_reporter.hpp
     library_catalog_cache.hpp
     library_catalog_cache.cpp
+    stick_catalogs.hpp
+    stick_catalogs.cpp
     edit/pending_change.hpp
     edit/save_context.hpp
     edit/save_context.cpp

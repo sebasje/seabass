@@ -1,0 +1,57 @@
+#pragma once
+
+#include <string>
+#include <vector>
+
+#include "application/ports/cancellation_token.hpp"
+#include "application/ports/progress_reporter.hpp"
+#include "application/use_cases/find_unreferenced_files.hpp"
+
+namespace seabass::gui
+{
+
+struct StickCatalogRead
+{
+    application::CatalogTracks catalogs;
+
+    // Catalogs whose database is present on the stick but could not be
+    // read. Never silently folded into "absent": absent means "this
+    // stick has no such catalog, so it protects no files", while a
+    // failed read means "this stick HAS one and we do not know what it
+    // protects". A caller about to delete files must refuse on a
+    // non-empty list rather than proceed with partial knowledge.
+    std::vector<std::string> failed;
+};
+
+// Reads every catalog present on the stick that `libraryPath` belongs
+// to -- rekordbox, Engine and OneLibrary alike -- regardless of which
+// one the caller happens to be working in.
+//
+// `libraryPath` is a catalog directory (".../PIONEER", ".../Engine
+// Library"); the stick root is its parent. Reads go through
+// LibraryCatalogCache, so a catalog already scanned this session costs
+// nothing.
+//
+// This exists because "is this file still needed?" is a question about
+// the stick, never about one catalog.
+//
+// Note that the three are not three separate libraries: OneLibrary
+// (exportLibrary.db, "Device Library Plus") is the same rekordbox
+// library as export.pdb in a newer format, so their track lists overlap
+// heavily rather than adding up. That makes the single-catalog check
+// worse, not better -- the two rekordbox formats do not agree on
+// contents. Measured on RV2, where 1468 files on disk are referenced by
+// something:
+//
+//   consulting only rekordbox   protects 1161 -> 307 referenced files
+//                                                would look deletable
+//   consulting only OneLibrary  protects 1451 ->  17
+//   consulting only Engine      protects 1468 ->   0
+//
+// Those 307 are files the DJ can still play, that a cleanup run from the
+// rekordbox side would have permanently destroyed. Engine happens to be
+// a superset on this one stick; nothing guarantees that on the next.
+StickCatalogRead readAllStickCatalogs(const std::string &libraryPath, application::ProgressReporter &progress,
+                                        const application::CancellationToken &cancel);
+
+}  // namespace seabass::gui

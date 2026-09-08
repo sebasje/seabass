@@ -1252,6 +1252,7 @@ target_link_libraries(clone_stick_test PRIVATE ZLIB::ZLIB SQLite::SQLite3)
 add_test(NAME clone_stick_test COMMAND clone_stick_test)
 
 add_executable(pending_deletion_resolver_test
+    src/application/use_cases/find_unreferenced_files.cpp
     src/infrastructure/cleanup/pending_deletion_resolver.cpp
     tests/pending_deletion_resolver_test.cpp
 )
@@ -1325,6 +1326,7 @@ add_test(NAME onelibrary_reader_test COMMAND onelibrary_reader_test)
 # --- cli itself does. ---
 
 add_executable(anonymized_fixture_integration_test
+    src/application/use_cases/find_unreferenced_files.cpp
     tests/anonymized_fixture_integration_test.cpp
 )
 target_include_directories(anonymized_fixture_integration_test PRIVATE src)

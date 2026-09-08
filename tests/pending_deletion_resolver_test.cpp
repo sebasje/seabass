@@ -6,6 +6,7 @@
 
 using namespace seabass::domain;
 using namespace seabass::infrastructure::cleanup;
+using seabass::application::CatalogTracks;
 
 namespace
 {
@@ -29,6 +30,14 @@ Track makeTrack(std::string filePath)
     return t;
 }
 
+// The catalogs a stick with only rekordbox on it would present.
+CatalogTracks rekordboxOnly(std::vector<Track> tracks)
+{
+    CatalogTracks catalogs;
+    catalogs.rekordbox = std::move(tracks);
+    return catalogs;
+}
+
 }  // namespace
 
 int main()
@@ -40,7 +49,7 @@ int main()
         std::vector<PendingDeletion> pending = {makePending("/stick/Contents/dup.mp3", "Duplicate Track")};
         std::vector<Track> current = {makeTrack("/stick/Contents/survivor.mp3")};
 
-        auto result = resolvePendingDeletions(pending, current);
+        auto result = resolvePendingDeletions(pending, rekordboxOnly(current));
         assert(result.safeToDelete.size() == 1);
         assert(result.safeToDelete[0].filePath == "/stick/Contents/dup.mp3");
         assert(result.stillReferenced.empty());
@@ -54,7 +63,7 @@ int main()
         std::vector<PendingDeletion> pending = {makePending("/stick/Contents/still-used.mp3", "Still Used")};
         std::vector<Track> current = {makeTrack("/stick/Contents/still-used.mp3")};
 
-        auto result = resolvePendingDeletions(pending, current);
+        auto result = resolvePendingDeletions(pending, rekordboxOnly(current));
         assert(result.safeToDelete.empty());
         assert(result.stillReferenced.size() == 1);
         assert(result.stillReferenced[0].filePath == "/stick/Contents/still-used.mp3");
@@ -69,7 +78,7 @@ int main()
         std::vector<PendingDeletion> pending = {makePending("C:\\Stick\\Contents\\dup.mp3", "Dup")};
         std::vector<Track> current = {makeTrack("C:/Stick/Contents/dup.mp3")};
 
-        auto result = resolvePendingDeletions(pending, current);
+        auto result = resolvePendingDeletions(pending, rekordboxOnly(current));
         assert(result.safeToDelete.empty());
         assert(result.stillReferenced.size() == 1);
         std::cout << "case 3 (path-separator-insensitive matching) OK\n";
@@ -81,7 +90,7 @@ int main()
         std::vector<PendingDeletion> pending = {makePending("", "No Path")};
         std::vector<Track> current;
 
-        auto result = resolvePendingDeletions(pending, current);
+        auto result = resolvePendingDeletions(pending, rekordboxOnly(current));
         assert(result.safeToDelete.empty());
         assert(result.stillReferenced.size() == 1);
         std::cout << "case 4 (empty filePath -> left alone, never guessed at) OK\n";
@@ -96,11 +105,72 @@ int main()
         };
         std::vector<Track> current = {makeTrack("/stick/Contents/used.mp3")};
 
-        auto result = resolvePendingDeletions(pending, current);
+        auto result = resolvePendingDeletions(pending, rekordboxOnly(current));
         assert(result.safeToDelete.size() == 2);
         assert(result.stillReferenced.size() == 1);
         assert(result.stillReferenced[0].filePath == "/stick/Contents/used.mp3");
         std::cout << "case 5 (mixed batch classified independently) OK\n";
+    }
+
+    // The bug this signature exists to make impossible: a cleanup in one
+    // catalog orphans a file, but ANOTHER catalog on the same stick still
+    // references it. Checking only the format that created the entry
+    // would permanently destroy a file the DJ can still play.
+    {
+        std::vector<PendingDeletion> pending = {makePending("/stick/Contents/shared.mp3", "Shared Track")};
+
+        // Only rekordbox consulted -- and rekordbox has indeed forgotten it.
+        auto oneCatalog = resolvePendingDeletions(pending, rekordboxOnly({makeTrack("/stick/Contents/other.mp3")}));
+        assert(oneCatalog.safeToDelete.size() == 1);  // this is what used to happen
+
+        // Every catalog consulted: Engine still plays it, OneLibrary too.
+        CatalogTracks all;
+        all.rekordbox = {makeTrack("/stick/Contents/other.mp3")};
+        all.engine = {makeTrack("/stick/Contents/shared.mp3")};
+        all.oneLibrary = {makeTrack("/stick/Contents/shared.mp3")};
+
+        auto result = resolvePendingDeletions(pending, all);
+        assert(result.safeToDelete.empty());
+        assert(result.stillReferenced.size() == 1);
+        std::cout << "case 6 (a file another catalog still references is never deleted) OK\n";
+    }
+
+    // OneLibrary alone is enough to protect a file. It is the same
+    // rekordbox library as export.pdb in a newer format, and the two do
+    // NOT agree on contents -- on RV2, OneLibrary referenced 290 files
+    // that export.pdb did not -- so this is the common case, not an
+    // exotic one.
+    {
+        std::vector<PendingDeletion> pending = {makePending("/stick/Contents/kept.mp3", "Kept Track")};
+        CatalogTracks catalogs;
+        catalogs.rekordbox = std::vector<Track>{};
+        catalogs.engine = std::vector<Track>{};
+        catalogs.oneLibrary = {makeTrack("/stick/Contents/kept.mp3")};
+
+        auto result = resolvePendingDeletions(pending, catalogs);
+        assert(result.safeToDelete.empty());
+        assert(result.stillReferenced.size() == 1);
+        std::cout << "case 7 (OneLibrary alone protects a file) OK\n";
+    }
+
+    // No catalog could be read at all: protect everything. "I could not
+    // look" and "nothing needs these" must never be the same answer.
+    {
+        std::vector<PendingDeletion> pending = {makePending("/stick/Contents/a.mp3", "A"),
+                                                 makePending("/stick/Contents/b.mp3", "B")};
+        auto result = resolvePendingDeletions(pending, CatalogTracks{});
+        assert(result.safeToDelete.empty());
+        assert(result.stillReferenced.size() == 2);
+        std::cout << "case 8 (no catalogs -> nothing is safe to delete) OK\n";
+    }
+
+    // Case-insensitive filesystems: exFAT and NTFS treat these as one
+    // file, so a case-different spelling in the catalog still protects it.
+    {
+        std::vector<PendingDeletion> pending = {makePending("/stick/Contents/Artist/Track.mp3", "T")};
+        auto result = resolvePendingDeletions(pending, rekordboxOnly({makeTrack("/stick/contents/artist/TRACK.MP3")}));
+        assert(result.safeToDelete.empty());
+        std::cout << "case 9 (case-different spelling still protects) OK\n";
     }
 
     std::cout << "all cases passed\n";

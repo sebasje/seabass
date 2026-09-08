@@ -21,6 +21,7 @@
 #include "gui/edit/pending_change.hpp"
 #include "gui/edit/save_context.hpp"
 #include "gui/library_catalog_cache.hpp"
+#include "gui/stick_catalogs.hpp"
 #include "gui/onelibrary_cue_writer_adapter.hpp"
 #include "gui/qt_progress_reporter.hpp"
 #include "gui/write_guard.hpp"
@@ -807,10 +808,21 @@ PendingDeletionApplyResult runDeletePendingTask(QString format, QString path,
             (stickRoot / ".seabass-pending-deletions.jsonl").string());
         infrastructure::logging::FileOperationLog log((stickRoot / ".seabass.log").string());
 
-        std::vector<domain::Track> tracks =
-            LibraryCatalogCache::instance().tracksFor(format.toStdString(), path.toStdString(), *reporter);
+        // Every catalog on the stick, not just the one this page is
+        // working in. The same audio file routinely lives in rekordbox,
+        // Engine and OneLibrary at once, and a file orphaned by a
+        // cleanup in one of them can still be played from the other two
+        // -- deleting it on one catalog's say-so is unrecoverable.
+        auto stickCatalogs = readAllStickCatalogs(path.toStdString(), *reporter, cancel);
+        if (!stickCatalogs.failed.empty()) {
+            result.errorMessage =
+                QString("Can't safely delete: this stick has a %1 library that could not be read, so there is no "
+                        "way to tell whether it still needs these files. Nothing was deleted.")
+                    .arg(QString::fromStdString(stickCatalogs.failed.front()));
+            return result;
+        }
 
-        auto resolution = infrastructure::cleanup::resolvePendingDeletions(selected, tracks);
+        auto resolution = infrastructure::cleanup::resolvePendingDeletions(selected, stickCatalogs.catalogs);
         result.total = static_cast<int>(resolution.safeToDelete.size());
 
         // The actual deletion (the one place in the app that
