@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <span>
 #include <string>
 #include <string_view>
@@ -16,11 +17,23 @@ namespace seabass::infrastructure::stick_backup
 // One entry as the central directory describes it. Carried unchanged
 // from one archive generation to the next by the incremental update
 // (only offsets of *new* entries are ever computed).
+// How an entry's bytes are stored. Deflate is worth it only where the
+// content actually compresses: cue and database files do (about 30% off),
+// audio does not, and paying deflate for an MP3 is pure CPU for nothing.
+// So it is chosen per entry by the caller, never globally.
+enum class Compression
+{
+    Store,
+    Deflate,
+};
+
 struct CentralEntry
 {
     std::string name;  // forward slashes; directories end with '/'
     std::uint64_t localHeaderOffset = 0;
-    std::uint64_t size = 0;  // STORE: compressed == uncompressed
+    std::uint64_t size = 0;            // uncompressed
+    std::uint64_t compressedSize = 0;  // equal to `size` when stored
+    std::uint16_t method = 0;          // zip::MethodStore / zip::MethodDeflate
     std::uint32_t crc32 = 0;
     std::int64_t mtimeUnix = 0;
     bool isDirectory = false;
@@ -83,7 +96,9 @@ public:
         ~EntrySink();
 
         void write(std::span<const std::byte> bytes);
+        // Uncompressed bytes handed in, which is what callers count.
         std::uint64_t bytesWritten() const { return m_bytesWritten; }
+        std::uint64_t compressedBytesWritten() const { return m_compressedBytes; }
 
         // Writes the data descriptor, records the entry, returns it. The
         // SHA-256 of the streamed bytes is available afterwards for the
@@ -93,7 +108,8 @@ public:
 
     private:
         friend class Zip64Writer;
-        EntrySink(Zip64Writer &writer, CentralEntry entry);
+        EntrySink(Zip64Writer &writer, CentralEntry entry, Compression compression);
+        void deflateChunk(std::span<const std::byte> bytes, bool finishStream);
 
         Zip64Writer *m_writer;
         CentralEntry m_entry;
@@ -101,13 +117,22 @@ public:
         hashing::Sha256 m_hasher;
         hashing::Sha256Digest m_sha256{};
         std::uint64_t m_bytesWritten = 0;
+        std::uint64_t m_compressedBytes = 0;
         bool m_finished = false;
+        // Held by pointer so the header does not drag zlib in.
+        std::shared_ptr<void> m_deflater;
     };
 
-    EntrySink beginFile(std::string name, std::int64_t mtimeUnix);
+    // Level 1 rather than 6 throughout: on real analysis files level 6
+    // buys 1.2 MB out of a 26 MB saving for 2.5x the CPU. See
+    // docs/write-path-performance.md, round 16.
+    static constexpr int DeflateLevel = 1;
+
+    EntrySink beginFile(std::string name, std::int64_t mtimeUnix, Compression compression = Compression::Store);
     CentralEntry addDirectory(std::string name, std::int64_t mtimeUnix);
     CentralEntry addFileFromMemory(std::string name, std::int64_t mtimeUnix, std::span<const std::byte> content,
-                                   hashing::Sha256Digest *sha256Out = nullptr);
+                                   hashing::Sha256Digest *sha256Out = nullptr,
+                                   Compression compression = Compression::Store);
 
     // Appends the manifest as the last entry, then the central directory
     // (carried + new entries), ZIP64 EOCD, locator and EOCD. The writer is

@@ -240,7 +240,8 @@ Zip64Reader Zip64Reader::open(const ArchiveFile &file)
         // Every field Zip64Writer sets to a constant must read back as
         // that constant -- there is no legitimate reason for any of these
         // to differ, so a difference is damage.
-        if (versionMadeBy != VersionMadeBy || versionNeeded != VersionNeeded || method != MethodStore || commentLength != 0
+        if (versionMadeBy != VersionMadeBy || versionNeeded != VersionNeeded
+            || (method != MethodStore && method != MethodDeflate) || commentLength != 0
             || diskNumberStart != 0 || internalAttributes != 0 || (flags & ~(FlagUtf8Names | FlagDataDescriptor)) != 0
             || (flags & FlagUtf8Names) == 0) {
             throw ArchiveFormatError("central directory entry has unexpected header fields: " + name);
@@ -250,9 +251,10 @@ Zip64Reader Zip64Reader::open(const ArchiveFile &file)
 
         CentralEntry entry;
         entry.name = std::move(name);
+        entry.method = method;
         entry.size = expectSize ? extras.uncompressedSize.value_or(Max32) : uncompressed32;
-        std::uint64_t compressedSize = expectSize ? extras.compressedSize.value_or(Max32) : compressed32;
-        if (compressedSize != entry.size) {
+        entry.compressedSize = expectSize ? extras.compressedSize.value_or(Max32) : compressed32;
+        if (entry.method == MethodStore && entry.compressedSize != entry.size) {
             throw ArchiveFormatError("stored entry with mismatched sizes: " + entry.name);
         }
         entry.localHeaderOffset = offset32 == Max32 ? extras.localHeaderOffset.value_or(Max32) : offset32;
@@ -308,7 +310,10 @@ std::uint64_t Zip64Reader::dataOffset(std::size_t index) const
     const std::uint16_t expectedExtraLength = entry.isDirectory ? 9 : 29;
     DosDateTime stamp{readU16(header, 12), readU16(header, 10)};
     DosDateTime expectedStamp = dosDateTimeFromUnix(entry.mtimeUnix);
-    if (readU16(header, 4) != VersionNeeded || readU16(header, 6) != expectedFlags || readU16(header, 8) != MethodStore
+    // The local header must agree with the central directory, method
+    // included -- a mismatch there is how a reader is tricked into
+    // interpreting bytes one way while a tool interprets them another.
+    if (readU16(header, 4) != VersionNeeded || readU16(header, 6) != expectedFlags || readU16(header, 8) != entry.method
         || readU32(header, 14) != 0 || readU32(header, 18) != 0 || readU32(header, 22) != 0
         || readU16(header, 28) != expectedExtraLength || stamp.date != expectedStamp.date || stamp.time != expectedStamp.time) {
         throw ArchiveFormatError("local header fields disagree with the central directory for " + entry.name);
@@ -316,7 +321,7 @@ std::uint64_t Zip64Reader::dataOffset(std::size_t index) const
     std::uint16_t nameLength = readU16(header, 26);
     std::uint16_t extraLength = readU16(header, 28);
     std::uint64_t offset = entry.localHeaderOffset + LocalFileHeaderSize + nameLength + extraLength;
-    if (offset > m_layout.centralDirectoryOffset || entry.size > m_layout.centralDirectoryOffset - offset) {
+    if (offset > m_layout.centralDirectoryOffset || entry.compressedSize > m_layout.centralDirectoryOffset - offset) {
         throw ArchiveFormatError("entry data runs into the central directory: " + entry.name);
     }
     if (nameLength != entry.name.size()) {
@@ -336,20 +341,20 @@ bool Zip64Reader::verifyDataDescriptor(std::size_t index) const
     if (!entry.hasDataDescriptor) {
         return true;
     }
-    std::uint64_t at = dataOffset(index) + entry.size;
+    std::uint64_t at = dataOffset(index) + entry.compressedSize;
     if (at + DataDescriptorSize > m_layout.centralDirectoryOffset) {
         return false;
     }
     std::vector<std::byte> descriptor = readRange(*m_file, at, DataDescriptorSize);
     return readU32(descriptor, 0) == DataDescriptorSignature && readU32(descriptor, 4) == entry.crc32
-           && readU64(descriptor, 8) == entry.size && readU64(descriptor, 16) == entry.size;
+           && readU64(descriptor, 8) == entry.compressedSize && readU64(descriptor, 16) == entry.size;
 }
 
 std::uint64_t Zip64Reader::footprint(std::size_t index) const
 {
     const CentralEntry &entry = m_entries.at(index);
     std::uint64_t headerBytes = dataOffset(index) - entry.localHeaderOffset;
-    return headerBytes + entry.size + (entry.hasDataDescriptor ? DataDescriptorSize : 0);
+    return headerBytes + entry.compressedSize + (entry.hasDataDescriptor ? DataDescriptorSize : 0);
 }
 
 void Zip64Reader::readEntry(std::size_t index, const std::function<void(std::span<const std::byte>)> &sink,
@@ -357,15 +362,72 @@ void Zip64Reader::readEntry(std::size_t index, const std::function<void(std::spa
 {
     const CentralEntry &entry = m_entries.at(index);
     std::uint64_t offset = dataOffset(index);
-    std::uint64_t remaining = entry.size;
-    std::vector<std::byte> buffer(static_cast<std::size_t>(std::min<std::uint64_t>(chunkSize, std::max<std::uint64_t>(remaining, 1))));
-    while (remaining > 0) {
+    std::uint64_t remaining = entry.compressedSize;
+    std::vector<std::byte> buffer(
+        static_cast<std::size_t>(std::min<std::uint64_t>(chunkSize, std::max<std::uint64_t>(remaining, 1))));
+
+    if (entry.method == MethodStore) {
+        while (remaining > 0) {
+            std::size_t take = static_cast<std::size_t>(std::min<std::uint64_t>(remaining, buffer.size()));
+            std::span<std::byte> piece(buffer.data(), take);
+            m_file->readAt(offset, piece);
+            sink(piece);
+            offset += take;
+            remaining -= take;
+        }
+        return;
+    }
+
+    // Deflated: the sink still sees the original bytes, so restore, the
+    // CRC check and the manifest comparison all stay as they were.
+    z_stream stream{};
+    if (inflateInit2(&stream, -MAX_WBITS) != Z_OK) {
+        throw ArchiveFormatError("could not start inflate for " + entry.name);
+    }
+    struct StreamGuard
+    {
+        z_stream *s;
+        ~StreamGuard() { inflateEnd(s); }
+    } guard{&stream};
+
+    std::vector<std::byte> out(1u << 16);
+    std::uint64_t produced = 0;
+    bool ended = false;
+    while (!ended) {
+        if (remaining == 0 && stream.avail_in == 0) {
+            throw ArchiveFormatError("deflated entry ended early: " + entry.name);
+        }
         std::size_t take = static_cast<std::size_t>(std::min<std::uint64_t>(remaining, buffer.size()));
-        std::span<std::byte> piece(buffer.data(), take);
-        m_file->readAt(offset, piece);
-        sink(piece);
-        offset += take;
-        remaining -= take;
+        if (take > 0) {
+            m_file->readAt(offset, std::span<std::byte>(buffer.data(), take));
+            offset += take;
+            remaining -= take;
+            stream.next_in = reinterpret_cast<Bytef *>(buffer.data());
+            stream.avail_in = static_cast<uInt>(take);
+        }
+        do {
+            stream.next_out = reinterpret_cast<Bytef *>(out.data());
+            stream.avail_out = static_cast<uInt>(out.size());
+            const int rc = inflate(&stream, Z_NO_FLUSH);
+            if (rc != Z_OK && rc != Z_STREAM_END && rc != Z_BUF_ERROR) {
+                throw ArchiveFormatError("corrupt deflate stream in " + entry.name);
+            }
+            const std::size_t got = out.size() - stream.avail_out;
+            if (got > 0) {
+                sink(std::span<const std::byte>(out.data(), got));
+                produced += got;
+            }
+            if (rc == Z_STREAM_END) {
+                ended = true;
+                break;
+            }
+            if (rc == Z_BUF_ERROR && got == 0) {
+                break;  // needs more input
+            }
+        } while (stream.avail_out == 0);
+    }
+    if (produced != entry.size) {
+        throw ArchiveFormatError("deflated entry has the wrong length: " + entry.name);
     }
 }
 

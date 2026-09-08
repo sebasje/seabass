@@ -1023,6 +1023,14 @@ target_include_directories(backup_archive_roundtrip_test PRIVATE src)
 target_link_libraries(backup_archive_roundtrip_test PRIVATE ZLIB::ZLIB)
 add_test(NAME backup_archive_roundtrip_test COMMAND backup_archive_roundtrip_test)
 
+add_executable(backup_archive_deflate_test
+    ${SEABASS_STICK_BACKUP_FORMAT_SOURCES}
+    tests/backup_archive_deflate_test.cpp
+)
+target_include_directories(backup_archive_deflate_test PRIVATE src)
+target_link_libraries(backup_archive_deflate_test PRIVATE ZLIB::ZLIB)
+add_test(NAME backup_archive_deflate_test COMMAND backup_archive_deflate_test)
+
 add_executable(backup_archive_crossvalidation_test
     ${SEABASS_STICK_BACKUP_FORMAT_SOURCES}
     tests/backup_archive_crossvalidation_test.cpp

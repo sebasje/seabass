@@ -36,6 +36,7 @@ constexpr std::uint16_t Zip64ExtraId = 0x0001;
 constexpr std::uint16_t ExtendedTimestampExtraId = 0x5455;
 
 constexpr std::uint16_t MethodStore = 0;
+constexpr std::uint16_t MethodDeflate = 8;
 constexpr std::uint16_t FlagDataDescriptor = 1u << 3;
 constexpr std::uint16_t FlagUtf8Names = 1u << 11;
 
