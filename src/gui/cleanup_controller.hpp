@@ -190,6 +190,10 @@ struct CleanupTaskResult
 {
     std::vector<domain::DuplicateCleanupPlan> plans;
     StrayFileSummary strays;
+    // Gathered before scoping, so the picker never shrinks its own
+    // choices once a playlist is selected -- same rule as
+    // SyncController's playlistNames.
+    QStringList playlistNames;
     QString errorMessage;
     bool cancelled = false;  // stopped via cancelScan(); nothing else is set
 };
@@ -246,6 +250,7 @@ class CleanupController : public QObject
     Q_PROPERTY(QString statusMessage READ statusMessage NOTIFY statusMessageChanged)
     Q_PROPERTY(bool canUndo READ canUndo NOTIFY canUndoChanged)
     Q_PROPERTY(QString totalWastedBytesHuman READ totalWastedBytesHuman NOTIFY plansChanged)
+    Q_PROPERTY(QStringList playlistNames READ playlistNames NOTIFY plansChanged)
     // Raw byte counts, for the space diagram on the Clean Up page. The
     // *Human strings above stay because they are what the prose reads
     // from; a bar drawn to scale needs the numbers themselves, and
@@ -285,6 +290,7 @@ public:
     QString statusMessage() const { return m_statusMessage; }
     bool canUndo() const;
     QString totalWastedBytesHuman() const;
+    QStringList playlistNames() const { return m_playlistNames; }
     qlonglong totalWastedBytes() const;
     qlonglong includedWastedBytes() const;
     qlonglong stickTotalBytes() const;
@@ -298,7 +304,16 @@ public:
 
     // format is "rekordbox" or "engine"; path is the corresponding
     // DetectedStick.rekordboxPath / .enginePath.
-    Q_INVOKABLE void scan(const QString &format, const QString &path);
+    //
+    // playlistName and searchQuery scope the review to part of the
+    // library, empty meaning the whole of it -- same pair, same
+    // meanings, as SyncController::analyze(), so the two pages narrow
+    // the same way. Both can narrow at once. Scoping applies to the
+    // finished track list, stray files included: a stray copy of a
+    // scoped track must stay reachable, or narrowing would hide exactly
+    // the copies this page exists to find.
+    Q_INVOKABLE void scan(const QString &format, const QString &path, const QString &playlistName = QString(),
+                           const QString &searchQuery = QString());
 
     // Same convention as ScanController::hasOneLibrary(), lets QML show
     // that a rekordbox-format cleanup also mirrors into OneLibrary when
@@ -418,6 +433,9 @@ private:
     std::map<std::string, StagedInfo> m_stagedBySurvivor;  // survivor sourceId -> what is staged
     QFutureWatcher<PendingDeletionApplyResult> m_pendingWriteWatcher;
     QString m_format;
+    QString m_playlistName;
+    QStringList m_playlistNames;
+    QString m_searchQuery;
     QString m_path;
     bool m_busy = false;
     bool m_writing = false;

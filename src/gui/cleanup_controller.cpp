@@ -5,6 +5,7 @@
 #include <QtConcurrent/QtConcurrentRun>
 
 #include <algorithm>
+#include <set>
 #include <chrono>
 #include <filesystem>
 #include <functional>
@@ -16,6 +17,7 @@
 #include "application/ports/cue_writer.hpp"
 #include "application/ports/library_cleanup_writer.hpp"
 #include "domain/duplicate_cue_consolidation.hpp"
+#include "domain/track_scope.hpp"
 #include "gui/edit/edit_session_registry.hpp"
 #include "gui/edit/format_write_session.hpp"
 #include "gui/edit/library_edit_session.hpp"
@@ -555,7 +557,8 @@ PendingDeletionApplyResult runDeletePendingTask(QString format, QString path,
     return result;
 }
 
-CleanupTaskResult runRescanTask(QString format, QString path, std::shared_ptr<QtProgressReporter> reporter,
+CleanupTaskResult runRescanTask(QString format, QString path, QString playlistName, QString searchQuery,
+                                 std::shared_ptr<QtProgressReporter> reporter,
                                 application::CancellationToken cancel)
 {
     CleanupTaskResult result;
@@ -597,6 +600,34 @@ CleanupTaskResult runRescanTask(QString format, QString path, std::shared_ptr<Qt
             result.strays.catalogsConsulted << QString::fromStdString(name);
         }
         tracks.insert(tracks.end(), strays.tracks.begin(), strays.tracks.end());
+
+        // Every playlist the unscoped library knows about, so the
+        // picker still offers the others after one is chosen.
+        {
+            std::set<QString> names;
+            for (const auto &track : tracks) {
+                for (const auto &membership : track.playlists) {
+                    names.insert(QString::fromStdString(membership.name));
+                }
+            }
+            for (const auto &name : names) {
+                result.playlistNames << name;
+            }
+        }
+
+        // Scope last, once the stray files are in: a playlist or a
+        // search names tracks, and a stray copy of a scoped track has to
+        // be reachable by the same name, or scoping would quietly hide
+        // exactly the copies this page exists to find. Applied after the
+        // list is whole, never to the catalogs on the way in -- see
+        // collapseCatalogRows()'s header for why narrowing before the
+        // parts of a file are together is the one order that breaks.
+        if (!playlistName.isEmpty()) {
+            tracks = domain::filterByScope(tracks, domain::TrackScope::playlist(playlistName.toStdString()));
+        }
+        if (!searchQuery.isEmpty()) {
+            tracks = domain::filterByScope(tracks, domain::TrackScope::search(searchQuery.toStdString()));
+        }
 
         std::vector<domain::DuplicateCleanupPlan> plans;
         for (const auto &group : domain::DuplicateTrackFinder::find(tracks)) {
@@ -725,10 +756,13 @@ qlonglong CleanupController::stickFreeBytes() const
     return stickSpace(m_path).second;
 }
 
-void CleanupController::scan(const QString &format, const QString &path)
+void CleanupController::scan(const QString &format, const QString &path, const QString &playlistName,
+                              const QString &searchQuery)
 {
     m_format = format;
     m_path = path;
+    m_playlistName = playlistName;
+    m_searchQuery = searchQuery;
     attachSession();
     rescan();
 }
@@ -779,7 +813,8 @@ void CleanupController::rescan()
     setBusy(true);
 
     m_scanCancel = application::CancellationToken();
-    m_watcher.setFuture(QtConcurrent::run(runRescanTask, m_format, m_path, makeReporter(), m_scanCancel));
+    m_watcher.setFuture(QtConcurrent::run(runRescanTask, m_format, m_path, m_playlistName, m_searchQuery,
+                                          makeReporter(), m_scanCancel));
 }
 
 void CleanupController::cancelScan()
@@ -832,6 +867,7 @@ void CleanupController::onRescanFinished()
     }
 
     m_strays = result.strays;
+    m_playlistNames = result.playlistNames;
     m_model.setPlans(std::move(result.plans));
     // Groups staged before this rescan keep their mark if they are still
     // listed (the change itself lives in the session).
