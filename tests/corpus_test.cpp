@@ -1023,8 +1023,60 @@ void caseAddCue(const DataSet &set, const fs::path &scratch, const Catalogs &cat
     const domain::Track *reread = findTrack(after, id);
     if (check(reread != nullptr, "the track survived the add-cue save")) {
         if (check(reread->cues.size() == 1, "exactly one cue came back")) {
-            check(reread->cues[0].positionMs == 45000.0, "the cue is at the position it was written at");
+            check(samePosition(reread->cues[0].positionMs, 45000.0),
+                  "the cue is at the position it was written at");
             check(reread->cues[0].hotCueNumber == 2, "the cue is in the hot slot it was written to");
+
+            // Add Cue mirrors onto the OneLibrary copy of the same
+            // library. Nothing asserted that until now, and it was
+            // silently doing nothing whenever the track's path came back
+            // space-padded from export.pdb -- see toContentPath().
+            if (infrastructure::onelibrary::OneLibraryCueWriter::existsFor(root.string())) {
+                auto trimmed = [](std::string path) {
+                    while (!path.empty() && path.back() == ' ') {
+                        path.pop_back();
+                    }
+                    return fs::path(path).filename().string();
+                };
+                try {
+                    infrastructure::onelibrary::OneLibraryReader reader(root.string());
+                    const std::string wanted = trimmed(reread->filePath);
+                    const domain::Track *mirrored = nullptr;
+                    for (const auto &t : reader.readAll()) {
+                        if (trimmed(t.filePath) == wanted) {
+                            mirrored = &t;
+                            break;
+                        }
+                    }
+                    if (mirrored != nullptr) {
+                        // Position only, deliberately. The cue lands in the
+                        // OneLibrary copy at the right place, but its hot-cue
+                        // NUMBER comes back corrupt -- 22229 and 23220 on two
+                        // consecutive runs of this very case, where untouched
+                        // rows in the same database read back as hot#1..hot#8.
+                        // A value that differs between runs of the same input
+                        // is uninitialised or derived from something varying;
+                        // the writer binds cue.hotCueNumber into the `kind`
+                        // column and the reader reads that same column back,
+                        // so the two agree and the corruption is elsewhere.
+                        //
+                        // Not asserted yet because it is not yet understood,
+                        // and a guard written to the wrong expectation is
+                        // worse than none. See docs/onelibrary-format.md.
+                        bool landed = false;
+                        for (const auto &c : mirrored->cues) {
+                            if (samePosition(c.positionMs, 45000.0)) {
+                                landed = true;
+                            }
+                        }
+                        check(landed, "the OneLibrary copy of the track has the added cue at the right position");
+                    } else {
+                        std::cout << "    add cue: no OneLibrary row for this track; mirror not exercised\n";
+                    }
+                } catch (const std::exception &e) {
+                    check(false, std::string("could not read OneLibrary after Add Cue: ") + e.what());
+                }
+            }
         }
     }
 
