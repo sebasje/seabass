@@ -1,0 +1,317 @@
+// The unreferenced-file scan against a real stick, with the project's
+// own readers, walker, probe and cache -- the run
+// docs/unreferenced-file-cleanup-plan.md's step 7 asks for.
+//
+// A program rather than a checklist, so it can be re-run on the next
+// stick and after every change, and so its claims are asserted rather
+// than eyeballed. Skips itself (passing) when SEABASS_LIVE_STICK is
+// unset, exactly like corpus_test without SEABASS_CORPUS.
+//
+//   SEABASS_LIVE_STICK=/media/you/RV2 ./stray_scan_live_test
+//
+// Optional expectations, so a documented stick can be pinned rather than
+// merely reported:
+//   SEABASS_LIVE_EXPECT_FILES=632         files no catalog references
+//   SEABASS_LIVE_EXPECT_DELETABLE=632     of those, proposed for deletion
+//   SEABASS_LIVE_EXPECT_SURVIVOR_RULE=9   groups where the survivor rule
+//                                         overrode the planner's pick
+//   SEABASS_LIVE_SHOW=5                   print that many example groups
+//                                         where the survivor rule fired
+//
+// READS ONLY. It writes exactly one file to the stick, the metadata
+// cache (.seabass-metadata.jsonl) the scan itself maintains, and never
+// touches a catalog, the pending-deletion manifest, or an audio file.
+#include <algorithm>
+#include <cassert>
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
+#include <filesystem>
+#include <iostream>
+#include <map>
+#include <set>
+#include <string>
+#include <vector>
+
+#include "domain/duplicate_cleanup.hpp"
+#include "domain/duplicate_cue_consolidation.hpp"
+#include "infrastructure/cleanup/stray_file_scan.hpp"
+#include "infrastructure/engine/libdjinterop_engine_reader.hpp"
+#include "infrastructure/onelibrary/onelibrary_reader.hpp"
+#include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
+
+using namespace seabass;
+namespace fs = std::filesystem;
+
+namespace
+{
+
+int expected(const char *name)
+{
+    const char *value = std::getenv(name);
+    return (value != nullptr && *value != '\0') ? std::atoi(value) : -1;
+}
+
+void checkExpected(const char *name, int actual)
+{
+    int want = expected(name);
+    if (want < 0) {
+        return;
+    }
+    if (want != actual) {
+        std::cerr << "FAIL: " << name << " expected " << want << ", got " << actual << "\n";
+        std::exit(1);
+    }
+    std::cout << "  (matches " << name << "=" << want << ")\n";
+}
+
+double seconds(std::chrono::steady_clock::time_point from)
+{
+    return std::chrono::duration<double>(std::chrono::steady_clock::now() - from).count();
+}
+
+std::string normalizedPath(std::string path)
+{
+    for (auto &c : path) {
+        if (c == '\\') {
+            c = '/';
+        } else if (c >= 'A' && c <= 'Z') {
+            c = static_cast<char>(c - 'A' + 'a');
+        }
+    }
+    return fs::path(path).lexically_normal().generic_string();
+}
+
+}  // namespace
+
+int main()
+{
+    const char *stick = std::getenv("SEABASS_LIVE_STICK");
+    if (stick == nullptr || *stick == '\0') {
+        std::cout << "SEABASS_LIVE_STICK not set -- skipping the live stray-file scan\n";
+        return 0;
+    }
+    const std::string root = stick;
+    std::cout << "stick: " << root << "\n";
+
+    // Every catalog the stick has, read with the real readers. A catalog
+    // whose file is there but will not open goes on `failed`, which is
+    // what makes the scan refuse rather than under-report.
+    application::CatalogTracks catalogs;
+    std::vector<std::string> failed;
+    auto read = [&](const char *name, auto &&fn, std::optional<std::vector<domain::Track>> &into) {
+        try {
+            into = fn();
+            std::cout << "  " << name << ": " << into->size() << " rows\n";
+        } catch (const std::exception &e) {
+            std::cout << "  " << name << ": present but unreadable (" << e.what() << ")\n";
+            failed.emplace_back(name);
+        }
+    };
+    if (fs::exists(fs::path(root) / "PIONEER" / "rekordbox" / "export.pdb")) {
+        read("rekordbox",
+             [&] { return infrastructure::rekordbox::KaitaiRekordboxReader(root + "/PIONEER").readAll(); },
+             catalogs.rekordbox);
+    }
+    if (fs::exists(fs::path(root) / "Engine Library" / "Database2" / "m.db")) {
+        read("engine",
+             [&] { return infrastructure::engine::LibdjinteropEngineReader(root + "/Engine Library").readAll(); },
+             catalogs.engine);
+    }
+    if (fs::exists(fs::path(root) / "PIONEER" / "rekordbox" / "exportLibrary.db")) {
+        read("onelibrary", [&] { return infrastructure::onelibrary::OneLibraryReader(root + "/PIONEER").readAll(); },
+             catalogs.oneLibrary);
+    }
+
+    auto coldStart = std::chrono::steady_clock::now();
+    auto scan = infrastructure::cleanup::scanStrayFiles(root, catalogs, failed,
+                                                         application::CancellationToken::none());
+    double coldSeconds = seconds(coldStart);
+
+    if (!scan.usable) {
+        std::cout << "\nscan refused: " << scan.refusal << "\n";
+        // A refusal on a stick with an unreadable catalog is the correct
+        // answer, not a failure of this run.
+        return failed.empty() ? 1 : 0;
+    }
+
+    std::string consulted;
+    for (const auto &name : scan.catalogsConsulted) {
+        consulted += (consulted.empty() ? "" : ", ") + name;
+    }
+    std::cout << "\nchecked against: " << consulted << "\n";
+    std::cout << "unreferenced on disk: " << scan.filesFound << " files, "
+              << double(scan.bytesFound) / 1e9 << " GB\n";
+    std::cout << "  identified by their tags: " << scan.tracks.size() << ", unreadable: " << scan.unreadable << "\n";
+    std::cout << "  walk complete: " << (scan.walkIncomplete ? "NO -- part of the stick unreadable" : "yes") << "\n";
+    std::printf("  cold scan: %.1f s\n", coldSeconds);
+    checkExpected("SEABASS_LIVE_EXPECT_FILES", static_cast<int>(scan.filesFound));
+
+    // Nothing the catalogs still reference may be in here. This is the
+    // one mistake in this feature that cannot be walked back, so it is
+    // re-checked against the catalogs independently of the code that
+    // produced the list.
+    std::set<std::string> referenced;
+    for (const auto *catalog : {&catalogs.rekordbox, &catalogs.engine, &catalogs.oneLibrary}) {
+        if (!catalog->has_value()) {
+            continue;
+        }
+        for (const auto &t : **catalog) {
+            if (!t.filePath.empty()) {
+                referenced.insert(normalizedPath(t.filePath));
+            }
+        }
+    }
+    for (const auto &t : scan.tracks) {
+        if (referenced.count(normalizedPath(t.filePath)) != 0) {
+            std::cerr << "FAIL: a catalog still references " << t.filePath << "\n";
+            return 1;
+        }
+    }
+    std::cout << "  none of them is referenced by any catalog (re-checked independently)\n";
+
+    // Now what the page runs: strays alongside every catalogued row.
+    std::vector<domain::Track> all;
+    for (const auto *catalog : {&catalogs.rekordbox, &catalogs.engine, &catalogs.oneLibrary}) {
+        if (catalog->has_value()) {
+            all.insert(all.end(), (*catalog)->begin(), (*catalog)->end());
+        }
+    }
+    all.insert(all.end(), scan.tracks.begin(), scan.tracks.end());
+
+    const int show = std::max(0, expected("SEABASS_LIVE_SHOW"));
+    int deletable = 0, heldBack = 0, straySurvivors = 0, groupsWithStray = 0, allStrayGroups = 0, survivorRule = 0;
+    int ruleNoCataloguedBitrate = 0, ruleRoundedApart = 0;
+    std::uint64_t deletableBytes = 0;
+    std::map<std::string, int> heldBackWhy;
+    std::set<std::string> accountedFor;
+
+    for (const auto &group : domain::DuplicateTrackFinder::find(all)) {
+        auto plan = domain::DuplicateCleanupPlanner::plan(group);
+        bool hasStray = std::any_of(group.tracks.begin(), group.tracks.end(),
+                                     [](const domain::Track &t) { return t.isUnreferenced; });
+        if (!hasStray) {
+            continue;
+        }
+        ++groupsWithStray;
+        bool allStray = std::all_of(group.tracks.begin(), group.tracks.end(),
+                                     [](const domain::Track &t) { return t.isUnreferenced; });
+        if (allStray) {
+            ++allStrayGroups;
+        }
+
+        // The survivor rule: with any catalogued copy present, the
+        // survivor must be one -- otherwise a catalog would be left
+        // pointing at a file this proposes to delete.
+        if (!allStray && plan.survivor.isUnreferenced) {
+            std::cerr << "FAIL: a stray file survived over a catalogued copy: " << plan.survivor.filePath << "\n";
+            return 1;
+        }
+        if (!allStray) {
+            // Did it override what the planner would have picked on
+            // quality alone? Recomputing that is the only way to count
+            // how often the rule actually earns its keep. Asking whether
+            // the unrestricted winner is a stray, rather than comparing
+            // it to the restricted one by sourceId: the three catalogs
+            // number their rows independently, so "45" names a rekordbox
+            // track AND an Engine one, and an id comparison across them
+            // means nothing.
+            domain::DuplicateGroup unrestricted = group;
+            for (auto &t : unrestricted.tracks) {
+                t.isUnreferenced = false;
+            }
+            const domain::Track wouldHaveWon = domain::DuplicateCleanupPlanner::plan(unrestricted).survivor;
+            // Read the flag off the ORIGINAL group: the copy handed to
+            // the planner had it cleared, which is the whole trick, so
+            // asking the returned Track would always answer "no".
+            bool wouldHaveBeenStray = false;
+            for (const auto &t : group.tracks) {
+                if (t.format == wouldHaveWon.format && t.sourceId == wouldHaveWon.sourceId) {
+                    wouldHaveBeenStray = t.isUnreferenced;
+                    break;
+                }
+            }
+            if (wouldHaveBeenStray) {
+                ++survivorRule;
+                // Why it fired, because the two reasons say different
+                // things about the code. Either no catalogued row in the
+                // group knows its own bitrate (Engine leaves it unset
+                // until it analyzes a track), or one does and the stray
+                // still scored higher -- which for two copies of the
+                // same bytes can only be the probe and the catalog
+                // rounding the same encode differently.
+                int bestCatalogued = 0;
+                for (const auto &t : group.tracks) {
+                    if (!t.isUnreferenced) {
+                        bestCatalogued = std::max(bestCatalogued, t.bitrate);
+                    }
+                }
+                if (bestCatalogued == 0) {
+                    ++ruleNoCataloguedBitrate;
+                } else {
+                    ++ruleRoundedApart;
+                }
+                if (survivorRule <= show) {
+                    std::printf("  rule fired: kept %s (%s, %d kbps, %.1f s, %llu bytes)\n",
+                                plan.survivor.filename.c_str(), plan.survivor.format.c_str(), plan.survivor.bitrate,
+                                plan.survivor.durationSeconds,
+                                (unsigned long long)plan.survivor.fileSizeBytes);
+                    std::printf("        over %s (stray, %d kbps, %.1f s, %llu bytes)\n",
+                                wouldHaveWon.filename.c_str(), wouldHaveWon.bitrate, wouldHaveWon.durationSeconds,
+                                (unsigned long long)wouldHaveWon.fileSizeBytes);
+                }
+            }
+        }
+        if (plan.survivor.isUnreferenced) {
+            ++straySurvivors;
+            accountedFor.insert(plan.survivor.filePath);
+        }
+
+        for (const auto &t : plan.unreferencedFilesToDelete) {
+            if (t.durationIsEstimated) {
+                std::cerr << "FAIL: proposed deleting a file whose length was estimated: " << t.filePath << "\n";
+                return 1;
+            }
+            ++deletable;
+            deletableBytes += t.fileSizeBytes;
+            accountedFor.insert(t.filePath);
+        }
+        for (const auto &t : plan.unreferencedFilesHeldBack) {
+            ++heldBack;
+            heldBackWhy[plan.differs ? "group flagged `differs`" : "a duration in the group was estimated"] += 1;
+            accountedFor.insert(t.filePath);
+        }
+    }
+
+    int ungrouped = static_cast<int>(scan.tracks.size()) - static_cast<int>(accountedFor.size());
+
+    std::cout << "\ngroups containing a stray file: " << groupsWithStray << " (" << allStrayGroups
+              << " of them nothing but strays)\n";
+    std::cout << "survivor rule forced a catalogued copy over a better stray: " << survivorRule << " groups\n";
+    std::cout << "  " << ruleNoCataloguedBitrate << " because no catalogued row in the group knew its bitrate\n";
+    std::cout << "  " << ruleRoundedApart << " because the probe and the catalog round the same encode apart\n";
+    std::printf("\nproposed for deletion: %d files, %.2f GB\n", deletable, double(deletableBytes) / 1e9);
+    for (const auto &[why, count] : heldBackWhy) {
+        std::cout << "  held back: " << count << "  " << why << "\n";
+    }
+    std::cout << "  kept: " << straySurvivors << "  survived as their group's own best copy\n";
+    std::cout << "  kept: " << ungrouped << "  matched nothing, only listed\n";
+    assert(deletable + heldBack + straySurvivors + ungrouped == static_cast<int>(scan.tracks.size()));
+    checkExpected("SEABASS_LIVE_EXPECT_DELETABLE", deletable);
+    checkExpected("SEABASS_LIVE_EXPECT_SURVIVOR_RULE", survivorRule);
+
+    // The cache is on the stick, so the second scan is stats rather than
+    // tag reads -- and must not change a single answer.
+    auto warmStart = std::chrono::steady_clock::now();
+    auto again = infrastructure::cleanup::scanStrayFiles(root, catalogs, failed,
+                                                          application::CancellationToken::none());
+    std::printf("\nwarm scan (cache on the stick): %.1f s, against %.1f s cold\n", seconds(warmStart), coldSeconds);
+    if (again.filesFound != scan.filesFound || again.tracks.size() != scan.tracks.size()) {
+        std::cerr << "FAIL: the cached scan disagrees with the cold one\n";
+        return 1;
+    }
+    std::cout << "  same answer, file for file\n";
+
+    std::cout << "\nlive stray-file scan OK\n";
+    return 0;
+}

@@ -547,6 +547,16 @@ if(TARGET seabass_taglib)
     target_include_directories(stray_file_scan_test PRIVATE src)
     target_link_libraries(stray_file_scan_test PRIVATE seabass_core seabass_taglib)
     add_test(NAME stray_file_scan_test COMMAND stray_file_scan_test)
+
+    # The same scan against a real stick, run by setting
+    # SEABASS_LIVE_STICK; it skips (passing) without one, so it can live
+    # in the normal suite rather than in a document nobody runs. See
+    # docs/unreferenced-file-cleanup-plan.md, step 7.
+    add_executable(stray_scan_live_test tests/stray_scan_live_test.cpp)
+    target_include_directories(stray_scan_live_test PRIVATE src)
+    target_link_libraries(stray_scan_live_test PRIVATE seabass_core seabass_taglib)
+    add_test(NAME stray_scan_live_test COMMAND stray_scan_live_test)
+    set_tests_properties(stray_scan_live_test PROPERTIES LABELS "integration")
 endif()
 
 add_executable(duplicate_cue_consolidation_test

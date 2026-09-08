@@ -186,14 +186,32 @@ Zero groups consist only of unreferenced files, so the "a stray may be
 survivor when the whole group is stray" rule never fires on this stick.
 It is insurance for other sticks; this data does not exercise it.
 
-In 9 groups the "survivor must be catalogued" rule overrode the planner's
-own pick. All 9 are benign and instructive: the catalogued row and the
-stray file are the *same byte size*, but the catalogued row reports
-0 kbps because Engine never analyzed it, while TagLib reads 256 kbps
-off the file. Without the rule the planner would have kept the abandoned
-copy purely because it was the only one that knew its own bitrate. It
-also points at a free improvement: the same probe can fill in bitrate on
-catalogued rows, sharpening survivor selection everywhere.
+In **86** groups the "survivor must be catalogued" rule overrode the
+planner's own pick -- measured by the shipped code on the stick
+(`stray_scan_live_test`). The simulation said 9, and the difference is
+worth more than the number:
+
+- **9** are the case this document originally described: no catalogued
+  row in the group knows its own bitrate (Engine leaves it unset until
+  it analyzes a track), while TagLib reads one off the file. Without the
+  rule the planner would keep the abandoned copy purely because it was
+  the only one that knew its own bitrate.
+- **77** are a rounding difference. rekordbox stores 256 kbps for an
+  M4A; TagLib computes 257 kbps from the same bytes. Same file, same
+  size, 1 kbps apart -- and that is enough to make the uncatalogued copy
+  score "higher quality" than the catalogued one it was copied from. The
+  simulation could not see these because it read the stray files with
+  mutagen, which happens to round the way rekordbox does.
+
+The second group is the useful finding. Left to the quality rule alone,
+77 groups on this one stick would have kept the file no catalog knows
+about and proposed deleting the catalogued one, over a rounding
+difference. The survivor rule turns all 86 into a non-event, which is
+the point of having it. It also sharpens the free improvement noted
+earlier -- the same probe could fill in bitrate on catalogued rows --
+into a caution: a probe-read bitrate and a catalog-stored one are not
+the same measurement, and mixing them in a comparison is what produced
+this.
 
 ### 630 or 632 (once "575 or 632"): decided, 632
 
@@ -382,4 +400,14 @@ toggle rather than in the default path.
    `.seabass-pending-deletions.jsonl` and touches no catalog at all.
    The deletion itself still happens only there, behind
    `resolvePendingDeletions()`' fresh all-catalog re-check
-7. Live run on RV2 against the numbers in this document
+7. ~~Live run on RV2 against the numbers in this document~~ **done** --
+   `tests/stray_scan_live_test.cpp`, run with `SEABASS_LIVE_STICK` (and
+   optionally `SEABASS_LIVE_EXPECT_*` to pin a known stick's figures);
+   it skips, passing, without a stick, so it lives in the normal suite
+   rather than in a checklist. On RV2 it reproduces this document:
+   632 files / 8.66 GB found and all 632 proposed, 435 groups with a
+   stray, 0 of them all-stray, 0 held back, and -- checked independently
+   of the code that produced the list -- not one of them referenced by
+   any catalog. Cold scan 3.4 s (cache deleted, stick remounted), warm
+   0.2 s. The 22-66 s in "Reading the metadata" was for probing *every*
+   file on the stick; only the 632 unreferenced ones are probed here
