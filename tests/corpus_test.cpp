@@ -1052,8 +1052,14 @@ void caseAddCue(const DataSet &set, const fs::path &scratch, const Catalogs &cat
                 try {
                     infrastructure::onelibrary::OneLibraryReader reader(root.string());
                     const std::string wanted = trimmed(reread->filePath);
+                    // Named, not a temporary bound into the range-for: a
+                    // pointer taken into readAll()'s returned vector must
+                    // outlive the loop that fills `mirrored`, and a
+                    // temporary's lifetime ends with the loop itself,
+                    // leaving mirrored dangling the moment it's read below.
+                    auto oneLibraryTracks = reader.readAll();
                     const domain::Track *mirrored = nullptr;
-                    for (const auto &t : reader.readAll()) {
+                    for (const auto &t : oneLibraryTracks) {
                         if (trimmed(t.filePath) == wanted) {
                             mirrored = &t;
                             break;
