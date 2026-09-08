@@ -298,6 +298,15 @@ Page {
                             ButtonGroup.group: backupGroup
                             enabled: !unreadable && root.controller.busy !== true
                             checked: root.controller.archivePath === modelData.archivePath
+                            // FluentWinUI3's RadioButton indicator is only
+                            // pinned to the left when `text` is non-empty --
+                            // left blank (as it was, since the visible
+                            // label lives in contentItem below), the style
+                            // centers the indicator in the middle of the
+                            // row instead. Doubles as the accessible name,
+                            // which a custom contentItem doesn't provide on
+                            // its own.
+                            text: (modelData.label || "").length > 0 ? modelData.label : modelData.fileName
                             onToggled: if (checked) root.chooseArchive(modelData.archivePath)
                             // Layout.leftMargin on the first child, not
                             // x/width on the RowLayout: see FormatUsbPage.qml's
@@ -346,6 +355,10 @@ Page {
                         Layout.fillWidth: true
                         ButtonGroup.group: backupGroup
                         checked: root.archiveIsCustom
+                        // See backupRadio's comment above: non-empty text
+                        // is what keeps FluentWinUI3's indicator pinned
+                        // left instead of centered.
+                        text: root.archiveReady ? root.info.label : "Chosen file"
                         contentItem: RowLayout {
                             spacing: 10
                             ColumnLayout {
@@ -410,6 +423,10 @@ Page {
                             ButtonGroup.group: driveGroup
                             enabled: modelData.usable === true && root.controller.busy !== true
                             checked: root.selectedIndex === index
+                            // See backupRadio's comment above: non-empty
+                            // text is what keeps FluentWinUI3's indicator
+                            // pinned left instead of centered.
+                            text: modelData.label.length > 0 ? modelData.label : "(untitled)"
                             onToggled: if (checked) root.applySelection(index)
                             contentItem: RowLayout {
                                 spacing: 10

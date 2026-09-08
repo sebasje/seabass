@@ -344,6 +344,15 @@ Page {
                             Layout.fillWidth: true
                             ButtonGroup.group: driveGroup
                             checked: root.selectedIndex === index
+                            // FluentWinUI3's RadioButton indicator is only
+                            // pinned to the left when `text` is non-empty --
+                            // left blank (as it was, since the visible
+                            // label lives in contentItem below), the style
+                            // centers the indicator in the middle of the
+                            // row instead. Doubles as the accessible name,
+                            // which a custom contentItem doesn't provide on
+                            // its own.
+                            text: modelData.label
                             // onClicked, not onToggled: clicking the
                             // already-selected drive again is meant to
                             // unselect it, but re-clicking an already-
@@ -472,6 +481,10 @@ Page {
                         ButtonGroup.group: fsGroup
                         checked: root.selectedFilesystem === "fat32"
                         enabled: root.fat32Available
+                        // See driveRadio's comment above: non-empty text
+                        // is what keeps FluentWinUI3's indicator pinned
+                        // left instead of centered.
+                        text: "FAT32 · Works on every player"
                         onToggled: if (checked) root.selectedFilesystem = "fat32"
 
                         // A custom contentItem, so this can wrap -- the
@@ -525,6 +538,10 @@ Page {
                         Layout.minimumWidth: 0
                         ButtonGroup.group: fsGroup
                         checked: root.selectedFilesystem === "exfat"
+                        // See driveRadio's comment above: non-empty text
+                        // is what keeps FluentWinUI3's indicator pinned
+                        // left instead of centered.
+                        text: "exFAT · Modern players, no file-size limit"
                         onToggled: if (checked) root.selectedFilesystem = "exfat"
 
                         // See fat32Radio's own comment: leftPadding, not
