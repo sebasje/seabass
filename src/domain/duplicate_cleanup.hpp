@@ -108,6 +108,27 @@ struct DuplicateCleanupPlan
     // exactly as before.
     std::vector<Track> unreferencedFilesToDelete;
     std::vector<Track> unreferencedFilesHeldBack;
+
+    // True when some copy to remove is listed by a catalog the survivor
+    // is NOT listed by, so dropping its row there would leave that
+    // catalog with no row for this recording at all.
+    //
+    // Removing a row repoints that catalog's playlists at the surviving
+    // file, which needs the survivor to have a row in the same catalog.
+    // Where it does not, the alternatives are to strand the catalog or
+    // to rewrite the doomed row to point at the survivor's file -- and
+    // that second one is a different and much larger feature (no writer
+    // here adds or repoints a row's file reference; see
+    // docs/deduplication-roadmap.md).
+    //
+    // Unlike `differs` and `hasUnpreservableDataAtRisk`, this is not a
+    // judgement call to default away from and let the DJ override: there
+    // is no correct way to apply such a group yet, so callers must
+    // refuse to stage it rather than merely unchecking it. Measured on a
+    // real 3-catalog stick it never fires -- 235 groups, all covered --
+    // which is what makes holding affordable insurance rather than a
+    // limitation anyone will meet.
+    bool wouldStrandACatalog = false;
 };
 
 // Decides survivor/removal/cue-merge for one DuplicateGroup. Only

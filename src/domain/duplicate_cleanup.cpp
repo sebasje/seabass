@@ -221,6 +221,22 @@ DuplicateCleanupPlan DuplicateCleanupPlanner::plan(const DuplicateGroup &group)
     // is a real loss.
     result.hasUnpreservableDataAtRisk = ratingLoses || commentLoses;
 
+    // Every catalog a doomed copy is listed by must also list the
+    // survivor, or removing that copy's row strands the catalog -- see
+    // the header. Checked over catalogRows, which only a caller that has
+    // collapsed rows into files sets; a caller working in one catalog at
+    // a time leaves it empty and this never fires.
+    for (const auto &doomed : result.toRemove) {
+        for (const auto &row : doomed.catalogRows) {
+            bool survivorListedThere =
+                std::any_of(result.survivor.catalogRows.begin(), result.survivor.catalogRows.end(),
+                             [&row](const CatalogRowRef &s) { return s.format == row.format; });
+            if (!survivorListedThere) {
+                result.wouldStrandACatalog = true;
+            }
+        }
+    }
+
     // Which stray files this plan would actually delete. Deliberately
     // computed *after* hasUnpreservableDataAtRisk and deliberately not
     // consulting it: see the header for why a flag about two catalog

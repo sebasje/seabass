@@ -374,6 +374,39 @@ int main()
         }
     }
     std::cout << "  no removal list holds a row for the file it keeps\n";
+
+    // Removing a doomed file's row from a catalog repoints that
+    // catalog's playlists at the surviving file -- which needs the
+    // survivor to HAVE a row there. Where it does not, the honest
+    // choices are to hold the group back or to repoint the row at a
+    // different file, and how often it happens decides which is
+    // affordable.
+    int coveredGroups = 0, uncoveredGroups = 0;
+    std::map<std::string, int> uncoveredBy;
+    for (const auto &group : domain::DuplicateTrackFinder::find(files)) {
+        auto plan = domain::DuplicateCleanupPlanner::plan(group);
+        if (plan.toRemove.empty()) {
+            continue;
+        }
+        bool covered = true;
+        for (const auto &doomed : plan.toRemove) {
+            for (const auto &r : doomed.catalogRows) {
+                bool survivorHasIt = std::any_of(plan.survivor.catalogRows.begin(),
+                                                  plan.survivor.catalogRows.end(),
+                                                  [&r](const domain::CatalogRowRef &s) { return s.format == r.format; });
+                if (!survivorHasIt) {
+                    covered = false;
+                    uncoveredBy[r.format] += 1;
+                }
+            }
+        }
+        covered ? ++coveredGroups : ++uncoveredGroups;
+    }
+    std::cout << "\ngroups where the survivor has a row in every catalog the doomed copies do: " << coveredGroups
+              << "\n  and where it does not: " << uncoveredGroups << "\n";
+    for (const auto &[fmt, n] : uncoveredBy) {
+        std::cout << "    " << n << " doomed row(s) in " << fmt << " with no survivor row there\n";
+    }
     checkExpected("SEABASS_LIVE_EXPECT_DELETABLE", whole.deletable);
     checkExpected("SEABASS_LIVE_EXPECT_SURVIVOR_RULE", whole.survivorRule);
 
