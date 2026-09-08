@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cassert>
 #include <chrono>
 #include <iostream>
@@ -18,6 +19,23 @@ Track makeTrack(std::string id, double duration, int bitrate, std::uint64_t size
     t.bitrate = bitrate;
     t.fileSizeBytes = sizeBytes;
     t.cues = std::move(cues);
+    return t;
+}
+
+// An audio file on the stick that no catalog references: no row, so no
+// rating/comment/cues, and its title/artist/duration/bitrate come off
+// the file itself.
+Track makeStray(std::string id, double duration, int bitrate, std::uint64_t sizeBytes)
+{
+    Track t;
+    t.sourceId = std::move(id);
+    t.format = "disk";
+    t.isUnreferenced = true;
+    t.filename = "song.mp3";
+    t.filePath = "/stick/Contents/song.mp3";
+    t.durationSeconds = duration;
+    t.bitrate = bitrate;
+    t.fileSizeBytes = sizeBytes;
     return t;
 }
 
@@ -202,8 +220,7 @@ int main()
         std::cout << "case 12 (agreeing rating/comment -- not at risk) OK\n";
     }
 
-    // Differing comment, playCount, and lastPlayedAt each independently
-    // trip the flag too, not just rating.
+    // A differing comment trips the flag too, not just rating.
     {
         Track a = makeTrack("a", 200.0, 320, 8'000'000);
         a.comment = "keeper";
@@ -214,6 +231,13 @@ int main()
         assert(plan.hasUnpreservableDataAtRisk);
         std::cout << "case 13 (differing comment -> hasUnpreservableDataAtRisk) OK\n";
     }
+    // Play counts and last-played timestamps do NOT trip it, on purpose.
+    // They are per-application counters: rekordbox keeps a running count,
+    // Engine keeps only the timestamp of the last play, and the same
+    // track routinely carries both. Comparing them across library types
+    // asks a question with no answer, and treating the non-answer as
+    // "data at risk" held back 57 audio files on a real stick where 2 was
+    // the honest number. See duplicate_cleanup.cpp's own comment.
     {
         Track a = makeTrack("a", 200.0, 320, 8'000'000);
         a.playCount = 10;
@@ -221,8 +245,8 @@ int main()
         b.playCount = 3;
         DuplicateGroup group{{a, b}};
         auto plan = DuplicateCleanupPlanner::plan(group);
-        assert(plan.hasUnpreservableDataAtRisk);
-        std::cout << "case 14 (differing playCount -> hasUnpreservableDataAtRisk) OK\n";
+        assert(!plan.hasUnpreservableDataAtRisk);
+        std::cout << "case 14 (differing playCount alone does NOT flag) OK\n";
     }
     {
         Track a = makeTrack("a", 200.0, 320, 8'000'000);
@@ -231,8 +255,22 @@ int main()
         b.lastPlayedAt = std::chrono::system_clock::time_point{std::chrono::seconds{2000}};
         DuplicateGroup group{{a, b}};
         auto plan = DuplicateCleanupPlanner::plan(group);
+        assert(!plan.hasUnpreservableDataAtRisk);
+        std::cout << "case 15 (differing lastPlayedAt alone does NOT flag) OK\n";
+    }
+    // ...but a rating still does, even alongside differing play counts:
+    // dropping the counters must not have dropped the real signal too.
+    {
+        Track a = makeTrack("a", 200.0, 320, 8'000'000);
+        a.rating = 5;
+        a.playCount = 10;
+        Track b = makeTrack("b", 200.0, 128, 3'000'000);
+        b.rating = 2;
+        b.playCount = 3;
+        DuplicateGroup group{{a, b}};
+        auto plan = DuplicateCleanupPlanner::plan(group);
         assert(plan.hasUnpreservableDataAtRisk);
-        std::cout << "case 15 (differing lastPlayedAt -> hasUnpreservableDataAtRisk) OK\n";
+        std::cout << "case 15b (rating still flags alongside play counts) OK\n";
     }
 
     // `differs` (quality/length disagreement) and
@@ -269,6 +307,174 @@ int main()
         assert(plan.survivor.sourceId == "a");
         assert(plan.hasUnpreservableDataAtRisk);
         std::cout << "case 17 (only a DOOMED copy has a rating -- flagged as at risk, not silently kept) OK\n";
+    }
+
+    // --- unreferenced files ------------------------------------------
+    //
+    // A stray file may not be the survivor while any catalogued copy is
+    // in the group, even when it is the better copy by every normal
+    // rule. Keeping it would leave the catalog pointing at the file we
+    // then delete; repointing the row at the survivor is a different and
+    // much larger feature.
+    {
+        Track catalogued = makeTrack("row", 200.0, 128, 3'000'000);
+        Track stray = makeStray("/stick/Contents/song.mp3", 200.0, 320, 8'000'000);
+        DuplicateGroup group{{catalogued, stray}};
+        auto plan = DuplicateCleanupPlanner::plan(group);
+        assert(plan.survivor.sourceId == "row");
+        assert(plan.unreferencedFilesToDelete.size() == 1);
+        assert(plan.unreferencedFilesToDelete[0].sourceId == "/stick/Contents/song.mp3");
+        assert(plan.unreferencedFilesHeldBack.empty());
+        // The commonest shape on a real stick, and the reason applying
+        // it needs no write session at all: the only removal is a file,
+        // and a stray carries nothing to propagate onto the survivor.
+        // cleanup_controller's writesToCatalog() reads exactly these
+        // three facts, so if the planner ever starts propagating from a
+        // stray, this is what says so.
+        assert(plan.mergedCuesForSurvivor.size() == plan.survivor.cues.size());
+        assert(!plan.bpmForSurvivor && !plan.keyForSurvivor && !plan.artworkPathForSurvivor);
+        assert(std::none_of(plan.toRemove.begin(), plan.toRemove.end(),
+                             [](const Track &t) { return !t.isUnreferenced; }));
+        std::cout << "case 18 (a catalogued copy outranks a better stray file; nothing to write) OK\n";
+    }
+
+    // ...but a group of only stray files is a real case -- several
+    // copies of a track that fell out of every catalog. Collapse it to
+    // the best one; what survives is a re-import candidate, not a
+    // deletion candidate, and is not listed for deletion.
+    {
+        DuplicateGroup group{{makeStray("/stick/Contents/a.mp3", 200.0, 128, 3'000'000),
+                               makeStray("/stick/Contents/b.mp3", 200.0, 320, 8'000'000)}};
+        auto plan = DuplicateCleanupPlanner::plan(group);
+        assert(plan.survivor.sourceId == "/stick/Contents/b.mp3");
+        assert(plan.unreferencedFilesToDelete.size() == 1);
+        assert(plan.unreferencedFilesToDelete[0].sourceId == "/stick/Contents/a.mp3");
+        std::cout << "case 19 (an all-stray group collapses to its best copy) OK\n";
+    }
+
+    // A catalogued copy that is not the survivor loses a database row,
+    // not a file -- it must never appear in either stray list.
+    {
+        DuplicateGroup group{{makeTrack("a", 200.0, 320, 8'000'000), makeTrack("b", 200.0, 128, 3'000'000)}};
+        auto plan = DuplicateCleanupPlanner::plan(group);
+        assert(plan.toRemove.size() == 1);
+        assert(plan.unreferencedFilesToDelete.empty());
+        assert(plan.unreferencedFilesHeldBack.empty());
+        std::cout << "case 20 (catalogued removals are rows, never file deletions) OK\n";
+    }
+
+    // An estimated duration holds back every stray in the group, not
+    // just the file whose length was guessed: the group was formed on
+    // that guess, so it is the grouping that is in doubt. Here the
+    // estimate is on the CATALOGUED copy and the stray is exact --
+    // still held back, because the two may not be the same track.
+    {
+        Track catalogued = makeTrack("row", 200.0, 128, 3'000'000);
+        catalogued.durationIsEstimated = true;
+        Track stray = makeStray("/stick/Contents/song.mp3", 201.0, 128, 3'000'000);
+        DuplicateGroup group{{catalogued, stray}};
+        auto plan = DuplicateCleanupPlanner::plan(group);
+        assert(plan.survivor.sourceId == "row");
+        assert(plan.unreferencedFilesToDelete.empty());
+        assert(plan.unreferencedFilesHeldBack.size() == 1);
+        std::cout << "case 21 (an estimated duration anywhere in the group holds every stray back) OK\n";
+    }
+
+    // `differs` -- quality and length disagree, which is how a
+    // deliberately different edit shows up -- holds strays back too:
+    // the file may not be a copy of this track at all.
+    {
+        Track catalogued = makeTrack("row", 200.0, 320, 8'000'000);
+        Track stray = makeStray("/stick/Contents/song.mp3", 260.0, 128, 4'000'000);
+        DuplicateGroup group{{catalogued, stray}};
+        auto plan = DuplicateCleanupPlanner::plan(group);
+        assert(plan.differs);
+        assert(plan.unreferencedFilesToDelete.empty());
+        assert(plan.unreferencedFilesHeldBack.size() == 1);
+        std::cout << "case 22 (a `differs` group holds its strays back) OK\n";
+    }
+
+    // The decision this feature turned on: hasUnpreservableDataAtRisk
+    // does NOT hold a stray file back. Two catalogued rows disagree on a
+    // rating, which is real and holds the row-level cleanup back -- but
+    // the stray has no row and carries no rating, so deleting the file
+    // loses nothing the flag protects. On a real stick this coupling
+    // held back 2 of 632 stray files over a disagreement neither was
+    // party to (57 of them before play counts stopped counting).
+    {
+        Track a = makeTrack("a", 200.0, 320, 8'000'000);
+        a.rating = 5;
+        Track b = makeTrack("b", 200.0, 128, 3'000'000);
+        b.rating = 2;
+        Track stray = makeStray("/stick/Contents/song.mp3", 200.0, 192, 4'000'000);
+        DuplicateGroup group{{a, b, stray}};
+        auto plan = DuplicateCleanupPlanner::plan(group);
+        assert(plan.hasUnpreservableDataAtRisk);
+        assert(plan.survivor.sourceId == "a");
+        assert(plan.unreferencedFilesToDelete.size() == 1);
+        assert(plan.unreferencedFilesToDelete[0].sourceId == "/stick/Contents/song.mp3");
+        assert(plan.unreferencedFilesHeldBack.empty());
+        std::cout << "case 23 (data at risk on catalog rows does not hold a stray file back) OK\n";
+    }
+
+    // A stray can never be the reason for that flag: it has nowhere to
+    // have stored a rating or a comment.
+    {
+        Track catalogued = makeTrack("row", 200.0, 320, 8'000'000);
+        Track stray = makeStray("/stick/Contents/song.mp3", 200.0, 128, 3'000'000);
+        DuplicateGroup group{{catalogued, stray}};
+        auto plan = DuplicateCleanupPlanner::plan(group);
+        assert(!plan.hasUnpreservableDataAtRisk);
+        std::cout << "case 24 (a stray file never trips hasUnpreservableDataAtRisk) OK\n";
+    }
+
+    // --- one file, written in several formats -------------------------
+    //
+    // Removing a copy drops its row from every format that carries it,
+    // and each of those removals repoints that format's playlists at the
+    // surviving file -- which needs the survivor to be carried there
+    // too. When it is, the group is ordinary.
+    {
+        Track keep = makeTrack("rb-1", 200.0, 320, 8'000'000);
+        keep.filePath = "/stick/Contents/a.mp3";
+        keep.catalogRows = {{"rekordbox", "rb-1"}, {"engine", "en-1"}, {"onelibrary", "ol-1"}};
+        Track drop = makeTrack("rb-2", 200.0, 128, 3'000'000);
+        drop.filePath = "/stick/Contents/a-1.mp3";
+        drop.catalogRows = {{"rekordbox", "rb-2"}, {"engine", "en-2"}};
+        DuplicateGroup group{{keep, drop}};
+        auto plan = DuplicateCleanupPlanner::plan(group);
+        assert(plan.survivor.sourceId == "rb-1");
+        assert(!plan.wouldStrandAFormat);
+        assert(plan.toRemove.size() == 1 && plan.toRemove[0].catalogRows.size() == 2);
+        std::cout << "case 25 (a copy carries every format's row that must go with it) OK\n";
+    }
+
+    // But when the doomed copy is written somewhere the survivor is not,
+    // the formats have already diverged, and dropping that row would
+    // take the recording out of that format altogether -- leaving them
+    // further apart. Nothing here can repoint it, so the group is held,
+    // not merely unchecked.
+    {
+        Track keep = makeTrack("rb-1", 200.0, 320, 8'000'000);
+        keep.filePath = "/stick/Contents/a.mp3";
+        keep.catalogRows = {{"rekordbox", "rb-1"}};
+        Track drop = makeTrack("en-2", 200.0, 128, 3'000'000);
+        drop.filePath = "/stick/Contents/a-1.mp3";
+        drop.catalogRows = {{"engine", "en-2"}};
+        DuplicateGroup group{{keep, drop}};
+        auto plan = DuplicateCleanupPlanner::plan(group);
+        assert(plan.survivor.sourceId == "rb-1");
+        assert(plan.wouldStrandAFormat);
+        std::cout << "case 26 (a removal that would strand a format is held) OK\n";
+    }
+
+    // A caller working one format at a time sets no catalogRows at all,
+    // and must see exactly the behaviour it always did.
+    {
+        DuplicateGroup group{{makeTrack("a", 200.0, 320, 8'000'000), makeTrack("b", 200.0, 128, 3'000'000)}};
+        auto plan = DuplicateCleanupPlanner::plan(group);
+        assert(!plan.wouldStrandAFormat);
+        std::cout << "case 27 (no catalogRows -- the rule cannot fire) OK\n";
     }
 
     std::cout << "all cases passed\n";

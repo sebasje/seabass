@@ -1,0 +1,66 @@
+#pragma once
+
+#include <vector>
+
+#include "domain/track.hpp"
+
+namespace seabass::application
+{
+
+// Turns rows into files: one Track per distinct file path, with every
+// format's row for it recorded in Track::catalogRows.
+//
+// DeviceLibrary, OneLibrary and Engine are one library written three
+// times, for three hardware products, and are meant to list the same
+// tracks. So "three formats listing one file" and "three copies of a
+// track" are opposite states -- the first is the library being correct,
+// the second is what deduplication exists to remove -- and nothing
+// downstream can tell them apart without this step.
+//
+// DuplicateTrackFinder matches on artist, title and length and has no
+// notion of paths, so handed the raw rows of a real stick it groups a
+// file with itself: measured on one, 4369 rows point at 1564 files, and
+// grouping them uncollapsed put a row for the survivor's own file into
+// the removal list of 1156 groups -- 1465 rows that would have been
+// deleted for files being kept.
+//
+// What the collapsed Track carries, and why:
+//
+// - The FIRST row for a file, in the order given, is the base. Callers
+//   pass their catalogs in a fixed order, so the result is stable.
+// - Every empty field is then filled from the other rows, first
+//   non-empty wins: bitrate, duration, bpm, key, artwork, rating,
+//   comment, play count, last played. This is recovery, not guesswork:
+//   the formats describe the same library, so a value one of them left
+//   out is one another already holds about that same track. It matters
+//   concretely -- Engine stores no bitrate at all, so before the fill a
+//   file written there scored 0 kbps against its own uncatalogued copy
+//   and lost the survivor comparison in every one of a real stick's 435
+//   groups.
+// - Cues are the union across rows (LocalRestorePlanner::mergeCues),
+//   the same rule the cleanup planner uses to merge across copies: a
+//   cue that exists in only one catalog is still a cue on that file.
+//
+// Filling a gap never loses anything, because collapsing removes no row
+// from anywhere -- it only stops one file from looking like several.
+// Where two formats disagree about the SAME file's rating or comment,
+// the first is kept for comparison purposes and the disagreement stays
+// exactly where it was, on disk. That disagreement is a real defect --
+// the formats are supposed to agree -- but it is synchronization's to
+// repair, not deduplication's, and a cleanup must not quietly pick a
+// winner while removing something else.
+//
+// A useful by-product: after this, a file whose catalogRows do not cover
+// every format present on the stick is precisely a track one format has
+// and another does not. That set difference is the divergence detection
+// docs/deduplication-roadmap.md defers to a later Library Health page,
+// and it now falls out of a scan rather than needing one of its own.
+//
+// A track with no resolvable path passes through untouched and alone:
+// with nothing to compare, "same file" cannot be established, and
+// guessing would merge two real files. Same for a streaming track, whose
+// path names a cache on some other machine -- callers filter those out
+// before this, and this refuses to fold them together regardless.
+std::vector<domain::Track> collapseCatalogRows(const std::vector<domain::Track> &rows);
+
+}  // namespace seabass::application
