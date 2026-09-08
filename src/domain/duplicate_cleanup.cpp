@@ -21,14 +21,21 @@ bool durationsAgree(double a, double b)
     return std::abs(a - b) <= DurationToleranceSeconds;
 }
 
-// Index of the track scoring highest by `score`, ties broken by longer
-// duration, then larger file size, then original order -- deterministic
-// regardless of scan order.
+// Index (into `tracks`) of the highest-scoring track among `candidates`,
+// ties broken by longer duration, then larger file size, then original
+// order -- deterministic regardless of scan order.
+//
+// Takes a candidate list rather than scoring the whole group because the
+// survivor is sometimes chosen from a subset (see the "survivor must be
+// catalogued" rule below) while `differs` still compares against the
+// best of the *whole* group. Both need the identical tie-break, so there
+// is one implementation and the caller says which tracks may win.
 template<typename Score>
-size_t bestIndex(const std::vector<Track> &tracks, Score score)
+size_t bestOf(const std::vector<Track> &tracks, const std::vector<size_t> &candidates, Score score)
 {
-    size_t best = 0;
-    for (size_t i = 1; i < tracks.size(); ++i) {
+    size_t best = candidates.front();
+    for (size_t c = 1; c < candidates.size(); ++c) {
+        size_t i = candidates[c];
         auto scoreI = score(tracks[i]);
         auto scoreBest = score(tracks[best]);
         if (scoreI != scoreBest) {
@@ -90,9 +97,34 @@ DuplicateCleanupPlan DuplicateCleanupPlanner::plan(const DuplicateGroup &group)
     bool anyBitrateKnown = std::any_of(group.tracks.begin(), group.tracks.end(),
                                         [](const Track &t) { return t.bitrate > 0; });
 
-    size_t byDuration = bestIndex(group.tracks, [](const Track &t) { return t.durationSeconds; });
-    size_t survivorIndex =
-        anyBitrateKnown ? bestIndex(group.tracks, [](const Track &t) { return t.bitrate; }) : byDuration;
+    std::vector<size_t> everyCopy(group.tracks.size());
+    for (size_t i = 0; i < group.tracks.size(); ++i) {
+        everyCopy[i] = i;
+    }
+
+    // An unreferenced file may be the survivor only when every copy in
+    // the group is unreferenced.
+    //
+    // Both halves matter. Keeping a stray file over a catalogued copy
+    // would leave the catalog pointing at the file we then delete -- to
+    // do that safely the row would have to be repointed at the survivor,
+    // which is a different and much larger feature. But a group of only
+    // stray files is a real case (several copies of a track that fell
+    // out of every catalog), and collapsing those to the best one is
+    // exactly the right answer; what is left is then a candidate for
+    // re-import, not for deletion.
+    std::vector<size_t> catalogued;
+    for (size_t i = 0; i < group.tracks.size(); ++i) {
+        if (!group.tracks[i].isUnreferenced) {
+            catalogued.push_back(i);
+        }
+    }
+    const std::vector<size_t> &eligible = catalogued.empty() ? everyCopy : catalogued;
+
+    size_t byDuration = bestOf(group.tracks, everyCopy, [](const Track &t) { return t.durationSeconds; });
+    size_t survivorIndex = anyBitrateKnown
+                               ? bestOf(group.tracks, eligible, [](const Track &t) { return t.bitrate; })
+                               : bestOf(group.tracks, eligible, [](const Track &t) { return t.durationSeconds; });
 
     // "Differs" means picking by quality and picking by length actually
     // disagree, not merely that bitrates/sizes vary slightly (real
@@ -163,11 +195,75 @@ DuplicateCleanupPlan DuplicateCleanupPlanner::plan(const DuplicateGroup &group)
         losesDataFromRemoval(result.survivor, result.toRemove, [](const Track &t) -> std::optional<std::string> {
             return t.comment.empty() ? std::nullopt : std::optional<std::string>(t.comment);
         });
-    bool playCountLoses = losesDataFromRemoval(result.survivor, result.toRemove,
-                                                [](const Track &t) -> std::optional<int> { return t.playCount; });
-    bool lastPlayedLoses = losesDataFromRemoval(result.survivor, result.toRemove,
-                                                 [](const Track &t) { return t.lastPlayedAt; });
-    result.hasUnpreservableDataAtRisk = ratingLoses || commentLoses || playCountLoses || lastPlayedLoses;
+    // playCount and lastPlayedAt are deliberately NOT part of this.
+    //
+    // They used to be, and it made the flag fire almost everywhere:
+    // measured on a real 3-catalog stick, including them held back 57
+    // audio files across 36 groups, against 2 files across 2 groups
+    // without them. Nearly every one of those was a rekordbox row
+    // carrying a play count meeting an Engine row carrying only a
+    // last-played timestamp -- the two applications simply count
+    // different things, so "they disagree" was being read off a
+    // comparison that never had meaning.
+    //
+    // A play count belongs to the application that kept it. Merging one
+    // across library types is not a thing that can be done correctly, and
+    // it is not valuable enough to hold a cleanup hostage over. Within a
+    // single library type the honest answer would be to add the counts
+    // up, which is a real intent -- but no writer in this project can
+    // write a play count into any of the three formats today, so that is
+    // a follow-up needing a write path, not something to pretend at here.
+    // The Clean Up page says so in as many words rather than leaving it
+    // to be discovered.
+    //
+    // rating and comment stay: both are the DJ's own deliberate input,
+    // both mean the same thing in every format, and losing one silently
+    // is a real loss.
+    result.hasUnpreservableDataAtRisk = ratingLoses || commentLoses;
+
+    // Every format a doomed copy is written in must also carry the
+    // survivor, or removing that copy's row strands the format -- see
+    // the header. Checked over catalogRows, which only a caller that has
+    // collapsed rows into files sets; a caller working in one format at
+    // a time leaves it empty and this never fires.
+    for (const auto &doomed : result.toRemove) {
+        for (const auto &row : doomed.catalogRows) {
+            bool survivorListedThere =
+                std::any_of(result.survivor.catalogRows.begin(), result.survivor.catalogRows.end(),
+                             [&row](const CatalogRowRef &s) { return s.format == row.format; });
+            if (!survivorListedThere) {
+                result.wouldStrandAFormat = true;
+            }
+        }
+    }
+
+    // Which stray files this plan would actually delete. Deliberately
+    // computed *after* hasUnpreservableDataAtRisk and deliberately not
+    // consulting it: see the header for why a flag about two catalog
+    // rows disagreeing says nothing about a file that has no row.
+    //
+    // The two things that do hold a file back are both about the group's
+    // identity rather than its data. `differs` says quality and length
+    // disagree on which copy is best, which is how a deliberately
+    // different edit shows up -- these may not be copies of one track at
+    // all. An estimated duration says the same thing more quietly: the
+    // group was formed on a length that was guessed from a bitrate, so
+    // any file in it might not belong. That is why one estimate holds
+    // back every stray in the group and not just the estimated file --
+    // the doubt is about the grouping, and the file the guess dragged in
+    // could as easily make the *others* look redundant.
+    bool anyDurationEstimated = std::any_of(group.tracks.begin(), group.tracks.end(),
+                                             [](const Track &t) { return t.durationIsEstimated; });
+    for (const auto &doomed : result.toRemove) {
+        if (!doomed.isUnreferenced) {
+            continue;  // a catalog row is dropped, not a file deleted
+        }
+        if (result.differs || anyDurationEstimated) {
+            result.unreferencedFilesHeldBack.push_back(doomed);
+        } else {
+            result.unreferencedFilesToDelete.push_back(doomed);
+        }
+    }
 
     return result;
 }

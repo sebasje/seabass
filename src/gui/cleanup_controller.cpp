@@ -21,6 +21,7 @@
 #include "gui/edit/pending_change.hpp"
 #include "gui/edit/save_context.hpp"
 #include "gui/library_catalog_cache.hpp"
+#include "gui/stick_catalogs.hpp"
 #include "gui/onelibrary_cue_writer_adapter.hpp"
 #include "gui/qt_progress_reporter.hpp"
 #include "gui/write_guard.hpp"
@@ -28,6 +29,7 @@
 #include "infrastructure/cleanup/pending_deletion_applier.hpp"
 #include "infrastructure/cleanup/pending_deletion_manifest.hpp"
 #include "infrastructure/cleanup/pending_deletion_resolver.hpp"
+#include "infrastructure/cleanup/stray_file_scan.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cleanup_writer.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cue_writer.hpp"
 #include "infrastructure/logging/file_operation_log.hpp"
@@ -62,11 +64,24 @@ QString humanSize(std::uint64_t bytes)
     return QString::fromUtf8(buf);
 }
 
+// True when this copy is a stray file the planner refused to delete.
+bool isHeldBackStray(const domain::DuplicateCleanupPlan &plan, const domain::Track &t)
+{
+    return std::any_of(plan.unreferencedFilesHeldBack.begin(), plan.unreferencedFilesHeldBack.end(),
+                        [&t](const domain::Track &h) { return h.sourceId == t.sourceId; });
+}
+
+// Held-back stray files are deliberately not counted: they are listed
+// in toRemove like any other non-survivor, but the planner refuses to
+// delete them, so counting their bytes would promise space the page will
+// never free. See DuplicateCleanupPlan::unreferencedFilesHeldBack.
 std::uint64_t wastedBytes(const domain::DuplicateCleanupPlan &plan)
 {
     std::uint64_t total = 0;
     for (const auto &t : plan.toRemove) {
-        total += t.fileSizeBytes;
+        if (!isHeldBackStray(plan, t)) {
+            total += t.fileSizeBytes;
+        }
     }
     return total;
 }
@@ -79,6 +94,9 @@ QVariantMap trackSummary(const domain::Track &t)
 {
     QVariantMap m;
     m["side"] = QString::fromStdString(t.format);
+    // Not derived from side == "disk" in QML: this decides whether the
+    // row is about deleting a file or dropping a database row.
+    m["isUnreferenced"] = t.isUnreferenced;
     m["sourceId"] = QString::fromStdString(t.sourceId);
     m["title"] = QString::fromStdString(t.title);
     m["artist"] = QString::fromStdString(t.artist);
@@ -127,7 +145,12 @@ QVariant CleanupPlanListModel::data(const QModelIndex &index, int role) const
     case ToRemoveRole: {
         QVariantList result;
         for (const auto &t : plan.toRemove) {
-            result << trackSummary(t);
+            QVariantMap summary = trackSummary(t);
+            // Per copy, because the page shows one card each and the
+            // three outcomes are genuinely different: a row dropped, a
+            // file listed for deletion, or a file left alone.
+            summary["heldBack"] = isHeldBackStray(plan, t);
+            result << summary;
         }
         return result;
     }
@@ -135,6 +158,10 @@ QVariant CleanupPlanListModel::data(const QModelIndex &index, int role) const
         return plan.differs;
     case HasUnpreservableDataAtRiskRole:
         return plan.hasUnpreservableDataAtRisk;
+    case UnreferencedCountRole:
+        return static_cast<int>(plan.unreferencedFilesToDelete.size());
+    case UnreferencedHeldBackCountRole:
+        return static_cast<int>(plan.unreferencedFilesHeldBack.size());
     case WastedBytesHumanRole:
         return humanSize(wastedBytes(plan));
     case NewCueCountRole:
@@ -170,6 +197,8 @@ QHash<int, QByteArray> CleanupPlanListModel::roleNames() const
         {ToRemoveRole, "toRemove"},
         {DiffersRole, "differs"},
         {HasUnpreservableDataAtRiskRole, "hasUnpreservableDataAtRisk"},
+        {UnreferencedCountRole, "unreferencedCount"},
+        {UnreferencedHeldBackCountRole, "unreferencedHeldBackCount"},
         {WastedBytesHumanRole, "wastedBytesHuman"},
         {NewCueCountRole, "newCueCount"},
         {IncludedRole, "included"},
@@ -552,6 +581,61 @@ struct CleanupWriterContext
 };
 
 // One duplicate group cleaned up: the doomed copies' cues merged onto the
+// Routes this group's stray files to "Delete Orphaned Files".
+//
+// A stray file is already orphaned -- no catalog row mentions it, which
+// is why it is in this group at all -- so there is nothing to remove
+// from a database and "removing" it is only ever this manifest line.
+// The deletion itself still happens there and only there, behind
+// resolvePendingDeletions()' fresh all-catalog re-check, exactly like a
+// file orphaned by a row removal.
+//
+// backupId is empty for these on purpose: it names the backup covering
+// the database edit that orphaned a file, and no database edit orphaned
+// this one. Writing the group's DB backup id there would claim a
+// relationship that does not exist.
+//
+// unreferencedFilesHeldBack gets no line at all. The planner refused
+// those files (see DuplicateCleanupPlan), and this is not the place to
+// second-guess it.
+void recordStrayFilesForDeletion(infrastructure::cleanup::PendingDeletionManifest &manifest,
+                                  const domain::DuplicateCleanupPlan &plan, const std::string &format,
+                                  application::OperationLog &log)
+{
+    for (const auto &stray : plan.unreferencedFilesToDelete) {
+        infrastructure::cleanup::PendingDeletion pending;
+        pending.format = format;
+        pending.filePath = stray.filePath;
+        pending.title = stray.title;
+        pending.artist = stray.artist;
+        manifest.append(pending);
+        log.record("cleanup: no catalog references \"" + stray.filePath
+                   + "\"; recorded for deletion, kept copy is id=" + plan.survivor.sourceId);
+    }
+}
+
+// True when applying this plan would write nothing to any catalog: no
+// row to remove, no cue to merge onto the survivor, no field to fill in.
+//
+// That is not only the all-stray group. The commonest shape on a real
+// stick is one catalogued row plus one stray copy of it: the catalogued
+// row survives, so the plan's ONLY removal is a file, and a stray
+// carries no cues, bpm, key or artwork to propagate. Such a plan is a
+// line in the pending-deletion manifest and nothing else -- opening a
+// write session for it would back up the database, possibly copy the
+// whole file to scratch and back, and change not one byte of it.
+bool writesToCatalog(const domain::DuplicateCleanupPlan &plan)
+{
+    if (plan.mergedCuesForSurvivor.size() > plan.survivor.cues.size()) {
+        return true;
+    }
+    if (plan.bpmForSurvivor || plan.keyForSurvivor || plan.artworkPathForSurvivor) {
+        return true;
+    }
+    return std::any_of(plan.toRemove.begin(), plan.toRemove.end(),
+                        [](const domain::Track &t) { return !t.isUnreferenced; });
+}
+
 // survivor, its missing bpm/key/artwork filled in, the doomed rows removed
 // (playlists repointed), each doomed file recorded for later deletion.
 // What used to be one iteration of runApplyTask()'s loop.
@@ -571,10 +655,26 @@ public:
     QString description() const override
     {
         int newCues = static_cast<int>(m_plan.mergedCuesForSurvivor.size()) - static_cast<int>(m_plan.survivor.cues.size());
-        return QStringLiteral("Clean up \"%1\": keep %2, remove %3 cop%4%5")
-            .arg(QString::fromStdString(m_plan.survivor.title), QString::fromStdString(m_plan.survivor.filename))
-            .arg(m_plan.toRemove.size())
-            .arg(m_plan.toRemove.size() == 1 ? "y" : "ies")
+        // Rows and files are counted apart because the save does two
+        // different things to them: a catalogued copy loses its rows
+        // here, a stray file only gets a line routing it to "Delete
+        // Orphaned Files". Held-back strays are in toRemove but are
+        // neither, so they are counted as neither.
+        int strays = static_cast<int>(m_plan.unreferencedFilesToDelete.size());
+        int heldBack = static_cast<int>(m_plan.unreferencedFilesHeldBack.size());
+        int rows = static_cast<int>(m_plan.toRemove.size()) - strays - heldBack;
+        QString what;
+        if (rows > 0) {
+            what = QStringLiteral("remove %1 cop%2").arg(rows).arg(rows == 1 ? "y" : "ies");
+        }
+        if (strays > 0) {
+            if (!what.isEmpty()) {
+                what += QStringLiteral(", ");
+            }
+            what += QStringLiteral("list %1 uncatalogued file(s) for deletion").arg(strays);
+        }
+        return QStringLiteral("Clean up \"%1\": keep %2, %3%4")
+            .arg(QString::fromStdString(m_plan.survivor.title), QString::fromStdString(m_plan.survivor.filename), what)
             .arg(newCues > 0 ? QStringLiteral(" (%1 cue(s) preserved)").arg(newCues) : QString());
     }
 
@@ -584,6 +684,19 @@ public:
     ChangeOutcome apply(SaveContext &ctx) override
     {
         const auto &plan = m_plan;
+
+        // A plan that writes to no catalog is one or more manifest
+        // lines and nothing else, so it deliberately opens no write
+        // session: the manifest is append-per-call precisely so it needs
+        // none. See writesToCatalog() for why this is the common case
+        // rather than only the all-stray one.
+        if (!writesToCatalog(plan)) {
+            infrastructure::cleanup::PendingDeletionManifest manifest(
+                (fs::path(m_path.toStdString()).parent_path() / ".seabass-pending-deletions.jsonl").string());
+            recordStrayFilesForDeletion(manifest, plan, m_format.toStdString(), ctx.log());
+            return ChangeOutcome::success();
+        }
+
         std::string key = "cleanup:" + m_format.toStdString();
         std::unordered_map<std::string, std::string> oneLibrarySourceIdToPath;
         if (m_format == "onelibrary") {
@@ -739,6 +852,12 @@ public:
         }
 
         for (const auto &doomed : plan.toRemove) {
+            if (doomed.isUnreferenced) {
+                // No catalog row to remove and no sourceId a writer
+                // would recognise -- its sourceId is a file path. Handled
+                // after this loop, by recordStrayFilesForDeletion().
+                continue;
+            }
             fc.cleanupWriter->removeTrackReplacingWith(doomed.sourceId, plan.survivor.sourceId);
             w.session.noteItemApplied();
             log.record("cleanup: removed duplicate track id=" + doomed.sourceId + " (\"" + doomed.title
@@ -773,6 +892,8 @@ public:
             pending.backupId = w.dbBackupId;
             w.manifest.append(pending);
         }
+
+        recordStrayFilesForDeletion(w.manifest, plan, format.toStdString(), log);
         return ChangeOutcome::success();
     }
 
@@ -807,10 +928,21 @@ PendingDeletionApplyResult runDeletePendingTask(QString format, QString path,
             (stickRoot / ".seabass-pending-deletions.jsonl").string());
         infrastructure::logging::FileOperationLog log((stickRoot / ".seabass.log").string());
 
-        std::vector<domain::Track> tracks =
-            LibraryCatalogCache::instance().tracksFor(format.toStdString(), path.toStdString(), *reporter);
+        // Every catalog on the stick, not just the one this page is
+        // working in. The same audio file routinely lives in rekordbox,
+        // Engine and OneLibrary at once, and a file orphaned by a
+        // cleanup in one of them can still be played from the other two
+        // -- deleting it on one catalog's say-so is unrecoverable.
+        auto stickCatalogs = readAllStickCatalogs(path.toStdString(), *reporter, cancel);
+        if (!stickCatalogs.failed.empty()) {
+            result.errorMessage =
+                QString("Can't safely delete: this stick has a %1 library that could not be read, so there is no "
+                        "way to tell whether it still needs these files. Nothing was deleted.")
+                    .arg(QString::fromStdString(stickCatalogs.failed.front()));
+            return result;
+        }
 
-        auto resolution = infrastructure::cleanup::resolvePendingDeletions(selected, tracks);
+        auto resolution = infrastructure::cleanup::resolvePendingDeletions(selected, stickCatalogs.catalogs);
         result.total = static_cast<int>(resolution.safeToDelete.size());
 
         // The actual deletion (the one place in the app that
@@ -878,6 +1010,33 @@ CleanupTaskResult runRescanTask(QString format, QString path, std::shared_ptr<Qt
         tracks.erase(std::remove_if(tracks.begin(), tracks.end(),
                                      [](const domain::Track &t) { return !t.streamingSource.empty(); }),
                      tracks.end());
+
+        // Audio files no catalog references join the same review, so a
+        // stray copy of a track is deduplicated with the same survivor
+        // and merge information in front of the DJ as every other copy,
+        // rather than being met for the first time on the page that
+        // deletes things. Which catalogs it was subtracted from is the
+        // whole basis of the answer, so it comes back with it.
+        //
+        // Read against EVERY catalog on the stick, not the one this page
+        // works in: a file rekordbox has forgotten can still be playable
+        // from Engine, and on a real stick that difference was 307
+        // files. See readAllStickCatalogs()'s own comment.
+        auto stickCatalogs = readAllStickCatalogs(path.toStdString(), *reporter, cancel);
+        auto strays = infrastructure::cleanup::scanStrayFiles(
+            fs::path(path.toStdString()).parent_path().string(), stickCatalogs.catalogs, stickCatalogs.failed, cancel);
+
+        result.strays.filesFound = static_cast<int>(strays.filesFound);
+        result.strays.bytesFound = static_cast<qulonglong>(strays.bytesFound);
+        result.strays.unreadable = static_cast<int>(strays.unreadable);
+        result.strays.walkIncomplete = strays.walkIncomplete;
+        result.strays.probeAvailable = strays.metadataProbeAvailable;
+        result.strays.usable = strays.usable;
+        result.strays.refusal = QString::fromStdString(strays.refusal);
+        for (const auto &name : strays.catalogsConsulted) {
+            result.strays.catalogsConsulted << QString::fromStdString(name);
+        }
+        tracks.insert(tracks.end(), strays.tracks.begin(), strays.tracks.end());
 
         std::vector<domain::DuplicateCleanupPlan> plans;
         for (const auto &group : domain::DuplicateTrackFinder::find(tracks)) {
@@ -953,11 +1112,57 @@ CleanupController::CleanupController(QObject *parent) : QObject(parent)
 
 QString CleanupController::totalWastedBytesHuman() const
 {
+    return humanSize(static_cast<std::uint64_t>(totalWastedBytes()));
+}
+
+qlonglong CleanupController::totalWastedBytes() const
+{
     std::uint64_t total = 0;
     for (const auto &plan : m_model.plans()) {
         total += wastedBytes(plan);
     }
-    return humanSize(total);
+    return static_cast<qlonglong>(total);
+}
+
+qlonglong CleanupController::includedWastedBytes() const
+{
+    std::uint64_t total = 0;
+    const auto &plans = m_model.plans();
+    for (size_t i = 0; i < plans.size(); ++i) {
+        if (m_model.included(i)) {
+            total += wastedBytes(plans[i]);
+        }
+    }
+    return static_cast<qlonglong>(total);
+}
+
+namespace
+{
+// fs::space() on the stick the library lives on. Reported as 0/0 when it
+// cannot be read, which the page treats as "unknown" -- a stick that is
+// unplugged mid-scan must not render as a disk with nothing on it.
+std::pair<qlonglong, qlonglong> stickSpace(const QString &libraryPath)
+{
+    if (libraryPath.isEmpty()) {
+        return {0, 0};
+    }
+    std::error_code ec;
+    const auto info = fs::space(fs::path(libraryPath.toStdString()), ec);
+    if (ec || info.capacity == 0 || info.capacity == static_cast<std::uintmax_t>(-1)) {
+        return {0, 0};
+    }
+    return {static_cast<qlonglong>(info.capacity), static_cast<qlonglong>(info.available)};
+}
+}  // namespace
+
+qlonglong CleanupController::stickTotalBytes() const
+{
+    return stickSpace(m_path).first;
+}
+
+qlonglong CleanupController::stickFreeBytes() const
+{
+    return stickSpace(m_path).second;
 }
 
 void CleanupController::scan(const QString &format, const QString &path)
@@ -1066,6 +1271,7 @@ void CleanupController::onRescanFinished()
         return;
     }
 
+    m_strays = result.strays;
     m_model.setPlans(std::move(result.plans));
     // Groups staged before this rescan keep their mark if they are still
     // listed (the change itself lives in the session).
@@ -1079,6 +1285,20 @@ void CleanupController::onRescanFinished()
     emit plansChanged();
     emit includedChanged();
     refreshPendingDeletions();
+}
+
+QVariantMap CleanupController::unreferencedFiles() const
+{
+    QVariantMap m;
+    m["filesFound"] = m_strays.filesFound;
+    m["bytesHuman"] = humanSize(m_strays.bytesFound);
+    m["unreadable"] = m_strays.unreadable;
+    m["catalogsConsulted"] = m_strays.catalogsConsulted;
+    m["walkIncomplete"] = m_strays.walkIncomplete;
+    m["probeAvailable"] = m_strays.probeAvailable;
+    m["usable"] = m_strays.usable;
+    m["refusal"] = m_strays.refusal;
+    return m;
 }
 
 bool CleanupController::writing() const
@@ -1164,7 +1384,14 @@ int CleanupController::cleanupItemCountHint() const
 {
     int count = 0;
     for (const auto &plan : m_model.plans()) {
-        count += static_cast<int>(plan.toRemove.size());
+        // Catalogued removals only. This hint is what
+        // shouldUseWholeFileReplace() weighs a whole-database copy
+        // against, so it has to mean "database writes coming" -- and a
+        // stray file's removal is a line in a manifest, not a row. On a
+        // real stick counting them added 632 phantom writes, which would
+        // push a two-group cleanup onto the scratch-copy path.
+        count += static_cast<int>(plan.toRemove.size()) - static_cast<int>(plan.unreferencedFilesToDelete.size())
+            - static_cast<int>(plan.unreferencedFilesHeldBack.size());
         if (plan.mergedCuesForSurvivor.size() > plan.survivor.cues.size()) {
             count++;
         }
