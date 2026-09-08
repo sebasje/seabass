@@ -34,6 +34,17 @@
 // directory's own location.
 
 namespace fs = std::filesystem;
+
+// This fixture is a rekordbox-only export, so that is the whole set of
+// catalogs on it. resolvePendingDeletions() takes them named rather than
+// merged specifically so a caller cannot pass one catalog by accident;
+// here there genuinely is only one.
+static seabass::application::CatalogTracks rekordboxCatalog(std::vector<seabass::domain::Track> tracks)
+{
+    seabass::application::CatalogTracks catalogs;
+    catalogs.rekordbox = std::move(tracks);
+    return catalogs;
+}
 using namespace seabass;
 
 int main()
@@ -276,7 +287,7 @@ int main()
         auto staleScanTracks = postRemovalTracks;
         staleScanTracks[0].filePath = doomed.filePath;
 
-        auto staleResolution = infrastructure::cleanup::resolvePendingDeletions(manifest.list(), staleScanTracks);
+        auto staleResolution = infrastructure::cleanup::resolvePendingDeletions(manifest.list(), rekordboxCatalog(staleScanTracks));
         assert(staleResolution.safeToDelete.empty());
         assert(staleResolution.stillReferenced.size() == 1);
         assert(staleResolution.stillReferenced[0].filePath == doomed.filePath);
@@ -287,7 +298,7 @@ int main()
         // The real, non-stale case: resolve against the genuinely fresh
         // scan and actually delete -- the file must be genuinely gone
         // from disk afterward, and cleared from the manifest.
-        auto realResolution = infrastructure::cleanup::resolvePendingDeletions(manifest.list(), postRemovalTracks);
+        auto realResolution = infrastructure::cleanup::resolvePendingDeletions(manifest.list(), rekordboxCatalog(postRemovalTracks));
         assert(realResolution.safeToDelete.size() == 1);
         assert(realResolution.stillReferenced.empty());
 
