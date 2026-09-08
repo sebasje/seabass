@@ -36,7 +36,7 @@ std::vector<std::string> filesWrittenFor(WriteScope scope, const domain::TrackId
         } catch (const std::exception &) {
             return {};
         }
-        if (analyzePath) {
+        if (scope.cueData && analyzePath) {
             files.push_back(infrastructure::rekordbox::extAnlzPath(rootPath, *analyzePath));
         }
         if (scope.catalogRows) {

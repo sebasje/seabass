@@ -102,6 +102,23 @@ QStringList SyncPlanChange::formatsTouched() const
     return {QString::fromStdString(target().format)};
 }
 
+// Only the target is written; the source is read. No OneLibrary mirror --
+// Sync writes whichever catalog is the target and leaves the others alone,
+// even when the stick has all three.
+std::vector<BackupTarget> SyncPlanChange::filesToBackup(SaveContext &ctx) const
+{
+    const domain::Track &tgt = target();
+    const QString path = tgt.format == "engine" ? m_enginePath : m_rekordboxPath;
+    if (path.isEmpty()) {
+        return {};  // apply() reports the missing catalog path
+    }
+    std::vector<BackupTarget> targets;
+    for (const auto &file : filesWrittenFor(WriteScope{}, {tgt.format, tgt.sourceId}, path, ctx)) {
+        targets.push_back({file, "sync"});
+    }
+    return targets;
+}
+
 ChangeOutcome SyncPlanChange::apply(SaveContext &ctx)
 {
     const domain::Track &tgt = target();

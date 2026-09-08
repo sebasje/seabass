@@ -50,6 +50,11 @@ QString describeCues(const std::vector<domain::CuePoint> &cues);
 // then restore a file this save never touched.
 struct WriteScope
 {
+    // Writes this track's cue data. Usually true; false for a change that
+    // only rewrites catalog rows -- a Library Health repair with nothing
+    // to merge onto the survivor removes rows without touching a single
+    // analysis file, and naming one would be an over-declaration.
+    bool cueData = true;
     // Also rewrites rows in the catalog itself (rekordbox's export.pdb).
     // A cue write does not: rekordbox keeps cue data in per-track analysis
     // files, so naming the catalog would put a file in the backup record
