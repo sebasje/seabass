@@ -1,6 +1,7 @@
 #pragma once
 
 #include <optional>
+#include <vector>
 #include <string>
 #include <vector>
 
@@ -148,5 +149,21 @@ class DuplicateCleanupPlanner
 public:
     static DuplicateCleanupPlan plan(const DuplicateGroup &group);
 };
+
+// Every catalog whose rows this plan's removals actually live in, in
+// first-seen order and without repeats. Stray files contribute nothing:
+// no catalog lists them, which is why they are strays.
+//
+// Applying a plan means removing all of these, and a caller that can
+// write only some of them must refuse the whole plan rather than write
+// the part it can. A file listed by three catalogs and removed from one
+// leaves the other two pointing at audio the first no longer lists --
+// the split state this feature exists to prevent, reached from the
+// writing side instead of the planning side.
+//
+// Empty of anything beyond a track's own format until rows have been
+// collapsed into files (application::collapseCatalogRows); until then
+// each row is its own track and each plan touches one catalog.
+std::vector<std::string> catalogsWrittenBy(const DuplicateCleanupPlan &plan);
 
 }  // namespace seabass::domain

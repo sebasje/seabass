@@ -477,6 +477,47 @@ int main()
         std::cout << "case 27 (no catalogRows -- the rule cannot fire) OK\n";
     }
 
+    // catalogsWrittenBy(): which catalogs a plan's removals actually
+    // live in. This is what lets a writer refuse a plan it can only
+    // partly apply, so it has to be exact about the two edge shapes --
+    // a stray file (no catalog at all) and a collapsed file (several).
+    {
+        // Uncollapsed: each row is its own track, one catalog.
+        DuplicateGroup group{{makeTrack("a", 200.0, 320, 3'000'000), makeTrack("b", 200.0, 256, 2'500'000)}};
+        group.tracks[0].format = "engine";
+        group.tracks[1].format = "engine";
+        auto plan = DuplicateCleanupPlanner::plan(group);
+        auto catalogs = catalogsWrittenBy(plan);
+        assert(catalogs.size() == 1);
+        assert(catalogs[0] == "engine");
+        std::cout << "case 20 (uncollapsed plan writes one catalog) OK\n";
+    }
+    {
+        // Collapsed: the doomed copy is one file with rows in three
+        // catalogs, and removing it means removing all three.
+        DuplicateGroup group{{makeTrack("keep", 200.0, 320, 3'000'000), makeTrack("drop", 200.0, 256, 2'500'000)}};
+        group.tracks[0].format = "rekordbox";
+        group.tracks[1].format = "rekordbox";
+        group.tracks[1].catalogRows = {{"rekordbox", "drop"}, {"engine", "e7"}, {"onelibrary", "o9"}};
+        auto plan = DuplicateCleanupPlanner::plan(group);
+        auto catalogs = catalogsWrittenBy(plan);
+        assert(catalogs.size() == 3);
+        assert(catalogs[0] == "rekordbox");
+        assert(std::find(catalogs.begin(), catalogs.end(), "engine") != catalogs.end());
+        assert(std::find(catalogs.begin(), catalogs.end(), "onelibrary") != catalogs.end());
+        std::cout << "case 21 (a collapsed file names every catalog it is in) OK\n";
+    }
+    {
+        // A stray file is in no catalog, so removing it writes to none.
+        DuplicateGroup group{{makeTrack("keep", 200.0, 320, 3'000'000), makeTrack("stray", 200.0, 256, 2'500'000)}};
+        group.tracks[0].format = "engine";
+        group.tracks[1].format = "engine";
+        group.tracks[1].isUnreferenced = true;
+        auto plan = DuplicateCleanupPlanner::plan(group);
+        assert(catalogsWrittenBy(plan).empty());
+        std::cout << "case 22 (a stray file writes to no catalog) OK\n";
+    }
+
     std::cout << "all cases passed\n";
     return 0;
 }

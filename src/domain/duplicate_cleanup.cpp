@@ -268,4 +268,29 @@ DuplicateCleanupPlan DuplicateCleanupPlanner::plan(const DuplicateGroup &group)
     return result;
 }
 
+std::vector<std::string> catalogsWrittenBy(const DuplicateCleanupPlan &plan)
+{
+    std::vector<std::string> catalogs;
+    auto add = [&catalogs](const std::string &format) {
+        if (format.empty()) {
+            return;
+        }
+        if (std::find(catalogs.begin(), catalogs.end(), format) == catalogs.end()) {
+            catalogs.push_back(format);
+        }
+    };
+    for (const auto &doomed : plan.toRemove) {
+        if (doomed.isUnreferenced) {
+            continue;
+        }
+        // The track's own format counts even when catalogRows is empty:
+        // an uncollapsed row is still a row in a catalog.
+        add(doomed.format);
+        for (const auto &row : doomed.catalogRows) {
+            add(row.format);
+        }
+    }
+    return catalogs;
+}
+
 }  // namespace seabass::domain

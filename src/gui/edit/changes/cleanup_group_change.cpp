@@ -157,9 +157,29 @@ QString CleanupGroupChange::unit() const
     return QStringLiteral("groups");
 }
 
+QStringList CleanupGroupChange::doomedRowFormats() const
+{
+    QStringList formats;
+    for (const auto &format : domain::catalogsWrittenBy(m_plan)) {
+        formats << QString::fromStdString(format);
+    }
+    return formats;
+}
+
+// Every format this group would have to write to, not just the one the
+// page is showing. On an uncollapsed plan that is exactly m_format, since
+// each row is its own track; a collapsed file carries the other formats'
+// rows in catalogRows and they have to be declared, or the save would
+// take a lock on one catalog and write another.
 QStringList CleanupGroupChange::formatsTouched() const
 {
-    return {m_format};
+    QStringList formats{m_format};
+    for (const auto &format : doomedRowFormats()) {
+        if (!formats.contains(format)) {
+            formats << format;
+        }
+    }
+    return formats;
 }
 
 namespace
@@ -237,6 +257,27 @@ std::vector<BackupTarget> CleanupGroupChange::filesToBackup(SaveContext &ctx) co
 ChangeOutcome CleanupGroupChange::apply(SaveContext &ctx)
 {
     const auto &plan = m_plan;
+
+    // Refuse rather than half-remove. A collapsed file carries one row per
+    // catalog, and removing it means removing every one of them; this
+    // change can only reach m_format's writer, so a row in any other
+    // catalog would be left pointing at a file the others no longer list
+    // -- the exact split state DuplicateCleanupPlanner's own refusal
+    // exists to prevent, only arrived at from the writing side.
+    //
+    // Unreachable today: nothing collapses rows before planning yet, so
+    // catalogRows is empty here and this costs one comparison. It is in
+    // place first on purpose, so that switching collapse on fails loudly
+    // on the first save instead of quietly splitting a library.
+    for (const auto &format : doomedRowFormats()) {
+        if (format != m_format) {
+            return ChangeOutcome::failure(
+                QStringLiteral("\"%1\" also has a %2 row, and this cleanup can only write %3. "
+                                "Removing it here would leave the %2 catalog pointing at a file the "
+                                "others no longer list, so nothing was written.")
+                    .arg(QString::fromStdString(plan.survivor.title), format, m_format));
+        }
+    }
 
     // A plan that writes to no catalog is one or more manifest lines and
     // nothing else, so it deliberately opens no write session: the
