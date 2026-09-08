@@ -1,6 +1,8 @@
 #include "gui/edit/save_loop.hpp"
 
 #include <exception>
+#include <utility>
+#include <vector>
 
 namespace seabass::gui
 {
@@ -8,6 +10,33 @@ namespace seabass::gui
 SaveLoopResult runSaveLoop(const std::vector<std::shared_ptr<PendingChange>> &changes, SaveContext &ctx)
 {
     SaveLoopResult result;
+
+    // Everything that can say what it will overwrite is backed up before
+    // anything is applied, in one pass. Two reasons, and the ordering one
+    // matters more than the speed: per-item backups meant the backup of
+    // item 201 landed only after items 1 to 200 had already been
+    // overwritten, so a crash in the middle left a save half-applied with
+    // half a backup. Changes that cannot answer yet keep backing up as
+    // they go, and backupOnce() skips whatever this already covered.
+    std::vector<BackupTarget> upfront;
+    for (const auto &change : changes) {
+        for (auto &target : change->filesToBackup(ctx)) {
+            upfront.push_back(std::move(target));
+        }
+    }
+    if (!upfront.empty()) {
+        ctx.status(QStringLiteral("Backing up"));
+        try {
+            ctx.backupAllNow(upfront);
+        } catch (const std::exception &e) {
+            // Nothing has been written yet, so refusing here costs the
+            // user nothing and protects everything.
+            result.error = QStringLiteral("could not back up before saving: %1").arg(QString::fromUtf8(e.what()));
+            ctx.progress().finish();
+            return result;
+        }
+    }
+
     ctx.progress().start("Saving changes", changes.size());
     size_t done = 0;
     for (const auto &change : changes) {

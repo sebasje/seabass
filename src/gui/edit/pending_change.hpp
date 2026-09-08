@@ -3,10 +3,22 @@
 #include <QString>
 #include <QStringList>
 
+#include <string>
+#include <vector>
+
 namespace seabass::gui
 {
 
 class SaveContext;
+
+// One file a change will overwrite, and the label its backup belongs
+// under. A save can hold changes of several kinds from one page, and each
+// kind keeps its own label, so this carries both rather than assuming one.
+struct BackupTarget
+{
+    std::string file;
+    std::string label;
+};
 
 struct ChangeOutcome
 {
@@ -52,6 +64,21 @@ public:
     // kind; a page that stages several kinds (Library Health stages both
     // repairs and orphan deletions) overrides this to name itself.
     virtual QString owner() const { return id().section(QLatin1Char(':'), 0, 0); }
+
+    // Every file this change will overwrite, if it can say so before it
+    // runs. The save loop backs all of them up in one pass BEFORE the
+    // first change is applied, so the backup is complete and durable
+    // before anything on the stick is touched -- otherwise the backup of
+    // item 201 lands only after items 1 to 200 were already overwritten.
+    //
+    // Returning nothing is allowed and means "I cannot say yet". Those
+    // changes keep backing up as they go via SaveContext::backupOnce(),
+    // which stays correct either way: it skips a file this already did.
+    virtual std::vector<BackupTarget> filesToBackup(SaveContext &ctx) const
+    {
+        (void)ctx;
+        return {};
+    }
 
     virtual ChangeOutcome apply(SaveContext &ctx) = 0;
 };

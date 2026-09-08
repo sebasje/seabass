@@ -14,6 +14,7 @@
 #include "application/ports/cancellation_token.hpp"
 #include "application/ports/operation_log.hpp"
 #include "application/ports/progress_reporter.hpp"
+#include "gui/edit/pending_change.hpp"
 #include "gui/undo_tracking.hpp"
 
 namespace seabass::infrastructure::backup
@@ -70,6 +71,12 @@ public:
     // Backs `file` up under `label` unless this save already did; records
     // the backup for undo. Returns true when a backup was made now.
     bool backupOnce(const std::string &file, const std::string &label);
+    // Backs every target up in one pass, grouped by label, before the save
+    // applies anything. One archive per label rather than one append per
+    // file, so a 201-cue save pays one durable write instead of 201 -- and
+    // the whole backup is on the stick before the first live file is
+    // touched, which the per-item path could not promise.
+    void backupAllNow(const std::vector<BackupTarget> &targets);
     // The id of the backup this save made for `file` (empty if none yet),
     // for records that want to name it (the pending-deletion manifest).
     std::string backupIdOf(const std::string &file) const;

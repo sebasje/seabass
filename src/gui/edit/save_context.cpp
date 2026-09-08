@@ -1,5 +1,9 @@
 #include "gui/edit/save_context.hpp"
 
+#include <map>
+#include <set>
+#include <vector>
+
 #include <filesystem>
 
 #include "infrastructure/backup/filesystem_backup_store.hpp"
@@ -65,6 +69,42 @@ infrastructure::backup::FilesystemBackupStore &SaveContext::archiveStore()
             infrastructure::backup::backupDirForStickRoot(stickRoot()));
     }
     return *m_backupStore;
+}
+
+void SaveContext::backupAllNow(const std::vector<BackupTarget> &targets)
+{
+    // Grouped by label, in first-seen order, because a save may hold
+    // several kinds of change from one page and each keeps its own record.
+    std::vector<std::string> labelOrder;
+    std::map<std::string, std::vector<std::string>> byLabel;
+    std::set<std::string> seen;
+    for (const auto &target : targets) {
+        if (target.file.empty() || m_backedUp.contains(target.file) || !seen.insert(target.file).second) {
+            continue;
+        }
+        if (!byLabel.contains(target.label)) {
+            labelOrder.push_back(target.label);
+        }
+        byLabel[target.label].push_back(target.file);
+    }
+
+    for (const std::string &label : labelOrder) {
+        const std::vector<std::string> &files = byLabel[label];
+        auto existing = m_recordByLabel.find(label);
+        application::BackupRecord record;
+        if (existing == m_recordByLabel.end()) {
+            record = archiveStore().backupToArchive(files, label);
+            m_recordByLabel[label] = record.id;
+            m_backups.push_back({QString::fromStdString(fs::path(record.path).parent_path().string()),
+                                 QString::fromStdString(record.id)});
+        } else {
+            record = archiveStore().addToArchive(existing->second, files);
+        }
+        log().record(label + ": backed up " + std::to_string(files.size()) + " file(s) -> " + record.path);
+        for (const std::string &file : files) {
+            m_backedUp[file] = record.id;
+        }
+    }
 }
 
 bool SaveContext::backupOnce(const std::string &file, const std::string &label)
