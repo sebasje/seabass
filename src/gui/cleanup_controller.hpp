@@ -215,6 +215,19 @@ class CleanupController : public QObject
     Q_PROPERTY(QString statusMessage READ statusMessage NOTIFY statusMessageChanged)
     Q_PROPERTY(bool canUndo READ canUndo NOTIFY canUndoChanged)
     Q_PROPERTY(QString totalWastedBytesHuman READ totalWastedBytesHuman NOTIFY plansChanged)
+    // Raw byte counts, for the space diagram on the Clean Up page. The
+    // *Human strings above stay because they are what the prose reads
+    // from; a bar drawn to scale needs the numbers themselves, and
+    // parsing "8.7 GB" back out of a formatted string to draw it would
+    // be both lossy and absurd.
+    Q_PROPERTY(qlonglong totalWastedBytes READ totalWastedBytes NOTIFY plansChanged)
+    Q_PROPERTY(qlonglong includedWastedBytes READ includedWastedBytes NOTIFY includedChanged)
+    // Capacity of the stick being cleaned, so the diagram can show what
+    // is reclaimed against what is actually there. 0 when it cannot be
+    // read (no stick, or a path that is not on one) -- QML must treat 0
+    // as "unknown" and draw nothing rather than an empty disk.
+    Q_PROPERTY(qlonglong stickTotalBytes READ stickTotalBytes NOTIFY plansChanged)
+    Q_PROPERTY(qlonglong stickFreeBytes READ stickFreeBytes NOTIFY plansChanged)
     Q_PROPERTY(int includedCount READ includedCount NOTIFY includedChanged)
     Q_PROPERTY(seabass::gui::PendingDeletionListModel *pendingDeletions READ pendingDeletionsModel CONSTANT)
     Q_PROPERTY(int pendingDeletionsIncludedCount READ pendingDeletionsIncludedCount NOTIFY pendingDeletionsChanged)
@@ -234,6 +247,10 @@ public:
     QString statusMessage() const { return m_statusMessage; }
     bool canUndo() const;
     QString totalWastedBytesHuman() const;
+    qlonglong totalWastedBytes() const;
+    qlonglong includedWastedBytes() const;
+    qlonglong stickTotalBytes() const;
+    qlonglong stickFreeBytes() const;
     int includedCount() const { return m_model.includedCount(); }
     PendingDeletionListModel *pendingDeletionsModel() { return &m_pendingModel; }
     int pendingDeletionsIncludedCount() const { return m_pendingModel.includedCount(); }
