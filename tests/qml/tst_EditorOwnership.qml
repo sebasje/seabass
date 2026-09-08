@@ -129,7 +129,9 @@ TestCase {
         tryCompare(dialog, "opened", true, 5000);
         var message = findByObjectName(dialog, "messageLabel");
         verify(message.text.indexOf("Library Health") >= 0);
-        verify(message.text.indexOf("Nothing was changed") >= 0);
+        // The reassurance is its own, quieter line now, not part of the
+        // consequence sentence.
+        verify(findByObjectName(dialog, "messageDetailLabel").text.indexOf("Nothing was changed") >= 0);
 
         findByObjectName(dialog, "understoodButton").clicked();
         tryCompare(dialog, "opened", false, 5000);

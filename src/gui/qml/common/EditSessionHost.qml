@@ -197,31 +197,19 @@ Item {
     // A second page tried to stage into a library another page is already
     // editing. Not a lock dialog: the other page is in this same window,
     // and the way out is to finish or discard there.
-    Dialog {
+    MessageDialog {
         id: otherPageDialog
         objectName: "otherPageDialog"
-        anchors.centerIn: parent
-        modal: true
-        closePolicy: Popup.NoAutoClose
-        width: 520
-        title: "Another page is editing this library"
         property string ownerName: ""
-        footer: DialogButtonBox {
-            Button {
-                objectName: "understoodButton"
-                text: "Understood"
-                highlighted: true
-                DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
-            }
-        }
-        Label {
-            objectName: "messageLabel"
-            width: parent.width
-            wrapMode: Text.WordWrap
-            color: Theme.text
-            text: "You have unsaved changes on " + otherPageDialog.ownerName + " for this stick. Save or discard "
-                + "them there before editing the same library from here.\n\nNothing was changed."
-        }
+        severity: SeabassDialog.Warning
+        closePolicy: Popup.NoAutoClose
+        title: "Another page is editing this library"
+        headline: "You have unsaved changes on " + otherPageDialog.ownerName + " for this stick. Save or "
+            + "discard them there before editing the same library from here."
+        detailText: "Nothing was changed."
+        showReject: false
+        acceptText: "Understood"
+        acceptObjectName: "understoodButton"
     }
 
     Connections {

@@ -39,10 +39,16 @@ Dialog {
     property string headline: ""
     // The qualifier under it, quieter. Optional.
     property string detailText: ""
+    // A progress dialog has no severity to report; everything else does.
+    property bool showBadge: true
     // Only ever offered on a question -- never on a destructive action and
     // never on an error, where "do not tell me again" is not a safe answer.
     property bool dontAskVisible: false
     property alias dontAskChecked: dontAskBox.checked
+
+    // Re-based dialogs keep whatever names their tests already look for.
+    property string messageObjectName: "messageLabel"
+    property string detailObjectName: "messageDetailLabel"
 
     default property alias extraContent: extraColumn.data
 
@@ -84,6 +90,7 @@ Dialog {
 
         Rectangle {
             objectName: "severityBadge"
+            visible: root.showBadge
             Layout.alignment: Qt.AlignTop
             Layout.preferredWidth: Theme.iconSizeSmall
             Layout.preferredHeight: Theme.iconSizeSmall
@@ -106,7 +113,7 @@ Dialog {
             spacing: 8
 
             Label {
-                objectName: "headlineLabel"
+                objectName: root.messageObjectName
                 Layout.fillWidth: true
                 visible: root.headline.length > 0
                 text: root.headline
@@ -115,7 +122,7 @@ Dialog {
             }
 
             Label {
-                objectName: "detailLabel"
+                objectName: root.detailObjectName
                 Layout.fillWidth: true
                 visible: root.detailText.length > 0
                 text: root.detailText

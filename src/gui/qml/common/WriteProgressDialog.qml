@@ -6,17 +6,15 @@ import SeabassGui
 // Write mode: up for exactly as long as a session is saving. Shows what
 // is being written right now, the progress, the "do not remove the
 // stick" warning, and a Cancel that stops at the next consistent point.
-Dialog {
+SeabassDialog {
     id: dialog
     required property var session
 
     readonly property bool hasSession: dialog.session !== null && dialog.session !== undefined
     readonly property bool writing: dialog.hasSession && dialog.session.writing === true
 
-    anchors.centerIn: parent
-    modal: true
+    showBadge: false   // progress, not a severity
     closePolicy: Popup.NoAutoClose
-    width: 520
     title: "Saving changes" + (dialog.hasSession && dialog.session.stickLabel.length > 0
         ? " to " + dialog.session.stickLabel : "")
 
@@ -41,7 +39,7 @@ Dialog {
     }
 
     ColumnLayout {
-        width: parent.width
+        Layout.fillWidth: true
         spacing: 12
 
         Label {

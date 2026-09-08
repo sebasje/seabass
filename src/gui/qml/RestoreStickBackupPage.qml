@@ -165,7 +165,7 @@ Page {
             lockedDialog.openFor(libraryId, holder);
         }
         function onActionFeedback(message, isError) {
-            messagePopup.show(message, isError ? Theme.danger : Theme.good);
+            messagePopup.show(message, isError);
         }
         function onDriveMounted(mountPoint) {
             for (var i = 0; i < root.disks.length; ++i) {

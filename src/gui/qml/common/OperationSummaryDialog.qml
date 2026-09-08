@@ -11,7 +11,7 @@ import SeabassGui
 // summary: {written, total, unit, cancelled, error} plus an optional
 // verb ("written" by default; "deleted" for a prune) and an optional
 // detail line that replaces the default cancel explanation.
-Dialog {
+SeabassDialog {
     id: dialog
     property var summary: ({})
 
@@ -28,10 +28,10 @@ Dialog {
         dialog.open();
     }
 
-    anchors.centerIn: parent
-    modal: true
+    severity: dialog.error.length > 0 ? SeabassDialog.Error
+        : dialog.cancelled ? SeabassDialog.Warning
+        : SeabassDialog.Info
     closePolicy: Popup.NoAutoClose
-    width: 460
     title: dialog.error.length > 0 ? "Stopped with an error"
         : dialog.cancelled ? "Cancelled"
         : "Done"
@@ -46,7 +46,7 @@ Dialog {
     }
 
     ColumnLayout {
-        width: parent.width
+        Layout.fillWidth: true
         spacing: 8
         Label {
             objectName: "countLabel"

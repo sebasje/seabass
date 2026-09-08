@@ -5,7 +5,7 @@ import SeabassGui
 
 // Another Seabass instance is editing this library. The safe button is
 // the default; the other one is deliberately blunt about what it does.
-Dialog {
+SeabassDialog {
     id: dialog
     property string libraryId: ""
     // {instanceId, hostname, pid, stickLabel, startedAtUtc}, possibly empty
@@ -27,11 +27,14 @@ Dialog {
         return line + ".";
     }
 
-    anchors.centerIn: parent
-    modal: true
+    severity: SeabassDialog.Error
     closePolicy: Popup.NoAutoClose
-    width: 520
     title: "This library is locked"
+    headline: "This library is currently locked by another instance of Seabass. Finish or discard the "
+        + "work in the other instance first.\n\nIf you are absolutely sure that you want to continue "
+        + "from here: Fine. Your call, remove the lock. (Don't come complaining.)"
+    detailText: dialog.holderLine
+    detailObjectName: "holderLabel"
 
     footer: DialogButtonBox {
         Button {
@@ -52,26 +55,4 @@ Dialog {
         }
     }
 
-    ColumnLayout {
-        width: parent.width
-        spacing: 12
-        Label {
-            objectName: "messageLabel"
-            color: Theme.text
-            Layout.fillWidth: true
-            wrapMode: Text.WordWrap
-            text: "This library is currently locked by another instance of Seabass. Finish or discard the work in "
-                + "the other instance first.\n\nIf you are absolutely sure that you want to continue from here: "
-                + "Fine. Your call, remove the lock. (Don't come complaining.)"
-        }
-        Label {
-            objectName: "holderLabel"
-            visible: dialog.holderLine.length > 0
-            Layout.fillWidth: true
-            wrapMode: Text.WordWrap
-            color: Theme.textMuted
-            font.pointSize: Theme.fontSmall
-            text: dialog.holderLine
-        }
-    }
 }
