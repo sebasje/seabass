@@ -1,6 +1,6 @@
-# Library Synchronization: Cue Points + Ratings & Comments
+# Sync Hub: Cue Points + Ratings & Comments
 
-A new first-level page, **Library Synchronization**, with today's "Sync
+A new first-level page, **Sync Hub**, with today's "Sync
 Cue Points" moving under it and a new **Ratings & Comments** subpage
 beside it. Same job, same machinery, different payload: take one track
 that several catalogs on the stick each know about, and make them agree.
@@ -170,7 +170,7 @@ cleared something can untick the row.
 ```
 Stick
 ├── Browse Library
-├── Library Synchronization        <- new first-level card
+├── Sync Hub                       <- new first-level card
 │   ├── Cue Points                 <- today's "Sync Cue Points", moved
 │   └── Ratings & Comments         <- new
 ├── Housekeeping
@@ -223,7 +223,11 @@ survivor file: `export.pdb` (cheap), the Engine row for that file
 So until step 4 lands, the fill is "written where writable, reported
 where not" -- and the group is still held, because a rating that
 reaches two of three catalogs is a rating that will disagree again. It
-resolves both groups, 630 → 632, only once OneLibrary can be written.
+releases both groups only once OneLibrary can be written. (The two stray
+*files* in those groups are no longer waiting on this: that flag was
+decoupled from file deletion -- see
+`unreferenced-file-cleanup-plan.md`. What is still held is the row-level
+cleanup of the groups themselves.)
 Comment fill into `export.pdb` hits the span problem above and is not
 attempted until there is a reflowing writer.
 
@@ -239,7 +243,7 @@ the above:
 No link, until there is a page that would actually resolve the case in
 front of the reader.
 
-## Stray File Audit: read-only in v1
+## Stray File Statistics: read-only in v1
 
 Decided: the audit page ships in v1 **read-only** -- it reports, it
 never deletes. Content and layout come from
@@ -281,7 +285,7 @@ catalogs were consulted. Everything it needs is already computed by
 5. **Gap-fill rating in `DuplicateCleanupPlanner`**, written where
    writable; the group is released only when every catalog row for the
    survivor could take it (in practice: after step 4).
-6. **Stray File Audit, read-only**, with both entry points.
+6. **Stray File Statistics, read-only**, with both entry points.
 7. **Row-reflowing comment write for `export.pdb`.** Its own piece of
    work with its own risks; not on the v1 path unless it turns out to be
    needed for something else first.
