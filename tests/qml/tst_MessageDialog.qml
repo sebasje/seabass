@@ -30,6 +30,11 @@ TestCase {
             property bool dirty: false
             property bool writing: false
             property int pendingCount: 0
+            // What LibraryEditSession reports after measuring the stick.
+            property bool backupGoesLocal: false
+            property real stickBytesFree: 0
+            property real stickBytesCapacity: 0
+            property real backupBytesWorstCase: 0
             property string writeLabel: ""
             property int writeCurrent: 0
             property int writeTotal: 0
@@ -75,14 +80,15 @@ TestCase {
         return null;
     }
 
+    // The space numbers now live on the session, and the decision is made
+    // in C++ -- the host only displays it. So the fake session carries
+    // both, exactly as LibraryEditSession does.
     function makeHost(props) {
-        var session = createTemporaryObject(sessionComponent, testCase);
+        var session = createTemporaryObject(sessionComponent, testCase, props);
         var registry = createTemporaryObject(registryComponent, testCase, {session: session});
-        var base = {registry: registry, libraryId: "EB9F-F032", stickLabel: "WHALESHARK"};
-        for (var k in props) {
-            base[k] = props[k];
-        }
-        var host = createTemporaryObject(hostComponent, testCase, base);
+        var host = createTemporaryObject(hostComponent, testCase,
+                                         {registry: registry, libraryId: "EB9F-F032",
+                                          stickLabel: "WHALESHARK"});
         waitForRendering(host);
         return host;
     }
@@ -223,6 +229,7 @@ TestCase {
 
     function test_silentWhenTheStickHasRoom() {
         var host = makeHost({
+            backupGoesLocal: false,
             stickBytesCapacity: 30 * testCase.gb,
             stickBytesFree: 20 * testCase.gb,
             backupBytesWorstCase: 318 * testCase.mb
@@ -233,6 +240,7 @@ TestCase {
 
     function test_asksOnEnteringEditModeWhenTheStickIsTight() {
         var host = makeHost({
+            backupGoesLocal: true,
             stickBytesCapacity: 30 * testCase.gb,
             stickBytesFree: 1.2 * testCase.gb,
             backupBytesWorstCase: 812 * testCase.mb
@@ -249,19 +257,24 @@ TestCase {
         verify(dialog.detailText.indexOf("only") >= 0);
     }
 
-    function test_headroomScalesWithABigStick() {
-        // 2% of a 256 GB stick is 5.1 GB, so 3 GB free is tight there even
-        // though it would be plenty on a 30 GB one.
+    // The threshold itself is C++'s, and tests/stick_space_test.cpp covers
+    // it -- including that the backup's own size is in the comparison and
+    // that headroom scales with the device. What matters here is only that
+    // the host shows whatever the session decided.
+    function test_theHostShowsWhatTheSessionDecided() {
         var host = makeHost({
+            backupGoesLocal: true,
             stickBytesCapacity: 256 * testCase.gb,
             stickBytesFree: 3 * testCase.gb,
             backupBytesWorstCase: 100 * testCase.mb
         });
         compare(host.backupWouldGoLocal, true);
+        tryCompare(findByObjectName(host, "lowSpaceDialog"), "opened", true);
     }
 
     function test_acceptingEditsAnyway() {
         var host = makeHost({
+            backupGoesLocal: true,
             stickBytesCapacity: 30 * testCase.gb,
             stickBytesFree: 1.2 * testCase.gb,
             backupBytesWorstCase: 812 * testCase.mb
@@ -275,6 +288,7 @@ TestCase {
 
     function test_cancellingBeforeAnythingIsStaged() {
         var host = makeHost({
+            backupGoesLocal: true,
             stickBytesCapacity: 30 * testCase.gb,
             stickBytesFree: 1.2 * testCase.gb,
             backupBytesWorstCase: 812 * testCase.mb

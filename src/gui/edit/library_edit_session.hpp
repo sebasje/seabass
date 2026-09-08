@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "application/ports/cancellation_token.hpp"
+#include "infrastructure/backup/stick_space.hpp"
 #include "gui/edit/pending_change.hpp"
 #include "gui/edit/save_loop.hpp"
 #include "gui/undo_tracking.hpp"
@@ -59,6 +60,12 @@ class LibraryEditSession : public QObject
     Q_PROPERTY(QString stickIdentityStrength READ stickIdentityStrength NOTIFY stickPresenceChanged)
     // {written, total, unit, cancelled, error} of the last save.
     Q_PROPERTY(QVariantMap lastSummary READ lastSummary NOTIFY saveFinished)
+    // Where this session's backups will go, measured once when the
+    // session opens. See infrastructure/backup/stick_space.hpp.
+    Q_PROPERTY(bool backupGoesLocal READ backupGoesLocal CONSTANT)
+    Q_PROPERTY(double stickBytesFree READ stickBytesFree CONSTANT)
+    Q_PROPERTY(double stickBytesCapacity READ stickBytesCapacity CONSTANT)
+    Q_PROPERTY(double backupBytesWorstCase READ backupBytesWorstCase CONSTANT)
 
 public:
     LibraryEditSession(EditSessionRegistry *registry, QString libraryId, QString stickLabel, QString mountPoint,
@@ -89,6 +96,13 @@ public:
     // non-empty path fills in what is still unknown.
     void setLibraryPaths(const QString &rekordboxPath, const QString &enginePath);
     void setStickLabel(const QString &label);
+    bool backupGoesLocal() const { return m_stickSpace.backupGoesLocal(); }
+    // double, not qint64: QML numbers are doubles anyway, and a stick's
+    // byte counts are far inside the 2^53 a double holds exactly.
+    double stickBytesFree() const { return static_cast<double>(m_stickSpace.freeBytes); }
+    double stickBytesCapacity() const { return static_cast<double>(m_stickSpace.capacityBytes); }
+    double backupBytesWorstCase() const { return static_cast<double>(m_stickSpace.worstCaseBackupBytes); }
+
     QString rekordboxPath() const { return m_rekordboxPath; }
     QString enginePath() const { return m_enginePath; }
 
@@ -148,6 +162,7 @@ private:
     QString m_mountPoint;
     QString m_rekordboxPath;
     QString m_enginePath;
+    infrastructure::backup::StickSpace m_stickSpace;
     std::vector<std::shared_ptr<PendingChange>> m_changes;
     std::vector<UndoableBackup> m_lastBackups;
     QFutureWatcher<SaveLoopResult> m_watcher;

@@ -183,6 +183,7 @@ add_library(seabass_core STATIC
     src/infrastructure/media/media_factory.cpp
     src/infrastructure/media/stick_root_scan.cpp
     src/infrastructure/backup/filesystem_backup_store.cpp
+    src/infrastructure/backup/stick_space.cpp
     src/infrastructure/backup/stick_write_lock.cpp
     src/infrastructure/cleanup/pending_deletion_manifest.cpp
     src/infrastructure/cleanup/pending_deletion_resolver.cpp
@@ -727,6 +728,13 @@ set(SEABASS_STICK_BACKUP_FORMAT_SOURCES
     src/infrastructure/stick_backup/zip64_reader.cpp
     src/infrastructure/stick_backup/backup_manifest.cpp
 )
+
+add_executable(stick_space_test
+    src/infrastructure/backup/stick_space.cpp
+    tests/stick_space_test.cpp
+)
+target_include_directories(stick_space_test PRIVATE src)
+add_test(NAME stick_space_test COMMAND stick_space_test)
 
 add_executable(filesystem_backup_store_test
     src/infrastructure/durable_file_write.cpp
