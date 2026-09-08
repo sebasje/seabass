@@ -450,6 +450,12 @@ if(Qt6_FOUND)
         # style access in CamelotWheelPopup.qml goes undefined.
         set_source_files_properties(src/gui/qml/CamelotWheelPosition.qml
             PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+        # And FormatLabels, which was missing here while the real target
+        # had it -- so `FormatLabels.label(...)` was not undefined-but-
+        # harmless in tests, it was a TypeError on a plain type. Nothing
+        # caught it because no test had rendered a component that calls
+        # it until tst_UnreferencedFilesNotice did.
+        set_source_files_properties(src/gui/qml/FormatLabels.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
         # The same module the app registers (see src/gui/CMakeLists.txt's
         # SEABASS_GUI_* lists): every page with its real controller, so

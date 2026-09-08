@@ -1,8 +1,7 @@
-// Exercises TagLibMetadataProbe against MP3s built byte by byte here,
-// rather than checked-in fixtures: the interesting cases are precisely
-// the ones a normal encoder never produces on demand (a VBR stream with
-// no Xing header), and a hand-built frame makes the expected duration
-// arithmetic explicit instead of magic.
+// Exercises TagLibMetadataProbe against MP3s built byte by byte (see
+// tests/mp3_fixture.hpp) rather than checked-in fixtures: the
+// interesting cases are precisely the ones a normal encoder never
+// produces on demand, above all a VBR stream with no Xing header.
 #include <cassert>
 #include <cmath>
 #include <cstring>
@@ -16,76 +15,11 @@
 #include <taglib/tag.h>
 
 #include "infrastructure/audio/taglib_metadata_probe.hpp"
+#include "mp3_fixture.hpp"
 
 using seabass::infrastructure::audio::TagLibMetadataProbe;
+using namespace seabass::test_fixture::mp3;
 namespace fs = std::filesystem;
-
-namespace
-{
-
-// MPEG-1 Layer III, 128 kbps, 44100 Hz, stereo, no padding, no CRC.
-constexpr unsigned char FrameHeader[4] = {0xFF, 0xFB, 0x90, 0x00};
-constexpr int FrameBytes = 417;  // 144 * 128000 / 44100, truncated
-constexpr int SamplesPerFrame = 1152;
-constexpr int SampleRate = 44100;
-
-std::vector<unsigned char> silentFrame()
-{
-    std::vector<unsigned char> frame(FrameBytes, 0);
-    std::memcpy(frame.data(), FrameHeader, sizeof(FrameHeader));
-    return frame;
-}
-
-// A Xing header sits in the first frame's data area at an offset fixed
-// by version + channel mode: MPEG-1 stereo is 32 bytes past the 4-byte
-// frame header. Only the "frames" and "bytes" fields are filled in,
-// which is what a length calculation needs.
-std::vector<unsigned char> xingFrame(unsigned frames, unsigned bytes)
-{
-    std::vector<unsigned char> frame = silentFrame();
-    size_t offset = 4 + 32;
-    std::memcpy(frame.data() + offset, "Xing", 4);
-    offset += 4;
-    frame[offset + 3] = 0x03;  // flags: frames present | bytes present
-    offset += 4;
-    for (int i = 0; i < 4; ++i) {
-        frame[offset + i] = static_cast<unsigned char>((frames >> (8 * (3 - i))) & 0xFF);
-    }
-    offset += 4;
-    for (int i = 0; i < 4; ++i) {
-        frame[offset + i] = static_cast<unsigned char>((bytes >> (8 * (3 - i))) & 0xFF);
-    }
-    return frame;
-}
-
-void writeFile(const fs::path &path, const std::vector<unsigned char> &data)
-{
-    fs::create_directories(path.parent_path());
-    std::ofstream out(path, std::ios::binary);
-    out.write(reinterpret_cast<const char *>(data.data()), static_cast<std::streamsize>(data.size()));
-}
-
-// frameCount silent frames, the first optionally carrying a Xing header
-// that honestly describes the file.
-void writeMp3(const fs::path &path, int frameCount, bool withXing)
-{
-    std::vector<unsigned char> data;
-    for (int i = 0; i < frameCount; ++i) {
-        std::vector<unsigned char> frame =
-            (i == 0 && withXing) ? xingFrame(static_cast<unsigned>(frameCount),
-                                              static_cast<unsigned>(frameCount * FrameBytes))
-                                 : silentFrame();
-        data.insert(data.end(), frame.begin(), frame.end());
-    }
-    writeFile(path, data);
-}
-
-double expectedSeconds(int frameCount)
-{
-    return double(frameCount) * SamplesPerFrame / SampleRate;
-}
-
-}  // namespace
 
 int main()
 {
@@ -176,7 +110,7 @@ int main()
     // answers (nullopt), never exceptions, because a catalog row pointing
     // at a deleted file is normal.
     {
-        writeFile(root / "notaudio.mp3", std::vector<unsigned char>{'n', 'o', 'p', 'e'});
+        writeBytes(root / "notaudio.mp3", std::vector<unsigned char>{'n', 'o', 'p', 'e'});
         assert(!probe.read((root / "notaudio.mp3").string()).has_value());
         assert(!probe.read((root / "does-not-exist.mp3").string()).has_value());
         std::cout << "case 5 (garbage file and missing file -> nullopt) OK\n";
