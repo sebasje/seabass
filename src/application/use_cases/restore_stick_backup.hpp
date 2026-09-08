@@ -71,6 +71,14 @@ struct RestorePreview
     bool targetHasEngineLibrary = false;
     std::uint64_t freeBytesAtTarget = 0;
     bool enoughFreeSpace = true;
+    // How many of the archive's entries do not have their bytes where the
+    // central directory says they are. The central directory itself can
+    // still parse fine -- names, sizes and mtimes are metadata, written
+    // once, up front -- so this is the only warning available before an
+    // actual restore attempt starts finding out file by file. Zero on a
+    // healthy archive; see RestoreSummary::Status::Failed for what a large
+    // count here does to execute().
+    std::size_t unreadableEntries = 0;
 };
 
 // What a backup file is, without planning a restore from it: enough to

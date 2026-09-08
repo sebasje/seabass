@@ -359,7 +359,7 @@ SyncTaskResult runAnalyzeTask(QString rekordboxPath, QString enginePath, QString
 
 }  // namespace
 
-SyncController::SyncController(QObject *parent) : QObject(parent)
+SyncController::SyncController(QObject *parent) : StagedCueEditController(parent)
 {
     connect(&m_watcher, &QFutureWatcher<SyncTaskResult>::finished, this, &SyncController::onAnalyzeFinished);
 }
@@ -378,7 +378,7 @@ void SyncController::analyze(const QString &rekordboxPath, const QString &engine
     m_currentPlaylistName = playlistName;
     m_currentSearchQuery = searchQuery;
 
-    if (m_busy) {
+    if (busy()) {
         return;  // never overlap two analyses
     }
     m_rekordboxPath = rekordboxPath;
@@ -387,30 +387,8 @@ void SyncController::analyze(const QString &rekordboxPath, const QString &engine
     setErrorMessage({});
     setStatusMessage({});
     setScanProgress(0, 0);
-    setBusy(true);
-
-    m_scanCancel = application::CancellationToken();
     m_watcher.setFuture(QtConcurrent::run(runAnalyzeTask, rekordboxPath, enginePath, playlistName, searchQuery,
-                                          makeReporter(), m_scanCancel));
-}
-
-void SyncController::cancelScan()
-{
-    if (scanCancellable()) {
-        m_scanCancel.cancel();
-    }
-}
-
-// See ScanController::scan() for why the reporter is owned by the task
-// (via shared_ptr) rather than by this controller.
-std::shared_ptr<QtProgressReporter> SyncController::makeReporter()
-{
-    auto reporter = std::make_shared<QtProgressReporter>();
-    connect(reporter.get(), &QtProgressReporter::started, this,
-            [this](const QString &, int total) { setScanProgress(0, total); });
-    connect(reporter.get(), &QtProgressReporter::progressed, this,
-            [this](int current) { setScanProgress(current, m_scanTotal); });
-    return reporter;
+                                          makeReporter(), beginScan()));
 }
 
 void SyncController::onAnalyzeFinished()
@@ -436,8 +414,8 @@ void SyncController::onAnalyzeFinished()
     m_model.setPlans(std::move(result.plans));
     // Plans staged before this re-analyze keep their mark if they are
     // still listed (the change itself lives in the session either way).
-    for (const auto &[targetKey, info] : m_stagedByTarget) {
-        int index = indexOfTargetKey(targetKey);
+    for (const auto &[targetKey, info] : m_stagedByKey) {
+        int index = indexOfStagedKey(targetKey);
         if (index >= 0) {
             m_model.setStaged(index, true, info.description);
         }
@@ -562,77 +540,30 @@ void SyncController::recomputeDirectionCounts()
 // The target track identifies a plan across re-analyses: at most one plan
 // per target track ever exists (SyncPlanner classifies each matched pair
 // once), so this is also the staged change's key.
-QString SyncController::targetKeyFor(const SyncPlan &plan)
+QString SyncPlanListModel::planKeyAt(int index) const
 {
+    if (index < 0 || static_cast<size_t>(index) >= m_plans.size()) {
+        return {};
+    }
+    const SyncPlan &plan = m_plans[static_cast<size_t>(index)];
     const domain::Track &target = plan.direction == SyncPlan::Direction::ToB ? plan.match.trackB : plan.match.trackA;
     return QString::fromStdString(target.format) + ":" + QString::fromStdString(target.sourceId);
 }
 
-int SyncController::indexOfTargetKey(const QString &targetKey) const
-{
-    const auto &plans = m_model.plans();
-    for (size_t i = 0; i < plans.size(); ++i) {
-        if (targetKeyFor(plans[i]) == targetKey) {
-            return static_cast<int>(i);
-        }
-    }
-    return -1;
-}
-
-bool SyncController::writing() const
-{
-    return m_session && m_session->writing();
-}
-
-bool SyncController::canUndo() const
-{
-    return m_session && m_session->canUndo();
-}
-
+// The base wires the session's state and staged-change signals; the only
+// part specific to this page is that a sync spans two catalogs, so the
+// session is told about both paths.
+//
+// A row whose change lands is dropped rather than re-derived: that pair
+// is consistent now, and SyncPlanner classifies each pair independently,
+// so no other row's classification can change. See
+// StagedCueEditController::onSessionChangeApplied().
 void SyncController::attachSession()
 {
-    auto *registry = EditSessionRegistry::instance();
     const QString &any = m_rekordboxPath.isEmpty() ? m_enginePath : m_rekordboxPath;
-    LibraryEditSession *session = registry->sessionFor(registry->libraryIdForPath(any));
-    if (session != m_session) {
-        if (m_session) {
-            disconnect(m_session, nullptr, this, nullptr);
-        }
-        m_session = session;
-        if (m_session) {
-            connect(m_session, &LibraryEditSession::stateChanged, this, &SyncController::writingChanged);
-            connect(m_session, &LibraryEditSession::canUndoChanged, this, &SyncController::canUndoChanged);
-            connect(m_session, &LibraryEditSession::changeApplied, this, [this](const QString &changeId) {
-                if (changeId == QStringLiteral("undo:last-save")) {
-                    // Prior file bytes are back; the plan list is stale.
-                    analyze(m_rekordboxPath, m_enginePath, m_currentPlaylistName, m_currentSearchQuery);
-                    return;
-                }
-                for (auto it = m_stagedByTarget.begin(); it != m_stagedByTarget.end(); ++it) {
-                    if (it->second.changeId == changeId) {
-                        // That pair is consistent now: the row goes.
-                        // SyncPlanner classifies each pair independently,
-                        // so no other row's classification can change.
-                        int index = indexOfTargetKey(it->first);
-                        m_stagedByTarget.erase(it);
-                        if (index >= 0) {
-                            m_model.removePlanAt(index);
-                            recomputeDirectionCounts();
-                        }
-                        emit stagedChanged();
-                        break;
-                    }
-                }
-            });
-            connect(m_session, &LibraryEditSession::changesDiscarded, this, [this]() {
-                m_stagedByTarget.clear();
-                m_model.clearStaged();
-                emit stagedChanged();
-            });
-        }
-    }
-    if (m_session) {
-        m_session->setLibraryPaths(m_rekordboxPath, m_enginePath);
+    attachSessionForPath(any);
+    if (LibraryEditSession *s = session()) {
+        s->setLibraryPaths(m_rekordboxPath, m_enginePath);
     }
 }
 
@@ -646,43 +577,28 @@ void SyncController::stagePlan(int index)
     if (plan.direction == SyncPlan::Direction::None) {
         return;
     }
-    if (!m_session) {
+    if (!session()) {
         attachSession();
-        if (!m_session) {
-            setErrorMessage("This stick's library could not be identified; nothing was changed.");
-            return;
-        }
-    }
-    if (m_session->writing()) {
-        setErrorMessage("A save is running -- stage more once it has finished.");
-        return;
     }
     // How many writes this save may make against the target's database
     // (drives the scratch-copy decision): every listed plan for that
     // format, the most that could be staged.
-    QString targetKey = targetKeyFor(plan);
+    QString targetKey = m_model.planKeyAt(index);
     QString targetFormat = targetKey.section(':', 0, 0);
     int itemCountHint = 0;
-    for (const auto &other : plans) {
-        if (targetKeyFor(other).section(':', 0, 0) == targetFormat) {
+    for (int i = 0; i < m_model.planCount(); ++i) {
+        if (m_model.planKeyAt(i).section(':', 0, 0) == targetFormat) {
             itemCountHint++;
         }
     }
-    auto change = std::make_unique<SyncPlanChange>(m_rekordboxPath, m_enginePath, plan, itemCountHint);
-    QString changeId = change->id();
-    QString description = change->description();
-    if (!m_session->stage(std::move(change))) {
-        return;  // the session reported the lock refusal; the page shows it
-    }
-    m_stagedByTarget[targetKey] = {changeId, description};
-    m_model.setStaged(index, true, description);
-    emit stagedChanged();
+    stageChange(index, targetKey,
+                std::make_unique<SyncPlanChange>(m_rekordboxPath, m_enginePath, plan, itemCountHint));
 }
 
 // Stages every plan currently in the model; the page's Save writes them.
 void SyncController::apply()
 {
-    if (m_busy) {
+    if (busy()) {
         return;
     }
     setErrorMessage({});
@@ -691,10 +607,10 @@ void SyncController::apply()
     const size_t count = m_model.plans().size();
     for (size_t i = 0; i < count; ++i) {
         if (m_model.plans()[i].direction != SyncPlan::Direction::None
-            && !m_stagedByTarget.count(targetKeyFor(m_model.plans()[i]))) {
+            && !m_stagedByKey.count(m_model.planKeyAt(static_cast<int>(i)))) {
             stagePlan(static_cast<int>(i));
             staged++;
-            if (m_session && !m_session->lockHeld()) {
+            if (session() && !session()->lockHeld()) {
                 return;  // refused at the first one; no point trying the rest
             }
         }
@@ -706,77 +622,12 @@ void SyncController::apply()
 
 void SyncController::applyOne(int index)
 {
-    if (m_busy) {
+    if (busy()) {
         return;
     }
     setErrorMessage({});
     setStatusMessage({});
     stagePlan(index);
-}
-
-void SyncController::unstage(int index)
-{
-    const auto &plans = m_model.plans();
-    if (index < 0 || static_cast<size_t>(index) >= plans.size()) {
-        return;
-    }
-    auto it = m_stagedByTarget.find(targetKeyFor(plans[static_cast<size_t>(index)]));
-    if (it == m_stagedByTarget.end()) {
-        return;
-    }
-    if (m_session) {
-        m_session->unstage(it->second.changeId);
-    }
-    m_stagedByTarget.erase(it);
-    m_model.setStaged(index, false, QString());
-    emit stagedChanged();
-}
-
-void SyncController::undoLastOperation()
-{
-    if (m_busy || !m_session) {
-        return;
-    }
-    setErrorMessage({});
-    setStatusMessage({});
-    m_session->undoLastSave();
-}
-
-void SyncController::setBusy(bool busy)
-{
-    if (m_busy == busy) {
-        return;
-    }
-    m_busy = busy;
-    emit busyChanged();
-}
-
-void SyncController::setScanProgress(int current, int total)
-{
-    if (m_scanCurrent == current && m_scanTotal == total) {
-        return;
-    }
-    m_scanCurrent = current;
-    m_scanTotal = total;
-    emit scanProgressChanged();
-}
-
-void SyncController::setErrorMessage(const QString &message)
-{
-    if (m_errorMessage == message) {
-        return;
-    }
-    m_errorMessage = message;
-    emit errorMessageChanged();
-}
-
-void SyncController::setStatusMessage(const QString &message)
-{
-    if (m_statusMessage == message) {
-        return;
-    }
-    m_statusMessage = message;
-    emit statusMessageChanged();
 }
 
 }  // namespace seabass::gui

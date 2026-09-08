@@ -304,4 +304,42 @@ TestCase {
         findChild(page, "startOverButton").clicked();
         compare(page.controller.clearCalls, 1);
     }
+
+    // Missing referenced tracks can predate the backup entirely (a
+    // re-numbered or re-imported track leaving its database row
+    // dangling) rather than meaning this restore did something wrong --
+    // the result report hands that question to Library Health for the
+    // disk actually just restored onto.
+    function test_missingTracksOffersLibraryHealthForTheRestoredDisk() {
+        var disk = makeDisk({label: "STICK", mountPoint: "/media/STICK",
+                             rekordboxPath: "/media/STICK/PIONEER", enginePath: "/media/STICK/Engine Library"});
+        var page = makePage([disk], {
+            result: {filesWritten: 14, filesUnchanged: 1147, directoriesCreated: 0, extrasRemoved: 0, rejected: [],
+                     writeErrors: [], warnings: [], missingTracks: ["Contents/Artist/track.mp3"], databaseChecked: true},
+        });
+        var button = findChild(page, "repairLibraryButton");
+        compare(button.visible, true);
+
+        var spy = createTemporaryObject(spyComponent, testCase, {target: page, signalName: "libraryHealthRequested"});
+        button.clicked();
+        compare(spy.count, 1);
+        compare(spy.signalArguments[0][0], "STICK");
+        compare(spy.signalArguments[0][1], "/media/STICK/PIONEER");
+        compare(spy.signalArguments[0][2], "/media/STICK/Engine Library");
+    }
+
+    // Nothing missing: no reason to offer a repair for a database that
+    // opened clean.
+    function test_noMissingTracksHidesTheRepairButton() {
+        var page = makePage([makeDisk({})], {
+            result: {filesWritten: 14, filesUnchanged: 1147, directoriesCreated: 0, extrasRemoved: 0, rejected: [],
+                     writeErrors: [], warnings: [], missingTracks: [], databaseChecked: true},
+        });
+        compare(findChild(page, "repairLibraryButton").visible, false);
+    }
+
+    Component {
+        id: spyComponent
+        SignalSpy {}
+    }
 }

@@ -252,7 +252,7 @@ DuplicatesTaskResult runRescanTask(QString format, QString path, std::shared_ptr
 
 }  // namespace
 
-DuplicatesController::DuplicatesController(QObject *parent) : QObject(parent)
+DuplicatesController::DuplicatesController(QObject *parent) : StagedCueEditController(parent)
 {
     connect(&m_watcher, &QFutureWatcher<DuplicatesTaskResult>::finished, this,
             &DuplicatesController::onRescanFinished);
@@ -267,82 +267,36 @@ QString DuplicatesController::totalWastedBytesHuman() const
     return humanSize(total);
 }
 
-bool DuplicatesController::writing() const
+QString ConsolidationPlanListModel::planKeyAt(int index) const
 {
-    return m_session && m_session->writing();
-}
-
-bool DuplicatesController::canUndo() const
-{
-    return m_session && m_session->canUndo();
-}
-
-// The group's identity across rescans: its member track ids, sorted.
-QString DuplicatesController::groupKeyFor(const domain::ConsolidationPlan &plan)
-{
+    if (index < 0 || static_cast<size_t>(index) >= m_plans.size()) {
+        return {};
+    }
     QStringList ids;
-    for (const auto &t : plan.group.tracks) {
+    for (const auto &t : m_plans[static_cast<size_t>(index)].group.tracks) {
         ids << QString::fromStdString(t.sourceId);
     }
     ids.sort();
     return ids.join('+');
 }
 
-int DuplicatesController::indexOfGroupKey(const QString &groupKey) const
-{
-    const auto &plans = m_model.plans();
-    for (size_t i = 0; i < plans.size(); ++i) {
-        if (groupKeyFor(plans[i]) == groupKey) {
-            return static_cast<int>(i);
-        }
-    }
-    return -1;
-}
-
+// The base wires the session's state and staged-change signals; the only
+// part specific to this page is which of the two library paths the
+// session should be told about, which depends on the format toggle.
+//
+// A row whose change lands is dropped rather than re-derived: once its
+// cues are copied the group is AlreadyConsistent, which this model never
+// shows, and DuplicateTrackFinder groups by filename/title+artist+
+// duration only -- never cues -- so no other group's classification can
+// change either. See StagedCueEditController::onSessionChangeApplied().
 void DuplicatesController::attachSession()
 {
-    auto *registry = EditSessionRegistry::instance();
-    LibraryEditSession *session = registry->sessionFor(registry->libraryIdForPath(m_path));
-    if (session != m_session) {
-        if (m_session) {
-            disconnect(m_session, nullptr, this, nullptr);
-        }
-        m_session = session;
-        if (m_session) {
-            connect(m_session, &LibraryEditSession::stateChanged, this, &DuplicatesController::writingChanged);
-            connect(m_session, &LibraryEditSession::canUndoChanged, this, &DuplicatesController::canUndoChanged);
-            connect(m_session, &LibraryEditSession::changeApplied, this, [this](const QString &changeId) {
-                if (changeId == QStringLiteral("undo:last-save")) {
-                    rescan();  // prior file bytes are back; the plan list is stale
-                    return;
-                }
-                for (auto it = m_stagedByGroup.begin(); it != m_stagedByGroup.end(); ++it) {
-                    if (it->second.changeId == changeId) {
-                        // Cues just got copied onto every other track in
-                        // this group -- it's AlreadyConsistent now, which
-                        // this model never shows, so the row disappears.
-                        int index = indexOfGroupKey(it->first);
-                        m_stagedByGroup.erase(it);
-                        if (index >= 0) {
-                            m_model.removePlanAt(index);
-                        }
-                        emit plansChanged();
-                        break;
-                    }
-                }
-            });
-            connect(m_session, &LibraryEditSession::changesDiscarded, this, [this]() {
-                m_stagedByGroup.clear();
-                m_model.clearStaged();
-                emit plansChanged();
-            });
-        }
-    }
-    if (m_session) {
+    attachSessionForPath(m_path);
+    if (LibraryEditSession *s = session()) {
         if (m_format == "engine") {
-            m_session->setLibraryPaths(QString(), m_path);
+            s->setLibraryPaths(QString(), m_path);
         } else {
-            m_session->setLibraryPaths(m_path, QString());
+            s->setLibraryPaths(m_path, QString());
         }
     }
 }
@@ -362,36 +316,12 @@ bool DuplicatesController::hasOneLibrary(const QString &pioneerRoot) const
 
 void DuplicatesController::rescan()
 {
-    if (m_busy) {
+    if (busy()) {
         return;  // never overlap two rescans
     }
     setErrorMessage({});
     setScanProgress(0, 0);
-    setBusy(true);
-
-    m_scanCancel = application::CancellationToken();
-    m_watcher.setFuture(QtConcurrent::run(runRescanTask, m_format, m_path, makeReporter(), m_scanCancel));
-}
-
-void DuplicatesController::cancelScan()
-{
-    if (scanCancellable()) {
-        m_scanCancel.cancel();
-    }
-}
-
-// See ScanController::scan() for why the reporter is owned by the task
-// (via shared_ptr) rather than by this controller.
-std::shared_ptr<QtProgressReporter> DuplicatesController::makeReporter()
-{
-    auto reporter = std::make_shared<QtProgressReporter>();
-    connect(reporter.get(), &QtProgressReporter::started, this, [this](const QString &label, int total) {
-        setScanLabel(label);
-        setScanProgress(0, total);
-    });
-    connect(reporter.get(), &QtProgressReporter::progressed, this,
-            [this](int current) { setScanProgress(current, m_scanTotal); });
-    return reporter;
+    m_watcher.setFuture(QtConcurrent::run(runRescanTask, m_format, m_path, makeReporter(), beginScan()));
 }
 
 void DuplicatesController::onRescanFinished()
@@ -412,8 +342,8 @@ void DuplicatesController::onRescanFinished()
     m_model.setPlans(std::move(result.plans));
     // Groups staged before this rescan keep their mark if they are still
     // listed (the change itself lives in the session either way).
-    for (const auto &[groupKey, info] : m_stagedByGroup) {
-        int index = indexOfGroupKey(groupKey);
+    for (const auto &[groupKey, info] : m_stagedByKey) {
+        int index = indexOfStagedKey(groupKey);
         if (index >= 0) {
             m_model.setStaged(index, true, info.description);
         }
@@ -424,33 +354,18 @@ void DuplicatesController::onRescanFinished()
 
 void DuplicatesController::stageCopy(int index, const DuplicatesCopyOp &op)
 {
-    if (!m_session) {
+    if (!session()) {
         attachSession();
-        if (!m_session) {
-            setErrorMessage("This stick's library could not be identified; nothing was changed.");
-            return;
-        }
     }
-    if (m_session->writing()) {
-        setErrorMessage("A save is running -- stage more once it has finished.");
-        return;
+    QString groupKey = m_model.planKeyAt(index);
+    if (stageChange(index, groupKey, std::make_unique<CopyCuesChange>(m_format, m_path, groupKey, op))) {
+        emit plansChanged();
     }
-    const auto &plan = m_model.plans()[static_cast<size_t>(index)];
-    QString groupKey = groupKeyFor(plan);
-    auto change = std::make_unique<CopyCuesChange>(m_format, m_path, groupKey, op);
-    QString changeId = change->id();
-    QString description = change->description();
-    if (!m_session->stage(std::move(change))) {
-        return;  // the session reported the lock refusal; the page shows it
-    }
-    m_stagedByGroup[groupKey] = {changeId, description};
-    m_model.setStaged(index, true, description);
-    emit plansChanged();
 }
 
 void DuplicatesController::applyOne(int index)
 {
-    if (m_busy) {
+    if (busy()) {
         return;
     }
     setErrorMessage({});
@@ -468,7 +383,7 @@ void DuplicatesController::applyOne(int index)
 
 void DuplicatesController::copyFromTrack(int index, const QString &sourceTrackId)
 {
-    if (m_busy) {
+    if (busy()) {
         return;
     }
     setErrorMessage({});
@@ -500,7 +415,7 @@ void DuplicatesController::copyFromTrack(int index, const QString &sourceTrackId
 
 void DuplicatesController::applyAllUnambiguous()
 {
-    if (m_busy) {
+    if (busy()) {
         return;
     }
     setErrorMessage({});
@@ -511,7 +426,7 @@ void DuplicatesController::applyAllUnambiguous()
         if (plans[i].kind == ConsolidationPlan::Kind::Unambiguous) {
             stageCopy(static_cast<int>(i), {*plans[i].source, plans[i].targets});
             staged++;
-            if (m_session && !m_session->lockHeld()) {
+            if (session() && !session()->lockHeld()) {
                 return;  // refused at the first one; no point trying the rest
             }
         }
@@ -519,81 +434,6 @@ void DuplicatesController::applyAllUnambiguous()
     if (staged > 0) {
         setStatusMessage(QStringLiteral("Staged %1 group(s). Press Save to copy the cues onto the stick.").arg(staged));
     }
-}
-
-void DuplicatesController::unstage(int index)
-{
-    const auto &plans = m_model.plans();
-    if (index < 0 || static_cast<size_t>(index) >= plans.size()) {
-        return;
-    }
-    QString groupKey = groupKeyFor(plans[static_cast<size_t>(index)]);
-    auto it = m_stagedByGroup.find(groupKey);
-    if (it == m_stagedByGroup.end()) {
-        return;
-    }
-    if (m_session) {
-        m_session->unstage(it->second.changeId);
-    }
-    m_stagedByGroup.erase(it);
-    m_model.setStaged(index, false, QString());
-    emit plansChanged();
-}
-
-void DuplicatesController::undoLastOperation()
-{
-    if (m_busy || !m_session) {
-        return;
-    }
-    setErrorMessage({});
-    setStatusMessage({});
-    m_session->undoLastSave();
-}
-
-void DuplicatesController::setBusy(bool busy)
-{
-    if (m_busy == busy) {
-        return;
-    }
-    m_busy = busy;
-    emit busyChanged();
-}
-
-void DuplicatesController::setScanProgress(int current, int total)
-{
-    if (m_scanCurrent == current && m_scanTotal == total) {
-        return;
-    }
-    m_scanCurrent = current;
-    m_scanTotal = total;
-    emit scanProgressChanged();
-}
-
-void DuplicatesController::setScanLabel(const QString &label)
-{
-    if (m_scanLabel == label) {
-        return;
-    }
-    m_scanLabel = label;
-    emit scanProgressChanged();
-}
-
-void DuplicatesController::setErrorMessage(const QString &message)
-{
-    if (m_errorMessage == message) {
-        return;
-    }
-    m_errorMessage = message;
-    emit errorMessageChanged();
-}
-
-void DuplicatesController::setStatusMessage(const QString &message)
-{
-    if (m_statusMessage == message) {
-        return;
-    }
-    m_statusMessage = message;
-    emit statusMessageChanged();
 }
 
 }  // namespace seabass::gui

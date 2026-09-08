@@ -47,6 +47,17 @@ inline std::filesystem::path journalPathFor(const std::filesystem::path &archive
     return path;
 }
 
+// `<archive>.lock`, next to the archive on the same volume -- what
+// infrastructure::backup::StickWriteLock takes to serialize BackupStick,
+// RestoreStickBackup and CompactStickBackup against each other on this
+// one archive, across threads, processes and the CLI/GUI boundary alike.
+inline std::filesystem::path lockPathFor(const std::filesystem::path &archivePath)
+{
+    std::filesystem::path path = archivePath;
+    path += ".lock";
+    return path;
+}
+
 // Appends the record and issues a barrier. The file must be empty.
 void write(ArchiveFile &journalFile, const JournalRecord &record);
 
