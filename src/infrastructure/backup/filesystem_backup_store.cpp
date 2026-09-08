@@ -1,6 +1,7 @@
 #include "infrastructure/backup/filesystem_backup_store.hpp"
 
 #include "infrastructure/durable_file_write.hpp"
+#include "infrastructure/work_counters.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -253,6 +254,12 @@ FilesystemBackupStore::writeArchiveEntries(const fs::path &dir, const std::vecto
         // layout's guarantee, kept.
         writer.finish("{}", "backup-manifest.json", 0);
         file.barrier();
+        // Counted like any other durable whole-file write: this is the
+        // barrier that costs ~118 ms on a stick, and the whole point of
+        // the archive is that a save pays it once instead of per file.
+        // Leaving it uncounted would have made the backup half of a save
+        // invisible to the very counter that measures it.
+        WorkCounters::instance().noteDurableFileWrite();
         archiveBytes = file.size();
     }
     return {std::move(written), archiveBytes};

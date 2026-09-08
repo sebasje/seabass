@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -95,6 +96,44 @@ QString RemoveJunkCueChange::unit() const
 QStringList RemoveJunkCueChange::formatsTouched() const
 {
     return {QString::fromStdString(m_track.format)};
+}
+
+// Known before the save runs: the analysis file for this track, plus the
+// catalog its format writes. The same paths apply() would have backed up
+// one at a time, so this only moves when it happens -- everything before
+// the first overwrite instead of interleaved with it.
+//
+// export.pdb is deliberately absent, as in apply(): cue data lives in the
+// per-track ANLZ files and this path never writes it.
+std::vector<BackupTarget> RemoveJunkCueChange::filesToBackup(SaveContext &ctx) const
+{
+    const QString format = QString::fromStdString(m_track.format);
+    const std::string root = m_path.toStdString();
+    const std::string label = "junk-cue-cleanup";
+    std::vector<BackupTarget> targets;
+
+    if (format == "rekordbox") {
+        const auto *pathIndex = sharedAnlzPathIndex(ctx, m_path);
+        std::optional<std::string> analyzePath;
+        try {
+            const uint32_t trackId = static_cast<uint32_t>(std::stoul(m_track.sourceId));
+            analyzePath = pathIndex ? pathIndex->pathFor(trackId)
+                                    : infrastructure::rekordbox::findAnlzPathForTrackId(root, trackId);
+        } catch (const std::exception &) {
+            return {};  // apply() reports the bad id; do not guess a path from it
+        }
+        if (analyzePath) {
+            targets.push_back({infrastructure::rekordbox::extAnlzPath(root, *analyzePath), label});
+        }
+        if (infrastructure::onelibrary::OneLibraryCueWriter::existsFor(root)) {
+            targets.push_back({infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(root), label});
+        }
+    } else if (format == "engine") {
+        targets.push_back({(fs::path(root) / "Database2" / "m.db").string(), label});
+    } else {
+        targets.push_back({infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(root), label});
+    }
+    return targets;
 }
 
 ChangeOutcome RemoveJunkCueChange::apply(SaveContext &ctx)
