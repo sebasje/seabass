@@ -1041,6 +1041,101 @@ void caseAddCue(const DataSet &set, const fs::path &scratch, const Catalogs &cat
 
 // Matrix: stray cue removal. After the save a fresh scan finds none on the
 // touched tracks, and the tracks' other cues are untouched.
+// Every file a save actually changed must be in its backup record.
+//
+// filesToBackup() is a declaration, and a declaration can be wrong in two
+// directions. Too many files is loud -- Undo restores something the save
+// never touched, and the resolver test covers it. Too few is silent: the
+// save overwrites a file nothing backed up, every write succeeds, and the
+// damage only shows when someone tries to undo.
+//
+// So rather than trusting any change class to enumerate itself, this
+// hashes the whole stick before and after a real save and asserts that
+// whatever moved is in the record. It covers every workflow the matrix
+// runs, including ones nobody thought to check.
+void caseBackupCoversEveryChangedFile(const DataSet &set, const fs::path &scratch, const Catalogs &catalogs)
+{
+    std::vector<const domain::Track *> withJunk;
+    for (const auto &t : catalogs.rekordbox) {
+        for (const auto &c : t.cues) {
+            if (c.kind == domain::CuePoint::Kind::Memory && c.positionMs == 0.0) {
+                withJunk.push_back(&t);
+                break;
+            }
+        }
+        if (withJunk.size() >= 3) {
+            break;
+        }
+    }
+    if (withJunk.empty()) {
+        std::cout << "    skipped matrix/backup-covers-changes: no 0:00 memory cues in this library\n";
+        return;
+    }
+
+    const fs::path stickRoot = scratch / "matrix-covers-stick";
+    fs::remove_all(stickRoot);
+    fs::create_directories(stickRoot);
+    const fs::path root = stickRoot / fs::path(*set.rekordboxRoot).filename();
+    fs::copy(*set.rekordboxRoot, root, fs::copy_options::recursive);
+
+    // Content before, for every file the save could possibly touch.
+    auto snapshot = [](const fs::path &under) {
+        std::map<std::string, std::string> byPath;
+        std::error_code ec;
+        for (fs::recursive_directory_iterator it(under, ec), end; it != end && !ec; it.increment(ec)) {
+            if (it->is_regular_file(ec)) {
+                byPath[it->path().string()] = readWholeFile(it->path());
+            }
+        }
+        return byPath;
+    };
+    const auto before = snapshot(root);
+
+    std::vector<std::shared_ptr<gui::PendingChange>> changes;
+    for (const auto *t : withJunk) {
+        domain::Track copy = *t;
+        changes.push_back(std::make_shared<gui::RemoveJunkCueChange>(QString::fromStdString(root.string()), copy));
+    }
+    auto result = runChanges(changes, root, {});
+    if (!check(result.error.isEmpty(), "the save reported no error: " + result.error.toStdString())) {
+        fs::remove_all(stickRoot);
+        return;
+    }
+
+    const auto after = snapshot(root);
+
+    std::set<std::string> backedUp;
+    infrastructure::backup::FilesystemBackupStore store(
+        infrastructure::backup::backupDirForCatalogPath(root.string()));
+    for (const auto &record : store.list()) {
+        for (const auto &recorded : record.filePaths) {
+            backedUp.insert(fs::weakly_canonical(fs::path(recorded)).string());
+        }
+    }
+
+    std::vector<std::string> unbacked;
+    for (const auto &[path, contentBefore] : before) {
+        auto now = after.find(path);
+        if (now == after.end() || now->second == contentBefore) {
+            continue;  // untouched, or removed (a removal is a different property)
+        }
+        if (!backedUp.count(fs::weakly_canonical(fs::path(path)).string())) {
+            unbacked.push_back(path);
+        }
+    }
+
+    if (!check(unbacked.empty(),
+               "every file the save changed is in its backup record ("
+                   + std::to_string(unbacked.size()) + " changed with no backup)")) {
+        for (const auto &path : unbacked) {
+            std::cout << "      overwritten with nothing to restore it from: " << path << "\n";
+        }
+    }
+
+    fs::remove_all(stickRoot);
+    pass("matrix: a save backs up every file it changes");
+}
+
 // The path-only resolver every workflow's filesToBackup() is built on.
 // It decides which file a write will overwrite, so a wrong answer means the
 // save backs up one file and overwrites another -- silently, because every
@@ -1896,6 +1991,7 @@ void runMatrix(const DataSet &set, const fs::path &scratch, const Catalogs &cata
     caseStrayCueRemoval(set, scratch, catalogs, expected);
     caseBackupPrecedesWrites(set, scratch, catalogs);
     caseBackupPathResolver(set, scratch, catalogs);
+    caseBackupCoversEveryChangedFile(set, scratch, catalogs);
     caseSync(set, scratch, catalogs, expected);
     caseDeviceSettings(set, scratch, expected);
     caseCopyCues(set, scratch, catalogs, expected);
