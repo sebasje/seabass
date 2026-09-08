@@ -45,9 +45,13 @@ QStringList DeleteOrphanChange::formatsTouched() const
 // OneLibrary only, one database, path derived from the root alone.
 std::vector<BackupTarget> DeleteOrphanChange::filesToBackup(SaveContext &ctx) const
 {
-    (void)ctx;
-    const std::string root = m_path.toStdString();
-    return {{infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(root), "consistency-delete-orphan"}};
+    std::vector<BackupTarget> targets;
+    // The row id is irrelevant for OneLibrary -- one shared database
+    // whatever the track -- but the format is what selects that branch.
+    for (const auto &file : filesWrittenFor(WriteKind::Cues, {"onelibrary", std::string()}, m_path, ctx)) {
+        targets.push_back({file, "consistency-delete-orphan"});
+    }
+    return targets;
 }
 
 ChangeOutcome DeleteOrphanChange::apply(SaveContext &ctx)

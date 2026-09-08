@@ -107,31 +107,11 @@ QStringList RemoveJunkCueChange::formatsTouched() const
 // per-track ANLZ files and this path never writes it.
 std::vector<BackupTarget> RemoveJunkCueChange::filesToBackup(SaveContext &ctx) const
 {
-    const QString format = QString::fromStdString(m_track.format);
-    const std::string root = m_path.toStdString();
-    const std::string label = "junk-cue-cleanup";
+    // Cues only: this path never writes export.pdb (see
+    // RekordboxCueWriter's own header), so the catalog must not be named.
     std::vector<BackupTarget> targets;
-
-    if (format == "rekordbox") {
-        const auto *pathIndex = sharedAnlzPathIndex(ctx, m_path);
-        std::optional<std::string> analyzePath;
-        try {
-            const uint32_t trackId = static_cast<uint32_t>(std::stoul(m_track.sourceId));
-            analyzePath = pathIndex ? pathIndex->pathFor(trackId)
-                                    : infrastructure::rekordbox::findAnlzPathForTrackId(root, trackId);
-        } catch (const std::exception &) {
-            return {};  // apply() reports the bad id; do not guess a path from it
-        }
-        if (analyzePath) {
-            targets.push_back({infrastructure::rekordbox::extAnlzPath(root, *analyzePath), label});
-        }
-        if (infrastructure::onelibrary::OneLibraryCueWriter::existsFor(root)) {
-            targets.push_back({infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(root), label});
-        }
-    } else if (format == "engine") {
-        targets.push_back({(fs::path(root) / "Database2" / "m.db").string(), label});
-    } else {
-        targets.push_back({infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(root), label});
+    for (const auto &file : filesWrittenFor(WriteKind::Cues, {m_track.format, m_track.sourceId}, m_path, ctx)) {
+        targets.push_back({file, "junk-cue-cleanup"});
     }
     return targets;
 }
