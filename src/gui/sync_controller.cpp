@@ -321,12 +321,26 @@ SyncTaskResult runAnalyzeTask(QString rekordboxPath, QString enginePath, QString
         if (hasRekordbox && hasEngine) {
             addPairPlans(rekordboxTracks, engineTracks, rekordboxMtime, engineMtime);
         }
-        if (hasRekordbox && hasOneLibrary) {
-            addPairPlans(rekordboxTracks, oneLibraryTracks, rekordboxMtime, oneLibraryMtime);
-        }
         if (hasEngine && hasOneLibrary) {
             addPairPlans(engineTracks, oneLibraryTracks, engineMtime, oneLibraryMtime);
         }
+        // rekordbox <-> OneLibrary is deliberately NOT planned as a pair.
+        // They are one library written in two formats, not two catalogs to
+        // reconcile: every write to rekordbox already mirrors into
+        // OneLibrary (see SyncPlanChange::apply and the three other
+        // cue-writing workflows), so they cannot drift apart, and there is
+        // nothing for a pair plan to do.
+        //
+        // Worse, a pair plan would be computed from the state before the
+        // save and applied after it, so it could write pre-mirror data back
+        // over what the mirror had just written -- order-dependent, and
+        // silent, because every write succeeds.
+        //
+        // This does mean a library whose two halves ALREADY disagree is not
+        // repaired here. That is a one-off reconciliation and belongs with
+        // Library Health, which is where cross-catalog disagreement is
+        // reported; sync's job is to keep formats level, not to fix a
+        // library that arrived crooked.
 
         // Two different pairs can independently target the same third
         // catalog's track (e.g. both rekordbox and Engine have cues

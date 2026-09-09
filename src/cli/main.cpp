@@ -34,6 +34,8 @@
 #include "infrastructure/media/media_factory.hpp"
 #include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
+#include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
+#include "infrastructure/onelibrary/onelibrary_reader.hpp"
 #include "infrastructure/rekordbox/rekordbox_cue_writer.hpp"
 #include "infrastructure/system/stick_hardware_info.hpp"
 
@@ -757,55 +759,133 @@ int runSyncCommand(bool wantRekordbox, bool wantEngine, const std::optional<std:
                     const std::optional<std::string> &enginePath, bool autoMode, bool dryRun, bool force)
 {
     auto resolved = resolveLibraryPaths(wantRekordbox, wantEngine, rekordboxPath, enginePath);
-    if (!resolved.rekordboxPath || !resolved.enginePath) {
-        Console::error("sync needs both a rekordbox and an Engine source -- found: " +
-                        std::string(resolved.rekordboxPath ? "rekordbox" : "no rekordbox") + ", " +
-                        std::string(resolved.enginePath ? "engine" : "no engine"));
+    using seabass::domain::SyncPlan;
+
+    // A stick can carry three catalogs, and sync needs any two of them.
+    // OneLibrary lives beside export.pdb under the same PIONEER root.
+    const bool hasRekordbox = resolved.rekordboxPath.has_value();
+    const bool hasEngine = resolved.enginePath.has_value();
+    const bool hasOneLibrary =
+        hasRekordbox && seabass::infrastructure::onelibrary::OneLibraryCueWriter::existsFor(*resolved.rekordboxPath);
+
+    if (static_cast<int>(hasRekordbox) + static_cast<int>(hasEngine) + static_cast<int>(hasOneLibrary) < 2) {
+        Console::error("sync needs at least two catalogs -- found: " +
+                        std::string(hasRekordbox ? "rekordbox" : "no rekordbox") + ", " +
+                        std::string(hasEngine ? "engine" : "no engine") + ", " +
+                        std::string(hasOneLibrary ? "onelibrary" : "no onelibrary"));
         return 1;
     }
 
-    using seabass::domain::SyncPlan;
-
     std::vector<seabass::domain::Track> rekordboxTracks;
     std::vector<seabass::domain::Track> engineTracks;
-    std::string rekordboxDbFile = (fs::path(*resolved.rekordboxPath) / "rekordbox" / "export.pdb").string();
-    std::string engineDbFile = (fs::path(*resolved.enginePath) / "Database2" / "m.db").string();
+    std::vector<seabass::domain::Track> oneLibraryTracks;
+    std::string rekordboxDbFile;
+    std::string engineDbFile;
+    std::string oneLibraryDbFile;
 
     try {
-        rekordboxTracks = scanPath(
-            std::make_unique<seabass::infrastructure::rekordbox::KaitaiRekordboxReader>(*resolved.rekordboxPath),
-            *resolved.rekordboxPath);
-        engineTracks = scanPath(
-            std::make_unique<seabass::infrastructure::engine::LibdjinteropEngineReader>(*resolved.enginePath),
-            *resolved.enginePath);
+        if (hasRekordbox) {
+            rekordboxDbFile = (fs::path(*resolved.rekordboxPath) / "rekordbox" / "export.pdb").string();
+            rekordboxTracks = scanPath(
+                std::make_unique<seabass::infrastructure::rekordbox::KaitaiRekordboxReader>(*resolved.rekordboxPath),
+                *resolved.rekordboxPath);
+        }
+        if (hasEngine) {
+            engineDbFile = (fs::path(*resolved.enginePath) / "Database2" / "m.db").string();
+            engineTracks = scanPath(
+                std::make_unique<seabass::infrastructure::engine::LibdjinteropEngineReader>(*resolved.enginePath),
+                *resolved.enginePath);
+        }
+        if (hasOneLibrary) {
+            oneLibraryDbFile =
+                seabass::infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(*resolved.rekordboxPath);
+            oneLibraryTracks = scanPath(
+                std::make_unique<seabass::infrastructure::onelibrary::OneLibraryReader>(*resolved.rekordboxPath),
+                *resolved.rekordboxPath);
+        }
     } catch (const std::exception &e) {
         Console::error(e.what());
         return 1;
     }
 
-    auto rekordboxMtime = fileMtime(rekordboxDbFile);
-    auto engineMtime = fileMtime(engineDbFile);
-    auto plans = seabass::application::SyncLibraries().execute(rekordboxTracks, engineTracks, rekordboxMtime,
-                                                                   engineMtime);
+    // Only for catalogs that are actually present: fileMtime() throws on a
+    // path that is not there, and an absent catalog has no mtime to compare.
+    auto mtimeOrEpoch = [](const std::string &path) {
+        return path.empty() ? std::chrono::system_clock::time_point{} : fileMtime(path);
+    };
+    auto rekordboxMtime = mtimeOrEpoch(rekordboxDbFile);
+    auto engineMtime = mtimeOrEpoch(engineDbFile);
+    auto oneLibraryMtime = mtimeOrEpoch(oneLibraryDbFile);
+
+    // rekordbox <-> OneLibrary is deliberately NOT a pair: they are one
+    // library written in two formats, and every rekordbox write below
+    // mirrors into OneLibrary, so they cannot drift apart. See
+    // sync_controller.cpp, which makes the same choice for the same reason.
+    std::vector<SyncPlan> plans;
+    auto addPair = [&plans](const std::vector<seabass::domain::Track> &a,
+                            const std::vector<seabass::domain::Track> &b,
+                            std::chrono::system_clock::time_point mtimeA,
+                            std::chrono::system_clock::time_point mtimeB) {
+        for (auto &plan : seabass::application::SyncLibraries().execute(a, b, mtimeA, mtimeB)) {
+            plans.push_back(std::move(plan));
+        }
+    };
+    if (hasRekordbox && hasEngine) {
+        addPair(rekordboxTracks, engineTracks, rekordboxMtime, engineMtime);
+    }
+    if (hasEngine && hasOneLibrary) {
+        addPair(engineTracks, oneLibraryTracks, engineMtime, oneLibraryMtime);
+    }
+    if (!hasEngine) {
+        // The only two catalogs here are rekordbox and OneLibrary, which is
+        // one library in two formats. They are kept level by mirroring on
+        // every write, not by syncing, so there is no pair to plan -- and
+        // saying "already consistent" would imply this checked something.
+        Console::info("");
+        Console::info("rekordbox and OneLibrary are one library in two formats, kept in step whenever");
+        Console::info("Seabass writes either of them -- there is nothing for sync to reconcile between");
+        Console::info("them. Add an Engine library to have something to sync with.");
+        return 0;
+    }
 
     // --- Phase 1: analyze and propose, no writes yet ---
     Console::info("");
     Console::heading("sync analysis");
-    Console::info("  rekordbox tracks: " + std::to_string(rekordboxTracks.size()));
-    Console::info("  engine tracks:    " + std::to_string(engineTracks.size()));
-    Console::info("  matched tracks:   " + std::to_string(plans.size()));
+    if (hasRekordbox) {
+        Console::info("  rekordbox tracks:  " + std::to_string(rekordboxTracks.size()));
+    }
+    if (hasEngine) {
+        Console::info("  engine tracks:     " + std::to_string(engineTracks.size()));
+    }
+    if (hasOneLibrary) {
+        Console::info("  onelibrary tracks: " + std::to_string(oneLibraryTracks.size()));
+    }
+    Console::info("  matched tracks:    " + std::to_string(plans.size()));
 
+    // Bucketed by the TARGET's own format rather than by which side of the
+    // pair it sits on. With more than one pair, trackA is no longer always
+    // rekordbox, and position would silently write to the wrong catalog.
+    auto targetOf = [](const SyncPlan &plan) {
+        return plan.direction == SyncPlan::Direction::ToB ? &plan.match.trackB : &plan.match.trackA;
+    };
     std::vector<const SyncPlan *> toEngine;
     std::vector<const SyncPlan *> toRekordbox;
+    std::vector<const SyncPlan *> toOneLibrary;
     for (const auto &plan : plans) {
-        if (plan.direction == SyncPlan::Direction::ToB) {
+        if (plan.direction == SyncPlan::Direction::None) {
+            continue;
+        }
+        const std::string &format = targetOf(plan)->format;
+        if (format == "engine") {
             toEngine.push_back(&plan);
-        } else if (plan.direction == SyncPlan::Direction::ToA) {
+        } else if (format == "rekordbox") {
             toRekordbox.push_back(&plan);
+        } else if (format == "onelibrary") {
+            toOneLibrary.push_back(&plan);
         }
     }
 
-    if (toEngine.empty() && toRekordbox.empty()) {
+    if (toEngine.empty() && toRekordbox.empty() && toOneLibrary.empty()) {
         Console::info("  nothing to sync -- matched tracks' cues are already consistent (or empty on both sides).");
         return 0;
     }
@@ -815,8 +895,8 @@ int runSyncCommand(bool wantRekordbox, bool wantEngine, const std::optional<std:
         Console::info("Would copy cues to Engine for " + std::to_string(toEngine.size()) + " track(s):");
         for (const auto *plan : toEngine) {
             bool conflict = plan->kind == SyncPlan::Kind::Conflict;
-            Console::info("  \"" + plan->match.trackA.filename + "\": " + describeCues(plan->cuesToApply) +
-                           (conflict ? "  [conflict resolved: rekordbox's export.pdb is newer]" : ""));
+            Console::info("  \"" + targetOf(*plan)->filename + "\": " + describeCues(plan->cuesToApply) +
+                           (conflict ? "  [conflict resolved: the source catalog is newer]" : ""));
         }
     }
 
@@ -825,11 +905,21 @@ int runSyncCommand(bool wantRekordbox, bool wantEngine, const std::optional<std:
         Console::info("Would copy cues to rekordbox for " + std::to_string(toRekordbox.size()) + " track(s):");
         for (const auto *plan : toRekordbox) {
             bool conflict = plan->kind == SyncPlan::Kind::Conflict;
-            Console::info("  \"" + plan->match.trackB.filename + "\": " + describeCues(plan->cuesToApply) +
-                           (conflict ? "  [conflict resolved: Engine's m.db is newer]" : ""));
+            Console::info("  \"" + targetOf(*plan)->filename + "\": " + describeCues(plan->cuesToApply) +
+                           (conflict ? "  [conflict resolved: the source catalog is newer]" : ""));
         }
         Console::warn("rekordbox writing is the least-proven part of Seabass -- verify the result in rekordbox");
         Console::warn("and on real hardware before trusting it for a gig (see --help's Sync section).");
+    }
+
+    if (!toOneLibrary.empty()) {
+        Console::info("");
+        Console::info("Would copy cues to OneLibrary for " + std::to_string(toOneLibrary.size()) + " track(s):");
+        for (const auto *plan : toOneLibrary) {
+            bool conflict = plan->kind == SyncPlan::Kind::Conflict;
+            Console::info("  \"" + targetOf(*plan)->filename + "\": " + describeCues(plan->cuesToApply) +
+                           (conflict ? "  [conflict resolved: the source catalog is newer]" : ""));
+        }
     }
 
     if (dryRun) {
@@ -839,44 +929,91 @@ int runSyncCommand(bool wantRekordbox, bool wantEngine, const std::optional<std:
     }
 
     // --- Phase 2: single confirmation gate ---
-    size_t totalChanges = toEngine.size() + toRekordbox.size();
+    size_t totalChanges = toEngine.size() + toRekordbox.size() + toOneLibrary.size();
     bool apply = autoMode || Console::confirm("\nApply the " + std::to_string(totalChanges) + " change(s) above?");
     if (!apply) {
         Console::info("skipped -- no changes made.");
         return 0;
     }
-    if (refuseIfLockedByGui(*resolved.enginePath, force) || refuseIfLockedByGui(*resolved.rekordboxPath, force)) {
+    if ((hasEngine && refuseIfLockedByGui(*resolved.enginePath, force))
+        || (hasRekordbox && refuseIfLockedByGui(*resolved.rekordboxPath, force))) {
         return 1;
     }
 
     // --- Phase 3: apply ---
     try {
-        // The same on-stick write locks the GUI's writes hold, for both
-        // sticks (one lock when both formats share a stick).
-        auto stickLocks = seabass::infrastructure::backup::acquireStickLocks(
-            {seabass::infrastructure::backup::backupDirForCatalogPath(*resolved.enginePath),
-             seabass::infrastructure::backup::backupDirForCatalogPath(*resolved.rekordboxPath)});
-        seabass::infrastructure::backup::FilesystemBackupStore engineBackupStore(
-            (fs::path(*resolved.enginePath).parent_path() / ".seabass-backups").string());
-        seabass::infrastructure::logging::FileOperationLog engineLog(
-            (fs::path(*resolved.enginePath).parent_path() / ".seabass.log").string());
-        seabass::infrastructure::backup::FilesystemBackupStore rekordboxBackupStore(
-            (fs::path(*resolved.rekordboxPath).parent_path() / ".seabass-backups").string());
-        seabass::infrastructure::logging::FileOperationLog rekordboxLog(
-            (fs::path(*resolved.rekordboxPath).parent_path() / ".seabass.log").string());
+        // The same on-stick write locks the GUI's writes hold, for every
+        // catalog present (one lock when they share a stick). OneLibrary
+        // lives under the rekordbox root, so it needs no lock of its own.
+        std::vector<std::string> lockDirs;
+        if (hasEngine) {
+            lockDirs.push_back(seabass::infrastructure::backup::backupDirForCatalogPath(*resolved.enginePath));
+        }
+        if (hasRekordbox) {
+            lockDirs.push_back(seabass::infrastructure::backup::backupDirForCatalogPath(*resolved.rekordboxPath));
+        }
+        auto stickLocks = seabass::infrastructure::backup::acquireStickLocks(lockDirs);
+
+        // A store and a log per stick root, created only where there is a
+        // catalog to write. rekordbox and OneLibrary share both.
+        const std::string engineRootDir =
+            hasEngine ? fs::path(*resolved.enginePath).parent_path().string() : std::string();
+        const std::string rekordboxRootDir =
+            hasRekordbox ? fs::path(*resolved.rekordboxPath).parent_path().string() : std::string();
+
+        std::optional<seabass::infrastructure::backup::FilesystemBackupStore> engineBackupStoreOpt;
+        std::optional<seabass::infrastructure::logging::FileOperationLog> engineLogOpt;
+        if (hasEngine) {
+            engineBackupStoreOpt.emplace((fs::path(engineRootDir) / ".seabass-backups").string());
+            engineLogOpt.emplace((fs::path(engineRootDir) / ".seabass.log").string());
+        }
+        std::optional<seabass::infrastructure::backup::FilesystemBackupStore> rekordboxBackupStoreOpt;
+        std::optional<seabass::infrastructure::logging::FileOperationLog> rekordboxLogOpt;
+        if (hasRekordbox) {
+            rekordboxBackupStoreOpt.emplace((fs::path(rekordboxRootDir) / ".seabass-backups").string());
+            rekordboxLogOpt.emplace((fs::path(rekordboxRootDir) / ".seabass.log").string());
+        }
+
+        // Everything this sync will overwrite, resolved before a single
+        // byte is written, and backed up as ONE record per stick rather
+        // than one per file. The CLI used to call backup() inside the write
+        // loop: a 939-track sync left 942 separate records, which Manage
+        // Backups lists individually and Undo cannot revert as a unit.
+        // Same shape as the GUI's save loop -- declare, back up once, write.
+        std::set<std::string> rekordboxFiles;
+        for (const auto *plan : toRekordbox) {
+            auto analyzePath = seabass::infrastructure::rekordbox::findAnlzPathForTrackId(
+                *resolved.rekordboxPath, static_cast<uint32_t>(std::stoul(targetOf(*plan)->sourceId)));
+            if (analyzePath) {
+                rekordboxFiles.insert(
+                    seabass::infrastructure::rekordbox::extAnlzPath(*resolved.rekordboxPath, *analyzePath));
+            }
+        }
+        if (hasOneLibrary && (!toOneLibrary.empty() || !toRekordbox.empty())) {
+            rekordboxFiles.insert(oneLibraryDbFile);  // written directly, or mirrored into
+        }
+
+        if (!rekordboxFiles.empty()) {
+            auto record = rekordboxBackupStoreOpt->backupToArchive(
+                std::vector<std::string>(rekordboxFiles.begin(), rekordboxFiles.end()), "sync");
+            Console::info("");
+            Console::info("backed up " + std::to_string(rekordboxFiles.size()) + " file(s) to " + record.path);
+            rekordboxLogOpt->record("sync: backed up " + std::to_string(rekordboxFiles.size())
+                                    + " file(s) before cross-format sync -> " + record.path);
+        }
 
         size_t engineCuesCopied = 0;
         if (!toEngine.empty()) {
             seabass::infrastructure::engine::LibdjinteropEngineCueWriter writer(*resolved.enginePath);
-            auto record = engineBackupStore.backup({engineDbFile}, "sync");
+            auto record = engineBackupStoreOpt->backupToArchive({engineDbFile}, "sync");
             Console::info("");
             Console::info("backed up Engine to " + record.path);
-            engineLog.record("sync: backed up before cross-format sync -> " + record.path);
+            engineLogOpt->record("sync: backed up before cross-format sync -> " + record.path);
 
             for (const auto *plan : toEngine) {
-                writer.writeHotCues(plan->match.trackB.sourceId, plan->cuesToApply);
+                writer.writeHotCues(targetOf(*plan)->sourceId, plan->cuesToApply);
                 engineCuesCopied += plan->cuesToApply.size();
-                engineLog.record("sync: copied cues (" + describeCues(plan->cuesToApply) +
+                engineLogOpt->record("sync: copied cues (" + describeCues(plan->cuesToApply) +
                                   ") from rekordbox track \"" + plan->match.trackA.title +
                                   "\" (id=" + plan->match.trackA.sourceId +
                                   ") to engine track id=" + plan->match.trackB.sourceId);
@@ -886,28 +1023,53 @@ int runSyncCommand(bool wantRekordbox, bool wantEngine, const std::optional<std:
         size_t rekordboxCuesCopied = 0;
         if (!toRekordbox.empty()) {
             seabass::infrastructure::rekordbox::RekordboxCueWriter writer(*resolved.rekordboxPath);
-            std::string pioneerRoot = *resolved.rekordboxPath;
-            std::set<std::string> backedUpFiles;
 
             for (const auto *plan : toRekordbox) {
-                auto analyzePath = seabass::infrastructure::rekordbox::findAnlzPathForTrackId(
-                    pioneerRoot, static_cast<uint32_t>(std::stoul(plan->match.trackA.sourceId)));
-                if (analyzePath) {
-                    std::string extPath = seabass::infrastructure::rekordbox::extAnlzPath(pioneerRoot,
-                                                                                              *analyzePath);
-                    if (backedUpFiles.insert(extPath).second) {
-                        auto record = rekordboxBackupStore.backup({extPath}, "sync");
-                        Console::info("backed up " + extPath + " to " + record.path);
-                        rekordboxLog.record("sync: backed up before cross-format sync -> " + record.path);
+                const auto *target = targetOf(*plan);
+                const auto &source =
+                    plan->direction == SyncPlan::Direction::ToB ? plan->match.trackA : plan->match.trackB;
+                writer.writeHotCues(target->sourceId, plan->cuesToApply);
+                rekordboxCuesCopied += plan->cuesToApply.size();
+                rekordboxLogOpt->record("sync: copied cues (" + describeCues(plan->cuesToApply) + ") from "
+                                        + source.format + " track \"" + source.title + "\" (id="
+                                        + source.sourceId + ") to rekordbox track id=" + target->sourceId);
+
+                // export.pdb and exportLibrary.db are one library in two
+                // formats, so a cue written to one belongs in the other.
+                // This is why sync does not plan them as a pair.
+                if (hasOneLibrary && !target->filePath.empty()) {
+                    try {
+                        seabass::infrastructure::onelibrary::OneLibraryCueWriter mirror(*resolved.rekordboxPath);
+                        mirror.writeCuesForPath(target->filePath, plan->cuesToApply);
+                        rekordboxLogOpt->record("sync: also wrote cues to the OneLibrary copy of track id="
+                                                + target->sourceId);
+                    } catch (const std::exception &e) {
+                        // Best-effort, matching the GUI: the rekordbox write
+                        // already landed, and failing the whole sync over the
+                        // mirror would leave the user worse off than a stale
+                        // copy they can re-run.
+                        Console::warn(std::string("could not mirror into OneLibrary: ") + e.what());
+                        rekordboxLogOpt->record(std::string("sync: OneLibrary cue mirror failed: ") + e.what());
                     }
                 }
+            }
+        }
 
-                writer.writeHotCues(plan->match.trackA.sourceId, plan->cuesToApply);
-                rekordboxCuesCopied += plan->cuesToApply.size();
-                rekordboxLog.record("sync: copied cues (" + describeCues(plan->cuesToApply) +
-                                     ") from engine track \"" + plan->match.trackB.title +
-                                     "\" (id=" + plan->match.trackB.sourceId +
-                                     ") to rekordbox track id=" + plan->match.trackA.sourceId);
+        size_t oneLibraryCuesCopied = 0;
+        if (!toOneLibrary.empty()) {
+            seabass::infrastructure::onelibrary::OneLibraryCueWriter writer(*resolved.rekordboxPath);
+            for (const auto *plan : toOneLibrary) {
+                const auto *target = targetOf(*plan);
+                const auto &source =
+                    plan->direction == SyncPlan::Direction::ToB ? plan->match.trackA : plan->match.trackB;
+                if (target->filePath.empty()) {
+                    continue;  // OneLibrary resolves a row by path; without one there is nothing to write
+                }
+                writer.writeCuesForPath(target->filePath, plan->cuesToApply);
+                oneLibraryCuesCopied += plan->cuesToApply.size();
+                rekordboxLogOpt->record("sync: copied cues (" + describeCues(plan->cuesToApply) + ") from "
+                                        + source.format + " track \"" + source.title + "\" (id="
+                                        + source.sourceId + ") to onelibrary track \"" + target->filename + "\"");
             }
         }
 
@@ -920,6 +1082,10 @@ int runSyncCommand(bool wantRekordbox, bool wantEngine, const std::optional<std:
         if (!toRekordbox.empty()) {
             Console::info("  synced " + std::to_string(toRekordbox.size()) + " track(s) to rekordbox: copied " +
                            std::to_string(rekordboxCuesCopied) + " cue(s) total");
+        }
+        if (!toOneLibrary.empty()) {
+            Console::info("  synced " + std::to_string(toOneLibrary.size()) + " track(s) to OneLibrary: copied " +
+                           std::to_string(oneLibraryCuesCopied) + " cue(s) total");
         }
     } catch (const std::exception &e) {
         Console::error(e.what());
