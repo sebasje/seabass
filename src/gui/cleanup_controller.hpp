@@ -196,6 +196,20 @@ struct CleanupTaskResult
     QStringList playlistNames;
     QString errorMessage;
     bool cancelled = false;  // stopped via cancelScan(); nothing else is set
+
+    // Groups the scan found and deliberately did not offer, because
+    // applying them would take a recording out of one catalog entirely
+    // (DuplicateCleanupPlan::wouldStrandAFormat). Counted rather than
+    // silently dropped: a group that vanishes with no explanation reads
+    // as a scan that missed it, and the DJ would go looking.
+    int groupsHeldBackStranding = 0;
+
+    // True when rows from every catalog on the stick were folded into
+    // files before grouping. False when a catalog could not be read, in
+    // which case this scan saw one catalog's rows and cannot say what
+    // the others hold -- see runRescanTask() for why that forbids
+    // collapsing rather than merely reducing what is found.
+    bool collapsedAcrossCatalogs = false;
 };
 
 // Result of a background pending-deletion apply task, see

@@ -240,6 +240,81 @@ int main()
         std::cout << "case 11 (collapse then scope keeps every row that must go with the file) OK\n";
     }
 
+    // --- collapseForCleanupScan: the scan's collapse-or-not decision ---
+
+    // Every catalog readable: rows from all of them fold into files, so a
+    // plan can carry each catalog's row and one save can remove them all.
+    {
+        Track rb = row("rekordbox", "rb1", "/stick/Contents/a.mp3", "Sorry", 200.0, 256);
+        Track en = row("engine", "en1", "/stick/Contents/a.mp3", "Sorry", 200.0, 0);
+        application::CatalogTracks catalogs;
+        catalogs.rekordbox = std::vector<Track>{rb};
+        catalogs.engine = std::vector<Track>{en};
+
+        auto scan = application::collapseForCleanupScan(catalogs, {}, {rb});
+        assert(scan.collapsedAcrossCatalogs);
+        assert(scan.rows.size() == 1);
+        assert(scan.rows[0].catalogRows.size() == 2);
+        std::cout << "case 12 (all catalogs readable: rows fold into files) OK\n";
+    }
+
+    // A catalog that could not be read: NOT collapsed. A file whose Engine
+    // row was never seen would look Engine-free, the save would remove
+    // only the rekordbox row, and Engine would be left listing a file
+    // rekordbox no longer does -- deduplication manufacturing the split
+    // state it exists to prevent. Finding less is the safe failure.
+    {
+        Track rb = row("rekordbox", "rb1", "/stick/Contents/a.mp3", "Sorry", 200.0, 256);
+        Track en = row("engine", "en1", "/stick/Contents/a.mp3", "Sorry", 200.0, 0);
+        application::CatalogTracks catalogs;
+        catalogs.rekordbox = std::vector<Track>{rb};
+        catalogs.engine = std::vector<Track>{en};
+
+        auto scan = application::collapseForCleanupScan(catalogs, {"onelibrary"}, {rb});
+        assert(!scan.collapsedAcrossCatalogs);
+        assert(scan.rows.size() == 1);
+        // The caller's own row, uncollapsed: no catalogRows, so nothing
+        // downstream believes this file has an Engine row to remove.
+        assert(scan.rows[0].catalogRows.empty());
+        assert(scan.rows[0].sourceId == "rb1");
+        std::cout << "case 13 (an unreadable catalog forbids collapsing) OK\n";
+    }
+
+    // Streaming rows never reach grouping, from either branch: their path
+    // names a cache on another machine, so they must never be a survivor
+    // or a doomed copy.
+    {
+        Track rb = row("rekordbox", "rb1", "/stick/Contents/a.mp3", "Sorry", 200.0, 256);
+        Track stream = row("engine", "en2", "/cache/elsewhere.mp3", "Streamed", 200.0, 0);
+        stream.streamingSource = "tidal";
+        application::CatalogTracks catalogs;
+        catalogs.rekordbox = std::vector<Track>{rb};
+        catalogs.engine = std::vector<Track>{stream};
+
+        auto collapsed = application::collapseForCleanupScan(catalogs, {}, {rb});
+        assert(collapsed.collapsedAcrossCatalogs);
+        assert(collapsed.rows.size() == 1);
+        assert(collapsed.rows[0].streamingSource.empty());
+
+        auto fallback = application::collapseForCleanupScan(catalogs, {"engine"}, {rb, stream});
+        assert(!fallback.collapsedAcrossCatalogs);
+        assert(fallback.rows.size() == 1);
+        assert(fallback.rows[0].streamingSource.empty());
+        std::cout << "case 14 (streaming rows are dropped on both branches) OK\n";
+    }
+
+    // Nothing supplied at all falls back rather than reporting a
+    // cross-catalog scan that saw nothing -- which would read as "no
+    // duplicates on this stick" instead of "this scan was handed nothing".
+    {
+        Track rb = row("rekordbox", "rb1", "/stick/Contents/a.mp3", "Sorry", 200.0, 256);
+        application::CatalogTracks empty;
+        auto scan = application::collapseForCleanupScan(empty, {}, {rb});
+        assert(!scan.collapsedAcrossCatalogs);
+        assert(scan.rows.size() == 1);
+        std::cout << "case 15 (no catalog supplied anything: falls back, does not claim a collapse) OK\n";
+    }
+
     std::cout << "all collapse_catalog_rows_test cases passed\n";
     return 0;
 }

@@ -2,6 +2,9 @@
 
 #include <vector>
 
+#include <string>
+
+#include "application/use_cases/find_unreferenced_files.hpp"
 #include "domain/track.hpp"
 
 namespace seabass::application
@@ -72,5 +75,36 @@ namespace seabass::application
 // matches a file on any of its rows, so a playlist or a selection that
 // names the track in one format still selects the file.
 std::vector<domain::Track> collapseCatalogRows(const std::vector<domain::Track> &rows);
+
+// What a cleanup scan should group, given every catalog on the stick.
+//
+// Two answers, and the difference is a safety rule rather than a
+// preference. With every catalog readable, the rows of all of them are
+// folded into files, so a plan carries each catalog's row for a file and
+// one save can remove them all. With ANY catalog unreadable, this
+// returns the caller's single-catalog rows untouched and says so.
+//
+// A partial collapse is worse than none. A file whose Engine row was
+// never seen looks Engine-free, so the plan carries no Engine row, the
+// save removes only the rekordbox one, and Engine is left listing a file
+// rekordbox no longer does -- the split state deduplication exists to
+// prevent, manufactured by deduplication itself. Finding fewer duplicates
+// is a poor outcome; misleading the writer about what a file is, is a
+// destructive one.
+//
+// Streaming rows are dropped here rather than at the call site: their
+// path names a cache on another machine, so they must never be a
+// survivor or a doomed copy, and every caller needed the same filter.
+struct CleanupScanRows
+{
+    std::vector<domain::Track> rows;
+    // False when a catalog could not be read and `rows` is therefore the
+    // caller's own single-catalog list.
+    bool collapsedAcrossCatalogs = false;
+};
+
+CleanupScanRows collapseForCleanupScan(const CatalogTracks &catalogs,
+                                        const std::vector<std::string> &unreadableCatalogs,
+                                        std::vector<domain::Track> singleCatalogRows);
 
 }  // namespace seabass::application

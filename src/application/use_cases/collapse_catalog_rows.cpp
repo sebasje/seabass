@@ -105,4 +105,38 @@ std::vector<domain::Track> collapseCatalogRows(const std::vector<domain::Track> 
     return files;
 }
 
+CleanupScanRows collapseForCleanupScan(const CatalogTracks &catalogs,
+                                        const std::vector<std::string> &unreadableCatalogs,
+                                        std::vector<domain::Track> singleCatalogRows)
+{
+    auto withoutStreaming = [](std::vector<domain::Track> tracks) {
+        tracks.erase(std::remove_if(tracks.begin(), tracks.end(),
+                                     [](const domain::Track &t) { return !t.streamingSource.empty(); }),
+                     tracks.end());
+        return tracks;
+    };
+
+    if (!unreadableCatalogs.empty()) {
+        return {withoutStreaming(std::move(singleCatalogRows)), false};
+    }
+
+    std::vector<domain::Track> rows;
+    // Fixed order, because collapseCatalogRows() keeps the first row for
+    // a file as the base and callers are entitled to a stable result.
+    for (const auto *catalog : {&catalogs.rekordbox, &catalogs.engine, &catalogs.oneLibrary}) {
+        if (catalog->has_value()) {
+            rows.insert(rows.end(), (*catalog)->begin(), (*catalog)->end());
+        }
+    }
+    rows = withoutStreaming(std::move(rows));
+    if (rows.empty()) {
+        // No catalog supplied anything. Falling through to an empty
+        // collapse would report a cross-catalog scan that saw nothing,
+        // which reads as "this stick has no duplicates" rather than "this
+        // scan was handed nothing".
+        return {withoutStreaming(std::move(singleCatalogRows)), false};
+    }
+    return {collapseCatalogRows(rows), true};
+}
+
 }  // namespace seabass::application

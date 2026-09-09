@@ -14,6 +14,7 @@
 #include <set>
 #include <unordered_map>
 
+#include "application/use_cases/collapse_catalog_rows.hpp"
 #include "application/ports/cue_writer.hpp"
 #include "application/ports/library_cleanup_writer.hpp"
 #include "domain/duplicate_cue_consolidation.hpp"
@@ -586,6 +587,25 @@ CleanupTaskResult runRescanTask(QString format, QString path, QString playlistNa
         // from Engine, and on a real stick that difference was 307
         // files. See readAllStickCatalogs()'s own comment.
         auto stickCatalogs = readAllStickCatalogs(path.toStdString(), *reporter, cancel);
+
+        // A file, not a row, is the unit of duplication: the same audio is
+        // listed by rekordbox, Engine and OneLibrary at once, and removing
+        // a copy means removing every catalog's row for it. Folding rows
+        // into files here is what lets one save do that -- see
+        // CleanupGroupChange::apply(), which writes each catalog the
+        // collapsed file names.
+        //
+        // The decision, including the refusal to collapse when a catalog
+        // could not be read, lives in collapseForCleanupScan() where it
+        // can be tested. Before scoping and before the strays join, never
+        // after: see collapseCatalogRows()'s header.
+        {
+            auto scanRows = application::collapseForCleanupScan(stickCatalogs.catalogs, stickCatalogs.failed,
+                                                                 std::move(tracks));
+            tracks = std::move(scanRows.rows);
+            result.collapsedAcrossCatalogs = scanRows.collapsedAcrossCatalogs;
+        }
+
         auto strays = infrastructure::cleanup::scanStrayFiles(
             fs::path(path.toStdString()).parent_path().string(), stickCatalogs.catalogs, stickCatalogs.failed, cancel);
 
@@ -632,9 +652,22 @@ CleanupTaskResult runRescanTask(QString format, QString path, QString playlistNa
         std::vector<domain::DuplicateCleanupPlan> plans;
         for (const auto &group : domain::DuplicateTrackFinder::find(tracks)) {
             auto plan = domain::DuplicateCleanupPlanner::plan(group);
-            if (!plan.toRemove.empty()) {
-                plans.push_back(std::move(plan));
+            if (plan.toRemove.empty()) {
+                continue;
             }
+            // Not offered at all, rather than offered-but-unchecked like
+            // `differs` and `hasUnpreservableDataAtRisk`. Those two are
+            // judgement calls a DJ may overrule; this one has no correct
+            // way to apply yet -- the doomed row lives in a catalog the
+            // survivor has no row in, so removing it takes the recording
+            // out of that catalog rather than deduplicating it. The
+            // writer refuses these too, but by then the DJ has already
+            // chosen them and the save fails; better never to offer.
+            if (plan.wouldStrandAFormat) {
+                ++result.groupsHeldBackStranding;
+                continue;
+            }
+            plans.push_back(std::move(plan));
         }
         result.plans = std::move(plans);
     } catch (const application::OperationCancelled &) {
