@@ -1495,6 +1495,13 @@ add_test(NAME anonymized_fixture_is_clean_test COMMAND verify_anonymized_export
 set_tests_properties(anonymized_fixture_is_clean_test PROPERTIES LABELS "integration")
 
 # Plants a specific leak per case and asserts the verifier catches it.
+add_executable(onelibrary_anonymizer_test tests/onelibrary_anonymizer_test.cpp)
+target_include_directories(onelibrary_anonymizer_test PRIVATE src)
+target_link_libraries(onelibrary_anonymizer_test PRIVATE seabass_core)
+add_test(NAME onelibrary_anonymizer_test COMMAND onelibrary_anonymizer_test
+    ${CMAKE_SOURCE_DIR}/tests/fixtures/anonymized_library/rekordbox/rekordbox/exportLibrary.db)
+set_tests_properties(onelibrary_anonymizer_test PROPERTIES LABELS "integration")
+
 add_executable(anonymization_verifier_test tests/anonymization_verifier_test.cpp)
 target_include_directories(anonymization_verifier_test PRIVATE src)
 target_link_libraries(anonymization_verifier_test PRIVATE seabass_core)

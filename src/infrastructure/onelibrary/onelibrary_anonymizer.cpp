@@ -129,9 +129,25 @@ OneLibraryAnonymizationResult anonymizeOneLibraryDatabase(const std::string &dbP
             const std::string realFilename = fileName.empty() ? basenameOf(path) : fileName;
             const std::string obfuscatedFilename = anonymizationFilenamePlaceholder(realFilename);
 
+            // The DJ's own comment. This used to look for a column
+            // called "comment", which the schema does not have -- it is
+            // "djComment" -- so the branch never ran and the comment
+            // shipped unscrubbed. columnsOf() is there so a missing
+            // column does not fail the export, and the cost of that
+            // design is that a WRONG name is silently a no-op. Both
+            // spellings are tried now, and the test asserts the value is
+            // gone rather than that the code ran.
+            const std::string commentColumn = contentColumns.count("djComment") ? "djComment"
+                                            : contentColumns.count("comment")   ? "comment"
+                                                                                : "";
+            // titleForSearch is a normalised copy of the title kept for
+            // browsing. Left alone it hands back the real title that the
+            // line above just replaced.
+            const bool hasTitleForSearch = contentColumns.count("titleForSearch") > 0;
             SqlCipherStatement update(db, "UPDATE content SET title = ?, path = ?"
                                           + std::string(contentColumns.count("fileName") ? ", fileName = ?" : "")
-                                          + (contentColumns.count("comment") ? ", comment = ?" : "")
+                                          + (commentColumn.empty() ? "" : ", " + commentColumn + " = ?")
+                                          + (hasTitleForSearch ? ", titleForSearch = ?" : "")
                                           + " WHERE content_id = ?");
             int bind = 1;
             update.bindText(bind++, anonymizationPlaceholder("Track", realFilename));
@@ -145,8 +161,11 @@ OneLibraryAnonymizationResult anonymizeOneLibraryDatabase(const std::string &dbP
             if (contentColumns.count("fileName")) {
                 update.bindText(bind++, obfuscatedFilename);
             }
-            if (contentColumns.count("comment")) {
+            if (!commentColumn.empty()) {
                 update.bindText(bind++, anonymizationPlaceholder("Comment", realFilename));
+            }
+            if (hasTitleForSearch) {
+                update.bindText(bind++, anonymizationPlaceholder("Track", realFilename));
             }
             update.bindInt64(bind, id);
             update.run();
@@ -188,6 +207,33 @@ OneLibraryAnonymizationResult anonymizeOneLibraryDatabase(const std::string &dbP
                 update.bindInt64(2, rowid);
                 update.run();
                 ++result.cueCommentsScrubbed;
+            }
+        }
+
+        // --- My Tags: free text the DJ typed ---
+        //
+        // This is the same vocabulary that gets exportExt.pdb deleted
+        // from an export entirely ("free text a DJ typed and still has
+        // no anonymizer, so it goes"). It also lives here, in a table
+        // that was neither deleted nor scrubbed, so tag names like
+        // "Second Floor" or "Build up" shipped intact. The built-in
+        // category names go through the same renaming: telling a DJ's
+        // own tag from rekordbox's stock vocabulary is guesswork, and
+        // guessing wrong here means shipping the DJ's.
+        if (tableExists(db, "myTag") && columnsOf(db, "myTag").count("name")) {
+            result.myTagsRenamed = renameDistinctValues(db, "myTag", "myTag_id", "name", "Tag");
+        }
+
+        // --- identifiers and the remaining free-text columns ---
+        //
+        // isrc names the exact commercial recording, so it undoes the
+        // placeholder title and artist for any row that carries one.
+        // subtitle and kuvoDeliveryComment are free text that happened
+        // to be empty in every library sampled -- which is exactly why
+        // they need clearing rather than trusting.
+        for (const char *column : {"isrc", "subtitle", "kuvoDeliveryComment"}) {
+            if (contentColumns.count(column)) {
+                db.exec(std::string("UPDATE content SET ") + column + " = NULL WHERE " + column + " IS NOT NULL");
             }
         }
 
