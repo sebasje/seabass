@@ -3,10 +3,41 @@
 ## Running the test suite
 
 ```
-ctest                 # everything except the integration suite (fast, ~8s)
-ctest -L integration  # just the integration suite (real-scale, ~1s but does real file I/O)
-ctest -LE integration # explicitly excludes the integration suite (same as the bare `ctest` above)
+ctest                 # the whole suite, integration included -- this is the one to run
+ctest -L integration  # just the integration suite (real-scale, does real file I/O)
+ctest -LE integration # everything except the integration suite (faster, covers less)
 ```
+
+A bare `ctest` runs **every** registered test. A CTest label does not
+exclude anything by itself; only an explicit `-LE` does. (This section
+used to say the opposite -- that a bare `ctest` skipped the integration
+suite -- which was wrong in the direction that makes you run work twice.)
+
+Nothing in the suite is allowed to pass without running. A missing test
+dependency stops the **configure** with a message naming the package,
+rather than quietly subtracting a target or turning a test into a skip:
+
+| missing | you get |
+|---|---|
+| Qt6 | configure fails; `-DSEABASS_GUI=OFF` to build CLI + C++ tests only |
+| Qt6 Test/QuickTest | configure fails; `-DSEABASS_TESTS=OFF` to build without any tests |
+| python3 / unzip / 7z | configure fails; they are what `backup_archive_crossvalidation_test` checks our ZIP writer against |
+
+`-DSEABASS_TESTS=OFF` is the only way to build without the suite, and it
+is recorded in `CMakeCache.txt`, so skipping the tests is always someone's
+stated choice rather than an accident of what happened to be installed.
+
+Two tests need something the machine cannot be assumed to have, and both
+are handled by *not registering* them unless you ask, never by passing
+without checking anything:
+
+- `stray_scan_live_test` needs a real stick: configure with
+  `-DSEABASS_LIVE_STICK=/path/to/stick`. The binary is always built, so it
+  cannot rot unnoticed; run without the variable it fails rather than
+  reporting a scan that never happened.
+- libdjinterop's own twelve tests are upstream's, not ours, and are off by
+  name: `-DSEABASS_VENDORED_TESTS=ON` builds and runs them, and needs
+  `libboost-filesystem-dev`.
 
 Most of the suite is unit tests against small, synthetic, hand-built fixtures (a two-track `export.pdb`, a fresh `djinterop::engine::create_database()`, and so on) -- fast, and run by a bare `ctest`. One test, `anonymized_fixture_integration_test`, is tagged with the CTest label `integration` and runs the app's real use cases (`ScanLibrary`, `SyncLibraries`, `LibraryStatisticsCalculator`, `LibraryConsistencyChecker`, a real cue write) against `tests/fixtures/anonymized_library/` -- a committed, de-identified copy of a real ~1,400-track library. It's the only thing in this suite exercised at realistic scale and variety; run it before merging a larger change or cutting a release, not on every build. There's no CI in this repo (yet) to enforce that automatically -- this is a documented habit, not an automated gate.
 
@@ -51,8 +82,9 @@ One design point worth knowing if you're touching the anonymizer: the same real 
 `tests/qml-live/` drives the real pages with their real controllers
 against a mounted stick: reads, staged edits, saves, cancels, undo,
 Manage Backups, the foreign lock, the process guard, the CLI probe, and
-the stick being pulled. Nothing there runs under `ctest`; every test
-skips itself unless `SEABASS_LIVE_STICK` names a mount point. Only ever
+the stick being pulled. Nothing there runs under a default `ctest`; those
+tests are registered only when the build was configured with
+`-DSEABASS_LIVE_STICK` naming a mount point. Only ever
 point it at a scratch copy of a library: it writes (through the normal
 backup path, undoing where the flow has an undo).
 

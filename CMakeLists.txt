@@ -46,9 +46,43 @@ else()
 endif()
 
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(BUILD_DOC OFF CACHE BOOL "" FORCE)
+
+# libdjinterop ships its own unit tests. They are upstream's coverage of
+# upstream's code, we vendor a pinned commit, and they are not part of
+# the suite SEABASS_TESTS promises to run -- so they are OFF, deliberately
+# and by name, rather than by leaving BUILD_TESTING off in a list of
+# build-trimming flags and letting the targets get built anyway.
+#
+# That is what used to happen, and it was the worst of both: upstream
+# gates the test targets on Boost_FOUND alone, never on BUILD_TESTING, so
+# with BUILD_TESTING off they were still compiled into `all` while no
+# CTestTestfile.cmake was generated for them. Built, so a Boost that is
+# headers-only broke `cmake --build` (and on a clean tree took 14 of our
+# own tests down with it, unbuilt and reported Not Run); unregistered, so
+# they could never pass or fail. See sebasje/seabass#9.
+#
+# CMAKE_DISABLE_FIND_PACKAGE_Boost is what actually stops them being
+# built: upstream's `if (Boost_FOUND)` is the only gate on those targets.
+option(SEABASS_VENDORED_TESTS "Also build and run libdjinterop's own test suite (needs Boost.Filesystem)" OFF)
+if(SEABASS_VENDORED_TESTS)
+    find_package(Boost 1.71.0 QUIET COMPONENTS filesystem system)
+    # Boost_FOUND alone is true for a headers-only install, which is the
+    # trap upstream falls into; check the components we actually link.
+    if(NOT Boost_filesystem_FOUND OR NOT Boost_system_FOUND)
+        message(FATAL_ERROR
+            "SEABASS_VENDORED_TESTS=ON needs Boost.Filesystem, and only the Boost "
+            "headers were found.\n"
+            "  Debian/Ubuntu: apt install libboost-filesystem-dev\n"
+            "Configure with -DSEABASS_VENDORED_TESTS=OFF to skip libdjinterop's "
+            "own tests.")
+    endif()
+    set(BUILD_TESTING ON CACHE BOOL "" FORCE)
+else()
+    set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+    set(CMAKE_DISABLE_FIND_PACKAGE_Boost ON)
+endif()
 if(WIN32)
     # No SQLite3-for-mingw package exists for Ubuntu - libdjinterop
     # already has its own bundled-amalgamation fallback for exactly this
@@ -72,17 +106,49 @@ add_subdirectory(third_party/libdjinterop)
 # Ubuntu-hosted mingw cross-compile setup this project used before.
 find_package(SQLite3 REQUIRED)
 
+# A test that does not run is a failure, so a missing test dependency
+# stops the configure rather than quietly subtracting a target or turning
+# a test into a skip. SEABASS_TESTS=OFF is the one way to build without
+# the suite, and it is recorded in CMakeCache.txt -- the exception is
+# always somebody's stated choice, never an accident of what happened to
+# be installed on the machine.
+option(SEABASS_GUI "Build the Qt GUI (requires Qt6)" ON)
+option(SEABASS_TESTS "Build and run the test suite" ON)
+
 # System zlib, used to compress local cue-backup snapshots and full
 # metadata backups before they hit disk (see infrastructure/compression/).
 find_package(ZLIB REQUIRED)
 
 # Independent ZIP implementations for the stick-backup cross-validation
-# test (tests/backup_archive_crossvalidation_test.cpp). All optional: the
-# test skips (exit 77) without python3 and skips the individual tool
-# cases without unzip / 7z.
+# test (tests/backup_archive_crossvalidation_test.cpp). Required, not
+# optional: that test is the only thing stopping a writer and a reader
+# with the same author agreeing with each other and both disagreeing with
+# the ZIP specification, and it can only do that against implementations
+# that share no code with ours. Absent, it used to exit 77 and count as a
+# pass -- a green line that had validated nothing.
 find_package(Python3 COMPONENTS Interpreter QUIET)
 find_program(UNZIP_EXECUTABLE unzip)
 find_program(SEVENZIP_EXECUTABLE NAMES 7z 7zz 7za)
+if(SEABASS_TESTS)
+    set(_seabass_missing_zip_tools "")
+    if(NOT Python3_Interpreter_FOUND)
+        list(APPEND _seabass_missing_zip_tools "python3 (Debian/Ubuntu: python3)")
+    endif()
+    if(NOT UNZIP_EXECUTABLE)
+        list(APPEND _seabass_missing_zip_tools "unzip (Debian/Ubuntu: unzip)")
+    endif()
+    if(NOT SEVENZIP_EXECUTABLE)
+        list(APPEND _seabass_missing_zip_tools "7z (Debian/Ubuntu: p7zip-full)")
+    endif()
+    if(_seabass_missing_zip_tools)
+        list(JOIN _seabass_missing_zip_tools "\n    " _seabass_missing_zip_tools_text)
+        message(FATAL_ERROR
+            "backup_archive_crossvalidation_test needs independent ZIP "
+            "implementations to check our archives against, and these are "
+            "missing:\n    ${_seabass_missing_zip_tools_text}\n"
+            "To build without any tests at all, configure with -DSEABASS_TESTS=OFF.")
+    endif()
+endif()
 
 # Only needed by stick_write_lock_test, which spawns a real std::thread to
 # prove StickWriteLock actually excludes a concurrent locker.
@@ -351,12 +417,22 @@ endif()
 # at all, regardless of anything already stored in QSettings.
 option(SEABASS_EXPERIMENTAL "Compile in the experimental-features opt-in (Settings toggle)" ON)
 
-# Test/QuickTest are OPTIONAL: they're packaged separately from the core
-# Qt6 modules on several distros (e.g. Debian/Ubuntu's libqt6quicktest6-dev
-# vs libqt6qml6-dev), and find_package(Qt6 COMPONENTS ...) requires every
-# listed component -- putting them in the required list would silently
-# fail Qt6_FOUND (and so skip the whole GUI build, not just the QML tests)
-# on any install that has the mandatory modules but not QuickTest.
+# A test that does not run is a failure, so a missing test dependency
+# stops the configure rather than quietly subtracting a target. These two
+# options are the only way to build without the GUI or without the QML
+# suite, and both are recorded in CMakeCache.txt -- the exception is
+# always somebody's stated choice, never an accident of what happened to
+# be installed on the machine.
+
+# Test/QuickTest are OPTIONAL_COMPONENTS here for a discovery reason only:
+# they're packaged separately from the core Qt6 modules on several distros
+# (e.g. Debian/Ubuntu's libqt6quicktest6-dev vs libqt6qml6-dev), and
+# find_package(Qt6 COMPONENTS ...) requires every listed component -- in
+# the required list they would take Qt6_FOUND down with them and report
+# "no Qt" on an install that is only missing the test package. Discovering
+# them separately is what lets the check below name the package that is
+# actually absent. It is not a licence to continue without them; that
+# check is a FATAL_ERROR.
 find_package(Qt6 QUIET COMPONENTS Core Gui Qml Quick QuickControls2 QuickLayouts QuickEffects QuickDialogs2 QuickShapes Multimedia Concurrent Svg
     OPTIONAL_COMPONENTS Test QuickTest)
 # --- QtMultimedia duration probe (see TrackDurationProbe) ---
@@ -397,7 +473,7 @@ if(TARGET Qt6::Multimedia)
     target_link_libraries(seabass-cli PRIVATE seabass_audio_qt)
 endif()
 
-if(Qt6_FOUND)
+if(SEABASS_GUI AND Qt6_FOUND)
     qt_standard_project_setup(REQUIRES 6.5)
     if(WIN32)
         # Needed to compile src/gui/win/app_icon.rc (the .exe's icon
@@ -481,11 +557,19 @@ if(Qt6_FOUND)
     # --- QtQuickTest: QML-level UI tests (component behavior, not the ---
     # --- domain/controller logic the C++ tests above already cover) ---
     #
-    # Gated on Qt6Test_FOUND/Qt6QuickTest_FOUND (set by the OPTIONAL_COMPONENTS
-    # find_package call above regardless of whether they were found) -- an
-    # install with the mandatory Qt6 modules but not QuickTest still gets
-    # the full seabass GUI build, just without this one test target.
-    if(Qt6Test_FOUND AND Qt6QuickTest_FOUND)
+    # Qt6Test_FOUND/Qt6QuickTest_FOUND are set by the OPTIONAL_COMPONENTS
+    # find_package call above whether or not they were found.
+    if(SEABASS_TESTS AND NOT (Qt6Test_FOUND AND Qt6QuickTest_FOUND))
+        message(FATAL_ERROR
+            "Qt6 Test/QuickTest not found, so seabass_qml_tests cannot be built and "
+            "its QML tests would not run.\n"
+            "  Debian/Ubuntu: apt install qt6-declarative-dev libqt6quicktest6-dev\n"
+            "  Fedora:        dnf install qt6-qtdeclarative-devel\n"
+            "  MSYS2/UCRT64:  pacman -S mingw-w64-ucrt-x86_64-qt6-declarative\n"
+            "To build without any tests at all, configure with "
+            "-DSEABASS_TESTS=OFF.")
+    endif()
+    if(SEABASS_TESTS)
         # A separate, test-only "SeabassGui" module registration (URI, and
         # the exact QML files under test, listed again here) rather than
         # reusing seabass's own qt_add_qml_module() call: that one is
@@ -581,13 +665,26 @@ if(Qt6_FOUND)
         set_tests_properties(seabass_qml_tests PROPERTIES ENVIRONMENT
             "QT_QPA_PLATFORM=offscreen;XDG_CONFIG_HOME=${CMAKE_CURRENT_BINARY_DIR}/qml-test-config")
     else()
-        message(STATUS "Qt6::QuickTest not found, skipping seabass_qml_tests (GUI build unaffected)")
+        message(STATUS "SEABASS_TESTS=OFF: seabass_qml_tests not built")
     endif()
+elseif(SEABASS_GUI)
+    message(FATAL_ERROR
+        "Qt6 not found, so neither the seabass GUI nor its QML tests can be built.\n"
+        "  Debian/Ubuntu: apt install qt6-base-dev qt6-declarative-dev libqt6quicktest6-dev qt6-multimedia-dev qt6-svg-dev\n"
+        "  Point at a non-default prefix with -DCMAKE_PREFIX_PATH=<qt6 prefix>\n"
+        "To build only the CLI and the C++ tests, configure with -DSEABASS_GUI=OFF.")
 else()
-    message(STATUS "Qt6 not found, skipping seabass (CLI and tests still build)")
+    message(WARNING
+        "SEABASS_GUI=OFF: the GUI and its QML suite are not built; ctest covers "
+        "the CLI and C++ tests only.")
 endif()
 
 # --- domain-layer unit tests (no infrastructure deps, no fixtures needed) ---
+#
+# Everything from here to the end of the file is the test suite, wrapped in
+# one SEABASS_TESTS guard rather than indented, so the guard stays a
+# two-line diff and every target below reads the same as it did before.
+if(SEABASS_TESTS)
 
 enable_testing()
 add_executable(duration_cache_test tests/duration_cache_test.cpp)
@@ -639,15 +736,30 @@ if(TARGET seabass_taglib)
     target_link_libraries(stray_file_scan_test PRIVATE seabass_core seabass_taglib)
     add_test(NAME stray_file_scan_test COMMAND stray_file_scan_test)
 
-    # The same scan against a real stick, run by setting
-    # SEABASS_LIVE_STICK; it skips (passing) without one, so it can live
-    # in the normal suite rather than in a document nobody runs. See
-    # docs/unreferenced-file-cleanup-plan.md, step 7.
+    # The same scan against a real stick. Needs hardware plugged in, so
+    # it is the one test that cannot simply be required -- but it used to
+    # be registered unconditionally and `return 0` without a stick, which
+    # meant the normal suite carried a green line for a live scan nobody
+    # had run. It is now registered only when the build was configured
+    # with -DSEABASS_LIVE_STICK=<path>, which is a stated choice recorded
+    # in CMakeCache.txt, and that path is handed to the test so it really
+    # runs. The binary is still built either way, so it cannot rot
+    # unnoticed. See docs/unreferenced-file-cleanup-plan.md, step 7.
+    set(SEABASS_LIVE_STICK "" CACHE PATH
+        "Mounted USB stick to run the live stray-file scan against (empty: not registered)")
     add_executable(stray_scan_live_test tests/stray_scan_live_test.cpp)
     target_include_directories(stray_scan_live_test PRIVATE src)
     target_link_libraries(stray_scan_live_test PRIVATE seabass_core seabass_taglib)
-    add_test(NAME stray_scan_live_test COMMAND stray_scan_live_test)
-    set_tests_properties(stray_scan_live_test PROPERTIES LABELS "integration")
+    if(SEABASS_LIVE_STICK)
+        add_test(NAME stray_scan_live_test COMMAND stray_scan_live_test)
+        set_tests_properties(stray_scan_live_test PROPERTIES
+            LABELS "integration"
+            ENVIRONMENT "SEABASS_LIVE_STICK=${SEABASS_LIVE_STICK}")
+    else()
+        message(STATUS
+            "SEABASS_LIVE_STICK empty: stray_scan_live_test is built but not registered; "
+            "configure with -DSEABASS_LIVE_STICK=/path/to/stick to run it")
+    endif()
 endif()
 
 add_executable(duplicate_cue_consolidation_test
@@ -1237,9 +1349,11 @@ target_include_directories(seabass_paths_test PRIVATE src)
 add_test(NAME seabass_paths_test COMMAND seabass_paths_test)
 
 add_test(NAME backup_archive_crossvalidation_test COMMAND backup_archive_crossvalidation_test)
+# No SKIP_RETURN_CODE: the three tools are required at configure time
+# above, so there is no longer a legitimate reason for this test to do
+# anything but run.
 set_tests_properties(backup_archive_crossvalidation_test PROPERTIES
     ENVIRONMENT "SEABASS_PYTHON3=${Python3_EXECUTABLE};SEABASS_UNZIP=${UNZIP_EXECUTABLE};SEABASS_SEVENZIP=${SEVENZIP_EXECUTABLE}"
-    SKIP_RETURN_CODE 77
 )
 
 set(SEABASS_STICK_BACKUP_UPDATE_SOURCES
@@ -1465,9 +1579,10 @@ endif()
 add_test(NAME onelibrary_reader_test COMMAND onelibrary_reader_test)
 
 # --- Integration suite: the real use cases against whole real libraries ---
-# --- -- slower, gated with CTest LABEL "integration" so a default ---
-# --- `ctest` run (or `ctest -LE integration`) skips them; run before a ---
-# --- larger change or release with `ctest -L integration`. See ---
+# --- -- slower, and tagged with the CTest LABEL "integration" so they ---
+# --- can be selected (`ctest -L integration`) or excluded (`ctest -LE ---
+# --- integration`). A label excludes nothing on its own: a bare ---
+# --- `ctest` runs these too, and is the run that counts. See ---
 # --- docs/testing.md and docs/real-data-testing.md. Links the whole ---
 # --- seabass_core (unlike every test above, which links just the ---
 # --- handful of .cpp files it needs) since this genuinely exercises ---
@@ -1591,3 +1706,5 @@ foreach(_seabass_test IN LISTS _seabass_registered_tests)
             "nothing. Rename the target, or widen the match above.")
     endif()
 endforeach()
+
+endif()  # SEABASS_TESTS
