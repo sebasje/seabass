@@ -1,0 +1,208 @@
+# Metadata Backup: the DJ's own work, kept off the stick
+
+## Why
+
+Everything a DJ adds to a track lives only on the stick: the cues they set
+in the booth, the rating they gave it at 3am, the comment reminding them
+what it mixes into. The audio is replaceable -- it can be re-imported from
+anywhere. The annotations cannot. They exist in exactly one place, on a
+device that gets reformatted, re-exported, dropped and lost.
+
+Seabass already has a narrow version of this (`LocalCueStore`, the "Local
+Cue Backup" card, currently marked "Needs rework"). It backs up cues and
+nothing else, keys its database off an XDG path rather than `~/Seabass`,
+and its restore path merges cue-by-cue with no way for a user to say
+"just take the backup's word for it". This is that feature, reworked and
+widened to the whole of what a DJ authors.
+
+Two cards, because pulling and pushing are two different decisions taken
+at different times:
+
+- **Metadata Backup** -- read every catalog on the stick, store what the
+  DJ added, locally.
+- **Restore Metadata** -- put it back on a stick that has lost it.
+
+## What gets stored, and what does not
+
+The rule: **store what a DJ authored, plus just enough of what the
+software wrote to identify the track again.** Not a second copy of the
+library.
+
+| Stored | Why |
+|---|---|
+| cues and loops (position, kind, hot number, colour, comment) | the whole point |
+| rating | authored, and lost on re-import |
+| comment | authored |
+| play count / last played | authored by playing; the only record of it |
+| playlist membership | authored, and cheap to store |
+| title, artist, filename, duration, bpm, key | identity, and what a browse view has to show |
+| cover art | asked for explicitly, and it makes the browse view legible |
+| stick-relative path | the strongest matching key there is |
+
+Deliberately **not** stored: waveforms, beat grids, analysis files,
+audio. All of it is derived from the audio file, all of it is large, and
+none of it is the DJ's work. `docs/anonymized-export.md` draws the same
+line for the same reason.
+
+Cover art is content-addressed: the image is copied to
+`~/Seabass/metadata/artwork/<sha256>.<ext>` and the row stores the hash.
+A library where 1500 tracks share 300 album covers stores 300 files. The
+hash is over the file bytes, so re-running a backup never writes an image
+twice.
+
+## Where it lives
+
+```
+~/Seabass/metadata/metadata.db          the store
+~/Seabass/metadata/artwork/<sha>.jpg    cover art, content-addressed
+```
+
+`~/Seabass` is `paths::localRoot()`, which honours the user's preference
+and `$SEABASS_HOME`, so a test run can never touch the real store. Both
+paths come from `paths::localMetadataDir()`; nothing else invents a
+location.
+
+## Identity: how a stored track is found again
+
+This is the part that decides whether the feature works, because a
+restore onto a freshly written stick has to recognise tracks it has never
+seen a row for.
+
+Matching runs in this order, first hit wins:
+
+1. **Stick-relative path key.** `Contents/Artist/Track.mp3` reduced
+   through `application::normalizedPathKey()`. rekordbox writes the same
+   layout every time it exports, so the same track on a rebuilt stick
+   usually lands on the same key. Strongest signal, and free.
+2. **title + artist**, then **filename**, then **duration within
+   tolerance** -- `domain::matchTracks()`, unchanged. The store
+   implements `application::LibraryReader`, so the same matcher that
+   pairs rekordbox rows with Engine rows pairs stick rows with stored
+   ones. One matcher, not two.
+
+The store is therefore keyed on the path key and **not** on which stick
+the track came from. A track is one row no matter how many sticks carry
+it; the `library_id` column records where it was last seen, for the
+browse view and for nothing else.
+
+## Conflict policy
+
+Both directions ask the same question and default differently, because
+the safe answer is different.
+
+| | default | reasoning |
+|---|---|---|
+| stick -> store (backup) | **overwrite all** | the stick is where the DJ works. A cue they set last night is newer than whatever is stored. |
+| store -> stick (restore) | **skip all** | the stick may already have been re-cued. Never overwrite a DJ's live work from a backup. |
+
+One choice per run, applied to every conflict in it -- "overwrite all" or
+"skip all", not a per-track prompt. A per-track prompt over 1500 tracks
+is not a decision anyone makes; it is a decision nobody finishes.
+
+A conflict is per field group, not per track: cues, rating, and comment
+each conflict independently, and the policy applies to each. A track
+whose cues differ but whose rating is only present in the store gets its
+cues resolved by the policy and its rating filled in either way -- filling
+an empty field is not a conflict.
+
+## Restore: what it offers, and how it writes
+
+The restore card's headline case, from the request: **tracks on the stick
+that have no cue points at all, for which the store has some.** That is
+the unambiguous case, it is common after a re-export, and it needs no
+conflict policy because there is nothing to overwrite.
+
+Beyond it, the same page offers rating and comment, under the skip-all
+default.
+
+Writes are **staged, not applied**. Restore builds one `PendingChange`
+per track into the library's `LibraryEditSession`, exactly as
+`LocalCueController::applyRestore()` already does; the page's Save writes
+them through `runSaveLoop`, which backs up first. Nothing here invents a
+write path, and nothing here reaches the stick without the user pressing
+Save.
+
+## Browse
+
+"A lightweight way to browse it": one page, one list, a search field over
+title/artist/filename. Per row: cover art thumbnail, title, artist,
+duration, rating, cue count, and the stick label it was last seen on.
+Selecting a row shows its cues.
+
+Lightweight means the list is fed by a SQL query with a LIMIT, not by
+reading the whole store into memory and filtering in QML. A store that
+has seen a few thousand tracks is small; one that has seen ten sticks
+over a year is not.
+
+## Schema (v1)
+
+```sql
+CREATE TABLE tracks (
+  id INTEGER PRIMARY KEY,
+  path_key TEXT NOT NULL UNIQUE,   -- normalizedPathKey of the stick-relative path
+  relative_path TEXT NOT NULL,     -- as spelled, for display
+  filename TEXT NOT NULL,
+  title TEXT, artist TEXT,
+  duration_seconds REAL, bpm REAL, music_key TEXT,
+  rating INTEGER,                  -- NULL means unrated, never 0
+  comment TEXT,
+  play_count INTEGER, last_played_at TEXT,
+  artwork_sha TEXT,                -- -> artwork/<sha>.<ext>
+  artwork_extension TEXT,
+  library_id TEXT, stick_label TEXT,
+  source_format TEXT,
+  first_seen TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE TABLE cues (
+  track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,              -- 'memory' | 'hot'
+  hot_number INTEGER NOT NULL,
+  position_ms REAL NOT NULL,
+  color TEXT, comment TEXT,
+  is_loop INTEGER NOT NULL, loop_end_ms REAL NOT NULL
+);
+CREATE TABLE playlists (
+  track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+  name TEXT NOT NULL, position INTEGER NOT NULL
+);
+CREATE TABLE schema_version (version INTEGER NOT NULL);
+```
+
+`rating` is nullable and never written as 0 for "unrated" --
+`domain::Track::rating` is an `optional<int>` for exactly this reason and
+flattening it here would throw the distinction away on the way in.
+
+## Order of work
+
+1. `MetadataStore` plus its test: schema, upsert under both policies,
+   `readAll()` as a `LibraryReader`, artwork intake. Qt-free.
+2. `backUpMetadata()` use case: catalogs in, summary out, progress and
+   cancellation through the existing ports.
+3. `planMetadataRestore()` use case: store + stick tracks in, per-track
+   proposals out. Pure, and the piece most worth testing directly.
+4. `MetadataBackupController` and the backup card and page.
+5. Browse page.
+6. `MetadataRestoreController`, the restore card, staged writes.
+
+## What would make this wrong
+
+- Storing waveforms or analysis files. It is a metadata store; the moment
+  it holds derived binary data it is a slow, partial stick backup.
+- Keying tracks by stick. The feature exists so metadata survives the
+  stick.
+- Writing to the stick outside the edit session. Every other write path
+  in Seabass backs up first; this one does not get an exception.
+- A per-track conflict prompt.
+- Treating a missing field as a conflict. Filling in a blank is not
+  overwriting.
+- Letting the browse page read the whole store to show twenty rows.
+
+## Relationship to Local Cue Backup
+
+`LocalCueStore`, `LocalCueController`, `LocalCuePage.qml` and
+`domain::LocalRestorePlanner` are the narrow ancestor of this and are
+already marked deprecated in the UI. They should go once this ships --
+pre-1.0, and two features that back up overlapping data to two different
+databases is worse than either alone. That removal is deliberately not
+part of this branch: it is a separate decision, and it wants the new path
+proven on real sticks first.

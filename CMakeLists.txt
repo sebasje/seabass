@@ -318,6 +318,7 @@ add_library(seabass_core STATIC
     src/infrastructure/cleanup/audio_file_walk.cpp
     src/infrastructure/local/duration_cache.cpp
     src/infrastructure/local/metadata_cache.cpp
+    src/infrastructure/local/metadata_store.cpp
 )
 target_include_directories(seabass_core PUBLIC src)
 target_link_libraries(seabass_core PUBLIC rekordbox_format DjInterop ZLIB::ZLIB)
@@ -697,6 +698,11 @@ add_executable(metadata_cache_test tests/metadata_cache_test.cpp)
 target_include_directories(metadata_cache_test PRIVATE src)
 target_link_libraries(metadata_cache_test PRIVATE seabass_core)
 add_test(NAME metadata_cache_test COMMAND metadata_cache_test)
+
+add_executable(metadata_store_test tests/metadata_store_test.cpp)
+target_include_directories(metadata_store_test PRIVATE src)
+target_link_libraries(metadata_store_test PRIVATE seabass_core)
+add_test(NAME metadata_store_test COMMAND metadata_store_test)
 
 add_executable(no_em_dashes_test tests/no_em_dashes_test.cpp)
 target_compile_definitions(no_em_dashes_test PRIVATE SEABASS_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
