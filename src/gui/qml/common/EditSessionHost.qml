@@ -33,6 +33,10 @@ Item {
     // unsaved changes this one is read-only, and its own staging attempts
     // are refused in C++ regardless of what the UI does.
     property string feature: ""
+    // What the floating save button says. Defaults to "Save"; a page
+    // whose save means something more specific than "write my edits"
+    // overrides it.
+    property string saveLabel: "Save"
     readonly property var session: internal.session
     readonly property string editorOwner: internal.session !== null && internal.session.editorOwner !== undefined
         ? internal.session.editorOwner : ""
@@ -128,6 +132,7 @@ Item {
     SaveOverlayButton {
         objectName: "saveOverlay"
         session: host.session
+        label: host.saveLabel
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         anchors.margins: 24

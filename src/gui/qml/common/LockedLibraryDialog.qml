@@ -38,6 +38,10 @@ SeabassDialog {
 
     footer: DialogButtonBox {
         Button {
+            Keys.onReturnPressed: root.activateFooterSelection()
+            Keys.onEnterPressed: root.activateFooterSelection()
+            Keys.onLeftPressed: root.moveFooterSelection(-1)
+            Keys.onRightPressed: root.moveFooterSelection(1)
             objectName: "removeLockButton"
             text: "Remove Lock"
             DialogButtonBox.buttonRole: DialogButtonBox.DestructiveRole
@@ -47,6 +51,10 @@ SeabassDialog {
             }
         }
         Button {
+            Keys.onReturnPressed: root.activateFooterSelection()
+            Keys.onEnterPressed: root.activateFooterSelection()
+            Keys.onLeftPressed: root.moveFooterSelection(-1)
+            Keys.onRightPressed: root.moveFooterSelection(1)
             objectName: "staySafeButton"
             text: "Stay on the Safe Side"
             highlighted: true

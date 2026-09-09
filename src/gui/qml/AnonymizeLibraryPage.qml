@@ -147,6 +147,55 @@ Page {
             width: parent.width
             spacing: 16
 
+            // What goes in the zip and why, on the page rather than behind
+            // the (?): someone is being asked to hand over a copy of their
+            // library, and "click here to find out what you are sending"
+            // is the wrong shape for that question.
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: exportSummary.implicitHeight + 24
+                color: Theme.groupBackground
+                border.color: Theme.borderSubtle
+                border.width: 1
+                radius: 4
+
+                ColumnLayout {
+                    id: exportSummary
+                    anchors.fill: parent
+                    anchors.margins: 12
+                    spacing: 6
+
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        font.bold: true
+                        text: "The zip holds your library's catalogs and analysis files. No music."
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        color: Theme.textMuted
+                        text: "Every name is replaced with a placeholder: track titles, artists, "
+                            + "comments, filenames, playlist and folder names, in all three catalogs "
+                            + "and inside the analysis files, which embed the file path each track came "
+                            + "from. The same real track gets the same placeholder everywhere, so the "
+                            + "catalogs still agree with each other."
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        color: Theme.textMuted
+                        text: "What stays is the shape of the library: cue positions and colours, BPM, "
+                            + "key, durations, file sizes, ratings, play counts, playlist order, and the "
+                            + "waveform preview. That is where the bugs are: a cue landing two "
+                            + "milliseconds out, a playlist that reorders itself, three catalogs "
+                            + "disagreeing about one file. None of it can be reproduced from a "
+                            + "description. Because it is metadata only, the zip is tens of megabytes, "
+                            + "not the size of your music."
+                    }
+                }
+            }
+
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 8
@@ -158,12 +207,16 @@ Page {
                 }
                 InfoButton {
                     explanationTitle: "What gets sent, and to whom?"
-                    explanationText: "Nothing, automatically. This tool only writes one zip file to the "
-                        + "location you pick. If you'd like to help test Seabass, you review its contents "
-                        + "yourself, then attach that zip file to an email you send to sebas@kde.org. This "
-                        + "data may be published as part of the project's test suite. If there's anything "
-                        + "in the hardware or notes fields below you would not want published, leave it out "
-                        + "here and mention it directly in your email instead."
+                    summaryText: "Nothing is sent automatically. This writes one zip file to a "
+                        + "location you pick, and nothing leaves your machine unless you email it."
+                    explanationText:
+                          "## If you want to help test Seabass\n"
+                        + "1. Review the zip's contents yourself\n"
+                        + "2. Attach it to an email to sebas@kde.org\n\n"
+                        + "## Before you send it\n"
+                        + "This data **may be published** as part of the project's test suite. "
+                        + "Anything you would not want public should not go in the hardware or "
+                        + "notes fields below -- mention it in the email instead.\n"
                 }
             }
 
@@ -267,16 +320,22 @@ Page {
                         }
                         InfoButton {
                             explanationTitle: "What's kept, replaced, and removed"
-                            explanationText: "Kept as-is: format, file size, bitrate, duration, BPM, key, "
-                                + "hot/memory cue positions and colors, cue comments, rating, play count, "
-                                + "last-played date, whether a track is a streaming-service track, playlist "
-                                + "membership and position, and the low-resolution waveform preview this app "
-                                + "actually uses.\n\n"
-                                + "Replaced with placeholder text: title, artist, comment, cue comments, "
-                                + "filenames, and playlist/folder names.\n\n"
-                                + "Removed entirely: artwork images, the detailed color and scrolling "
-                                + "waveform data rekordbox's own player UI uses (not read by this app), and "
-                                + "original file paths."
+                            summaryText: "Everything that identifies your music is replaced or "
+                                + "removed. What stays is the shape of the library: timings, cues, "
+                                + "and structure."
+                            explanationText:
+                                  "## Kept as-is\n"
+                                + "Format, file size, bitrate, duration, BPM, key, hot and memory cue "
+                                + "positions and colours, rating, play count, last-played date, "
+                                + "whether a track is from a streaming service, playlist membership "
+                                + "and position, and the low-resolution waveform this app uses.\n\n"
+                                + "## Replaced with placeholder text\n"
+                                + "Titles, artists, comments, cue comments, filenames, and "
+                                + "playlist and folder names.\n\n"
+                                + "## Removed entirely\n"
+                                + "Artwork images, the detailed colour and scrolling waveform data "
+                                + "rekordbox's own player uses (this app does not read it), and "
+                                + "original file paths.\n"
                         }
                     }
                 }

@@ -1101,6 +1101,26 @@ void CleanupController::apply()
     }
 }
 
+void CleanupController::unstageAll()
+{
+    if (m_stagedBySurvivor.empty()) {
+        return;
+    }
+    // Walks the staged map rather than the model rows: a row may be
+    // filtered out of view by the search box while still staged, and
+    // leaving those behind would be the opposite of what Escape means.
+    for (const auto &[survivorId, staged] : m_stagedBySurvivor) {
+        if (m_session) {
+            m_session->unstage(staged.changeId);
+        }
+    }
+    m_stagedBySurvivor.clear();
+    for (std::size_t i = 0; i < m_model.plans().size(); ++i) {
+        m_model.setStaged(i, false, QString());
+    }
+    emit plansChanged();
+}
+
 void CleanupController::unstage(int row)
 {
     int rawIndex = m_model.rawIndexForRow(row);

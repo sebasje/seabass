@@ -33,7 +33,10 @@ SeabassDialog {
     property string acceptObjectName: "acceptButton"
     property string rejectObjectName: "rejectButton"
 
-    // Escape cancels, a click outside does not. The dialogs this replaces
+    // Escape cancels, a click outside does not. Cancelling is reject(),
+    // the same thing the Cancel button does, so a dialog dismissed by
+    // Escape and one dismissed by the button are indistinguishable to
+    // whatever is waiting on the answer. The dialogs this replaces
     // mostly took Qt's default, which dismissed them on an outside click --
     // easy to do by accident when the answer matters.
     closePolicy: Popup.CloseOnEscape
@@ -46,12 +49,25 @@ SeabassDialog {
     // read correctly right after construction and was gone by the time
     // anyone could see it.
     function applyDefaultButton() {
-        acceptButton.highlighted = !root.destructive;
-        rejectButton.highlighted = root.destructive;
+        // Assigned directly by id, NOT through the shared
+        // selectFooterButton(): that reads footer.contentChildren, which
+        // is empty while Component.onCompleted runs, so routing this
+        // through it left a destructive dialog with neither button
+        // highlighted -- Return would then have fallen to whatever the
+        // base class guessed. Caught by tst_MessageDialog, which asserts
+        // the default before the dialog is even opened.
+        acceptButton.highlighted = !(root.destructive && root.showReject);
+        rejectButton.highlighted = root.destructive && root.showReject;
     }
     onDestructiveChanged: root.applyDefaultButton()
     Component.onCompleted: root.applyDefaultButton()
-    onOpened: root.applyDefaultButton()
+    // Both, explicitly: a handler declared here REPLACES the one
+    // SeabassDialog declares for the same signal, so the base class's
+    // focus call has to be repeated rather than assumed.
+    onOpened: {
+        root.applyDefaultButton();
+        Qt.callLater(root.focusDefaultFooterButton);
+    }
 
     footer: DialogButtonBox {
         alignment: Qt.AlignRight | Qt.AlignVCenter
@@ -61,6 +77,13 @@ SeabassDialog {
             objectName: root.acceptObjectName
             text: root.acceptText
             focus: !root.destructive
+            KeyNavigation.right: rejectButton.visible ? rejectButton : null
+            KeyNavigation.left: rejectButton.visible ? rejectButton : null
+            onActiveFocusChanged: if (activeFocus) root.selectFooterButton(acceptButton)
+            Keys.onReturnPressed: root.activateFooterSelection()
+            Keys.onEnterPressed: root.activateFooterSelection()
+            Keys.onLeftPressed: root.moveFooterSelection(-1)
+            Keys.onRightPressed: root.moveFooterSelection(1)
             // DialogButtonBox turns AcceptRole into accepted() by itself,
             // but DestructiveRole into rejected() -- so the destructive
             // path has to say what it means explicitly.
@@ -79,6 +102,13 @@ SeabassDialog {
             visible: root.showReject
             text: root.rejectText
             focus: root.destructive
+            KeyNavigation.left: acceptButton
+            KeyNavigation.right: acceptButton
+            onActiveFocusChanged: if (activeFocus) root.selectFooterButton(rejectButton)
+            Keys.onReturnPressed: root.activateFooterSelection()
+            Keys.onEnterPressed: root.activateFooterSelection()
+            Keys.onLeftPressed: root.moveFooterSelection(-1)
+            Keys.onRightPressed: root.moveFooterSelection(1)
             DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
         }
     }
