@@ -28,7 +28,8 @@ Verified on Ubuntu 24.04, CMake 3.30.5, GCC 13.3.0:
 - Headers only: no test targets configured, `cmake --build` exits 0, and the
   message says which package is missing.
 
-Seabass itself does not need this: `SEABASS_VENDORED_TESTS` is OFF by default
-and sets `CMAKE_DISABLE_FIND_PACKAGE_Boost`, so the targets are never created.
-The patch matters to anyone building libdjinterop directly, and to us if that
-option is ever turned on by default. See sebasje/seabass#9.
+Seabass builds these tests by default (`SEABASS_LIBDJINTEROP_TESTS=ON`) and
+requires the Boost component itself, so the trap cannot be reached from a
+Seabass build either way. The patch matters to anyone building libdjinterop
+directly, and to us if `-DSEABASS_LIBDJINTEROP_TESTS=OFF` is ever the default
+again. See sebasje/seabass#9 and #12.

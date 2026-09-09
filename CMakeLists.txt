@@ -49,11 +49,11 @@ set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(BUILD_DOC OFF CACHE BOOL "" FORCE)
 
-# libdjinterop ships its own unit tests. They are upstream's coverage of
-# upstream's code, we vendor a pinned commit, and they are not part of
-# the suite SEABASS_TESTS promises to run -- so they are OFF, deliberately
-# and by name, rather than by leaving BUILD_TESTING off in a list of
-# build-trimming flags and letting the targets get built anyway.
+# libdjinterop ships its own unit tests. We build that library from a
+# pinned checkout of its source (third_party/libdjinterop, a submodule)
+# rather than linking a system package, and every Engine write in Seabass
+# goes through it -- so its suite is coverage of code we ship, and it runs
+# with ours. Measured at the pinned 85f0622: 12/12.
 #
 # That is what used to happen, and it was the worst of both: upstream
 # gates the test targets on Boost_FOUND alone, never on BUILD_TESTING, so
@@ -65,18 +65,18 @@ set(BUILD_DOC OFF CACHE BOOL "" FORCE)
 #
 # CMAKE_DISABLE_FIND_PACKAGE_Boost is what actually stops them being
 # built: upstream's `if (Boost_FOUND)` is the only gate on those targets.
-option(SEABASS_VENDORED_TESTS "Also build and run libdjinterop's own test suite (needs Boost.Filesystem)" OFF)
-if(SEABASS_VENDORED_TESTS)
+option(SEABASS_LIBDJINTEROP_TESTS "Also build and run libdjinterop's own test suite (needs Boost.Filesystem)" ON)
+if(SEABASS_LIBDJINTEROP_TESTS)
     find_package(Boost 1.71.0 QUIET COMPONENTS filesystem system)
     # Boost_FOUND alone is true for a headers-only install, which is the
     # trap upstream falls into; check the components we actually link.
     if(NOT Boost_filesystem_FOUND OR NOT Boost_system_FOUND)
         message(FATAL_ERROR
-            "SEABASS_VENDORED_TESTS=ON needs Boost.Filesystem, and only the Boost "
+            "libdjinterop's test suite needs Boost.Filesystem, and only the Boost "
             "headers were found.\n"
             "  Debian/Ubuntu: apt install libboost-filesystem-dev\n"
-            "Configure with -DSEABASS_VENDORED_TESTS=OFF to skip libdjinterop's "
-            "own tests.")
+            "Configure with -DSEABASS_LIBDJINTEROP_TESTS=OFF to build without "
+            "libdjinterop's own tests.")
     endif()
     set(BUILD_TESTING ON CACHE BOOL "" FORCE)
 else()

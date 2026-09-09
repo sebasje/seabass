@@ -22,6 +22,13 @@ rather than quietly subtracting a target or turning a test into a skip:
 | Qt6 | configure fails; `-DSEABASS_GUI=OFF` to build CLI + C++ tests only |
 | Qt6 Test/QuickTest | configure fails; `-DSEABASS_TESTS=OFF` to build without any tests |
 | python3 / unzip / 7z | configure fails; they are what `backup_archive_crossvalidation_test` checks our ZIP writer against |
+| Boost.Filesystem | configure fails; libdjinterop's own suite needs it. `-DSEABASS_LIBDJINTEROP_TESTS=OFF` to build without those twelve |
+
+libdjinterop is built from a pinned checkout under `third_party/`, not
+linked as a system package, and every Engine write goes through it -- so
+its twelve tests are coverage of code we ship and run alongside ours. A
+bare `ctest` is 100 tests: our 88 plus those twelve.
+
 
 `-DSEABASS_TESTS=OFF` is the only way to build without the suite, and it
 is recorded in `CMakeCache.txt`, so skipping the tests is always someone's
@@ -35,9 +42,6 @@ without checking anything:
   `-DSEABASS_LIVE_STICK=/path/to/stick`. The binary is always built, so it
   cannot rot unnoticed; run without the variable it fails rather than
   reporting a scan that never happened.
-- libdjinterop's own twelve tests are upstream's, not ours, and are off by
-  name: `-DSEABASS_VENDORED_TESTS=ON` builds and runs them, and needs
-  `libboost-filesystem-dev`.
 
 Most of the suite is unit tests against small, synthetic, hand-built fixtures (a two-track `export.pdb`, a fresh `djinterop::engine::create_database()`, and so on) -- fast, and run by a bare `ctest`. One test, `anonymized_fixture_integration_test`, is tagged with the CTest label `integration` and runs the app's real use cases (`ScanLibrary`, `SyncLibraries`, `LibraryStatisticsCalculator`, `LibraryConsistencyChecker`, a real cue write) against `tests/fixtures/anonymized_library/` -- a committed, de-identified copy of a real ~1,400-track library. It's the only thing in this suite exercised at realistic scale and variety; run it before merging a larger change or cutting a release, not on every build. There's no CI in this repo (yet) to enforce that automatically -- this is a documented habit, not an automated gate.
 
