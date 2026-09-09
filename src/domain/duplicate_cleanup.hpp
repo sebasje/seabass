@@ -166,4 +166,49 @@ public:
 // each row is its own track and each plan touches one catalog.
 std::vector<std::string> catalogsWrittenBy(const DuplicateCleanupPlan &plan);
 
+// What ONE catalog's writer has to do for this plan: which of that
+// catalog's rows to remove, and which row id in that same catalog the
+// removed rows' playlists should be repointed at.
+//
+// Every id here belongs to `format` and to no other. That is the whole
+// point: a file collapsed across catalogs carries a different row id in
+// each, and handing rekordbox's id to Engine's writer either does
+// nothing or hits an unrelated row. Ids are read from Track::catalogRows,
+// falling back to the track's own sourceId when its own format matches --
+// an uncollapsed row is still that catalog's row.
+struct CatalogWriteTargets
+{
+    // Empty when this catalog has no row for the survivor at all.
+    std::string survivorSourceId;
+    std::vector<std::string> doomedSourceIds;
+};
+
+CatalogWriteTargets writeTargetsFor(const DuplicateCleanupPlan &plan, const std::string &format);
+
+// False when this catalog has rows to remove but no row for the survivor
+// to repoint at. Removing them anyway would drop the doomed rows'
+// playlist entries on the floor, or repoint them at an id this catalog
+// does not have -- so a caller must refuse rather than write.
+//
+// This is the writer-side view of the same condition the planner already
+// records as DuplicateCleanupPlan::wouldStrandAFormat. Two views rather
+// than one because they answer different questions at different times:
+// the flag says "this plan cannot be staged at all", once, over every
+// format; this says "this particular catalog cannot be written", per
+// format, and comes with the ids that catalog's writer needs. They must
+// never disagree, and a test asserts they do not -- see
+// duplicate_cleanup_test's case pairing them, which exists precisely so
+// the two cannot drift apart.
+//
+// A named predicate rather than the condition spelled out at each call
+// site, because getting it inside out writes exactly the damage the
+// refusal exists to prevent, and silently.
+bool canWriteWholeCatalog(const CatalogWriteTargets &targets);
+
+// True when this catalog has nothing to do for this plan: no row to
+// remove and no survivor row to merge cues onto. Distinct from
+// canWriteWholeCatalog() returning false, which means there IS work and
+// it cannot be done safely.
+bool hasNoWork(const CatalogWriteTargets &targets);
+
 }  // namespace seabass::domain

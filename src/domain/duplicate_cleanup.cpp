@@ -268,6 +268,58 @@ DuplicateCleanupPlan DuplicateCleanupPlanner::plan(const DuplicateGroup &group)
     return result;
 }
 
+namespace
+{
+
+// A track's row id in one specific catalog, empty if it has none there.
+std::string rowIdIn(const Track &track, const std::string &format)
+{
+    for (const auto &row : track.catalogRows) {
+        if (row.format == format) {
+            return row.sourceId;
+        }
+    }
+    // An uncollapsed track carries no catalogRows but is still a row in
+    // its own catalog. Checked after catalogRows rather than before, so
+    // a collapsed file's explicit per-format id always wins over the
+    // format its representative row happened to be read from.
+    if (track.format == format) {
+        return track.sourceId;
+    }
+    return {};
+}
+
+}  // namespace
+
+CatalogWriteTargets writeTargetsFor(const DuplicateCleanupPlan &plan, const std::string &format)
+{
+    CatalogWriteTargets targets;
+    targets.survivorSourceId = rowIdIn(plan.survivor, format);
+    for (const auto &doomed : plan.toRemove) {
+        // A stray has no catalog row anywhere -- its sourceId is a file
+        // path, which no writer would recognise. It is routed to the
+        // pending-deletion manifest instead, never to a catalog writer.
+        if (doomed.isUnreferenced) {
+            continue;
+        }
+        std::string id = rowIdIn(doomed, format);
+        if (!id.empty()) {
+            targets.doomedSourceIds.push_back(id);
+        }
+    }
+    return targets;
+}
+
+bool canWriteWholeCatalog(const CatalogWriteTargets &targets)
+{
+    return targets.doomedSourceIds.empty() || !targets.survivorSourceId.empty();
+}
+
+bool hasNoWork(const CatalogWriteTargets &targets)
+{
+    return targets.survivorSourceId.empty() && targets.doomedSourceIds.empty();
+}
+
 std::vector<std::string> catalogsWrittenBy(const DuplicateCleanupPlan &plan)
 {
     std::vector<std::string> catalogs;

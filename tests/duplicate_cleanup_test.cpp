@@ -518,6 +518,104 @@ int main()
         std::cout << "case 22 (a stray file writes to no catalog) OK\n";
     }
 
+    // --- writeTargetsFor: the per-format ids a multi-catalog save needs ---
+
+    // The ordinary uncollapsed case. Every row is its own track, so the
+    // one format in play answers with its own ids and every other format
+    // answers with nothing at all -- not with the ids it does not own.
+    {
+        DuplicateGroup group{{makeTrack("a", 200.0, 320, 8'000'000), makeTrack("b", 200.0, 128, 3'000'000)}};
+        group.tracks[0].format = "rekordbox";
+        group.tracks[1].format = "rekordbox";
+        auto plan = DuplicateCleanupPlanner::plan(group);
+
+        auto rekordbox = writeTargetsFor(plan, "rekordbox");
+        assert(rekordbox.survivorSourceId == plan.survivor.sourceId);
+        assert(rekordbox.doomedSourceIds.size() == 1);
+        assert(rekordbox.doomedSourceIds[0] == plan.toRemove[0].sourceId);
+        assert(canWriteWholeCatalog(rekordbox));
+        assert(!hasNoWork(rekordbox));
+
+        auto engine = writeTargetsFor(plan, "engine");
+        assert(engine.survivorSourceId.empty());
+        assert(engine.doomedSourceIds.empty());
+        assert(hasNoWork(engine));
+        // Nothing to do is not the same as unsafe: a catalog with no rows
+        // in this plan is simply not this plan's business.
+        assert(canWriteWholeCatalog(engine));
+        std::cout << "case 23 (an uncollapsed plan answers for its own format only) OK\n";
+    }
+
+    // A collapsed file: one file, a row in each catalog, different ids.
+    // Handing rekordbox's id to Engine's writer is the bug this exists to
+    // prevent, so each format must answer with its own.
+    {
+        DuplicateGroup group{{makeTrack("a", 200.0, 320, 8'000'000), makeTrack("b", 200.0, 128, 3'000'000)}};
+        group.tracks[0].format = "rekordbox";
+        group.tracks[0].catalogRows = {{"rekordbox", "rb-keep"}, {"engine", "en-keep"}};
+        group.tracks[1].format = "rekordbox";
+        group.tracks[1].catalogRows = {{"rekordbox", "rb-drop"}, {"engine", "en-drop"}};
+        auto plan = DuplicateCleanupPlanner::plan(group);
+
+        auto rekordbox = writeTargetsFor(plan, "rekordbox");
+        assert(rekordbox.survivorSourceId == "rb-keep");
+        assert(rekordbox.doomedSourceIds == std::vector<std::string>{"rb-drop"});
+
+        auto engine = writeTargetsFor(plan, "engine");
+        assert(engine.survivorSourceId == "en-keep");
+        assert(engine.doomedSourceIds == std::vector<std::string>{"en-drop"});
+
+        // The ids must actually differ per format, or this test would
+        // pass just as well against a writer that used one id everywhere.
+        assert(rekordbox.survivorSourceId != engine.survivorSourceId);
+        assert(rekordbox.doomedSourceIds[0] != engine.doomedSourceIds[0]);
+        assert(canWriteWholeCatalog(rekordbox) && canWriteWholeCatalog(engine));
+        std::cout << "case 24 (a collapsed file answers with each catalog's own ids) OK\n";
+    }
+
+    // The unsafe shape: the doomed copy has an Engine row, the survivor
+    // does not. Engine cannot be written -- there is no id to repoint its
+    // playlists at -- and the planner must already have refused the whole
+    // plan. Asserting both together is the point: the per-format check
+    // and the plan-level flag are two views of one condition, and this is
+    // what stops them drifting apart.
+    {
+        DuplicateGroup group{{makeTrack("a", 200.0, 320, 8'000'000), makeTrack("b", 200.0, 128, 3'000'000)}};
+        group.tracks[0].format = "rekordbox";
+        group.tracks[0].catalogRows = {{"rekordbox", "rb-keep"}};
+        group.tracks[1].format = "rekordbox";
+        group.tracks[1].catalogRows = {{"rekordbox", "rb-drop"}, {"engine", "en-drop"}};
+        auto plan = DuplicateCleanupPlanner::plan(group);
+
+        auto engine = writeTargetsFor(plan, "engine");
+        assert(engine.survivorSourceId.empty());
+        assert(engine.doomedSourceIds == std::vector<std::string>{"en-drop"});
+        assert(!canWriteWholeCatalog(engine));
+        assert(!hasNoWork(engine));  // there IS work; it just cannot be done
+
+        assert(plan.wouldStrandAFormat);
+        // rekordbox itself is perfectly writable -- which is exactly why
+        // the refusal has to be per-plan and not per-catalog: writing the
+        // half that works is what splits the library.
+        assert(canWriteWholeCatalog(writeTargetsFor(plan, "rekordbox")));
+        std::cout << "case 25 (a catalog the survivor is missing from cannot be written, and the plan says so) OK\n";
+    }
+
+    // The two views agree in the safe direction too, not only the unsafe
+    // one -- otherwise case 25 would pass against a flag that was simply
+    // always true.
+    {
+        DuplicateGroup group{{makeTrack("a", 200.0, 320, 8'000'000), makeTrack("b", 200.0, 128, 3'000'000)}};
+        group.tracks[0].catalogRows = {{"rekordbox", "rb-keep"}, {"engine", "en-keep"}};
+        group.tracks[1].catalogRows = {{"rekordbox", "rb-drop"}, {"engine", "en-drop"}};
+        auto plan = DuplicateCleanupPlanner::plan(group);
+        assert(!plan.wouldStrandAFormat);
+        for (const auto &format : catalogsWrittenBy(plan)) {
+            assert(canWriteWholeCatalog(writeTargetsFor(plan, format)));
+        }
+        std::cout << "case 26 (a plan that strands nothing is writable in every catalog it touches) OK\n";
+    }
+
     std::cout << "all cases passed\n";
     return 0;
 }
