@@ -262,12 +262,23 @@ int main()
     if (broken) {
         return 1;
     }
+    // Unreachable from a Seabass build: python3, unzip and 7z are all
+    // required at configure time (see the SEABASS_TESTS block in
+    // CMakeLists.txt), so a binary that exists was configured with all
+    // three, and a configured tool that has since gone is caught by
+    // refuseIfConfiguredButMissing() above.
+    //
+    // It stays as a failure rather than a skip because this test is the
+    // only thing stopping our ZIP writer and our ZIP reader agreeing with
+    // each other and both disagreeing with the specification. "Graded
+    // only by our own reader" is not a weaker pass, it is no check at
+    // all, and a run that checks nothing must not report success.
     if (python.empty()) {
-        // The one honest skip: no python3 anywhere, and the build never
-        // expected one. Said on stderr so it survives a quiet log.
-        std::cerr << "skipped: no python3 on this machine, and this build was not configured with one.\n"
-                     "The ZIP writer is therefore graded only by our own reader in this run.\n";
-        return 77;
+        std::cerr << "FAIL: no python3, so the archive would be graded only by our own reader.\n"
+                     "This build requires python3 at configure time, so reaching here means the\n"
+                     "binary outlived its build tree. Reconfigure, or build with\n"
+                     "-DSEABASS_TESTS=OFF if you want no test suite at all.\n";
+        return 1;
     }
     std::cout << "using python3=" << python << " unzip=" << (unzip.empty() ? "(none)" : unzip)
               << " 7z=" << (sevenZip.empty() ? "(none)" : sevenZip) << "\n";
