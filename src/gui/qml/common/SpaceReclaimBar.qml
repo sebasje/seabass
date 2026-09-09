@@ -108,8 +108,10 @@ Item {
                 spacing: 2
 
                 // Ordered so the bar reads left to right as "staying put
-                // -> could go -> going -> already gone": the green sits
-                // against the free space it is about to join.
+                // -> could go -> going -> already free": blue is what
+                // stays, green is what this page gives back, grey is
+                // what was already free. The two greens sit next to the
+                // grey they are about to join.
                 function span(bytes) {
                     return bytes > 0 ? Math.max(2, width * (bytes / root.totalBytes) - 2) : 0
                 }
@@ -119,7 +121,7 @@ Item {
                     width: segments.span(root.untouchedBytes)
                     height: parent.height
                     radius: 2
-                    color: Theme.mix(Theme.surface, Theme.text, 0.28)
+                    color: Theme.info
                     visible: width > 0
                 }
                 // Reclaimable, but not ticked. A washed-out version of the
@@ -144,12 +146,15 @@ Item {
                     color: Theme.good
                     visible: width > 0
                 }
-                // Already free.
+                // Already free. Grey rather than transparent: an empty
+                // segment reads as a gap in the bar rather than as a
+                // quantity, which is misleading when it is often the
+                // smallest part of a nearly full stick.
                 Rectangle {
                     width: segments.span(root.freeBytes)
                     height: parent.height
                     radius: 2
-                    color: "transparent"
+                    color: Theme.mix(Theme.surface, Theme.text, 0.28)
                     visible: width > 0
                 }
             }
@@ -163,14 +168,14 @@ Item {
             Repeater {
                 model: [
                     { label: "In use", value: root.human(root.untouchedBytes),
-                      fill: Theme.mix(Theme.surface, Theme.text, 0.28), outline: false, show: true },
+                      fill: Theme.info, outline: false, show: true },
                     { label: "Reclaimable, not ticked", value: root.human(root.notTickedBytes),
                       fill: Qt.rgba(Theme.good.r, Theme.good.g, Theme.good.b, 0.3), outline: true,
                       show: root.notTickedBytes > 0 },
                     { label: "Freed by your selection", value: root.human(root.reclaimClamped),
                       fill: Theme.good, outline: false, show: root.reclaimClamped > 0 },
                     { label: "Free", value: root.human(root.freeBytes),
-                      fill: "transparent", outline: false, show: true }
+                      fill: Theme.mix(Theme.surface, Theme.text, 0.28), outline: false, show: true }
                 ]
 
                 delegate: Row {

@@ -29,10 +29,26 @@ Page {
         id: cleanupController
     }
 
+    // Escape backs out of staging, the way Escape backs out of anything
+    // else not yet committed. Only unstages -- it never leaves the page
+    // and never touches the stick, since nothing staged has been written
+    // yet. Deliberately no confirmation: unstaging loses no work, the
+    // checkboxes keep their state, and pressing Stage again restores it.
+    Shortcut {
+        sequence: StandardKey.Cancel
+        enabled: cleanupController.stagedCount > 0 && !cleanupController.writing
+        onActivated: cleanupController.unstageAll()
+    }
+
     // Edit mode for this library: session, floating Save, leave guard.
     EditSessionHost {
         id: editHost
         feature: "cleanup"
+        // "Save" is right on a page that edits one thing; here the
+        // button is the moment a stack of removals becomes real, and
+        // saying so is worth more than consistency with pages whose
+        // save is reversible in one step.
+        saveLabel: "Clean Up"
         anchors.fill: parent
         libraryId: typeof EditSessionRegistry !== "undefined"
             ? EditSessionRegistry.libraryIdForPath(root.rekordboxPath.length > 0 ? root.rekordboxPath : root.enginePath) : ""
@@ -127,38 +143,41 @@ Page {
                 }
                 InfoButton {
                     explanationTitle: "What counts as a duplicate?"
-                    explanationText: "Three things have to match: artist, track title, and length (within "
-                        + "two seconds).\n\n"
-                        + "Filenames are deliberately ignored. A re-export writes the same recording out "
-                        + "under a new name -- the leading track number changes with playlist position, and "
-                        + "a copy landing next to an existing file gets a \"-1\" or \"-2\" appended. So "
-                        + "\"05_Kollektiv Turmstrasse-Flaschenpost.mp3\", "
-                        + "\"21_Kollektiv Turmstrasse-Flaschenpost.mp3\" and "
-                        + "\"33_Kollektiv Turmstrasse-Flaschenpost.mp3\" are one track exported three "
-                        + "times; the numbering is an artifact of the export, not a difference in the "
-                        + "music. Those group together.\n\n"
-                        + "Length is what stops a real mistake. A radio edit and an extended mix carry the "
-                        + "same artist and title, so matching on those alone would offer to delete one of "
-                        + "them: Paul Kalkbrenner's \"No Goodbye\" exists here as both a 2:47 edit and a "
-                        + "6:31 extended mix. Those are different recordings and are never grouped.\n\n"
-                        + "Where a catalog has not recorded a length, Seabass reads it from the audio file "
-                        + "itself and remembers it on the stick, so only the first scan pays for it. A "
-                        + "track whose length cannot be established is left alone rather than guessed at.\n\n"
-                        + "Groups where the copies differ in a way that might be deliberate, or that carry "
-                        + "ratings or comments that cannot be preserved, are left unchecked for you to "
-                        + "decide. Use \"what's conserved\" on any group to see exactly what the surviving "
-                        + "copy would end up with.\n\n"
-                        + "Play counts are not carried over. Each application counts for itself -- rekordbox "
-                        + "keeps a running total, Engine remembers only when you last played a track -- so "
-                        + "there is no honest way to combine them when the copies come from different "
-                        + "libraries, and Seabass does not try. Within one library, adding them up would be "
-                        + "the right answer, but no format Seabass writes lets it set a play count, so those "
-                        + "counts are lost with the copies that are removed. Ratings and comments are "
-                        + "different: those it will not discard without asking.\n\n"
-                        + "Saving here changes the catalogs only. The copies it drops are recorded as "
-                        + "orphaned files and stay on disk until you review them under \"Delete Orphaned "
-                        + "Files\", which re-checks that nothing still references them before removing "
-                        + "anything. The sizes shown on this page are what that later step would free."
+                    summaryText: "Same artist, same title, same length (within two seconds). "
+                        + "Filenames are ignored, because a re-export renames the same recording."
+                    explanationText:
+                          "## Why filenames are ignored\n"
+                        + "A re-export writes the same recording out under a new name: the leading "
+                        + "track number follows playlist position, and a copy landing beside an "
+                        + "existing file gets `-1` or `-2` appended.\n\n"
+                        + "- `05_Kollektiv Turmstrasse-Flaschenpost.mp3`\n"
+                        + "- `21_Kollektiv Turmstrasse-Flaschenpost.mp3`\n"
+                        + "- `33_Kollektiv Turmstrasse-Flaschenpost.mp3`\n\n"
+                        + "One track, exported three times. The numbering is an artifact.\n\n"
+                        + "## Why length matters\n"
+                        + "It is what stops a real mistake. A radio edit and an extended mix share "
+                        + "artist and title, so matching on those alone would offer to delete one of "
+                        + "them. Paul Kalkbrenner's *No Goodbye* is here as both a 2:47 edit and a "
+                        + "6:31 extended mix. Those are never grouped.\n\n"
+                        + "Where a catalog recorded no length, Seabass reads it from the audio and "
+                        + "remembers it on the stick, so only the first scan pays for it. A track "
+                        + "whose length cannot be established is left alone rather than guessed at.\n\n"
+                        + "## What is kept\n"
+                        + "- **Cues** are merged, never lost -- the survivor gets every copy's cues\n"
+                        + "- **Playlist membership** is preserved in every catalog\n"
+                        + "- **Missing bpm, key and artwork** are filled in from whichever copy has them\n\n"
+                        + "Use *what's conserved* on any group to see exactly what the surviving copy "
+                        + "would end up with.\n\n"
+                        + "## What is not kept\n"
+                        + "**Play counts.** Each application counts for itself -- rekordbox keeps a "
+                        + "running total, Engine remembers only when you last played a track -- so "
+                        + "there is no honest way to combine them across libraries. Within one "
+                        + "library adding them up would be right, but no format Seabass writes lets "
+                        + "it set a play count.\n\n"
+                        + "**Ratings and comments are different**: those are never discarded without "
+                        + "asking. A group whose copies disagree on either is left unchecked for you "
+                        + "to decide, as is one where the copies differ in a way that might be "
+                        + "deliberate.\n"
                 }
             }
 
@@ -194,15 +213,21 @@ Page {
                 }
             }
 
-            RowLayout {
+            // Flow, not RowLayout: a row keeps every child at its natural
+            // width and simply runs off the edge of a narrow window,
+            // which is how the playlist picker and the group count came
+            // to be invisible rather than merely cramped. A Flow wraps
+            // onto a second line instead.
+            Flow {
                 Layout.fillWidth: true
                 spacing: 12
                 Label {
                     text: "Playlist:"
                     color: Theme.textMuted
+                    anchors.verticalCenter: undefined
                 }
                 PlaylistPickerCombo {
-                    Layout.minimumWidth: 140
+                    width: Math.max(160, Math.min(260, root.width * 0.28))
                     enabled: !cleanupController.busy && !cleanupController.writing
                     model: root.playlistPickerModel
                     currentIndex: {
@@ -226,12 +251,14 @@ Page {
                 TextField {
                     id: searchField
                     placeholderText: "Search title or artist..."
-                    Layout.preferredWidth: 220
+                    width: Math.max(160, Math.min(280, root.width * 0.3))
                     onTextChanged: cleanupController.search(text)
                 }
                 Label {
                     text: plansListView.count + " duplicate group(s) found"
                     color: Theme.textMuted
+                    width: Math.min(implicitWidth, root.width)
+                    elide: Text.ElideRight
                 }
                 Label {
                     visible: plansListView.count > 0
@@ -270,7 +297,7 @@ Page {
                     onClicked: cleanupController.setAllIncluded(false)
                 }
                 Button {
-                    text: "Stage Selected"
+                    text: "Stage Selected for Deletion"
                     enabled: !cleanupController.busy && !cleanupController.writing && cleanupController.includedCount > 0
                     ToolTip.visible: hovered
                     ToolTip.text: "Stage cleaning up every checked group; Save writes them"
