@@ -1040,36 +1040,28 @@ void caseAddCue(const DataSet &set, const fs::path &scratch, const Catalogs &cat
                 };
                 try {
                     infrastructure::onelibrary::OneLibraryReader reader(root.string());
+                    // Held in a named vector: taking the address of an
+                    // element of the temporary readAll() returns leaves a
+                    // dangling pointer the moment the loop ends, and reads
+                    // through it come back as plausible-looking garbage.
+                    const std::vector<domain::Track> oneLibraryTracks = reader.readAll();
                     const std::string wanted = trimmed(reread->filePath);
                     const domain::Track *mirrored = nullptr;
-                    for (const auto &t : reader.readAll()) {
+                    for (const auto &t : oneLibraryTracks) {
                         if (trimmed(t.filePath) == wanted) {
                             mirrored = &t;
                             break;
                         }
                     }
                     if (mirrored != nullptr) {
-                        // Position only, deliberately. The cue lands in the
-                        // OneLibrary copy at the right place, but its hot-cue
-                        // NUMBER comes back corrupt -- 22229 and 23220 on two
-                        // consecutive runs of this very case, where untouched
-                        // rows in the same database read back as hot#1..hot#8.
-                        // A value that differs between runs of the same input
-                        // is uninitialised or derived from something varying;
-                        // the writer binds cue.hotCueNumber into the `kind`
-                        // column and the reader reads that same column back,
-                        // so the two agree and the corruption is elsewhere.
-                        //
-                        // Not asserted yet because it is not yet understood,
-                        // and a guard written to the wrong expectation is
-                        // worse than none. See docs/onelibrary-format.md.
                         bool landed = false;
                         for (const auto &c : mirrored->cues) {
-                            if (samePosition(c.positionMs, 45000.0)) {
+                            if (c.kind == domain::CuePoint::Kind::Hot && c.hotCueNumber == 2
+                                && samePosition(c.positionMs, 45000.0)) {
                                 landed = true;
                             }
                         }
-                        check(landed, "the OneLibrary copy of the track has the added cue at the right position");
+                        check(landed, "the OneLibrary copy of the track has the added cue in the same hot slot");
                     } else {
                         std::cout << "    add cue: no OneLibrary row for this track; mirror not exercised\n";
                     }

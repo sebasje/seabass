@@ -125,38 +125,33 @@ same `BEGIN IMMEDIATE`/`COMMIT`/best-effort-`ROLLBACK` pattern
 `writeCuesForPath()` established, with the same staleness guard and a
 post-commit verification re-read.
 
-## Open: hot-cue numbers written by Seabass come back corrupt
+## Retracted: the "corrupt hot-cue numbers" were a broken test
 
-Found 2026-09-09 while adding the first assertion that a mirrored cue
-actually arrives in `exportLibrary.db`.
+Recorded 2026-09-09 as an open data-integrity bug, and withdrawn the same
+day. There is no bug here.
 
-Add a hot cue in slot 2 to a rekordbox track on a stick that also has
-OneLibrary. The cue reaches the OneLibrary copy at the correct position,
-and its hot-cue number reads back as **22229** -- and as **23220** on the
-previous run of the same case against the same fixture.
+The claim was that a hot cue written into `exportLibrary.db` came back with
+a hot-cue number of 22229, and 23220 on the next run of identical input,
+where untouched rows read back as 1..8. The varying value was read as the
+signature of something uninitialised in the writer.
 
-What is known:
+It was uninitialised, but in the test. `corpus_test` took the address of an
+element of the vector `OneLibraryReader::readAll()` returns by value:
 
-- Untouched rows in the same database read back as `hot#1` .. `hot#8`, so
-  the reader is not generally broken.
-- `OneLibraryCueWriter` binds `cue.hotCueNumber` into the `kind` column,
-  and `OneLibraryReader` reads the hot-cue number back out of that same
-  column, so writer and reader agree about where the value lives.
-- The change hands the writer a `CuePoint` whose `hotCueNumber` is 2.
-- **The value differs between runs of identical input**, which points at
-  something uninitialised or derived from a rowid/timestamp rather than at
-  a mapping mistake.
+    for (const auto &t : reader.readAll()) {
+        if (matches(t)) { found = &t; break; }   // dangles after the loop
+    }
 
-Consequence if it reaches a device: a cue written by Seabass lands in
-rekordbox 7's library in a hot-cue slot that does not exist. The position
-is right, so the cue is not lost -- but it is not in the pad the user
-chose.
+Every read through that pointer afterwards produced plausible-looking
+garbage -- a numeric field that changed between runs, and a filePath that
+printed as binary, which is what finally gave it away.
 
-`corpus_test`'s Add Cue case asserts the position and deliberately does
-NOT assert the number, because the correct expectation is not yet known
-and a guard written to the wrong one is worse than none. Restore that
-assertion as part of the fix.
+Checked directly against a real fixture before concluding: the writer puts
+`kind=2, inUsec=45000000` in the `cue` table for a hot cue in slot 2 at
+45 s, the real schema stores the hot-cue number in `kind` exactly as the
+writer assumes, and `OneLibraryReader` reads that row back as `hot#2@45000`.
+Writer and reader are both correct, and `corpus_test` now asserts the slot
+number, not only the position.
 
-Worth checking at the same time whether the three other OneLibrary mirrors
-(Local Cue restore, stray-cue removal, Library Health repair) put the same
-value in, since they share the writer.
+Worth keeping as a caution: "the value differs between runs" is good
+evidence of uninitialised memory, but it does not say whose.

@@ -1458,3 +1458,4 @@ if(TARGET seabass_edit)
 endif()
 add_test(NAME corpus_test COMMAND corpus_test WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 set_tests_properties(corpus_test PROPERTIES LABELS "integration")
+
