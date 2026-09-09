@@ -263,6 +263,20 @@ AnonymizationVerification verifyAnonymizedExport(const std::string &exportRoot, 
             }
             fail("unexpected entry in the Engine tree: " + name);
         }
+        // Inside Database2 the check used to stop, so hm.db -- the play
+        // history, carrying real titles, artists, albums and full
+        // directory paths -- passed verification in every export ever
+        // produced. Only m.db is scrubbed; everything else at this level
+        // is content nothing has examined.
+        for (const auto &entry : fs::directory_iterator(engineRoot / "Database2", ec)) {
+            if (!entry.is_regular_file()) {
+                continue;  // OverviewData and friends: derived numbers, no text
+            }
+            const std::string name = entry.path().filename().string();
+            if (!isKeptEngineDatabaseFile(name)) {
+                fail("file that has no anonymizer is present: engine/Database2/" + name);
+            }
+        }
     }
 
     // --- Analysis files: every embedded path, every file, no sampling. ---

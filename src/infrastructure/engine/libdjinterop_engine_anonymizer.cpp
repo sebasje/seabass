@@ -1,5 +1,7 @@
 #include "infrastructure/engine/libdjinterop_engine_anonymizer.hpp"
 
+#include "infrastructure/anonymization_export_layout.hpp"
+
 #include <algorithm>
 #include <cstdio>
 #include <filesystem>
@@ -135,6 +137,35 @@ EngineAnonymizationResult anonymizeEngineLibrary(const std::string &sourceRoot, 
 
     try {
         copyTreeIfPresent(fs::path(sourceRoot) / "Database2", fs::path(destinationRoot) / "Database2");
+        // That copy takes the whole Database2 directory, which holds more
+        // than the catalog. Only m.db is scrubbed below; everything else
+        // at that level went out untouched, and hm.db is the play history
+        // -- real titles, artists, albums and paths, plus which set each
+        // track was played in.
+        //
+        // Allowlisted rather than removed by name, for the same reason
+        // the rekordbox side is: a future Engine version adding a file
+        // must not be able to ship it unexamined. Subdirectories are
+        // kept: OverviewData holds the low-resolution waveform previews,
+        // which are derived numbers with no text in them.
+        {
+            std::error_code listEc;
+            const fs::path databaseDir = fs::path(destinationRoot) / "Database2";
+            std::vector<fs::path> unknown;
+            for (const auto &entry : fs::directory_iterator(databaseDir, listEc)) {
+                if (!entry.is_regular_file()) {
+                    continue;
+                }
+                if (!isKeptEngineDatabaseFile(entry.path().filename().string())) {
+                    unknown.push_back(entry.path());
+                }
+            }
+            for (const auto &path : unknown) {
+                std::error_code removeEc;
+                fs::remove(path, removeEc);
+                result.removedUnanonymizableFiles.push_back(path.filename().string());
+            }
+        }
 
         if (!djinterop::engine::database_exists(destinationRoot)) {
             result.errorMessage = "no Engine Library found at " + sourceRoot;
