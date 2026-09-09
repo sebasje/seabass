@@ -994,7 +994,7 @@ int runSyncCommand(bool wantRekordbox, bool wantEngine, const std::optional<std:
         }
 
         if (!rekordboxFiles.empty()) {
-            auto record = rekordboxBackupStoreOpt->backupToArchive(
+            auto record = rekordboxBackupStoreOpt->backup(
                 std::vector<std::string>(rekordboxFiles.begin(), rekordboxFiles.end()), "sync");
             Console::info("");
             Console::info("backed up " + std::to_string(rekordboxFiles.size()) + " file(s) to " + record.path);
@@ -1005,7 +1005,7 @@ int runSyncCommand(bool wantRekordbox, bool wantEngine, const std::optional<std:
         size_t engineCuesCopied = 0;
         if (!toEngine.empty()) {
             seabass::infrastructure::engine::LibdjinteropEngineCueWriter writer(*resolved.enginePath);
-            auto record = engineBackupStoreOpt->backupToArchive({engineDbFile}, "sync");
+            auto record = engineBackupStoreOpt->backup({engineDbFile}, "sync");
             Console::info("");
             Console::info("backed up Engine to " + record.path);
             engineLogOpt->record("sync: backed up before cross-format sync -> " + record.path);

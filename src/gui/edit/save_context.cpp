@@ -137,7 +137,7 @@ void SaveContext::backupAllNow(const std::vector<BackupTarget> &targets)
         auto existing = m_recordByLabel.find(label);
         application::BackupRecord record;
         if (existing == m_recordByLabel.end()) {
-            record = archiveStore().backupToArchive(files, label);
+            record = archiveStore().backup(files, label);
             m_recordByLabel[label] = record.id;
             m_backups.push_back({QString::fromStdString(fs::path(record.path).parent_path().string()),
                                  QString::fromStdString(record.id)});
@@ -170,7 +170,7 @@ bool SaveContext::backupOnce(const std::string &file, const std::string &label)
     // every point a crash could happen, exactly as the loose layout was.
     // See docs/write-path-performance.md, rounds 9-16.
     if (existing == m_recordByLabel.end()) {
-        record = archiveStore().backupToArchive({file}, label);
+        record = archiveStore().backup({file}, label);
         m_recordByLabel[label] = record.id;
         m_backups.push_back({QString::fromStdString(fs::path(record.path).parent_path().string()),
                              QString::fromStdString(record.id)});

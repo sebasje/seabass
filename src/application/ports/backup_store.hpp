@@ -24,10 +24,9 @@ struct BackupRecord
     std::string label;
     std::string description;  // user-editable free text, empty unless set via setDescription()
     std::uint64_t sizeBytes = 0;
-    // Original absolute paths of every file this backup holds a copy of
-    // (from the backup's manifest) -- e.g. lets a caller tell whether a
-    // given backup included OneLibrary's exportLibrary.db alongside
-    // export.pdb. Empty for a backup that predates manifest support.
+    // Original paths of every file this backup holds a copy of -- e.g.
+    // lets a caller tell whether a given backup included OneLibrary's
+    // exportLibrary.db alongside export.pdb.
     std::vector<std::string> filePaths;
     // Defaults to Automatic because that is what a record with nothing
     // recorded actually is: until this field existed, every record in
@@ -47,11 +46,6 @@ public:
 
     virtual BackupRecord backup(const std::vector<std::string> &filePaths, const std::string &label,
                                 BackupOrigin origin = BackupOrigin::Automatic) = 0;
-    // Adds more files to an existing backup, so one write operation that
-    // touches many files (a save removing a cue from 200 tracks, each
-    // with its own analysis file) stays one record rather than 200.
-    // Returns the record with its new size; throws if id does not exist.
-    virtual BackupRecord addToBackup(const std::string &id, const std::vector<std::string> &filePaths) = 0;
     virtual std::vector<BackupRecord> list() = 0;
 
     // Deletes the oldest AUTOMATIC backups so at most keepCount of them
@@ -73,8 +67,8 @@ public:
     // backed up from (recorded at backup() time). The current contents of
     // each target path are themselves backed up first (label
     // "pre-restore"), so a restore can itself be undone. Returns false if
-    // the backup can't be found or predates restore support (no recorded
-    // original paths).
+    // the backup can't be found, holds nothing, or is not a shape this
+    // build wrote.
     virtual bool restore(const std::string &id) = 0;
 
     // Permanently deletes a single backup. Returns false if id doesn't
