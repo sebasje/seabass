@@ -24,6 +24,7 @@
 // library the same one, which is what catches a reader regression against
 // data nobody has looked at by hand.
 
+#include <set>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -37,6 +38,7 @@
 #include <vector>
 
 #include "application/path_key.hpp"
+#include "application/use_cases/collapse_catalog_rows.hpp"
 #include "application/use_cases/scan_library.hpp"
 #include "application/use_cases/sync_libraries.hpp"
 #include "domain/library_consistency.hpp"
@@ -1259,6 +1261,117 @@ void caseNoPaddedStringsFromRekordbox(const DataSet &set, const Catalogs &catalo
           "every rekordbox path must key the same as its on-disk spelling");
 }
 
+// Collapse turns rows into files: one audio file listed by both rekordbox
+// and Engine must come back as ONE entry carrying two catalogRows, one per
+// format. That is the whole premise of treating a file rather than a row
+// as the unit of duplication, and everything the cleanup writer does with
+// catalogRows rests on it -- including the refusal that stops a save
+// removing a file's row from one catalog while leaving the others pointing
+// at it.
+//
+// Asserted against a real catalog rather than a synthetic pair on purpose.
+// A hand-written pair would have both paths spelled identically and would
+// have passed throughout the period when this was actually broken: until
+// rekordbox strings stopped arriving space-padded, a rekordbox path keyed
+// differently from the Engine path naming the same file, so collapse
+// produced one entry per row and never grouped across formats at all.
+// Nothing was green-while-checking-nothing in the usual sense -- the code
+// was simply never handed a real catalog path. Only a real one catches it.
+// Collapse turns rows into files: one audio file listed by both rekordbox
+// and Engine must come back as ONE entry carrying two catalogRows, one per
+// format. That is the premise of treating a file rather than a row as the
+// unit of duplication, and everything the cleanup writer does with
+// catalogRows rests on it -- including the refusal that stops a save
+// removing a file's row from one catalog while leaving the others pointing
+// at it.
+//
+// Against a real catalog rather than a synthetic pair on purpose: a
+// hand-written pair has both paths spelled identically by construction and
+// would pass even while real grouping was broken, which is how the
+// space-padded rekordbox paths went unnoticed for so long.
+//
+// The committed fixture cannot carry this property, and says so rather
+// than quietly passing. Its extraction stored Engine's copy of every file
+// under engine/Contents/ while rekordbox records Contents/, so the two
+// catalogs describe the same 1161 files under paths that share no prefix.
+// On a real stick both catalogs name the same file under the same root,
+// which is the case that matters and the one no committed fixture has.
+void caseCollapseGroupsAcrossFormats(const DataSet &set, const Catalogs &catalogs)
+{
+    (void)set;
+    if (catalogs.rekordbox.empty() || catalogs.engine.empty()) {
+        // Not a skipped check, an absent property: a set with one catalog
+        // has no cross-format grouping to get right.
+        std::cout << "    (no cross-format grouping to check: this set has only one catalog)\n";
+        return;
+    }
+
+    std::set<std::string> rekordboxKeys, engineKeys, rekordboxNames, engineNames;
+    for (const auto &track : catalogs.rekordbox) {
+        rekordboxKeys.insert(application::normalizedPathKey(track.filePath));
+        rekordboxNames.insert(fs::path(track.filePath).filename().string());
+    }
+    for (const auto &track : catalogs.engine) {
+        engineKeys.insert(application::normalizedPathKey(track.filePath));
+        engineNames.insert(fs::path(track.filePath).filename().string());
+    }
+    std::size_t sharedPaths = 0, sharedNames = 0;
+    for (const auto &key : rekordboxKeys) {
+        if (engineKeys.count(key)) {
+            ++sharedPaths;
+        }
+    }
+    for (const auto &name : rekordboxNames) {
+        if (engineNames.count(name)) {
+            ++sharedNames;
+        }
+    }
+
+    if (sharedPaths == 0) {
+        // Stated, not skipped silently. The weaker fact is still worth
+        // asserting: if the two catalogs stopped describing the same
+        // files at all, every cross-catalog case in this suite would be
+        // comparing unrelated libraries and would need to be re-read.
+        std::cout << "    (cross-format grouping not exercisable here: the two catalogs share "
+                  << sharedNames << " filenames but no full path)\n";
+        check(sharedNames > 0,
+              "the two catalogs of one library must at least describe the same files by name");
+        return;
+    }
+
+    std::vector<domain::Track> rows;
+    rows.reserve(catalogs.rekordbox.size() + catalogs.engine.size());
+    rows.insert(rows.end(), catalogs.rekordbox.begin(), catalogs.rekordbox.end());
+    rows.insert(rows.end(), catalogs.engine.begin(), catalogs.engine.end());
+
+    const auto files = application::collapseCatalogRows(rows);
+
+    // Counting entries whose rows name more than one DISTINCT FORMAT, not
+    // merely more than one row: two rekordbox rows for one file collapse
+    // together too, and that is a different property. A stick really can
+    // hold duplicate rows within one catalog -- that is what the cleanup
+    // page exists for -- so a size check alone would pass while the
+    // cross-format case stayed broken.
+    std::size_t crossFormat = 0;
+    for (const auto &file : files) {
+        std::set<std::string> formats;
+        for (const auto &row : file.catalogRows) {
+            formats.insert(row.format);
+        }
+        if (formats.size() > 1) {
+            ++crossFormat;
+        }
+    }
+
+    check(crossFormat > 0,
+          "collapsing a rekordbox catalog and an Engine catalog that share file paths must produce "
+          "at least one file carrying rows from both formats");
+    check(files.size() < rows.size(),
+          "collapsing two catalogs that share file paths must yield fewer files than rows");
+    std::cout << "    collapse: " << rows.size() << " rows -> " << files.size() << " files, "
+              << crossFormat << " carrying rows from more than one format\n";
+}
+
 void caseBackupPathResolver(const DataSet &set, const fs::path &scratch, const Catalogs &catalogs)
 {
     if (catalogs.rekordbox.empty()) {
@@ -2249,6 +2362,7 @@ void runMatrix(const DataSet &set, const fs::path &scratch, const Catalogs &cata
     caseStrayCueRemoval(set, scratch, catalogs, expected);
     caseBackupPrecedesWrites(set, scratch, catalogs);
     caseNoPaddedStringsFromRekordbox(set, catalogs);
+    caseCollapseGroupsAcrossFormats(set, catalogs);
     caseBackupPathResolver(set, scratch, catalogs);
     caseBackupCoversEveryChangedFile(set, scratch, catalogs);
     caseSync(set, scratch, catalogs, expected);
