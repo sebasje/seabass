@@ -1,7 +1,9 @@
 #include "infrastructure/logging/file_operation_log.hpp"
 
 #include <chrono>
+#include <filesystem>
 #include <format>
+#include <system_error>
 
 namespace seabass::infrastructure::logging
 {
@@ -22,6 +24,11 @@ FileOperationLog::FileOperationLog(std::string logFilePath) : m_logFilePath(std:
 void FileOperationLog::record(const std::string &message)
 {
     if (!m_out.is_open()) {
+        // The log lives under <stick>/Seabass now: ofstream will not
+        // create the directory, and an unopened log drops every line
+        // without saying so.
+        std::error_code ec;
+        std::filesystem::create_directories(std::filesystem::path(m_logFilePath).parent_path(), ec);
         m_out.open(m_logFilePath, std::ios::app);
     }
     if (!m_out) {

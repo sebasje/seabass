@@ -134,10 +134,16 @@ std::string originValue(BackupOrigin origin)
 
 }  // namespace
 
-// The stick this store lives on: baseDirectory is <stick>/.seabass-backups.
+// The stick this store lives on: baseDirectory is <stick>/Seabass/backups.
 fs::path FilesystemBackupStore::stickRoot() const
 {
-    return fs::path(m_baseDirectory).parent_path();
+    // baseDirectory is <stick>/Seabass/backups, so the stick root is two
+    // levels up, not one. It was one level while backups lived in
+    // <stick>/.seabass-backups, and getting this wrong is quiet and
+    // nasty: every recorded path would be stored relative to
+    // <stick>/Seabass, and restore would resolve it to a path inside the
+    // Seabass directory instead of back to the real file.
+    return fs::path(m_baseDirectory).parent_path().parent_path();
 }
 
 // What goes in the manifest for `source`: relative to the stick when it is

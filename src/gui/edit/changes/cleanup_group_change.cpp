@@ -1,3 +1,4 @@
+#include "infrastructure/paths/seabass_paths.hpp"
 #include "gui/edit/changes/cleanup_group_change.hpp"
 
 #include <algorithm>
@@ -105,7 +106,7 @@ struct CleanupWriterContext
     CleanupWriterContext(const QString &format, const QString &path, int itemCountHint, SaveContext &ctx,
                          const std::unordered_map<std::string, std::string> &oneLibrarySourceIdToPath)
         : session(format.toStdString(), path.toStdString(), itemCountHint, "duplicate-file-cleanup", ctx),
-          manifest((fs::path(path.toStdString()).parent_path() / ".seabass-pending-deletions.jsonl").string())
+          manifest(infrastructure::paths::stickPendingDeletions(fs::path(path.toStdString()).parent_path()).string())
     {
         std::optional<std::string> writeRoot;
         if (session.usesScratch()) {
@@ -242,7 +243,7 @@ ChangeOutcome CleanupGroupChange::apply(SaveContext &ctx)
     // manifest is append-per-call precisely so it needs none.
     if (!writesToCatalog(plan)) {
         infrastructure::cleanup::PendingDeletionManifest manifest(
-            (fs::path(m_path.toStdString()).parent_path() / ".seabass-pending-deletions.jsonl").string());
+            infrastructure::paths::stickPendingDeletions(fs::path(m_path.toStdString()).parent_path()).string());
         recordStrayFilesForDeletion(manifest, plan, m_format.toStdString(), ctx.log());
         return ChangeOutcome::success();
     }

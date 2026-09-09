@@ -649,7 +649,7 @@ void casePendingDeletion(const DataSet &set, const fs::path &scratch, const Cata
     std::ofstream(victim) << "fake audio data";
     doomed.filePath = victim.string();
 
-    fs::path manifestPath = scratch / ".seabass-pending-deletions.jsonl";
+    fs::path manifestPath = scratch / "Seabass" / "orphaned" / "pending-deletions.jsonl";
     fs::remove(manifestPath);
     infrastructure::cleanup::PendingDeletionManifest manifest(manifestPath.string());
 
@@ -2113,7 +2113,7 @@ void caseCleanUpDuplicates(const DataSet &set, const fs::path &scratch, const Ca
 
     // The removed copy is scheduled, not deleted: the file must still be
     // there and the manifest must name it.
-    const fs::path manifestPath = scratch / ".seabass-pending-deletions.jsonl";
+    const fs::path manifestPath = scratch / "Seabass" / "orphaned" / "pending-deletions.jsonl";
     if (check(fs::exists(manifestPath), "a pending-deletion manifest was written")) {
         infrastructure::cleanup::PendingDeletionManifest manifest(manifestPath.string());
         auto entries = manifest.list();

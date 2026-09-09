@@ -19,7 +19,7 @@
 //                                         where the survivor rule fired
 //
 // READS ONLY. It writes exactly one file to the stick, the metadata
-// cache (.seabass-metadata.jsonl) the scan itself maintains, and never
+// cache (Seabass/caches/metadata.jsonl) the scan itself maintains, and never
 // touches a catalog, the pending-deletion manifest, or an audio file.
 #include <algorithm>
 #include <cassert>

@@ -37,7 +37,7 @@ int main()
     fs::remove_all(root);
     fs::create_directories(root);
 
-    fs::path backupsDir = root / ".seabass-backups";
+    fs::path backupsDir = root / "Seabass" / "backups";
     fs::path targetFile = root / "m.db";
     writeFile(targetFile, "original contents");
 
@@ -250,11 +250,11 @@ int main()
         fs::path exportPdb = pioneer / "export.pdb";
         writeFile(exportPdb, "original library");
 
-        FilesystemBackupStore store((stickA / ".seabass-backups").string());
+        FilesystemBackupStore store((stickA / "Seabass" / "backups").string());
         auto record = store.backup({exportPdb.string()}, "sync");
 
         // Nothing absolute may have been written down.
-        std::string manifest = readFile(stickA / ".seabass-backups" / record.id / ".manifest");
+        std::string manifest = readFile(stickA / "Seabass" / "backups" / record.id / ".manifest");
         assert(manifest.find("MANIFEST-VERSION\t4") != std::string::npos);
         assert(manifest.find(stickA.string()) == std::string::npos);
         assert(manifest.find("PIONEER/rekordbox/export.pdb") != std::string::npos);
@@ -264,7 +264,7 @@ int main()
         fs::rename(stickA, stickB);
         writeFile(stickB / "PIONEER" / "rekordbox" / "export.pdb", "changed since");
 
-        FilesystemBackupStore moved((stickB / ".seabass-backups").string());
+        FilesystemBackupStore moved((stickB / "Seabass" / "backups").string());
         assert(moved.restore(record.id));
         assert(readFile(stickB / "PIONEER" / "rekordbox" / "export.pdb") == "original library");
         // ...and nothing was resurrected at the old mount point.
@@ -292,9 +292,9 @@ int main()
         writeFile(elsewhere, "local cue store");
         fs::create_directories(stick);
 
-        FilesystemBackupStore store((stick / ".seabass-backups").string());
+        FilesystemBackupStore store((stick / "Seabass" / "backups").string());
         auto record = store.backup({elsewhere.string()}, "local-restore");
-        std::string manifest = readFile(stick / ".seabass-backups" / record.id / ".manifest");
+        std::string manifest = readFile(stick / "Seabass" / "backups" / record.id / ".manifest");
         assert(manifest.find(fs::absolute(elsewhere).string()) != std::string::npos);
 
         writeFile(elsewhere, "clobbered");
@@ -314,7 +314,7 @@ int main()
         writeFile(a, aBody);
         writeFile(b, bBody);
 
-        FilesystemBackupStore store((stick / ".seabass-backups").string());
+        FilesystemBackupStore store((stick / "Seabass" / "backups").string());
         auto record = store.backup({a.string(), b.string()}, "stray-cues");
         assert(record.filePaths.size() == 2);
         assert(fs::exists(fs::path(record.path) / "backup.zip"));
@@ -348,7 +348,7 @@ int main()
         fs::path stick = root / "arch-damaged";
         fs::path a = stick / "PIONEER" / "export.pdb";
         writeFile(a, "the original");
-        FilesystemBackupStore store((stick / ".seabass-backups").string());
+        FilesystemBackupStore store((stick / "Seabass" / "backups").string());
         auto record = store.backup({a.string()}, "sync");
 
         fs::path archive = fs::path(record.path) / "backup.zip";
@@ -369,7 +369,7 @@ int main()
     {
         fs::path stick = root / "origins";
         fs::path a = stick / "PIONEER" / "export.pdb";
-        FilesystemBackupStore store((stick / ".seabass-backups").string());
+        FilesystemBackupStore store((stick / "Seabass" / "backups").string());
 
         writeFile(a, "one");
         auto auto1 = store.backup({a.string()}, "sync");
@@ -405,7 +405,7 @@ int main()
     {
         fs::path stick = root / "release";
         fs::path a = stick / "PIONEER" / "export.pdb";
-        FilesystemBackupStore store((stick / ".seabass-backups").string());
+        FilesystemBackupStore store((stick / "Seabass" / "backups").string());
 
         writeFile(a, std::string(4096, 'x'));
         auto oldest = store.backup({a.string()}, "sync");
@@ -439,7 +439,7 @@ int main()
     {
         fs::path stick = root / "prerestore";
         fs::path a = stick / "PIONEER" / "export.pdb";
-        FilesystemBackupStore store((stick / ".seabass-backups").string());
+        FilesystemBackupStore store((stick / "Seabass" / "backups").string());
 
         writeFile(a, "original");
         auto record = store.backup({a.string()}, "sync");
@@ -470,7 +470,7 @@ int main()
     {
         fs::path stick = root / "marker";
         fs::path a = stick / "PIONEER" / "export.pdb";
-        FilesystemBackupStore store((stick / ".seabass-backups").string());
+        FilesystemBackupStore store((stick / "Seabass" / "backups").string());
         writeFile(a, "payload");
         auto record = store.backup({a.string()}, "sync");
 

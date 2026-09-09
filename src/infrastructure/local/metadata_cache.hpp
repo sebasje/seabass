@@ -11,7 +11,7 @@ namespace seabass::infrastructure::local
 
 // A stick-local record of metadata already read from audio files, so the
 // read is paid once per stick rather than on every scan. Stored as JSON
-// Lines at "<stickRoot>/.seabass-metadata.jsonl" -- same shape, same
+// Lines at "<stickRoot>/Seabass/caches/metadata.jsonl" -- same shape, same
 // place and same rules as DurationCache, which this deliberately
 // mirrors rather than extends: the two caches answer different
 // questions, are written by different probes, and an older Seabass

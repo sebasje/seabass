@@ -195,8 +195,8 @@ int main()
         assert(madeNow == 1);
         assert(result.backups.size() == 1);
         assert(fs::is_directory(result.backups[0].backupDir.toStdString()));
-        assert(result.backups[0].backupDir.toStdString() == (root / ".seabass-backups").string());
-        assert(fs::exists(root / ".seabass.log"));
+        assert(result.backups[0].backupDir.toStdString() == (root / "Seabass" / "backups").string());
+        assert(fs::exists(root / "Seabass" / "seabass.log"));
         std::cout << "case 5 (backupOnce dedups and feeds undo) OK\n";
     }
 

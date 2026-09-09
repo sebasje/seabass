@@ -186,7 +186,11 @@ int main()
         assert(!path.empty());
         fs::path p(path);
         assert(p.filename() == "cues.db");
-        assert(p.parent_path().filename() == "seabass");
+        // ~/Seabass/metadata/cues.db -- see
+        // infrastructure/paths/seabass_paths.hpp for why this is not
+        // under $XDG_DATA_HOME/%LOCALAPPDATA% any more.
+        assert(p.parent_path().filename() == "metadata");
+        assert(p.parent_path().parent_path().filename() == "Seabass");
         std::cout << "case 9 (defaultPath() resolves to a real, non-empty path) OK\n";
     }
 

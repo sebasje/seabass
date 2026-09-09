@@ -335,7 +335,7 @@ public:
     Q_INVOKABLE void undoLastOperation();
 
     // Re-reads this format's pending-deletion entries from
-    // .seabass-pending-deletions.jsonl on the stick and repopulates
+    // Seabass/orphaned/pending-deletions.jsonl on the stick and repopulates
     // pendingDeletions. Cheap (a small text file plus a stat() per entry
     // for its current size), so this runs synchronously rather than on a
     // background thread, called automatically after every scan()/

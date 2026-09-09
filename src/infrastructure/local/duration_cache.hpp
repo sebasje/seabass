@@ -11,7 +11,7 @@ namespace seabass::infrastructure::local
 
 // A stick-local record of durations already probed from audio files, so
 // the probe is paid once per stick rather than on every scan. Stored as
-// JSON Lines at "<stickRoot>/.seabass-durations.jsonl" -- same shape and
+// JSON Lines at "<stickRoot>/Seabass/caches/durations.jsonl" -- same shape and
 // same place as the pending-deletion manifest, one flat object per line:
 //
 //   {"duration":"266.376","mtime":"1710000000","path":"Contents/a/b.mp3","size":"22545278"}

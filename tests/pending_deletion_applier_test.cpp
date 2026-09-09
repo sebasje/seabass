@@ -113,7 +113,7 @@ int main()
     // so one interrupted run would hang every later run of this file.
     seabass::infrastructure::removeTreeDeepestFirst(root);
     fs::create_directories(root);
-    fs::path manifestPath = root / ".seabass-pending-deletions.jsonl";
+    fs::path manifestPath = root / "Seabass" / "orphaned" / "pending-deletions.jsonl";
 
     // A real file on disk is actually deleted, and cleared from the
     // manifest -- this is the one place in the app that permanently

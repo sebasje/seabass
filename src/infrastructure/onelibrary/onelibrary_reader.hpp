@@ -13,13 +13,24 @@ namespace seabass::infrastructure::onelibrary
 // Engine (m.db) -- see docs/onelibrary-format.md for the schema this is
 // based on.
 //
-// Read-only. Tracks it returns carry format "onelibrary" -- SyncController
-// treats it as a real source of truth, running the same diff+direction
-// logic against it as against rekordbox/Engine (see SyncController's own
-// class comment); most other write-oriented controllers (Clean Up, Local
-// Cue Backup, Add Cue, duplicate matching) still only branch on
-// "rekordbox"/"engine" and have no path for a third format, so callers
-// there must keep tracks read this way out of those flows.
+// Read-only. Tracks it returns carry format "onelibrary", and the
+// write-oriented controllers now understand it: Sync runs the same
+// diff+direction logic against it as against rekordbox/Engine, and Clean
+// Up, Local Cue Backup, Add Cue and duplicate matching all have a
+// OneLibrary path (via OneLibraryCueWriterAdapter, gated on
+// OneLibraryCueWriter::existsFor()).
+//
+// This comment used to say the opposite -- that those four had no path
+// for a third format and callers must keep these tracks out of those
+// flows. That stopped being true as each one gained a path, and a stale
+// capability note is worse than none: it argues for excluding data that
+// is now handled correctly.
+//
+// What is still missing is listed in docs/onelibrary-format.md; the
+// short version is that nothing can *create* a row here (see the
+// export.pdb row-insertion issue for the same gap on the other side),
+// hot loops are refused because the cue table has never been confirmed
+// to round-trip them, and colorTableIndex has no known mapping.
 class OneLibraryReader : public application::LibraryReader
 {
 public:

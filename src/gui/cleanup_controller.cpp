@@ -1,3 +1,4 @@
+#include "infrastructure/paths/seabass_paths.hpp"
 #include "cleanup_controller.hpp"
 
 #include <QStringList>
@@ -481,10 +482,11 @@ PendingDeletionApplyResult runDeletePendingTask(QString format, QString path,
     }
     try {
         fs::path stickRoot = fs::path(path.toStdString()).parent_path();
-        infrastructure::backup::StickWriteLock lock((stickRoot / ".seabass-backups" / ".write.lock").string());
+        infrastructure::backup::StickWriteLock lock(
+            (infrastructure::paths::stickBackupsDir(stickRoot) / ".write.lock").string());
         infrastructure::cleanup::PendingDeletionManifest manifest(
-            (stickRoot / ".seabass-pending-deletions.jsonl").string());
-        infrastructure::logging::FileOperationLog log((stickRoot / ".seabass.log").string());
+            infrastructure::paths::stickPendingDeletions(stickRoot).string());
+        infrastructure::logging::FileOperationLog log(infrastructure::paths::stickOperationLog(stickRoot).string());
 
         // Every catalog on the stick, not just the one this page is
         // working in. The same audio file routinely lives in rekordbox,
@@ -1050,7 +1052,7 @@ void CleanupController::refreshPendingDeletions()
     }
     fs::path stickRoot = fs::path(m_path.toStdString()).parent_path();
     infrastructure::cleanup::PendingDeletionManifest manifest(
-        (stickRoot / ".seabass-pending-deletions.jsonl").string());
+        infrastructure::paths::stickPendingDeletions(stickRoot).string());
 
     // rekordbox and Engine each accumulate their own separate pending
     // entries (see PendingDeletion::format). This page only ever shows

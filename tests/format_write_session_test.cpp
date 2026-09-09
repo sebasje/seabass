@@ -83,7 +83,7 @@ int main()
         assert(readFile(db) == "new-content");
         auto backups = ctx.takeBackups();
         assert(backups.size() == 1);
-        assert(fs::is_directory(root / ".seabass-backups"));
+        assert(fs::is_directory(root / "Seabass" / "backups"));
         std::cout << "case 2 (scratch committed on success) OK\n";
     }
 

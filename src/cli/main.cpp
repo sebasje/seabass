@@ -1,3 +1,4 @@
+#include "infrastructure/paths/seabass_paths.hpp"
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
@@ -197,13 +198,13 @@ void printUsage()
     Console::heading("Backups");
     Console::info("  Every write Seabass makes (duplicate-cue consolidation, sync) backs up the");
     Console::info("  file(s) it's about to touch first, under");
-    Console::info("  \"<stick root>/.seabass-backups/<timestamp>-<label>/\" -- shared across");
+    Console::info("  \"<stick root>/Seabass/backups/<timestamp>-<label>/\" -- shared across");
     Console::info("  rekordbox and Engine, since both live under the same stick root. Nothing");
     Console::info("  is ever deleted automatically; run \"seabass-cli backups --clean\" yourself to");
     Console::info("  prune old ones once they've accumulated (default: keep the " +
                    std::to_string(DefaultKeepBackups) + " most recent).");
     Console::info("  Every write is also appended to a plain-text log at");
-    Console::info("  \"<stick root>/.seabass.log\" (what was copied, to/from which track id,");
+    Console::info("  \"<stick root>/Seabass/seabass.log\" (what was copied, to/from which track id,");
     Console::info("  and which backup covers it) -- kept forever, since it's just text.");
     Console::info("");
     Console::heading("Examples");
@@ -650,12 +651,12 @@ std::string humanSize(std::uint64_t bytes)
     return buf;
 }
 
-// Backups live under <stick root>/.seabass-backups, shared across formats
+// Backups live under <stick root>/Seabass/backups, shared across formats
 // (the rekordbox and Engine folders on one stick share the same parent).
 std::string backupDirFor(const ResolvedLibraryPaths &resolved)
 {
     fs::path anyPath = resolved.enginePath ? *resolved.enginePath : *resolved.rekordboxPath;
-    return (anyPath.parent_path() / ".seabass-backups").string();
+    return seabass::infrastructure::paths::stickBackupsDir(anyPath.parent_path()).string();
 }
 
 // The GUI's per-library edit lock (docs/edit-mode-and-cancel.md): a
@@ -964,14 +965,14 @@ int runSyncCommand(bool wantRekordbox, bool wantEngine, const std::optional<std:
         std::optional<seabass::infrastructure::backup::FilesystemBackupStore> engineBackupStoreOpt;
         std::optional<seabass::infrastructure::logging::FileOperationLog> engineLogOpt;
         if (hasEngine) {
-            engineBackupStoreOpt.emplace((fs::path(engineRootDir) / ".seabass-backups").string());
-            engineLogOpt.emplace((fs::path(engineRootDir) / ".seabass.log").string());
+            engineBackupStoreOpt.emplace(seabass::infrastructure::paths::stickBackupsDir(fs::path(engineRootDir)).string());
+            engineLogOpt.emplace(seabass::infrastructure::paths::stickOperationLog(fs::path(engineRootDir)).string());
         }
         std::optional<seabass::infrastructure::backup::FilesystemBackupStore> rekordboxBackupStoreOpt;
         std::optional<seabass::infrastructure::logging::FileOperationLog> rekordboxLogOpt;
         if (hasRekordbox) {
-            rekordboxBackupStoreOpt.emplace((fs::path(rekordboxRootDir) / ".seabass-backups").string());
-            rekordboxLogOpt.emplace((fs::path(rekordboxRootDir) / ".seabass.log").string());
+            rekordboxBackupStoreOpt.emplace(seabass::infrastructure::paths::stickBackupsDir(fs::path(rekordboxRootDir)).string());
+            rekordboxLogOpt.emplace(seabass::infrastructure::paths::stickOperationLog(fs::path(rekordboxRootDir)).string());
         }
 
         // Everything this sync will overwrite, resolved before a single
@@ -1365,8 +1366,8 @@ int main(int argc, char **argv)
             seabass::infrastructure::rekordbox::RekordboxCueWriter writer(target.path);
             fs::path stickRoot = fs::path(target.path).parent_path();
             seabass::infrastructure::backup::FilesystemBackupStore backupStore(
-                (stickRoot / ".seabass-backups").string());
-            seabass::infrastructure::logging::FileOperationLog log((stickRoot / ".seabass.log").string());
+                seabass::infrastructure::paths::stickBackupsDir(stickRoot).string());
+            seabass::infrastructure::logging::FileOperationLog log(seabass::infrastructure::paths::stickOperationLog(stickRoot).string());
             std::string pioneerRoot = target.path;
             auto filesToBackUpFor = [pioneerRoot](const std::string &trackSourceId) -> std::vector<std::string> {
                 auto analyzePath = seabass::infrastructure::rekordbox::findAnlzPathForTrackId(
@@ -1395,8 +1396,8 @@ int main(int argc, char **argv)
             seabass::infrastructure::engine::LibdjinteropEngineCueWriter writer(target.path);
             fs::path stickRoot = fs::path(target.path).parent_path();
             seabass::infrastructure::backup::FilesystemBackupStore backupStore(
-                (stickRoot / ".seabass-backups").string());
-            seabass::infrastructure::logging::FileOperationLog log((stickRoot / ".seabass.log").string());
+                seabass::infrastructure::paths::stickBackupsDir(stickRoot).string());
+            seabass::infrastructure::logging::FileOperationLog log(seabass::infrastructure::paths::stickOperationLog(stickRoot).string());
             std::string engineDbFile = (fs::path(target.path) / "Database2" / "m.db").string();
             auto filesToBackUpFor = [engineDbFile](const std::string &) -> std::vector<std::string> {
                 return {engineDbFile};

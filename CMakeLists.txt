@@ -211,6 +211,7 @@ add_library(seabass_core STATIC
     src/infrastructure/logging/file_operation_log.cpp
     src/infrastructure/local/local_cue_store.cpp
     src/infrastructure/local/app_data_directory.cpp
+    src/infrastructure/paths/seabass_paths.cpp
     src/infrastructure/work_counters.cpp
     src/infrastructure/anonymization_verifier.cpp
     src/infrastructure/zip_archive_reader.cpp
@@ -915,6 +916,7 @@ add_executable(library_edit_lock_store_test
     src/infrastructure/durable_file_write.cpp
     src/infrastructure/work_counters.cpp
     src/infrastructure/local/app_data_directory.cpp
+    src/infrastructure/paths/seabass_paths.cpp
     src/infrastructure/local/file_library_edit_lock_store.cpp
     src/infrastructure/system/process_liveness.cpp
     tests/library_edit_lock_store_test.cpp
@@ -979,6 +981,7 @@ add_executable(local_cue_store_test
     src/application/ports/progress_reporter.cpp
     src/infrastructure/compression/zlib_compressor.cpp
     src/infrastructure/local/app_data_directory.cpp
+    src/infrastructure/paths/seabass_paths.cpp
     src/infrastructure/local/local_cue_store.cpp
     tests/local_cue_store_test.cpp
 )
@@ -1209,6 +1212,13 @@ target_compile_definitions(backup_archive_crossvalidation_test PRIVATE
     SEABASS_CONFIGURED_UNZIP="${UNZIP_EXECUTABLE}"
     SEABASS_CONFIGURED_SEVENZIP="${SEVENZIP_EXECUTABLE}"
 )
+add_executable(seabass_paths_test
+    src/infrastructure/paths/seabass_paths.cpp
+    tests/seabass_paths_test.cpp
+)
+target_include_directories(seabass_paths_test PRIVATE src)
+add_test(NAME seabass_paths_test COMMAND seabass_paths_test)
+
 add_test(NAME backup_archive_crossvalidation_test COMMAND backup_archive_crossvalidation_test)
 set_tests_properties(backup_archive_crossvalidation_test PROPERTIES
     ENVIRONMENT "SEABASS_PYTHON3=${Python3_EXECUTABLE};SEABASS_UNZIP=${UNZIP_EXECUTABLE};SEABASS_SEVENZIP=${SEVENZIP_EXECUTABLE}"

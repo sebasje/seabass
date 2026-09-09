@@ -68,7 +68,7 @@ int main()
         cache.store(audio, sample());
         assert(cache.dirty());
         assert(cache.save());
-        assert(fs::exists(root / ".seabass-metadata.jsonl"));
+        assert(fs::exists(root / "Seabass" / "caches" / "metadata.jsonl"));
 
         MetadataCache reloaded(root.string());
         auto got = reloaded.lookup(audio);
@@ -87,7 +87,7 @@ int main()
     // loss would be dangerous rather than merely annoying, since a
     // caller that deletes files refuses to act on an estimate.
     {
-        fs::remove(root / ".seabass-metadata.jsonl");
+        fs::remove(root / "Seabass" / "caches" / "metadata.jsonl");
         FileMetadata estimated = sample();
         estimated.durationIsEstimated = true;
 
@@ -109,7 +109,7 @@ int main()
     // over. Written with the file's real size/mtime so the lookup
     // actually hits and the flag can be inspected.
     {
-        writeFile(root / ".seabass-metadata.jsonl",
+        writeFile(root / "Seabass" / "caches" / "metadata.jsonl",
                   "{\"artist\":\"A\",\"duration\":\"120.000000\",\"mtime\":\"" + currentMtimeSeconds(audio)
                       + "\",\"path\":\"Contents/a/track.mp3\",\"size\":\"" + currentSizeBytes(audio)
                       + "\",\"title\":\"T\"}\n");
@@ -126,7 +126,7 @@ int main()
     // match, same strictness as DurationCache -- a re-tag that preserved
     // one of the two must not return stale artist/title.
     {
-        fs::remove(root / ".seabass-metadata.jsonl");
+        fs::remove(root / "Seabass" / "caches" / "metadata.jsonl");
         MetadataCache cache(root.string());
         cache.store(audio, sample());
         assert(cache.save());
@@ -142,7 +142,7 @@ int main()
     // unreadable file yields, and caching it would make the failure
     // permanent).
     {
-        fs::remove(root / ".seabass-metadata.jsonl");
+        fs::remove(root / "Seabass" / "caches" / "metadata.jsonl");
         MetadataCache cache(root.string());
         cache.store("/somewhere/else/track.mp3", sample());
         assert(!cache.dirty());
