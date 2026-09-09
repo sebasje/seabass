@@ -524,6 +524,15 @@ if(Qt6_FOUND)
         # The same module the app registers (see src/gui/CMakeLists.txt's
         # SEABASS_GUI_* lists): every page with its real controller, so
         # tests/qml-live/ can drive the real code against a real stick.
+        # The app registers this from src/gui/, so it resolves to
+        # qrc:/qt/qml/SeabassGui/qml/icons/... and that is the URL the QML
+        # asks for. Registered from the root it would land two directories
+        # deeper and every page showing the logo would render a blank box
+        # under test while being perfectly fine in the app -- a difference
+        # between test and app that is invisible until someone looks at a
+        # screenshot and mistrusts it.
+        set_source_files_properties(src/gui/qml/icons/seabass_soundbass.svg
+            PROPERTIES QT_RESOURCE_ALIAS qml/icons/seabass_soundbass.svg)
         qt_add_qml_module(seabass_qml_tests
             URI SeabassGui
             VERSION 1.0
@@ -563,7 +572,12 @@ if(Qt6_FOUND)
         # No real display needed -- Qt's "offscreen" platform plugin renders
         # without one, which is both faster and far more reliable in a
         # headless/CI/agent environment than anything Xvfb-dependent.
-        set_tests_properties(seabass_qml_tests PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+        # XDG_CONFIG_HOME is redirected because the QML tests build real
+        # controllers, and AppSettingsController is backed by QSettings --
+        # without this a test could read, or a future one write, the
+        # developer's own Seabass settings.
+        set_tests_properties(seabass_qml_tests PROPERTIES ENVIRONMENT
+            "QT_QPA_PLATFORM=offscreen;XDG_CONFIG_HOME=${CMAKE_CURRENT_BINARY_DIR}/qml-test-config")
     else()
         message(STATUS "Qt6::QuickTest not found, skipping seabass_qml_tests (GUI build unaffected)")
     endif()
