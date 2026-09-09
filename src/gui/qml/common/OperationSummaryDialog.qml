@@ -58,10 +58,10 @@ SeabassDialog {
             font.pointSize: Theme.fontMedium
             text: dialog.written + " of " + dialog.total + " " + dialog.unit + " " + dialog.verb + "."
         }
-        Label {
+        // Selectable, because when this carries an error it is the text
+        // someone will be asked to paste into a bug report.
+        SelectableText {
             objectName: "detailLabel"
-            Layout.fillWidth: true
-            wrapMode: Text.WordWrap
             visible: text.length > 0
             color: dialog.error.length > 0 ? Theme.danger : Theme.textMuted
             text: dialog.error.length > 0 ? "Then: " + dialog.error

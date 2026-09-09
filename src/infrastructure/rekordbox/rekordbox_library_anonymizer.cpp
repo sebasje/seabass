@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "infrastructure/anonymization_placeholder.hpp"
+#include "infrastructure/anonymization_export_layout.hpp"
 #include "infrastructure/onelibrary/onelibrary_anonymizer.hpp"
 #include "infrastructure/long_paths.hpp"
 #include "infrastructure/rekordbox/anlz_file.hpp"
@@ -362,11 +363,33 @@ RekordboxAnonymizationResult anonymizeRekordboxLibrary(const std::string &source
         // That copy takes the whole rekordbox/ directory, which on a real
         // stick holds more than export.pdb.
         //
-        // exportExt.pdb, the My Tag vocabulary, is free text a DJ typed
-        // and still has no anonymizer, so it goes.
+        // Everything in there that is not on the allowlist goes,
+        // including exportExt.pdb (the My Tag vocabulary: free text a DJ
+        // typed, no anonymizer), the .sync playlist state and RBFLTR.DAT.
+        //
+        // A list of files to REMOVE was what this used to be, and a real
+        // stick turned up carrying three it had never heard of -- which
+        // the verifier then refused, correctly, leaving the user with an
+        // export that could not be produced at all. An allowlist cannot
+        // fail that way: an unknown file is dropped, not shipped.
         {
-            std::error_code removeEc;
-            fs::remove(fs::path(destinationRoot) / "rekordbox" / "exportExt.pdb", removeEc);
+            std::error_code listEc;
+            const fs::path catalogDir = fs::path(destinationRoot) / "rekordbox";
+            std::vector<fs::path> unknown;
+            for (const auto &entry : fs::directory_iterator(catalogDir, listEc)) {
+                if (!entry.is_regular_file()) {
+                    continue;
+                }
+                const std::string name = entry.path().filename().string();
+                if (!isKeptRekordboxCatalogFile(name)) {
+                    unknown.push_back(entry.path());
+                }
+            }
+            for (const auto &path : unknown) {
+                std::error_code removeEc;
+                fs::remove(path, removeEc);
+                result.removedUnanonymizableFiles.push_back(path.filename().string());
+            }
         }
         // exportLibrary.db is the Device Library Plus mirror: the complete
         // real library, encrypted with a key this project's own source

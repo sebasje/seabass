@@ -15,6 +15,7 @@ import SeabassGui
 Page {
     id: root
     required property var mediaController
+    required property var appSettingsController
 
     AnonymizeLibraryController {
         id: controller
@@ -28,7 +29,30 @@ Page {
     readonly property var selectedStick: root.selectedStickIndex >= 0 && root.selectedStickIndex < root.candidateSticks.length
         ? root.candidateSticks[root.selectedStickIndex] : null
 
-    property string outputDir: ""
+    // The full path of the zip to write, proposed rather than demanded:
+    // an export is named after the stick it came from and the day it was
+    // taken, which is what anyone filing one would have typed anyway.
+    // Editable, because the proposal is a guess about someone else's
+    // filing system.
+    property string outputPath: ""
+
+    function proposedOutputPath() {
+        const label = root.selectedStick ? String(root.selectedStick.label || "library") : "library";
+        const safe = label.replace(/[^A-Za-z0-9._-]+/g, "-");
+        const now = new Date();
+        const pad = n => String(n).padStart(2, "0");
+        const stamp = pad(now.getDate()) + "-" + pad(now.getMonth() + 1) + "-" + now.getFullYear();
+        return appSettingsController.anonymizedExportDirectory() + "/" + safe + "-" + stamp + ".zip";
+    }
+
+    // Re-proposed whenever the chosen stick changes, but never over
+    // something the user typed.
+    property bool outputPathEdited: false
+    onSelectedStickIndexChanged: {
+        if (!root.outputPathEdited) {
+            root.outputPath = root.proposedOutputPath();
+        }
+    }
     property int maxTracks: 0  // 0 = unlimited, see controller.run()'s own doc comment
     property var selectedHardware: ({})  // label -> true, for checked entries
     property string otherHardware: ""
@@ -74,6 +98,9 @@ Page {
     Component.onCompleted: {
         mediaController.detect();
         root.refreshCandidates();
+        if (root.outputPath.length === 0) {
+            root.outputPath = root.proposedOutputPath();
+        }
     }
 
     Connections {
@@ -81,10 +108,16 @@ Page {
         function onModelReset() { root.refreshCandidates() }
     }
 
-    FolderDialog {
-        id: outputFolderDialog
-        title: "Choose where to write the anonymized export"
-        onAccepted: root.outputDir = selectedFolder.toString().replace(/^file:\/\//, "")
+    FileDialog {
+        id: outputFileDialog
+        title: "Where to write the anonymized export"
+        fileMode: FileDialog.SaveFile
+        defaultSuffix: "zip"
+        nameFilters: ["Zip archive (*.zip)"]
+        onAccepted: {
+            root.outputPath = selectedFile.toString().replace(/^file:\/\//, "");
+            root.outputPathEdited = true;
+        }
     }
 
     header: ToolBar {
@@ -191,16 +224,25 @@ Page {
                     }
                     RowLayout {
                         spacing: 8
-                        Label {
+                        TextField {
+                            objectName: "outputPathField"
                             Layout.fillWidth: true
-                            text: root.outputDir.length > 0 ? (root.outputDir + ".zip") : "No location chosen yet"
-                            color: root.outputDir.length > 0 ? Theme.text : Theme.textMuted
-                            elide: Text.ElideMiddle
+                            enabled: !controller.busy
+                            text: root.outputPath
+                            placeholderText: "No location chosen yet"
+                            onTextEdited: {
+                                root.outputPath = text;
+                                root.outputPathEdited = true;
+                            }
                         }
                         Button {
                             text: "Choose…"
                             enabled: !controller.busy
-                            onClicked: outputFolderDialog.open()
+                            onClicked: {
+                                outputFileDialog.currentFolder =
+                                    "file://" + appSettingsController.anonymizedExportDirectory();
+                                outputFileDialog.open();
+                            }
                         }
                     }
 
@@ -304,20 +346,22 @@ Page {
                 spacing: 12
                 Button {
                     text: "Generate"
-                    enabled: !controller.busy && root.selectedStick !== null && root.outputDir.length > 0
+                    enabled: !controller.busy && root.selectedStick !== null && root.outputPath.length > 0
                     onClicked: controller.run(
                         root.selectedStick.hasRekordbox ? root.selectedStick.rekordboxPath : "",
                         root.selectedStick.hasEngine ? root.selectedStick.enginePath : "",
-                        root.outputDir, root.maxTracks, root.hardwareText, notesField.text)
+                        root.outputPath, root.maxTracks, root.hardwareText, notesField.text)
                 }
             }
 
-            Label {
+            // Selectable: this is the text a person is being asked to
+            // send to someone, so it has to be copyable rather than
+            // retyped off the screen.
+            SelectableText {
+                objectName: "errorText"
                 visible: controller.errorMessage.length > 0
                 text: controller.errorMessage
                 color: Theme.danger
-                wrapMode: Text.WordWrap
-                Layout.fillWidth: true
             }
 
             ColumnLayout {

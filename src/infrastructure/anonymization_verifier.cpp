@@ -6,6 +6,7 @@
 #include <sstream>
 
 #include "application/use_cases/scan_library.hpp"
+#include "infrastructure/anonymization_export_layout.hpp"
 #include "infrastructure/anonymization_placeholder.hpp"
 #include "infrastructure/engine/libdjinterop_engine_reader.hpp"
 #include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
@@ -234,7 +235,7 @@ AnonymizationVerification verifyAnonymizedExport(const std::string &exportRoot, 
                 const std::string name = entry.path().filename().string();
                 // exportLibrary.db is the Device Library Plus mirror, kept
                 // now that it is scrubbed; its rows are sampled below.
-                if (name == "export.pdb" || name == "exportLibrary.db") {
+                if (isKeptRekordboxCatalogFile(name)) {
                     continue;
                 }
                 // SQLite recreates these the moment anything opens the

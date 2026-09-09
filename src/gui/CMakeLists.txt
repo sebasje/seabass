@@ -38,6 +38,7 @@ set(SEABASS_GUI_QML_FILES
     qml/common/BusyOverlay.qml
     qml/common/InfoButton.qml
     qml/common/MessageDialog.qml
+    qml/common/SelectableText.qml
     qml/common/MessagePopup.qml
     qml/common/HealthCheckCard.qml
     qml/common/PageTitle.qml

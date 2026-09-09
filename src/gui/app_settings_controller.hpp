@@ -25,6 +25,12 @@ class AppSettingsController : public QObject
     Q_PROPERTY(QString keyNotation READ keyNotation WRITE setKeyNotation NOTIFY keyNotationChanged)
     Q_PROPERTY(QString stickBackupDirectory READ stickBackupDirectory WRITE setStickBackupDirectory NOTIFY
                    stickBackupDirectoryChanged)
+    // Where everything Seabass keeps on this computer lives: stick
+    // images, anonymized exports, the local cue store, its own
+    // bookkeeping. One setting rather than one per feature, because
+    // "back up my Seabass data" should have a single answer.
+    Q_PROPERTY(QString seabassHomeDirectory READ seabassHomeDirectory WRITE setSeabassHomeDirectory NOTIFY
+                   seabassHomeDirectoryChanged)
     Q_PROPERTY(QString lastBrowsePlaylistName READ lastBrowsePlaylistName WRITE setLastBrowsePlaylistName NOTIFY
                    lastBrowsePlaylistNameChanged)
     // Always present (even in a build compiled with SEABASS_EXPERIMENTAL
@@ -73,6 +79,13 @@ public:
     // hidden app-data directory (see docs/stick-backup-plan.md, "Archive
     // location and identity").
     QString stickBackupDirectory() const { return m_stickBackupDirectory; }
+    QString seabassHomeDirectory() const { return m_seabassHomeDirectory; }
+    void setSeabassHomeDirectory(const QString &value);
+    // The default, so the UI can offer "put it back" without knowing how
+    // the path is built.
+    Q_INVOKABLE static QString defaultSeabassHomeDirectory();
+    // <seabassHome>/testdata, where anonymized exports are proposed.
+    Q_INVOKABLE QString anonymizedExportDirectory() const;
     void setStickBackupDirectory(const QString &value);
     static QString defaultStickBackupDirectory();
 
@@ -111,6 +124,7 @@ signals:
     void hideStreamingTracksChanged();
     void keyNotationChanged();
     void stickBackupDirectoryChanged();
+    void seabassHomeDirectoryChanged();
     void lastBrowsePlaylistNameChanged();
 #ifdef SEABASS_EXPERIMENTAL_BUILD
     void experimentalFeaturesEnabledChanged();
@@ -123,6 +137,7 @@ private:
     bool m_hideStreamingTracks = false;
     QString m_keyNotation = QStringLiteral("camelot");
     QString m_stickBackupDirectory;
+    QString m_seabassHomeDirectory;
     QString m_lastBrowsePlaylistName;
 #ifdef SEABASS_EXPERIMENTAL_BUILD
     bool m_experimentalFeaturesEnabled = false;

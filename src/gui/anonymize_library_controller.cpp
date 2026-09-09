@@ -2,7 +2,9 @@
 
 #include <QtConcurrent/QtConcurrentRun>
 
+#include <filesystem>
 #include <optional>
+#include <system_error>
 
 #include "application/use_cases/anonymize_library.hpp"
 
@@ -124,12 +126,29 @@ std::shared_ptr<QtProgressReporter> AnonymizeLibraryController::makeReporter()
     return reporter;
 }
 
-void AnonymizeLibraryController::run(const QString &rekordboxPath, const QString &enginePath, const QString &outDir,
+void AnonymizeLibraryController::run(const QString &rekordboxPath, const QString &enginePath, const QString &outPath,
                                       int maxTracks, const QString &hardware, const QString &notes)
 {
     if (m_busy) {
         return;
     }
+    // The UI asks for the zip by name. The use case stages into a
+    // directory and zips that directory to <dir>.zip, so the staging
+    // directory is the requested path with the suffix taken off -- which
+    // keeps the zip exactly where the user pointed, rather than one
+    // directory beside it.
+    std::filesystem::path requested(outPath.toStdString());
+    if (requested.extension() == ".zip") {
+        requested.replace_extension();
+    }
+    // The proposed location is <Seabass home>/testdata, which will not
+    // exist the first time. Refusing over a missing parent directory
+    // would be an odd thing to make a person fix by hand.
+    std::error_code dirEc;
+    if (requested.has_parent_path()) {
+        std::filesystem::create_directories(requested.parent_path(), dirEc);
+    }
+    const QString outDir = QString::fromStdString(requested.string());
     setErrorMessage({});
     m_summaryText.clear();
     m_manifestText.clear();

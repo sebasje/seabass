@@ -121,14 +121,14 @@ Dialog {
                 wrapMode: Text.WordWrap
             }
 
-            Label {
+            // Selectable: an Error dialog's detail is exactly the string
+            // someone needs to quote back, and Label cannot be selected.
+            SelectableText {
                 objectName: root.detailObjectName
-                Layout.fillWidth: true
                 visible: root.detailText.length > 0
                 text: root.detailText
                 color: Theme.textMuted
                 font.pointSize: Theme.fontSmall
-                wrapMode: Text.WordWrap
             }
 
             ColumnLayout {

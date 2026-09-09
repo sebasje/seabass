@@ -526,6 +526,7 @@ ApplicationWindow {
         id: anonymizeLibraryPageComponent
         AnonymizeLibraryPage {
             mediaController: mediaCtrl
+            appSettingsController: appSettingsCtrl
         }
     }
 

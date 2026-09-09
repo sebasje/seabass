@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "application/ports/progress_reporter.hpp"
 
@@ -15,6 +16,11 @@ struct RekordboxAnonymizationResult
     int tracksDropped = 0;  // only nonzero when maxTracks was set and exceeded
     int artistsRenamed = 0;
     int playlistsRenamed = 0;
+    // Files found in the catalog directory that no anonymizer knows how
+    // to scrub, and were therefore dropped rather than shipped. Reported
+    // so the manifest can say what is missing from the export instead of
+    // leaving a submitter to wonder.
+    std::vector<std::string> removedUnanonymizableFiles;
     // Analysis files scrubbed that no present track row pointed at:
     // leftovers from tracks deleted from the library, which the copy
     // brings along and which still carry their real path.
