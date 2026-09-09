@@ -39,173 +39,187 @@ Page {
         }
     }
 
-    // Group header flush left, then one option per row indented beneath
-    // it -- a two-column grid (label column vs. field column) has to
-    // align every row's label against every other row's, which falls
-    // apart the moment one field needs more than one control (the key
-    // notation row's two radios plus a preview badge next to a plain
-    // single checkbox). A header-then-indented-rows shape has no shared
-    // axis to keep aligned: every group is independent.
-    ColumnLayout {
-        anchors.top: parent.top
-        anchors.left: parent.left
+    // Scrollable because this page grows: every group's spacing and
+    // indent is scaled by Theme.iconScale, so a larger system font
+    // (or a short window) pushes the bottom groups off the page, and
+    // without a Flickable there is no way to reach them. width:
+    // parent.width below is load-bearing for the same reason -- the
+    // layout used to be anchored left only, so it sized to its own
+    // content and the backup-path Label could never elide nor the
+    // description Label wrap, running off the right edge instead.
+    PageScrollView {
+        objectName: "settingsScroll"
+        anchors.fill: parent
         anchors.margins: 24 * Theme.iconScale
-        spacing: 24 * Theme.iconScale
 
+        // Group header flush left, then one option per row indented beneath
+        // it -- a two-column grid (label column vs. field column) has to
+        // align every row's label against every other row's, which falls
+        // apart the moment one field needs more than one control (the key
+        // notation row's two radios plus a preview badge next to a plain
+        // single checkbox). A header-then-indented-rows shape has no shared
+        // axis to keep aligned: every group is independent.
         ColumnLayout {
-            spacing: 6 * Theme.iconScale
-            Subtitle { text: "Theme" }
-            ButtonGroup { id: themeGroup }
-            RadioButton {
-                Layout.leftMargin: root.settingIndent
-                text: "Dark"
-                ButtonGroup.group: themeGroup
-                checked: !root.appSettingsController.useSystemTheme
-                onCheckedChanged: if (checked) root.appSettingsController.useSystemTheme = false
-            }
-            RadioButton {
-                Layout.leftMargin: root.settingIndent
-                text: "Match System Theme"
-                ButtonGroup.group: themeGroup
-                checked: root.appSettingsController.useSystemTheme
-                onCheckedChanged: if (checked) root.appSettingsController.useSystemTheme = true
-            }
-        }
+            objectName: "settingsColumn"
+            width: parent.width
+            spacing: 24 * Theme.iconScale
 
-        ColumnLayout {
-            spacing: 6 * Theme.iconScale
-            // Explanation lives in a tooltip (hover either radio button)
-            // rather than as a permanent line of text below -- it's
-            // background detail worth having on hand, not something that
-            // needs to compete for space with the setting itself.
-            readonly property string keyNotationExplanation:
-                "Applies to every key badge in Browse Library and Library Statistics. Either way, the "
-                + "badge's color always comes from the same underlying Camelot wheel position; only the "
-                + "printed label changes."
-            Subtitle { text: "Musical key notation" }
-            ButtonGroup { id: keyNotationGroup }
-            RadioButton {
-                Layout.leftMargin: root.settingIndent
-                text: "Camelot (e.g. 6A)"
-                ButtonGroup.group: keyNotationGroup
-                checked: root.appSettingsController.keyNotation !== "traditional"
-                onCheckedChanged: if (checked) root.appSettingsController.keyNotation = "camelot"
-                ToolTip.visible: hovered
-                ToolTip.text: parent.keyNotationExplanation
-            }
-            RadioButton {
-                Layout.leftMargin: root.settingIndent
-                text: "Traditional (e.g. F♯m)"
-                ButtonGroup.group: keyNotationGroup
-                checked: root.appSettingsController.keyNotation === "traditional"
-                onCheckedChanged: if (checked) root.appSettingsController.keyNotation = "traditional"
-                ToolTip.visible: hovered
-                ToolTip.text: parent.keyNotationExplanation
-            }
-            // Live preview, not just a description -- the two notations
-            // read differently enough (a color-coded wheel position vs.
-            // an actual note name) that seeing one example update as you
-            // switch is clearer than describing the difference in text.
-            RowLayout {
-                Layout.leftMargin: root.settingIndent
-                spacing: 8 * Theme.iconScale
-                Label { text: "Preview:"; color: Theme.textMuted }
-                KeyBadge {
-                    keyName: "F#m"
-                    notation: root.appSettingsController.keyNotation
+            ColumnLayout {
+                spacing: 6 * Theme.iconScale
+                Subtitle { text: "Theme" }
+                ButtonGroup { id: themeGroup }
+                RadioButton {
+                    Layout.leftMargin: root.settingIndent
+                    text: "Dark"
+                    ButtonGroup.group: themeGroup
+                    checked: !root.appSettingsController.useSystemTheme
+                    onCheckedChanged: if (checked) root.appSettingsController.useSystemTheme = false
+                }
+                RadioButton {
+                    Layout.leftMargin: root.settingIndent
+                    text: "Match System Theme"
+                    ButtonGroup.group: themeGroup
+                    checked: root.appSettingsController.useSystemTheme
+                    onCheckedChanged: if (checked) root.appSettingsController.useSystemTheme = true
                 }
             }
-        }
 
-        ColumnLayout {
-            spacing: 6 * Theme.iconScale
-            Subtitle { text: "Streaming tracks" }
-            CheckBox {
-                Layout.leftMargin: root.settingIndent
-                text: "Hide tracks from streaming services"
-                checked: root.appSettingsController.hideStreamingTracks
-                onToggled: root.appSettingsController.hideStreamingTracks = checked
-                ToolTip.visible: hovered
-                ToolTip.text: "Streaming-linked tracks (e.g. TIDAL, via Engine DJ) have no local file on the "
-                    + "stick: Seabass never plays, merges, syncs, or cleans them up regardless of this "
-                    + "setting. This only controls whether they show up in Browse Library at all."
-            }
-        }
-
-        // Where full stick backups go (experimental feature, so the
-        // section follows the toggle below). One `<stick label>.zip` per
-        // stick, in a place the user can find and open with 7-Zip/unzip.
-        ColumnLayout {
-            visible: root.appSettingsController.experimentalFeaturesEnabled
-            spacing: 6 * Theme.iconScale
-            Subtitle { text: "Full stick backups" }
-            Label {
-                Layout.leftMargin: root.settingIndent
-                Layout.fillWidth: true
-                wrapMode: Text.WordWrap
-                color: Theme.textMuted
-                text: "Folder where each stick's backup archive is kept. Moving it does not move existing backups."
-            }
-            RowLayout {
-                Layout.leftMargin: root.settingIndent
-                Layout.fillWidth: true
-                spacing: 8
-                Label {
-                    Layout.fillWidth: true
-                    elide: Text.ElideMiddle
-                    font.family: Theme.dataFamily
-                    text: root.appSettingsController.stickBackupDirectory
+            ColumnLayout {
+                spacing: 6 * Theme.iconScale
+                // Explanation lives in a tooltip (hover either radio button)
+                // rather than as a permanent line of text below -- it's
+                // background detail worth having on hand, not something that
+                // needs to compete for space with the setting itself.
+                readonly property string keyNotationExplanation:
+                    "Applies to every key badge in Browse Library and Library Statistics. Either way, the "
+                    + "badge's color always comes from the same underlying Camelot wheel position; only the "
+                    + "printed label changes."
+                Subtitle { text: "Musical key notation" }
+                ButtonGroup { id: keyNotationGroup }
+                RadioButton {
+                    Layout.leftMargin: root.settingIndent
+                    text: "Camelot (e.g. 6A)"
+                    ButtonGroup.group: keyNotationGroup
+                    checked: root.appSettingsController.keyNotation !== "traditional"
+                    onCheckedChanged: if (checked) root.appSettingsController.keyNotation = "camelot"
+                    ToolTip.visible: hovered
+                    ToolTip.text: parent.keyNotationExplanation
                 }
-                Button {
-                    text: "Change…"
-                    onClicked: backupFolderDialog.open()
+                RadioButton {
+                    Layout.leftMargin: root.settingIndent
+                    text: "Traditional (e.g. F♯m)"
+                    ButtonGroup.group: keyNotationGroup
+                    checked: root.appSettingsController.keyNotation === "traditional"
+                    onCheckedChanged: if (checked) root.appSettingsController.keyNotation = "traditional"
+                    ToolTip.visible: hovered
+                    ToolTip.text: parent.keyNotationExplanation
                 }
-                Button {
-                    text: "Reset"
-                    onClicked: root.appSettingsController.stickBackupDirectory = ""
+                // Live preview, not just a description -- the two notations
+                // read differently enough (a color-coded wheel position vs.
+                // an actual note name) that seeing one example update as you
+                // switch is clearer than describing the difference in text.
+                RowLayout {
+                    Layout.leftMargin: root.settingIndent
+                    spacing: 8 * Theme.iconScale
+                    Label { text: "Preview:"; color: Theme.textMuted }
+                    KeyBadge {
+                        keyName: "F#m"
+                        notation: root.appSettingsController.keyNotation
+                    }
                 }
             }
-            FolderDialog {
-                id: backupFolderDialog
-                title: "Choose where to keep full stick backups"
-                currentFolder: "file://" + root.appSettingsController.stickBackupDirectory
-                onAccepted: root.appSettingsController.stickBackupDirectory = selectedFolder.toString().replace(/^file:\/\//, "")
-            }
-        }
 
-        // Absent entirely in a build compiled with SEABASS_EXPERIMENTAL
-        // off -- see docs/experimental-features.md and
-        // AppSettingsController::experimentalBuildSupported()'s own doc
-        // comment for why that's a real "stable-only build" rather than
-        // just a hidden toggle.
-        ColumnLayout {
-            visible: root.appSettingsController.experimentalBuildSupported
-            spacing: 6 * Theme.iconScale
-            Subtitle { text: "Experimental features" }
-            CheckBox {
-                Layout.leftMargin: root.settingIndent
-                text: "Enable experimental features"
-                checked: root.appSettingsController.experimentalFeaturesEnabled
-                onToggled: root.appSettingsController.experimentalFeaturesEnabled = checked
-                ToolTip.visible: hovered
-                ToolTip.text: "Experimental features are newer, less-tested parts of Seabass; they may be "
-                    + "unstable, incomplete, or change without notice."
+            ColumnLayout {
+                spacing: 6 * Theme.iconScale
+                Subtitle { text: "Streaming tracks" }
+                CheckBox {
+                    Layout.leftMargin: root.settingIndent
+                    text: "Hide tracks from streaming services"
+                    checked: root.appSettingsController.hideStreamingTracks
+                    onToggled: root.appSettingsController.hideStreamingTracks = checked
+                    ToolTip.visible: hovered
+                    ToolTip.text: "Streaming-linked tracks (e.g. TIDAL, via Engine DJ) have no local file on the "
+                        + "stick: Seabass never plays, merges, syncs, or cleans them up regardless of this "
+                        + "setting. This only controls whether they show up in Browse Library at all."
+                }
             }
 
-            // Same gating ActionCard.qml uses for an experimental feature
-            // (visible: !experimental || experimentalFeaturesEnabled) --
-            // hidden unless the toggle above is actually on, not just
-            // whether this is an experimental-capable build. A plain
-            // option here rather than an ActionCard on the main screen:
-            // this is a maintainer/power-user tool (regenerating the
-            // project's own test fixture, or submitting a library to
-            // help test hardware Sebas doesn't have), not a per-stick
-            // everyday action -- see docs/testing.md.
-            Button {
-                Layout.leftMargin: root.settingIndent
+            // Where full stick backups go (experimental feature, so the
+            // section follows the toggle below). One `<stick label>.zip` per
+            // stick, in a place the user can find and open with 7-Zip/unzip.
+            ColumnLayout {
                 visible: root.appSettingsController.experimentalFeaturesEnabled
-                text: "Export Anonymized Library for Testing…"
-                onClicked: root.anonymizeLibraryRequested()
+                spacing: 6 * Theme.iconScale
+                Subtitle { text: "Full stick backups" }
+                Label {
+                    Layout.leftMargin: root.settingIndent
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    color: Theme.textMuted
+                    text: "Folder where each stick's backup archive is kept. Moving it does not move existing backups."
+                }
+                RowLayout {
+                    Layout.leftMargin: root.settingIndent
+                    Layout.fillWidth: true
+                    spacing: 8
+                    Label {
+                        objectName: "backupPathLabel"
+                        Layout.fillWidth: true
+                        elide: Text.ElideMiddle
+                        font.family: Theme.dataFamily
+                        text: root.appSettingsController.stickBackupDirectory
+                    }
+                    Button {
+                        text: "Change…"
+                        onClicked: backupFolderDialog.open()
+                    }
+                    Button {
+                        text: "Reset"
+                        onClicked: root.appSettingsController.stickBackupDirectory = ""
+                    }
+                }
+                FolderDialog {
+                    id: backupFolderDialog
+                    title: "Choose where to keep full stick backups"
+                    currentFolder: "file://" + root.appSettingsController.stickBackupDirectory
+                    onAccepted: root.appSettingsController.stickBackupDirectory = selectedFolder.toString().replace(/^file:\/\//, "")
+                }
+            }
+
+            // Absent entirely in a build compiled with SEABASS_EXPERIMENTAL
+            // off -- see docs/experimental-features.md and
+            // AppSettingsController::experimentalBuildSupported()'s own doc
+            // comment for why that's a real "stable-only build" rather than
+            // just a hidden toggle.
+            ColumnLayout {
+                visible: root.appSettingsController.experimentalBuildSupported
+                spacing: 6 * Theme.iconScale
+                Subtitle { text: "Experimental features" }
+                CheckBox {
+                    Layout.leftMargin: root.settingIndent
+                    text: "Enable experimental features"
+                    checked: root.appSettingsController.experimentalFeaturesEnabled
+                    onToggled: root.appSettingsController.experimentalFeaturesEnabled = checked
+                    ToolTip.visible: hovered
+                    ToolTip.text: "Experimental features are newer, less-tested parts of Seabass; they may be "
+                        + "unstable, incomplete, or change without notice."
+                }
+
+                // Same gating ActionCard.qml uses for an experimental feature
+                // (visible: !experimental || experimentalFeaturesEnabled) --
+                // hidden unless the toggle above is actually on, not just
+                // whether this is an experimental-capable build. A plain
+                // option here rather than an ActionCard on the main screen:
+                // this is a maintainer/power-user tool (regenerating the
+                // project's own test fixture, or submitting a library to
+                // help test hardware Sebas doesn't have), not a per-stick
+                // everyday action -- see docs/testing.md.
+                Button {
+                    Layout.leftMargin: root.settingIndent
+                    visible: root.appSettingsController.experimentalFeaturesEnabled
+                    text: "Export Anonymized Library for Testing…"
+                    onClicked: root.anonymizeLibraryRequested()
+                }
             }
         }
     }
