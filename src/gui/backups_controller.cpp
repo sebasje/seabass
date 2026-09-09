@@ -1,3 +1,4 @@
+#include "infrastructure/paths/seabass_paths.hpp"
 #include "gui/library_catalog_cache.hpp"
 #include "backups_controller.hpp"
 
@@ -37,12 +38,12 @@ QString humanSize(std::uint64_t bytes)
 }
 
 // Mirrors cli/main.cpp's backupDirFor(): backups live under
-// <stick root>/.seabass-backups, shared across formats.
+// <stick root>/Seabass/backups, shared across formats.
 std::string backupDirFor(const QString &rekordboxPath, const QString &enginePath)
 {
     fs::path anyPath = !enginePath.isEmpty() ? fs::path(enginePath.toStdString())
                                               : fs::path(rekordboxPath.toStdString());
-    return (anyPath.parent_path() / ".seabass-backups").string();
+    return infrastructure::paths::stickBackupsDir(anyPath.parent_path()).string();
 }
 
 }  // namespace

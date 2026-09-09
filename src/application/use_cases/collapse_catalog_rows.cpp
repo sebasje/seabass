@@ -1,5 +1,6 @@
 #include "application/use_cases/collapse_catalog_rows.hpp"
 
+#include <algorithm>
 #include <map>
 
 #include "application/path_key.hpp"
@@ -50,6 +51,26 @@ void fillGapsFrom(domain::Track &into, const domain::Track &from)
         into.lastPlayedAt = from.lastPlayedAt;
     }
     into.cues = domain::LocalRestorePlanner::mergeCues(into.cues, from.cues);
+
+    // Playlist membership is the union by name, first position kept.
+    // A file is in a playlist if any format says so: the formats are
+    // meant to carry the same playlists, so a membership only one of
+    // them records is one the others are missing, not one that only
+    // half-counts. This is what lets a playlist-scoped cleanup see a
+    // file whose membership happens to be recorded in the format it is
+    // not currently reading. Where two formats disagree about the
+    // position within a playlist, the first wins, like every other field
+    // here -- and that disagreement is divergence for synchronization to
+    // settle, not something to average.
+    for (const auto &membership : from.playlists) {
+        bool known = std::any_of(into.playlists.begin(), into.playlists.end(),
+                                  [&membership](const domain::PlaylistMembership &existing) {
+                                      return existing.name == membership.name;
+                                  });
+        if (!known) {
+            into.playlists.push_back(membership);
+        }
+    }
 }
 
 }  // namespace
@@ -82,6 +103,40 @@ std::vector<domain::Track> collapseCatalogRows(const std::vector<domain::Track> 
     }
 
     return files;
+}
+
+CleanupScanRows collapseForCleanupScan(const CatalogTracks &catalogs,
+                                        const std::vector<std::string> &unreadableCatalogs,
+                                        std::vector<domain::Track> singleCatalogRows)
+{
+    auto withoutStreaming = [](std::vector<domain::Track> tracks) {
+        tracks.erase(std::remove_if(tracks.begin(), tracks.end(),
+                                     [](const domain::Track &t) { return !t.streamingSource.empty(); }),
+                     tracks.end());
+        return tracks;
+    };
+
+    if (!unreadableCatalogs.empty()) {
+        return {withoutStreaming(std::move(singleCatalogRows)), false};
+    }
+
+    std::vector<domain::Track> rows;
+    // Fixed order, because collapseCatalogRows() keeps the first row for
+    // a file as the base and callers are entitled to a stable result.
+    for (const auto *catalog : {&catalogs.rekordbox, &catalogs.engine, &catalogs.oneLibrary}) {
+        if (catalog->has_value()) {
+            rows.insert(rows.end(), (*catalog)->begin(), (*catalog)->end());
+        }
+    }
+    rows = withoutStreaming(std::move(rows));
+    if (rows.empty()) {
+        // No catalog supplied anything. Falling through to an empty
+        // collapse would report a cross-catalog scan that saw nothing,
+        // which reads as "this stick has no duplicates" rather than "this
+        // scan was handed nothing".
+        return {withoutStreaming(std::move(singleCatalogRows)), false};
+    }
+    return {collapseCatalogRows(rows), true};
 }
 
 }  // namespace seabass::application

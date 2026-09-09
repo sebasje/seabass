@@ -15,7 +15,7 @@ int main()
     fs::path root = fs::temp_directory_path() / "seabass_stick_write_lock_test";
     fs::remove_all(root);
     fs::create_directories(root);
-    std::string lockPath = (root / ".seabass-backups" / ".write.lock").string();
+    std::string lockPath = (root / "Seabass" / "backups" / ".write.lock").string();
 
     // Basic acquire/release: creating and destroying a lock cleanly is
     // not itself an error, and does not leave anything held.
@@ -83,7 +83,7 @@ int main()
     // each other, or a write to one stick would needlessly block a write
     // to an unrelated one.
     {
-        std::string otherLockPath = (root / "other-stick" / ".seabass-backups" / ".write.lock").string();
+        std::string otherLockPath = (root / "other-stick" / "Seabass" / "backups" / ".write.lock").string();
         StickWriteLock a(lockPath);
         StickWriteLock b(otherLockPath);  // would throw if locks weren't scoped per-path
         std::cout << "case 5 (locks for different sticks don't contend) OK\n";

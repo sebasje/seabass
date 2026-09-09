@@ -2,6 +2,8 @@
 
 #include <ctime>
 #include <fstream>
+#include <system_error>
+#include <filesystem>
 #include <optional>
 #include <sstream>
 
@@ -120,6 +122,11 @@ void PendingDeletionManifest::append(PendingDeletion entry)
     // Same "open, append, close every call" pattern as FileOperationLog,
     // so multiple Seabass processes writing to the same stick don't
     // stomp on each other's lines.
+    // <stick>/Seabass/orphaned may not exist yet, and ofstream will not
+    // create it -- an unopened stream drops the record of what is waiting
+    // to be deleted, which is the one thing this file exists to keep.
+    std::error_code dirEc;
+    std::filesystem::create_directories(std::filesystem::path(m_manifestPath).parent_path(), dirEc);
     std::ofstream ofs(m_manifestPath, std::ofstream::app);
     ofs << serializeLine(entry);
 }
@@ -142,6 +149,11 @@ void PendingDeletionManifest::removeProcessed(const std::set<std::string> &proce
     if (!anyRemoved) {
         return;
     }
+    // <stick>/Seabass/orphaned may not exist yet, and ofstream will not
+    // create it -- an unopened stream drops the record of what is waiting
+    // to be deleted, which is the one thing this file exists to keep.
+    std::error_code dirEc;
+    std::filesystem::create_directories(std::filesystem::path(m_manifestPath).parent_path(), dirEc);
     std::ofstream ofs(m_manifestPath, std::ofstream::trunc);
     ofs << rewritten.str();
 }

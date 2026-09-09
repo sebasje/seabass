@@ -1,5 +1,9 @@
 #include "gui/edit/save_context.hpp"
 
+#include "infrastructure/backup/stick_write_lock.hpp"
+
+#include "infrastructure/backup/stick_space.hpp"
+
 #include <map>
 #include <set>
 #include <vector>
@@ -72,6 +76,36 @@ infrastructure::backup::FilesystemBackupStore &SaveContext::archiveStore()
     return *m_backupStore;
 }
 
+std::uint64_t SaveContext::releaseAutomaticBackupsIfTight()
+{
+    const auto space = infrastructure::backup::measureStickSpace(stickRoot());
+    if (space.capacityBytes == 0) {
+        // measureStickSpace() returns zeros for a stick it could not read
+        // rather than throwing. Nothing measured means nothing deleted:
+        // "I could not tell how full it is" is not a reason to start
+        // removing the user's undo history.
+        return 0;
+    }
+    const std::uint64_t headroom = space.headroomBytes();
+    if (space.freeBytes >= headroom) {
+        return 0;
+    }
+
+    try {
+        // The same lock the Backups page takes for every action, so a
+        // record cannot be deleted out from under another session's
+        // restore or listing.
+        infrastructure::backup::StickWriteLock lock(
+            infrastructure::backup::backupDirForStickRoot(stickRoot()) + "/.write.lock");
+        return archiveStore().releaseAutomaticBackups(headroom - space.freeBytes);
+    } catch (const std::exception &) {
+        // Another session holds the lock. Releasing space is an
+        // opportunistic tidy-up, never the point of the save, so it is
+        // dropped rather than retried or reported.
+        return 0;
+    }
+}
+
 void SaveContext::backupAllNow(const std::vector<BackupTarget> &targets)
 {
     // Grouped by label, in first-seen order, because a save may hold
@@ -103,7 +137,7 @@ void SaveContext::backupAllNow(const std::vector<BackupTarget> &targets)
         auto existing = m_recordByLabel.find(label);
         application::BackupRecord record;
         if (existing == m_recordByLabel.end()) {
-            record = archiveStore().backupToArchive(files, label);
+            record = archiveStore().backup(files, label);
             m_recordByLabel[label] = record.id;
             m_backups.push_back({QString::fromStdString(fs::path(record.path).parent_path().string()),
                                  QString::fromStdString(record.id)});
@@ -136,7 +170,7 @@ bool SaveContext::backupOnce(const std::string &file, const std::string &label)
     // every point a crash could happen, exactly as the loose layout was.
     // See docs/write-path-performance.md, rounds 9-16.
     if (existing == m_recordByLabel.end()) {
-        record = archiveStore().backupToArchive({file}, label);
+        record = archiveStore().backup({file}, label);
         m_recordByLabel[label] = record.id;
         m_backups.push_back({QString::fromStdString(fs::path(record.path).parent_path().string()),
                              QString::fromStdString(record.id)});

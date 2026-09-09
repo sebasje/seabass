@@ -1,8 +1,11 @@
 #include "infrastructure/local/duration_cache.hpp"
 
+#include "infrastructure/paths/seabass_paths.hpp"
+
 #include <charconv>
 #include <locale>
 #include <filesystem>
+#include <system_error>
 #include <fstream>
 #include <sstream>
 
@@ -15,7 +18,6 @@ namespace seabass::infrastructure::local
 namespace
 {
 
-constexpr const char *CacheFileName = ".seabass-durations.jsonl";
 
 std::string normalizeSeparators(std::string path)
 {
@@ -110,7 +112,7 @@ DurationCache::DurationCache(std::string stickRoot) : m_stickRoot(normalizeSepar
     while (!m_stickRoot.empty() && m_stickRoot.back() == '/') {
         m_stickRoot.pop_back();
     }
-    m_cachePath = m_stickRoot + "/" + CacheFileName;
+    m_cachePath = paths::stickDurationCache(m_stickRoot).string();
 
     std::ifstream in(m_cachePath, std::ios::binary);
     if (!in) {
@@ -204,6 +206,12 @@ bool DurationCache::save()
                                 {"mtime", toText(entry.mtimeSeconds)}});
         out += "\n";
     }
+    // The cache lives in <stick>/Seabass/caches now, which may not exist
+    // yet: writeFileDurablyAtomic() writes to the path it is given and
+    // does not create parents, so without this every save fails silently
+    // on a stick Seabass has not written to before.
+    std::error_code dirEc;
+    std::filesystem::create_directories(std::filesystem::path(m_cachePath).parent_path(), dirEc);
     if (!writeFileDurablyAtomic(m_cachePath, out)) {
         return false;
     }

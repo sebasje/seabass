@@ -14,40 +14,31 @@ namespace seabass::infrastructure::backup
 {
 
 // Stores backups under baseDirectory, one directory per backup:
-// baseDirectory/<timestamp>-<label>/. A record holds either loose copies
-// named after the originals' basenames, or a single deflated `backup.zip`
-// -- see backupToArchive() for why, and readManifest() in the .cpp for how
-// both keep working.
+// baseDirectory/<timestamp>-<label>/, each holding a single deflated
+// `backup.zip` plus its manifest.
 //
-// Either way a user can still get a file back by hand without Seabass: a
-// zip opens in every file manager, and unlike the loose layout its entry
-// names carry the whole relative path, so 200 files all called
-// ANLZ0000.EXT are told apart by where they came from rather than by a
-// _1/_2 suffix.
+// One archive rather than loose copies, for two measured reasons. The
+// loose layout cost one durable whole-file write per file -- about 118 ms
+// each on Linux and 15 ms on Windows, against roughly 2 s for the same
+// bytes as one file -- and it was permanent: 400 loose analysis files
+// occupy 71.5 MB against 45.5 MB deflated, on sticks that were 95% and
+// 97% full. See docs/write-path-performance.md.
+//
+// A user can still get a file back by hand without Seabass: a zip opens
+// in every file manager, and the entry names carry the whole relative
+// path, so 200 files all called ANLZ0000.EXT are told apart by where they
+// came from rather than by a _1/_2 suffix the loose layout needed.
 class FilesystemBackupStore : public application::BackupStore
 {
 public:
     explicit FilesystemBackupStore(std::string baseDirectory);
 
-    application::BackupRecord backup(const std::vector<std::string> &filePaths, const std::string &label) override;
+    application::BackupRecord backup(const std::vector<std::string> &filePaths, const std::string &label,
+                                     application::BackupOrigin origin
+                                     = application::BackupOrigin::Automatic) override;
 
-    // One record, one archive, written in a single pass and deflated.
-    //
-    // The loose layout costs one durable whole-file write per file, and
-    // that is the whole cost of a save: about 118 ms each on Linux and
-    // 15 ms on Windows, against roughly 2 s for the same bytes as one
-    // file. It is also permanent -- a backup stays on the stick, nothing
-    // prunes automatically, and 400 loose analysis files occupy 71.5 MB
-    // against 45.5 MB deflated. See docs/write-path-performance.md.
-    //
-    // Unlike backup()+addToBackup() this needs the whole file list up
-    // front, because an archive gets one central directory rather than
-    // one per appended file.
-    application::BackupRecord backupToArchive(const std::vector<std::string> &filePaths, const std::string &label);
-
-    // Appends to an archive record, the way addToBackup() appends to a
-    // loose one, so a save that discovers its files as it goes can still
-    // use an archive. Each call re-writes the archive's central directory
+    // Appends to an existing record, so a save that discovers its files
+    // as it goes still ends up with one record. Each call re-writes the archive's central directory
     // and makes it durable, so the record is complete and readable after
     // every item -- the same guarantee the loose layout gives, since it
     // fsyncs every copy. The superseded central directories become dead
@@ -56,18 +47,26 @@ public:
     // Throws if `id` is not an archive record.
     application::BackupRecord addToArchive(const std::string &id, const std::vector<std::string> &filePaths);
     std::vector<application::BackupRecord> list() override;
-    application::BackupRecord addToBackup(const std::string &id,
-                                          const std::vector<std::string> &filePaths) override;
     std::uint64_t prune(size_t keepCount) override;
+
+    // Deletes automatic backups, oldest first, until at least bytesWanted
+    // has been freed or only the newest automatic record is left. Returns
+    // the bytes actually freed.
+    //
+    // For the space-pressure case: a stick that has dropped below its
+    // headroom after a save. Only ever called after a SUCCESSFUL save --
+    // on a failure or a cancel the backups are the thing that saves you.
+    //
+    // This buys capacity and nothing else. Neither stick sampled supports
+    // TRIM (discard_max_bytes is 0), so freeing space returns nothing to
+    // the flash controller and the device does not get faster. Nothing in
+    // the UI should suggest otherwise.
+    std::uint64_t releaseAutomaticBackups(std::uint64_t bytesWanted);
     void setDescription(const std::string &id, const std::string &description) override;
     bool restore(const std::string &id) override;
     bool remove(const std::string &id) override;
 
 private:
-    // Copies each file in and returns how many bytes were added, so a
-    // record's size can be accumulated rather than recomputed by walking
-    // the whole directory again after every call.
-    std::uint64_t appendFiles(const std::filesystem::path &dir, const std::vector<std::string> &filePaths);
     // Paths on the stick are stored relative to it, so a backup still
     // restores after the stick comes back at a different mount point or
     // drive letter. See CurrentManifestFormatVersion in the .cpp.
@@ -76,7 +75,7 @@ private:
                             const std::vector<std::pair<std::string, std::string>> &entries);
     // Appends `filePaths` to the archive in `dir`, returns the entry
     // name / recorded path pairs actually written and the archive's new
-    // size. Shared by backupToArchive() and addToArchive().
+    // size. Shared by backup() and addToArchive().
     std::pair<std::vector<std::pair<std::string, std::string>>, std::uint64_t>
     writeArchiveEntries(const std::filesystem::path &dir, const std::vector<std::string> &filePaths);
     std::string recordedPathFor(const std::filesystem::path &source) const;
@@ -97,9 +96,13 @@ private:
     //
     // Seeded from disk the first time a directory is touched, so this
     // stays correct for a store pointed at backups an earlier run made.
+    // Cached so a record's size is accumulated as it grows rather than
+    // recomputed by walking the directory after every append.
+    // takenNames is gone with the loose layout: a zip entry name carries
+    // the whole relative path, so two files called ANLZ0000.EXT cannot
+    // collide and there is nothing left to disambiguate.
     struct DirectoryState
     {
-        std::set<std::string> takenNames;
         std::uint64_t sizeBytes = 0;
     };
     DirectoryState &stateFor(const std::filesystem::path &dir);

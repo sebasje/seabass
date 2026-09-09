@@ -7,6 +7,7 @@
 #include <stdexcept>
 
 #include "infrastructure/local/local_cue_store.hpp"
+#include "infrastructure/paths/seabass_paths.hpp"
 
 using namespace seabass::domain;
 using namespace seabass::infrastructure::local;
@@ -186,7 +187,13 @@ int main()
         assert(!path.empty());
         fs::path p(path);
         assert(p.filename() == "cues.db");
-        assert(p.parent_path().filename() == "seabass");
+        // Stated against the layout rather than against the literal
+        // "~/Seabass/metadata", because the suite runs with SEABASS_HOME
+        // pointed at a sandbox so no test can write into the developer's
+        // real tree. That the unsandboxed default really is <home>/Seabass
+        // is pinned in seabass_paths_test.
+        assert(p == seabass::infrastructure::paths::localMetadataDir() / "cues.db");
+        assert(p.is_absolute());
         std::cout << "case 9 (defaultPath() resolves to a real, non-empty path) OK\n";
     }
 

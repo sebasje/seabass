@@ -35,7 +35,7 @@ int main()
         cache.store(audio, 266.376);
         assert(cache.dirty());
         assert(cache.save());
-        assert(fs::exists(root / ".seabass-durations.jsonl"));
+        assert(fs::exists(root / "Seabass" / "caches" / "durations.jsonl"));
 
         DurationCache reloaded(root.string());
         auto got = reloaded.lookup(audio);
@@ -85,7 +85,7 @@ int main()
     // Case 5: a torn or hand-edited line costs that one entry, not the
     // whole cache.
     {
-        std::ofstream out(root / ".seabass-durations.jsonl", std::ios::app);
+        std::ofstream out(root / "Seabass" / "caches" / "durations.jsonl", std::ios::app);
         out << "{not json at all\n";
         out.close();
         DurationCache cache(root.string());

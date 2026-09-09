@@ -21,7 +21,7 @@ namespace
 constexpr std::array<std::string_view, 5> ExcludedRootDirectories = {
     "System Volume Information", "$RECYCLE.BIN", ".Trashes", ".Spotlight-V100", ".fseventsd",
 };
-constexpr std::string_view WriteLockPath = ".seabass-backups/.write.lock";
+constexpr std::string_view WriteLockPath = "Seabass/backups/.write.lock";
 
 std::string_view firstComponent(std::string_view relativePath)
 {

@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "infrastructure/backup/stick_write_lock.hpp"
+#include "infrastructure/paths/seabass_paths.hpp"
 
 // The on-stick names every write path shares, and the one way to take
 // the per-stick write lock for a set of directories. Qt-free so the CLI
@@ -14,20 +15,18 @@
 namespace seabass::infrastructure::backup
 {
 
-inline constexpr const char *BackupsDirName = ".seabass-backups";
 inline constexpr const char *WriteLockName = ".write.lock";
-inline constexpr const char *OperationLogName = ".seabass.log";
 
 // A catalog path is the "PIONEER" or "Engine Library" folder; the stick
 // root is its parent.
 inline std::string stickRootForCatalogPath(const std::string &catalogPath)
 {
-    return std::filesystem::path(catalogPath).parent_path().string();
+    return paths::stickRootForCatalogPath(catalogPath);
 }
 
 inline std::string backupDirForStickRoot(const std::string &stickRoot)
 {
-    return (std::filesystem::path(stickRoot) / BackupsDirName).string();
+    return paths::stickBackupsDir(stickRoot).string();
 }
 
 inline std::string backupDirForCatalogPath(const std::string &catalogPath)
@@ -37,7 +36,7 @@ inline std::string backupDirForCatalogPath(const std::string &catalogPath)
 
 inline std::string operationLogForStickRoot(const std::string &stickRoot)
 {
-    return (std::filesystem::path(stickRoot) / OperationLogName).string();
+    return paths::stickOperationLog(stickRoot).string();
 }
 
 inline std::string writeLockPathForBackupDir(const std::string &backupDir)
@@ -48,7 +47,7 @@ inline std::string writeLockPathForBackupDir(const std::string &backupDir)
 // Acquires one StickWriteLock per distinct directory (sorted first so two
 // concurrent multi-lock callers always acquire in the same order, and
 // deduped so locking the same directory twice, e.g. rekordbox and
-// OneLibrary sharing one stick root's .seabass-backups, never self-
+// OneLibrary sharing one stick root's Seabass/backups, never self-
 // deadlocks). Held for the caller's whole scope via RAII. Throws
 // StickBusyError if any of them is held elsewhere.
 inline std::vector<std::unique_ptr<StickWriteLock>> acquireStickLocks(std::vector<std::string> backupDirs)

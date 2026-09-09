@@ -1,3 +1,4 @@
+#include "infrastructure/paths/seabass_paths.hpp"
 #include "gui/edit/changes/cleanup_group_change.hpp"
 
 #include <algorithm>
@@ -19,6 +20,7 @@
 #include "infrastructure/engine/libdjinterop_engine_cleanup_writer.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cue_writer.hpp"
 #include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
+#include "infrastructure/stick_layout.hpp"
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 #include "infrastructure/rekordbox/pdb_row_writer.hpp"
 #include "infrastructure/rekordbox/rekordbox_cleanup_writer.hpp"
@@ -105,7 +107,7 @@ struct CleanupWriterContext
     CleanupWriterContext(const QString &format, const QString &path, int itemCountHint, SaveContext &ctx,
                          const std::unordered_map<std::string, std::string> &oneLibrarySourceIdToPath)
         : session(format.toStdString(), path.toStdString(), itemCountHint, "duplicate-file-cleanup", ctx),
-          manifest((fs::path(path.toStdString()).parent_path() / ".seabass-pending-deletions.jsonl").string())
+          manifest(infrastructure::paths::stickPendingDeletions(fs::path(path.toStdString()).parent_path()).string())
     {
         std::optional<std::string> writeRoot;
         if (session.usesScratch()) {
@@ -156,9 +158,29 @@ QString CleanupGroupChange::unit() const
     return QStringLiteral("groups");
 }
 
+QStringList CleanupGroupChange::doomedRowFormats() const
+{
+    QStringList formats;
+    for (const auto &format : domain::catalogsWrittenBy(m_plan)) {
+        formats << QString::fromStdString(format);
+    }
+    return formats;
+}
+
+// Every format this group would have to write to, not just the one the
+// page is showing. On an uncollapsed plan that is exactly m_format, since
+// each row is its own track; a collapsed file carries the other formats'
+// rows in catalogRows and they have to be declared, or the save would
+// take a lock on one catalog and write another.
 QStringList CleanupGroupChange::formatsTouched() const
 {
-    return {m_format};
+    QStringList formats{m_format};
+    for (const auto &format : doomedRowFormats()) {
+        if (!formats.contains(format)) {
+            formats << format;
+        }
+    }
+    return formats;
 }
 
 namespace
@@ -226,9 +248,40 @@ std::vector<BackupTarget> CleanupGroupChange::filesToBackup(SaveContext &ctx) co
     }
     const WriteScope scope{.cueData = true, .catalogRows = true, .oneLibraryMirror = true};
     std::vector<BackupTarget> targets;
-    for (const auto &file :
-         filesWrittenFor(scope, {m_format.toStdString(), m_plan.survivor.sourceId}, m_path, ctx)) {
-        targets.push_back({file, "duplicate-file-cleanup"});
+    auto declare = [&](const std::string &format, const std::string &survivorSourceId, const QString &root) {
+        for (const auto &file : filesWrittenFor(scope, {format, survivorSourceId}, root, ctx)) {
+            targets.push_back({file, "duplicate-file-cleanup"});
+        }
+    };
+
+    declare(m_format.toStdString(), m_plan.survivor.sourceId, m_path);
+
+    // Every OTHER catalog this plan writes, declared here because a save
+    // must back up everything it will overwrite before it overwrites any
+    // of it -- and apply() below removes the doomed rows from each of
+    // them. Keyed per format on purpose: filesWrittenFor takes a
+    // (format, sourceId) pair because a sourceId is not unique across
+    // catalogs, and this decides which file gets overwritten. Passing
+    // m_format's survivor id while naming another catalog's root would
+    // back up one file while the save overwrote a different one.
+    //
+    // A catalog whose path cannot be found on this stick is skipped
+    // rather than guessed at: apply() refuses such a plan outright, so
+    // nothing is written there and nothing needs restoring. Guessing a
+    // path here is the failure filesWrittenFor's own comment warns about.
+    for (const auto &format : domain::catalogsWrittenBy(m_plan)) {
+        if (format == m_format.toStdString()) {
+            continue;
+        }
+        const auto targets_ = domain::writeTargetsFor(m_plan, format);
+        if (domain::hasNoWork(targets_) || targets_.survivorSourceId.empty()) {
+            continue;
+        }
+        const std::string path = infrastructure::catalogPathFor(format, m_path.toStdString());
+        if (path.empty()) {
+            continue;
+        }
+        declare(format, targets_.survivorSourceId, QString::fromStdString(path));
     }
     return targets;
 }
@@ -237,12 +290,51 @@ ChangeOutcome CleanupGroupChange::apply(SaveContext &ctx)
 {
     const auto &plan = m_plan;
 
+    // Decided for EVERY catalog before ANY of them is written. A collapsed
+    // file carries one row per catalog and removing it means removing all
+    // of them; a save that wrote the catalogs it could and then hit one it
+    // could not would leave the library in exactly the split state this
+    // feature exists to prevent. So the whole plan is checked first and
+    // refused whole.
+    //
+    // Two ways a catalog is unwritable, and they are different failures:
+    // the survivor has no row there to repoint the removed rows'
+    // playlists at (canWriteWholeCatalog, the writer-side view of
+    // DuplicateCleanupPlan::wouldStrandAFormat), or the catalog names a
+    // file this stick does not have. The second is not hypothetical --
+    // catalogPathFor() checks existence rather than deriving a path and
+    // hoping, because handing a writer a path to a database that is not
+    // there has it create one.
+    std::vector<std::pair<std::string, QString>> catalogsToWrite;  // format -> its path
+    for (const auto &format : domain::catalogsWrittenBy(plan)) {
+        const auto targets = domain::writeTargetsFor(plan, format);
+        if (!domain::canWriteWholeCatalog(targets)) {
+            return ChangeOutcome::failure(
+                QStringLiteral("\"%1\" has a %2 row to remove but no %2 row to keep, so removing it "
+                                "would take the track out of that catalog entirely. Nothing was written.")
+                    .arg(QString::fromStdString(plan.survivor.title), QString::fromStdString(format)));
+        }
+        if (domain::hasNoWork(targets)) {
+            continue;
+        }
+        const QString path = format == m_format.toStdString()
+            ? m_path
+            : QString::fromStdString(infrastructure::catalogPathFor(format, m_path.toStdString()));
+        if (path.isEmpty()) {
+            return ChangeOutcome::failure(
+                QStringLiteral("\"%1\" has a %2 row to remove, but this stick has no %2 catalog to "
+                                "remove it from. Nothing was written.")
+                    .arg(QString::fromStdString(plan.survivor.title), QString::fromStdString(format)));
+        }
+        catalogsToWrite.push_back({format, path});
+    }
+
     // A plan that writes to no catalog is one or more manifest lines and
     // nothing else, so it deliberately opens no write session: the
     // manifest is append-per-call precisely so it needs none.
     if (!writesToCatalog(plan)) {
         infrastructure::cleanup::PendingDeletionManifest manifest(
-            (fs::path(m_path.toStdString()).parent_path() / ".seabass-pending-deletions.jsonl").string());
+            infrastructure::paths::stickPendingDeletions(fs::path(m_path.toStdString()).parent_path()).string());
         recordStrayFilesForDeletion(manifest, plan, m_format.toStdString(), ctx.log());
         return ChangeOutcome::success();
     }
@@ -261,6 +353,18 @@ ChangeOutcome CleanupGroupChange::apply(SaveContext &ctx)
                                                       oneLibrarySourceIdToPath);
     });
     CleanupFormatContext &fc = w.context;
+
+    // When the plan carries a OneLibrary row of its own, the loop at the
+    // end of this function writes that catalog properly -- by row id,
+    // with its own backup and session. The best-effort mirrors below
+    // would then write it a SECOND time, by path, outside that session.
+    // They exist for the uncollapsed case, where nothing else touches
+    // OneLibrary at all and leaving its row behind orphans it. Once it is
+    // a catalog in its own right, mirroring it is not a safety net, it is
+    // a duplicate write to a file another session already owns.
+    const bool oneLibraryWrittenAsCatalog =
+        std::any_of(catalogsToWrite.begin(), catalogsToWrite.end(),
+                    [](const std::pair<std::string, QString> &entry) { return entry.first == "onelibrary"; });
     application::OperationLog &log = ctx.log();
     const QString &format = m_format;
 
@@ -295,7 +399,7 @@ ChangeOutcome CleanupGroupChange::apply(SaveContext &ctx)
         // above, never fatal to this operation. See OneLibraryCueWriter's
         // own class comment and docs/onelibrary-format.md.
         if (!fc.pioneerRoot.empty() && !plan.survivor.filePath.empty()
-            && infrastructure::onelibrary::OneLibraryCueWriter::existsFor(fc.pioneerRoot)) {
+            && infrastructure::onelibrary::OneLibraryCueWriter::existsFor(fc.pioneerRoot) && !oneLibraryWrittenAsCatalog) {
             try {
                 sharedOneLibraryWriter(ctx, fc.pioneerRoot)
                     .writeCuesForPath(plan.survivor.filePath, plan.mergedCuesForSurvivor);
@@ -373,7 +477,7 @@ ChangeOutcome CleanupGroupChange::apply(SaveContext &ctx)
         // this format is rekordbox (format == "onelibrary" already wrote
         // OneLibrary directly above, as the primary write).
         if (format == "rekordbox" && !fc.pioneerRoot.empty() && !plan.survivor.filePath.empty()
-            && infrastructure::onelibrary::OneLibraryCueWriter::existsFor(fc.pioneerRoot)) {
+            && infrastructure::onelibrary::OneLibraryCueWriter::existsFor(fc.pioneerRoot) && !oneLibraryWrittenAsCatalog) {
             try {
                 auto &oneLibFieldWriter = sharedOneLibraryWriter(ctx, fc.pioneerRoot);
                 if (plan.keyForSurvivor) {
@@ -424,7 +528,7 @@ ChangeOutcome CleanupGroupChange::apply(SaveContext &ctx)
         // (this is exactly how real orphaned rows were found on
         // production data, see docs/onelibrary-format.md).
         if (!fc.pioneerRoot.empty() && !doomed.filePath.empty() && !plan.survivor.filePath.empty()
-            && infrastructure::onelibrary::OneLibraryCueWriter::existsFor(fc.pioneerRoot)) {
+            && infrastructure::onelibrary::OneLibraryCueWriter::existsFor(fc.pioneerRoot) && !oneLibraryWrittenAsCatalog) {
             try {
                 // Reassigns the doomed row's OneLibrary playlist
                 // memberships onto the survivor instead of dropping
@@ -448,6 +552,68 @@ ChangeOutcome CleanupGroupChange::apply(SaveContext &ctx)
         w.manifest.append(pending);
     }
 
+    // Every OTHER catalog listing this file. Cue merge FIRST, then
+    // removal, per catalog: removing a row drops the cues stored on it,
+    // so a catalog whose survivor row was never given the merged set
+    // loses whatever only the doomed row held. That is the whole reason
+    // this cannot be one write repeated -- each catalog has its own
+    // survivor row, its own doomed rows, and its own cues to preserve.
+    //
+    // ctx.shared() is already keyed, so a per-format context sits beside
+    // the primary one in the same save: one FormatWriteSession per
+    // catalog, each with its own backup, exactly as SyncPlanChange does
+    // it. Reached only for a collapsed plan; until collapse is switched
+    // on in the scan, catalogsToWrite holds m_format alone and this loop
+    // does not run.
+    for (const auto &[secondaryFormat, secondaryPath] : catalogsToWrite) {
+        if (secondaryFormat == m_format.toStdString()) {
+            continue;
+        }
+        const auto targets = domain::writeTargetsFor(plan, secondaryFormat);
+        const QString qFormat = QString::fromStdString(secondaryFormat);
+
+        std::unordered_map<std::string, std::string> secondaryIdToPath;
+        std::string secondaryKey = "cleanup:" + secondaryFormat;
+        if (secondaryFormat == "onelibrary") {
+            secondaryIdToPath[targets.survivorSourceId] = plan.survivor.filePath;
+            for (const auto &doomed : plan.toRemove) {
+                secondaryIdToPath[doomed.sourceId] = doomed.filePath;
+            }
+            secondaryKey += ":" + targets.survivorSourceId;
+        }
+        CleanupWriterContext &sw = ctx.shared<CleanupWriterContext>(secondaryKey, [&]() {
+            return std::make_unique<CleanupWriterContext>(qFormat, secondaryPath, m_itemCountHint, ctx,
+                                                          secondaryIdToPath);
+        });
+
+        // Same fallback the primary path uses, and for the same reason:
+        // whatever filesToBackup() already declared is deduplicated by
+        // backupOnce(), and anything it could not is covered here before
+        // this catalog is touched.
+        for (const auto &f :
+             filesWrittenFor({.cueData = true, .catalogRows = true, .oneLibraryMirror = true},
+                             {secondaryFormat, targets.survivorSourceId}, secondaryPath, ctx)) {
+            ctx.backupOnce(f, "duplicate-file-cleanup");
+        }
+
+        if (plan.mergedCuesForSurvivor.size() > plan.survivor.cues.size()) {
+            sw.context.cueWriter->writeHotCues(targets.survivorSourceId, plan.mergedCuesForSurvivor);
+            sw.session.noteItemApplied();
+            log.record("cleanup: wrote merged cues onto the " + secondaryFormat + " survivor row id="
+                       + targets.survivorSourceId);
+        }
+
+        for (const auto &doomedId : targets.doomedSourceIds) {
+            sw.context.cleanupWriter->removeTrackReplacingWith(doomedId, targets.survivorSourceId);
+            sw.session.noteItemApplied();
+            log.record("cleanup: removed the " + secondaryFormat + " row id=" + doomedId
+                       + ", replaced by survivor id=" + targets.survivorSourceId);
+        }
+    }
+
+    // One manifest line per doomed FILE, not per catalog row: the file is
+    // deleted once however many catalogs listed it, and the primary pass
+    // above has already written those lines.
     recordStrayFilesForDeletion(w.manifest, plan, format.toStdString(), log);
     return ChangeOutcome::success();
 }

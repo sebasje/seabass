@@ -32,6 +32,14 @@ class LibraryConsistencyIssueListModel : public QAbstractListModel
     QML_ELEMENT
     QML_UNCREATABLE("Populated by LibraryConsistencyController; not constructible from QML")
 
+    // QAbstractListModel gives QML no row count of its own: rowCount() is
+    // an override with a default argument, so it is not invokable, and a
+    // page binding to `model.count` reads undefined and assigns 0 without
+    // complaint. That is not hypothetical -- LibraryHealthHubPage's entire
+    // summary was built on `issues.count` and reported a clean library
+    // however many problems the scan found.
+    Q_PROPERTY(int count READ count NOTIFY countChanged)
+
 public:
     enum Roles {
         KindRole = Qt::UserRole + 1,
@@ -64,6 +72,10 @@ public:
     const std::vector<domain::LibraryConsistencyIssue> &issues() const { return m_issues; }
     void setStaged(int index, bool staged, const QString &description);
     void clearStaged();
+    int count() const { return static_cast<int>(m_issues.size()); }
+
+signals:
+    void countChanged();
 
 private:
     std::vector<domain::LibraryConsistencyIssue> m_issues;
@@ -80,6 +92,14 @@ class JunkCueIssueListModel : public QAbstractListModel
     Q_OBJECT
     QML_ELEMENT
     QML_UNCREATABLE("Populated by LibraryConsistencyController; not constructible from QML")
+
+    // QAbstractListModel gives QML no row count of its own: rowCount() is
+    // an override with a default argument, so it is not invokable, and a
+    // page binding to `model.count` reads undefined and assigns 0 without
+    // complaint. That is not hypothetical -- LibraryHealthHubPage's entire
+    // summary was built on `issues.count` and reported a clean library
+    // however many problems the scan found.
+    Q_PROPERTY(int count READ count NOTIFY countChanged)
 
 public:
     enum Roles {
@@ -109,6 +129,10 @@ public:
     const std::vector<domain::JunkCueIssue> &issues() const { return m_issues; }
     void setStaged(int index, bool staged);
     void clearStaged();
+    int count() const { return static_cast<int>(m_issues.size()); }
+
+signals:
+    void countChanged();
 
 private:
     std::vector<domain::JunkCueIssue> m_issues;

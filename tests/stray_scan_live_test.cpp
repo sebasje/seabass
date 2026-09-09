@@ -19,7 +19,7 @@
 //                                         where the survivor rule fired
 //
 // READS ONLY. It writes exactly one file to the stick, the metadata
-// cache (.seabass-metadata.jsonl) the scan itself maintains, and never
+// cache (Seabass/caches/metadata.jsonl) the scan itself maintains, and never
 // touches a catalog, the pending-deletion manifest, or an audio file.
 #include <algorithm>
 #include <cassert>
@@ -90,8 +90,15 @@ int main()
 {
     const char *stick = std::getenv("SEABASS_LIVE_STICK");
     if (stick == nullptr || *stick == '\0') {
-        std::cout << "SEABASS_LIVE_STICK not set -- skipping the live stray-file scan\n";
-        return 0;
+        // Fail, never skip. This test is only registered when the build
+        // was configured with -DSEABASS_LIVE_STICK=<path> (see
+        // CMakeLists.txt), which also supplies this variable through
+        // ctest -- so reaching here means it is about to check nothing,
+        // and returning 0 would report a live scan that never happened.
+        std::cerr << "FAIL: SEABASS_LIVE_STICK is unset, so no live stick was scanned.\n"
+                     "      Configure with -DSEABASS_LIVE_STICK=/path/to/stick, or run\n"
+                     "      this binary with SEABASS_LIVE_STICK set.\n";
+        return 1;
     }
     const std::string root = stick;
     std::cout << "stick: " << root << "\n";

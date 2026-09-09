@@ -32,7 +32,7 @@ public:
 class StickWriteLock
 {
 public:
-    // lockFilePath is typically <stick root>/.seabass-backups/.write.lock
+    // lockFilePath is typically <stick root>/Seabass/backups/.write.lock
     // -- callers construct it from whichever "stick root" they already
     // compute for FilesystemBackupStore. Throws StickBusyError if another
     // holder already has it; std::runtime_error if the lock file itself

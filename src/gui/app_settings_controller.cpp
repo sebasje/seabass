@@ -1,3 +1,4 @@
+#include "infrastructure/paths/seabass_paths.hpp"
 #include "app_settings_controller.hpp"
 
 #include <QDir>
@@ -8,7 +9,7 @@ namespace seabass::gui
 
 QString AppSettingsController::defaultStickBackupDirectory()
 {
-    return QDir(QStandardPaths::writableLocation(QStandardPaths::HomeLocation)).filePath(QStringLiteral("Seabass Backups"));
+    return QString::fromStdString(infrastructure::paths::localFullBackupsDir().string());
 }
 
 AppSettingsController::AppSettingsController(QObject *parent)

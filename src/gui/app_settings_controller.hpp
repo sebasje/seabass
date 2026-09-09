@@ -68,7 +68,7 @@ public:
     void setKeyNotation(const QString &value);
 
     // Where full stick backups (one `<label>.zip` per stick) are kept.
-    // Defaults to "<home>/Seabass Backups" -- a place the user can find,
+    // Defaults to "<home>/Seabass/backups/full" -- a place the user can find,
     // browse with 7-Zip/unzip and copy elsewhere, deliberately not the
     // hidden app-data directory (see docs/stick-backup-plan.md, "Archive
     // location and identity").

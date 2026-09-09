@@ -41,8 +41,21 @@ Page {
         enginePath: root.enginePath
     }
 
-    Component.onCompleted: cleanupController.scan(root.format, root.currentPath())
-    onFormatChanged: cleanupController.scan(root.format, root.currentPath())
+    // "" scopes the review to the whole library; a real name narrows it
+    // to one playlist. Distinct from the search box below, which filters
+    // the groups already found -- this one changes what is scanned, so
+    // it re-runs the scan.
+    property string selectedPlaylistName: ""
+
+    readonly property var playlistPickerModel: [{name: "All tracks", count: ""}].concat(
+        cleanupController.playlistNames.map((n) => ({name: n, count: ""})))
+
+    function rescanInScope() {
+        cleanupController.scan(root.format, root.currentPath(), root.selectedPlaylistName, "");
+    }
+
+    Component.onCompleted: root.rescanInScope()
+    onFormatChanged: root.rescanInScope()
 
     function formatDuration(ms) {
         var totalSeconds = Math.round(ms / 1000);
@@ -184,6 +197,32 @@ Page {
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 12
+                Label {
+                    text: "Playlist:"
+                    color: Theme.textMuted
+                }
+                PlaylistPickerCombo {
+                    Layout.minimumWidth: 140
+                    enabled: !cleanupController.busy && !cleanupController.writing
+                    model: root.playlistPickerModel
+                    currentIndex: {
+                        if (root.selectedPlaylistName.length === 0) {
+                            return 0;
+                        }
+                        for (var i = 1; i < root.playlistPickerModel.length; i++) {
+                            if (root.playlistPickerModel[i].name === root.selectedPlaylistName) {
+                                return i;
+                            }
+                        }
+                        return 0;
+                    }
+                    ToolTip.visible: hovered
+                    ToolTip.text: "Clean up one playlist instead of the whole library"
+                    onPlaylistPicked: (index, modelData) => {
+                        root.selectedPlaylistName = index === 0 ? "" : modelData.name;
+                        root.rescanInScope();
+                    }
+                }
                 TextField {
                     id: searchField
                     placeholderText: "Search title or artist..."

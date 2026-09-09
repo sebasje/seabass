@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 #include <QString>
 #include <QStringList>
 
@@ -19,6 +21,12 @@ struct SaveLoopResult
     QString error;           // empty unless a change or a finish hook failed
     bool cancelled = false;  // stopped between two changes on request
     std::vector<UndoableBackup> backups;
+    // Bytes freed by releasing old automatic backups after this save,
+    // which only happens when the stick was below its headroom. Worth
+    // surfacing because the user's undo history just got shorter -- but
+    // never as "the stick is faster now": neither stick sampled supports
+    // TRIM, so freeing space returns nothing to the flash controller.
+    std::uint64_t bytesReleased = 0;
 };
 
 // The one save loop every session runs (worker thread): applies changes

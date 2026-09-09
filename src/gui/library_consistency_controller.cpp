@@ -36,7 +36,16 @@ namespace seabass::gui
 namespace fs = std::filesystem;
 using domain::LibraryConsistencyIssue;
 
-LibraryConsistencyIssueListModel::LibraryConsistencyIssueListModel(QObject *parent) : QAbstractListModel(parent) {}
+LibraryConsistencyIssueListModel::LibraryConsistencyIssueListModel(QObject *parent) : QAbstractListModel(parent)
+{
+    // countChanged follows the model's own structural signals rather than
+    // being emitted by hand at each mutation site, so a mutation added
+    // later cannot forget it -- which is how `count` came to be wrong in
+    // the first place, only in QML rather than here.
+    connect(this, &QAbstractItemModel::modelReset, this, &LibraryConsistencyIssueListModel::countChanged);
+    connect(this, &QAbstractItemModel::rowsInserted, this, &LibraryConsistencyIssueListModel::countChanged);
+    connect(this, &QAbstractItemModel::rowsRemoved, this, &LibraryConsistencyIssueListModel::countChanged);
+}
 
 int LibraryConsistencyIssueListModel::rowCount(const QModelIndex &parent) const
 {
@@ -185,7 +194,16 @@ void LibraryConsistencyIssueListModel::clearStaged()
     emit dataChanged(index(0), index(static_cast<int>(m_issues.size()) - 1), {StagedRole, StagedDescriptionRole});
 }
 
-JunkCueIssueListModel::JunkCueIssueListModel(QObject *parent) : QAbstractListModel(parent) {}
+JunkCueIssueListModel::JunkCueIssueListModel(QObject *parent) : QAbstractListModel(parent)
+{
+    // countChanged follows the model's own structural signals rather than
+    // being emitted by hand at each mutation site, so a mutation added
+    // later cannot forget it -- which is how `count` came to be wrong in
+    // the first place, only in QML rather than here.
+    connect(this, &QAbstractItemModel::modelReset, this, &JunkCueIssueListModel::countChanged);
+    connect(this, &QAbstractItemModel::rowsInserted, this, &JunkCueIssueListModel::countChanged);
+    connect(this, &QAbstractItemModel::rowsRemoved, this, &JunkCueIssueListModel::countChanged);
+}
 
 int JunkCueIssueListModel::rowCount(const QModelIndex &parent) const
 {

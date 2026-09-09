@@ -95,8 +95,8 @@ struct Fixture
         createEngineDb(stick / "Engine Library" / "Database2" / "m.db");
         fs::create_directories(stick / "Engine Library" / "Music");
         writeFile(stick / "System Volume Information" / "junk", "os junk", 1);
-        writeFile(stick / ".seabass-backups" / ".write.lock", "", 1);
-        writeFile(stick / ".seabass-backups" / "keep-me.txt", "undo store contents", 1'700'000'003);
+        writeFile(stick / "Seabass" / "backups" / ".write.lock", "", 1);
+        writeFile(stick / "Seabass" / "backups" / "keep-me.txt", "undo store contents", 1'700'000'003);
         writeFile(stick / "Engine Library" / "Database2" / "m.db-shm", std::string(32, '\0'), 1);
 #if !defined(_WIN32)
         fs::create_symlink(stick / "Contents" / "a.mp3", stick / "Contents" / "link.mp3");
@@ -180,8 +180,8 @@ int main()
         std::set<std::string> names = f.archiveNames();
         assert(names.count("Contents/a.mp3") && names.count("Contents/Sub/b.mp3") && names.count("PIONEER/rekordbox/export.pdb"));
         assert(names.count("Engine Library/Database2/m.db") && names.count("Engine Library/Music/"));
-        assert(names.count(".seabass-backups/keep-me.txt"));
-        assert(!names.count(".seabass-backups/.write.lock"));
+        assert(names.count("Seabass/backups/keep-me.txt"));
+        assert(!names.count("Seabass/backups/.write.lock"));
         assert(!names.count("System Volume Information/junk") && !names.count("System Volume Information/"));
         assert(!names.count("Engine Library/Database2/m.db-shm"));
         assert(!names.count("Contents/link.mp3"));

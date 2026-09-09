@@ -170,7 +170,11 @@ Page {
         id: confirmRemoveAllJunkCuesDialog
         severity: SeabassDialog.Warning
         destructive: true
-        title: "Stage removing all " + junkCueRepeater.count + " memory cue(s) at 0:00?"
+        // Not junkCueRepeater.count: that Repeater lives inside the
+        // ListView footer, whose ids are scoped to the footer
+        // component, so from out here it is a ReferenceError and this
+        // title never binds. The model is the shared thing both can see.
+        title: "Stage removing all " + consistencyController.junkCues.count + " memory cue(s) at 0:00?"
         headline: "This stages removing every memory cue at 0:00 currently listed, across every catalog on "
             + "this stick -- once you press Save that is a real write, not just dismissing them from view."
         detailText: "Everything is backed up first, but make sure this is really what you want."

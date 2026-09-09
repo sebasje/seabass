@@ -1,4 +1,7 @@
 #include <cassert>
+#include <map>
+#include <string>
+#include <vector>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -6,6 +9,7 @@
 #include "infrastructure/backup/filesystem_backup_store.hpp"
 
 using namespace seabass::infrastructure::backup;
+using seabass::application::BackupOrigin;
 namespace fs = std::filesystem;
 
 namespace
@@ -33,7 +37,7 @@ int main()
     fs::remove_all(root);
     fs::create_directories(root);
 
-    fs::path backupsDir = root / ".seabass-backups";
+    fs::path backupsDir = root / "Seabass" / "backups";
     fs::path targetFile = root / "m.db";
     writeFile(targetFile, "original contents");
 
@@ -76,7 +80,7 @@ int main()
         writeFile(b1, "b original");
         FilesystemBackupStore store(backupsDir.string());
         auto record = store.backup({a1.string()}, "junk-cue-cleanup");
-        auto grown = store.addToBackup(record.id, {b1.string()});
+        auto grown = store.addToArchive(record.id, {b1.string()});
         assert(grown.id == record.id);
         assert(grown.sizeBytes > record.sizeBytes);
         auto records = store.list();
@@ -89,34 +93,31 @@ int main()
         assert(readFile(b1) == "b original");
         bool threw = false;
         try {
-            store.addToBackup("no-such-backup", {a1.string()});
+            store.addToArchive("no-such-backup", {a1.string()});
         } catch (const std::exception &) {
             threw = true;
         }
         assert(threw);
-        std::cout << "case 1b (addToBackup grows one record; restore brings every file back) OK\n";
+        std::cout << "case 1b (addToArchive grows one record; restore brings every file back) OK\n";
     }
 
-    // A manifest with no MANIFEST-VERSION header (predating this feature)
-    // is treated as version 1, not refused.
+    // A manifest with no version line is not a shape this build wrote.
+    // It used to be read as "version 1"; there is no version 1 any more,
+    // so it is refused rather than guessed at.
     {
         fs::remove_all(backupsDir);
         FilesystemBackupStore store(backupsDir.string());
         auto record = store.backup({targetFile.string()}, "sync");
 
-        // Rewrite the manifest to strip the version header, simulating a
-        // backup made before versioning existed.
         fs::path manifestPath = fs::path(record.path) / ".manifest";
         std::string original = readFile(manifestPath);
         size_t firstNewline = original.find('\n');
-        std::string withoutHeader = original.substr(firstNewline + 1);
-        writeFile(manifestPath, withoutHeader);
+        writeFile(manifestPath, original.substr(firstNewline + 1));
 
-        writeFile(targetFile, "changed again");
-        bool restored = store.restore(record.id);
-        assert(restored);
-        assert(readFile(targetFile) == "original contents");
-        std::cout << "case 2 (manifest without a version header still restores, as version 1) OK\n";
+        writeFile(targetFile, "should stay untouched");
+        assert(!store.restore(record.id));
+        assert(readFile(targetFile) == "should stay untouched");
+        std::cout << "case 2 (a manifest with no version line is refused) OK\n";
     }
 
     // A manifest claiming a future format version this build doesn't
@@ -249,12 +250,12 @@ int main()
         fs::path exportPdb = pioneer / "export.pdb";
         writeFile(exportPdb, "original library");
 
-        FilesystemBackupStore store((stickA / ".seabass-backups").string());
+        FilesystemBackupStore store((stickA / "Seabass" / "backups").string());
         auto record = store.backup({exportPdb.string()}, "sync");
 
         // Nothing absolute may have been written down.
-        std::string manifest = readFile(stickA / ".seabass-backups" / record.id / ".manifest");
-        assert(manifest.find("MANIFEST-VERSION\t2") != std::string::npos);
+        std::string manifest = readFile(stickA / "Seabass" / "backups" / record.id / ".manifest");
+        assert(manifest.find("MANIFEST-VERSION\t4") != std::string::npos);
         assert(manifest.find(stickA.string()) == std::string::npos);
         assert(manifest.find("PIONEER/rekordbox/export.pdb") != std::string::npos);
 
@@ -263,7 +264,7 @@ int main()
         fs::rename(stickA, stickB);
         writeFile(stickB / "PIONEER" / "rekordbox" / "export.pdb", "changed since");
 
-        FilesystemBackupStore moved((stickB / ".seabass-backups").string());
+        FilesystemBackupStore moved((stickB / "Seabass" / "backups").string());
         assert(moved.restore(record.id));
         assert(readFile(stickB / "PIONEER" / "rekordbox" / "export.pdb") == "original library");
         // ...and nothing was resurrected at the old mount point.
@@ -291,35 +292,15 @@ int main()
         writeFile(elsewhere, "local cue store");
         fs::create_directories(stick);
 
-        FilesystemBackupStore store((stick / ".seabass-backups").string());
+        FilesystemBackupStore store((stick / "Seabass" / "backups").string());
         auto record = store.backup({elsewhere.string()}, "local-restore");
-        std::string manifest = readFile(stick / ".seabass-backups" / record.id / ".manifest");
+        std::string manifest = readFile(stick / "Seabass" / "backups" / record.id / ".manifest");
         assert(manifest.find(fs::absolute(elsewhere).string()) != std::string::npos);
 
         writeFile(elsewhere, "clobbered");
         assert(store.restore(record.id));
         assert(readFile(elsewhere) == "local cue store");
         std::cout << "case 10 (a file off the stick stays absolute) OK\n";
-    }
-
-    // Every backup already on a user's stick was written with absolute
-    // paths and a version 1 header. Those must keep restoring exactly as
-    // they did, at the path they name.
-    {
-        fs::path stick = root / "legacy";
-        fs::path target = stick / "PIONEER" / "rekordbox" / "export.pdb";
-        writeFile(target, "restored from a v1 backup");
-        fs::path recordDir = stick / ".seabass-backups" / "20260101T000000-sync";
-        fs::create_directories(recordDir);
-        writeFile(recordDir / "export.pdb", "restored from a v1 backup");
-        writeFile(recordDir / ".manifest",
-                  "MANIFEST-VERSION\t1\nexport.pdb\t" + fs::absolute(target).string() + "\n");
-
-        writeFile(target, "changed since");
-        FilesystemBackupStore store((stick / ".seabass-backups").string());
-        assert(store.restore("20260101T000000-sync"));
-        assert(readFile(target) == "restored from a v1 backup");
-        std::cout << "case 11 (a version 1 manifest with absolute paths still restores) OK\n";
     }
 
     // ---- archive-backed records --------------------------------------
@@ -333,8 +314,8 @@ int main()
         writeFile(a, aBody);
         writeFile(b, bBody);
 
-        FilesystemBackupStore store((stick / ".seabass-backups").string());
-        auto record = store.backupToArchive({a.string(), b.string()}, "stray-cues");
+        FilesystemBackupStore store((stick / "Seabass" / "backups").string());
+        auto record = store.backup({a.string(), b.string()}, "stray-cues");
         assert(record.filePaths.size() == 2);
         assert(fs::exists(fs::path(record.path) / "backup.zip"));
         // Both files are called ANLZ0000.EXT. The loose layout has to
@@ -367,8 +348,8 @@ int main()
         fs::path stick = root / "arch-damaged";
         fs::path a = stick / "PIONEER" / "export.pdb";
         writeFile(a, "the original");
-        FilesystemBackupStore store((stick / ".seabass-backups").string());
-        auto record = store.backupToArchive({a.string()}, "sync");
+        FilesystemBackupStore store((stick / "Seabass" / "backups").string());
+        auto record = store.backup({a.string()}, "sync");
 
         fs::path archive = fs::path(record.path) / "backup.zip";
         fs::resize_file(archive, fs::file_size(archive) / 2);
@@ -379,19 +360,136 @@ int main()
         std::cout << "case 14 (a truncated archive refuses to restore) OK\n";
     }
 
-    // Everything above must not have broken the loose layout: a v2 record
-    // made the old way still restores.
+    // --- who owns a backup, and therefore who may delete it -----------
+    //
+    // Automatic records are Seabass's own safety copies and Seabass may
+    // release them under space pressure. Anything the user asked for is
+    // the user's. Getting this wrong deletes data that cannot be got
+    // back, so each rule is checked rather than assumed.
     {
-        fs::path stick = root / "still-loose";
+        fs::path stick = root / "origins";
         fs::path a = stick / "PIONEER" / "export.pdb";
-        writeFile(a, "loose original");
-        FilesystemBackupStore store((stick / ".seabass-backups").string());
+        FilesystemBackupStore store((stick / "Seabass" / "backups").string());
+
+        writeFile(a, "one");
+        auto auto1 = store.backup({a.string()}, "sync");
+        writeFile(a, "two");
+        auto mine = store.backup({a.string()}, "before-gig", BackupOrigin::UserRequested);
+        writeFile(a, "three");
+        auto auto2 = store.backup({a.string()}, "sync");
+
+        auto records = store.list();
+        assert(records.size() == 3);
+        std::map<std::string, BackupOrigin> byId;
+        for (const auto &r : records) {
+            byId[r.id] = r.origin;
+        }
+        assert(byId[auto1.id] == BackupOrigin::Automatic);
+        assert(byId[mine.id] == BackupOrigin::UserRequested);
+        assert(byId[auto2.id] == BackupOrigin::Automatic);
+        std::cout << "case 16 (origin survives a round trip through the store) OK\n";
+
+        // keepCount counts automatic records only. Were the user's
+        // counted, three of their own backups would push out every
+        // safety copy Seabass still needs.
+        std::uint64_t freed = store.prune(1);
+        assert(freed > 0);
+        assert(fs::exists(mine.path));   // never Seabass's to delete
+        assert(fs::exists(auto2.path));  // newest automatic, the keepCount survivor
+        assert(!fs::exists(auto1.path));
+        std::cout << "case 17 (prune deletes automatic backups and leaves the user's) OK\n";
+    }
+
+    // The newest automatic record is what Undo Last Save needs, so the
+    // pressure release never takes it however much space is asked for.
+    {
+        fs::path stick = root / "release";
+        fs::path a = stick / "PIONEER" / "export.pdb";
+        FilesystemBackupStore store((stick / "Seabass" / "backups").string());
+
+        writeFile(a, std::string(4096, 'x'));
+        auto oldest = store.backup({a.string()}, "sync");
+        writeFile(a, std::string(4096, 'y'));
+        auto middle = store.backup({a.string()}, "sync");
+        writeFile(a, std::string(4096, 'z'));
+        auto newest = store.backup({a.string()}, "sync");
+
+        std::uint64_t freed = store.releaseAutomaticBackups(1);
+        assert(freed > 0);
+        assert(!fs::exists(oldest.path));  // oldest first
+        assert(fs::exists(middle.path));   // asked for 1 byte, stopped once it had it
+        assert(fs::exists(newest.path));
+        std::cout << "case 18 (the release takes the oldest first and stops when satisfied) OK\n";
+
+        // Far more than the records hold: it must still refuse the last one.
+        store.releaseAutomaticBackups(1ull << 40);
+        assert(fs::exists(newest.path));
+        assert(!fs::exists(middle.path));
+        std::cout << "case 19 (the newest automatic backup is never released) OK\n";
+
+        // Nothing asked for, nothing deleted.
+        auto before = store.list().size();
+        assert(store.releaseAutomaticBackups(0) == 0);
+        assert(store.list().size() == before);
+        std::cout << "case 20 (asking for no bytes deletes nothing) OK\n";
+    }
+
+    // restore() takes a copy of what it is about to overwrite. The user
+    // asked for the restore, so that copy is theirs.
+    {
+        fs::path stick = root / "prerestore";
+        fs::path a = stick / "PIONEER" / "export.pdb";
+        FilesystemBackupStore store((stick / "Seabass" / "backups").string());
+
+        writeFile(a, "original");
         auto record = store.backup({a.string()}, "sync");
-        assert(!fs::exists(fs::path(record.path) / "backup.zip"));
         writeFile(a, "changed");
         assert(store.restore(record.id));
-        assert(readFile(a) == "loose original");
-        std::cout << "case 15 (the loose layout is untouched) OK\n";
+
+        bool sawUserOwned = false;
+        for (const auto &r : store.list()) {
+            if (r.label == "pre-restore") {
+                assert(r.origin == BackupOrigin::UserRequested);
+                sawUserOwned = true;
+            }
+        }
+        assert(sawUserOwned);
+        // And the pressure release must not be able to take it.
+        store.releaseAutomaticBackups(1ull << 40);
+        bool stillThere = false;
+        for (const auto &r : store.list()) {
+            stillThere = stillThere || r.label == "pre-restore";
+        }
+        assert(stillThere);
+        std::cout << "case 22 (a restore's undo copy belongs to the user) OK\n";
+    }
+
+    // The manifest's own header lines are bookkeeping, not content. The
+    // parser turns any line it does not recognise into a backed-up file
+    // entry, so a header it forgets about comes back as a file to restore.
+    {
+        fs::path stick = root / "marker";
+        fs::path a = stick / "PIONEER" / "export.pdb";
+        FilesystemBackupStore store((stick / "Seabass" / "backups").string());
+        writeFile(a, "payload");
+        auto record = store.backup({a.string()}, "sync");
+
+        bool seen = false;
+        for (const auto &listed : store.list()) {
+            if (listed.id != record.id) {
+                continue;
+            }
+            seen = true;
+            assert(listed.filePaths.size() == 1);
+            assert(listed.filePaths.front().find("export.pdb") != std::string::npos);
+            assert(listed.origin == BackupOrigin::Automatic);
+            // The record is one deflated archive, so its size is the
+            // archive's -- not the payload's, and not zero.
+            assert(listed.sizeBytes > 0);
+            assert(fs::exists(fs::path(listed.path) / "backup.zip"));
+        }
+        assert(seen);
+        std::cout << "case 23 (manifest headers are not read back as files to restore) OK\n";
     }
 
     std::cout << "all cases passed\n";

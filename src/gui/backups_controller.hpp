@@ -72,7 +72,7 @@ struct BackupsTaskResult
 };
 
 // Wraps FilesystemBackupStore for QML: lists the backups made under a
-// stick's .seabass-backups directory (shared across rekordbox/Engine on
+// stick's Seabass/backups directory (shared across rekordbox/Engine on
 // that stick, see backupDirFor() in cli/main.cpp), prunes old ones,
 // restores/deletes individual ones, and edits their descriptions. Every
 // operation -- even a plain list -- is disk I/O against a directory that

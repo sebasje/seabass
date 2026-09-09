@@ -1,7 +1,10 @@
 #include "infrastructure/local/metadata_cache.hpp"
 
+#include "infrastructure/paths/seabass_paths.hpp"
+
 #include <charconv>
 #include <filesystem>
+#include <system_error>
 #include <fstream>
 #include <locale>
 #include <sstream>
@@ -15,7 +18,6 @@ namespace seabass::infrastructure::local
 namespace
 {
 
-constexpr const char *CacheFileName = ".seabass-metadata.jsonl";
 
 std::string normalizeSeparators(std::string path)
 {
@@ -125,7 +127,7 @@ MetadataCache::MetadataCache(std::string stickRoot) : m_stickRoot(normalizeSepar
     while (!m_stickRoot.empty() && m_stickRoot.back() == '/') {
         m_stickRoot.pop_back();
     }
-    m_cachePath = m_stickRoot + "/" + CacheFileName;
+    m_cachePath = paths::stickMetadataCache(m_stickRoot).string();
 
     std::ifstream in(m_cachePath, std::ios::binary);
     if (!in) {
@@ -239,6 +241,12 @@ bool MetadataCache::save()
                                 {"mtime", toText(entry.mtimeSeconds)}});
         out += "\n";
     }
+    // The cache lives in <stick>/Seabass/caches now, which may not exist
+    // yet: writeFileDurablyAtomic() writes to the path it is given and
+    // does not create parents, so without this every save fails silently
+    // on a stick Seabass has not written to before.
+    std::error_code dirEc;
+    std::filesystem::create_directories(std::filesystem::path(m_cachePath).parent_path(), dirEc);
     if (!writeFileDurablyAtomic(m_cachePath, out)) {
         return false;
     }

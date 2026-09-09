@@ -74,8 +74,29 @@ bool TrackScope::matches(const Track &track) const
             // m_value is already lowercased -- see TrackScope::search().
             return toLowerAscii(track.title).find(m_value) != std::string::npos
                 || toLowerAscii(track.artist).find(m_value) != std::string::npos;
-        case Kind::Arbitrary:
-            return m_ids.count(TrackId{track.format, track.sourceId}) > 0;
+        case Kind::Arbitrary: {
+            // Any of the file's rows will do. A track that has been
+            // collapsed into a file (see
+            // application::collapseCatalogRows) carries one base row
+            // plus the rows the other formats wrote for the same file,
+            // and a caller that picked "this track" picked the file --
+            // it cannot be expected to know, or care, which format's row
+            // id ended up as the base. Selecting the Engine row and
+            // being told the file is out of scope because its base row
+            // is rekordbox's would be nonsense.
+            //
+            // catalogRows is empty on anything not collapsed, so a
+            // caller working in one format at a time is unaffected.
+            if (m_ids.count(TrackId{track.format, track.sourceId}) > 0) {
+                return true;
+            }
+            for (const auto &row : track.catalogRows) {
+                if (m_ids.count(TrackId{row.format, row.sourceId}) > 0) {
+                    return true;
+                }
+            }
+            return false;
+        }
     }
     return false;
 }

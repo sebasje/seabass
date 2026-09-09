@@ -8,7 +8,7 @@ import SeabassGui
 // into one archive on this computer (reads the stick), bringing it up to
 // date from a newer copy of its library (writes the stick), and
 // BackupsPage (the automatic per-write backups kept on the stick itself
-// under .seabass-backups -- deprecated pending a rework). Restoring a
+// under Seabass/backups -- deprecated pending a rework). Restoring a
 // stick backup and LocalCuePage (cue backup/restore to/from this
 // computer) moved to a general block on the Home page instead: neither
 // is actually about this specific stick -- Restore picks its own target

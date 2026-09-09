@@ -32,22 +32,48 @@ ToolButton {
         // the window -- silently clipped, with no scrollbar and no hint
         // that anything was missing.
         readonly property int edgeMargin: 8
-        readonly property real centeredX: Math.round((root.width - width) / 2)
-        readonly property real sceneX: root.mapToItem(null, 0, 0).x
-        readonly property real clampedSceneX: Math.max(
-            edgeMargin, Math.min(sceneX + centeredX, root.Window.width - width - edgeMargin))
 
-        x: centeredX + (clampedSceneX - (sceneX + centeredX))
+        // Positioned imperatively when it is about to show, not by a
+        // binding on the window's size.
+        //
+        // Two earlier attempts bound x/width to root.Window.width and
+        // then to Overlay.overlay.width. Both are null while the Popup
+        // is being constructed, and neither notifies when it later
+        // becomes real, so the binding kept its first value: the
+        // arithmetic stayed NaN, Qt ignored it, and the popup went on
+        // running off the right edge exactly as before. Both times it
+        // looked fixed in the source and was not -- caught on a
+        // screenshot, not by reading it. By onAboutToShow the popup has
+        // a window, so the numbers are simply there to be read.
+        function placeInsideWindow() {
+            var overlay = Overlay.overlay;
+            var w = overlay ? overlay.width : (root.Window.width || 0);
+            var h = overlay ? overlay.height : (root.Window.height || 0);
+            if (w > 0) {
+                width = Math.min(420, w - 2 * edgeMargin);
+            }
+            var centered = Math.round((root.width - width) / 2);
+            var sceneLeft = root.mapToItem(null, centered, 0).x;
+            if (w > 0) {
+                var maxLeft = w - width - edgeMargin;
+                if (sceneLeft > maxLeft) {
+                    centered -= (sceneLeft - maxLeft);
+                    sceneLeft = maxLeft;
+                }
+                if (sceneLeft < edgeMargin) {
+                    centered += (edgeMargin - sceneLeft);
+                }
+            }
+            x = centered;
+            var below = root.mapToItem(null, 0, root.height).y;
+            maxHeight = h > 0 ? Math.max(120, h - below - edgeMargin) : 600;
+        }
+
+        property real maxHeight: 600
+        onAboutToShow: placeInsideWindow()
+
         y: root.height
-        width: Math.min(420, root.Window.width - 2 * edgeMargin)
 
-        // How much room is left below the button. A long explanation
-        // must scroll inside that, not run off the bottom of the window
-        // where it would be clipped as silently as it used to be
-        // clipped off the right edge.
-        readonly property real sceneBottomY: root.mapToItem(null, 0, root.height).y
-        readonly property real maxHeight:
-            Math.max(120, root.Window.height - sceneBottomY - edgeMargin)
         modal: true
         focus: true
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside

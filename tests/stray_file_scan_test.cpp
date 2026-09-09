@@ -211,7 +211,7 @@ int main()
     // The cache is on the stick, so a second scan needs no file reads --
     // and must not change a single answer.
     {
-        assert(fs::exists(root / ".seabass-metadata.jsonl"));
+        assert(fs::exists(root / "Seabass" / "caches" / "metadata.jsonl"));
         auto again = infrastructure::cleanup::scanStrayFiles(root.string(), catalogs, {},
                                                               application::CancellationToken::none());
         assert(again.filesFound == scan.filesFound);

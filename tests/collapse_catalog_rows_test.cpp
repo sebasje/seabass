@@ -8,6 +8,7 @@
 #include "application/use_cases/collapse_catalog_rows.hpp"
 #include "domain/duplicate_cleanup.hpp"
 #include "domain/duplicate_cue_consolidation.hpp"
+#include "domain/track_scope.hpp"
 
 using namespace seabass;
 using seabass::application::collapseCatalogRows;
@@ -178,6 +179,140 @@ int main()
         }
         assert(plan.toRemove[0].catalogRows.size() == 3);
         std::cout << "case 8 (six rows, two files: one group, one removal, three rows to drop) OK\n";
+    }
+
+    // Playlist membership is the union across formats. A cleanup scoped
+    // to a playlist has to see a file whose membership was only recorded
+    // in the format it is not reading -- otherwise scoping silently
+    // changes which files are candidates, and the formats are meant to
+    // carry the same playlists anyway.
+    {
+        Track rb = row("rekordbox", "11", "/stick/Contents/a.mp3", "Sorry", 200.0, 256);
+        rb.playlists = {{"Techno/Peak Time", 3}};
+        Track en = row("engine", "22", "/stick/Contents/a.mp3", "Sorry", 200.0, 0);
+        en.playlists = {{"Techno/Peak Time", 9}, {"Warmup", 1}};
+        auto files = collapseCatalogRows({rb, en});
+        assert(files.size() == 1);
+        assert(files[0].playlists.size() == 2);
+        // First position wins, like every other field here.
+        assert(files[0].playlists[0].name == "Techno/Peak Time" && files[0].playlists[0].position == 3);
+        assert(domain::TrackScope::playlist("Warmup").matches(files[0]));
+        std::cout << "case 9 (playlists are the union across a file's formats) OK\n";
+    }
+
+    // A selection names a file, not a row. Picking the track by its
+    // Engine row must still select the file when the collapse happened
+    // to make rekordbox's row the base.
+    {
+        std::vector<Track> rows = {
+            row("rekordbox", "11", "/stick/Contents/a.mp3", "Sorry", 200.0, 256),
+            row("engine", "22", "/stick/Contents/a.mp3", "Sorry", 200.0, 0),
+        };
+        auto files = collapseCatalogRows(rows);
+        assert(files.size() == 1 && files[0].format == "rekordbox");
+        auto byEngineRow = domain::TrackScope::arbitrary({{"engine", "22"}});
+        assert(byEngineRow.matches(files[0]));
+        auto byRekordboxRow = domain::TrackScope::arbitrary({{"rekordbox", "11"}});
+        assert(byRekordboxRow.matches(files[0]));
+        auto bySomethingElse = domain::TrackScope::arbitrary({{"engine", "99"}});
+        assert(!bySomethingElse.matches(files[0]));
+        std::cout << "case 10 (a selection by any format's row selects the file) OK\n";
+    }
+
+    // Collapse then scope, never the other way round: scoping rows first
+    // hands the collapse a partial set, and the file comes out missing
+    // the rows that would have had to go with it.
+    {
+        Track rb = row("rekordbox", "11", "/stick/Contents/a.mp3", "Sorry", 200.0, 256);
+        rb.playlists = {{"Techno", 1}};
+        Track en = row("engine", "22", "/stick/Contents/a.mp3", "Sorry", 200.0, 0);
+        // Engine never recorded this file's membership -- the formats
+        // have diverged, which is exactly when order starts to matter.
+        auto scope = domain::TrackScope::playlist("Techno");
+
+        auto collapsedThenScoped = domain::filterByScope(collapseCatalogRows({rb, en}), scope);
+        assert(collapsedThenScoped.size() == 1);
+        assert(collapsedThenScoped[0].catalogRows.size() == 2);  // both rows still go with it
+
+        auto scopedThenCollapsed = collapseCatalogRows(domain::filterByScope({rb, en}, scope));
+        assert(scopedThenCollapsed.size() == 1);
+        assert(scopedThenCollapsed[0].catalogRows.size() == 1);  // Engine's row silently lost
+        std::cout << "case 11 (collapse then scope keeps every row that must go with the file) OK\n";
+    }
+
+    // --- collapseForCleanupScan: the scan's collapse-or-not decision ---
+
+    // Every catalog readable: rows from all of them fold into files, so a
+    // plan can carry each catalog's row and one save can remove them all.
+    {
+        Track rb = row("rekordbox", "rb1", "/stick/Contents/a.mp3", "Sorry", 200.0, 256);
+        Track en = row("engine", "en1", "/stick/Contents/a.mp3", "Sorry", 200.0, 0);
+        application::CatalogTracks catalogs;
+        catalogs.rekordbox = std::vector<Track>{rb};
+        catalogs.engine = std::vector<Track>{en};
+
+        auto scan = application::collapseForCleanupScan(catalogs, {}, {rb});
+        assert(scan.collapsedAcrossCatalogs);
+        assert(scan.rows.size() == 1);
+        assert(scan.rows[0].catalogRows.size() == 2);
+        std::cout << "case 12 (all catalogs readable: rows fold into files) OK\n";
+    }
+
+    // A catalog that could not be read: NOT collapsed. A file whose Engine
+    // row was never seen would look Engine-free, the save would remove
+    // only the rekordbox row, and Engine would be left listing a file
+    // rekordbox no longer does -- deduplication manufacturing the split
+    // state it exists to prevent. Finding less is the safe failure.
+    {
+        Track rb = row("rekordbox", "rb1", "/stick/Contents/a.mp3", "Sorry", 200.0, 256);
+        Track en = row("engine", "en1", "/stick/Contents/a.mp3", "Sorry", 200.0, 0);
+        application::CatalogTracks catalogs;
+        catalogs.rekordbox = std::vector<Track>{rb};
+        catalogs.engine = std::vector<Track>{en};
+
+        auto scan = application::collapseForCleanupScan(catalogs, {"onelibrary"}, {rb});
+        assert(!scan.collapsedAcrossCatalogs);
+        assert(scan.rows.size() == 1);
+        // The caller's own row, uncollapsed: no catalogRows, so nothing
+        // downstream believes this file has an Engine row to remove.
+        assert(scan.rows[0].catalogRows.empty());
+        assert(scan.rows[0].sourceId == "rb1");
+        std::cout << "case 13 (an unreadable catalog forbids collapsing) OK\n";
+    }
+
+    // Streaming rows never reach grouping, from either branch: their path
+    // names a cache on another machine, so they must never be a survivor
+    // or a doomed copy.
+    {
+        Track rb = row("rekordbox", "rb1", "/stick/Contents/a.mp3", "Sorry", 200.0, 256);
+        Track stream = row("engine", "en2", "/cache/elsewhere.mp3", "Streamed", 200.0, 0);
+        stream.streamingSource = "tidal";
+        application::CatalogTracks catalogs;
+        catalogs.rekordbox = std::vector<Track>{rb};
+        catalogs.engine = std::vector<Track>{stream};
+
+        auto collapsed = application::collapseForCleanupScan(catalogs, {}, {rb});
+        assert(collapsed.collapsedAcrossCatalogs);
+        assert(collapsed.rows.size() == 1);
+        assert(collapsed.rows[0].streamingSource.empty());
+
+        auto fallback = application::collapseForCleanupScan(catalogs, {"engine"}, {rb, stream});
+        assert(!fallback.collapsedAcrossCatalogs);
+        assert(fallback.rows.size() == 1);
+        assert(fallback.rows[0].streamingSource.empty());
+        std::cout << "case 14 (streaming rows are dropped on both branches) OK\n";
+    }
+
+    // Nothing supplied at all falls back rather than reporting a
+    // cross-catalog scan that saw nothing -- which would read as "no
+    // duplicates on this stick" instead of "this scan was handed nothing".
+    {
+        Track rb = row("rekordbox", "rb1", "/stick/Contents/a.mp3", "Sorry", 200.0, 256);
+        application::CatalogTracks empty;
+        auto scan = application::collapseForCleanupScan(empty, {}, {rb});
+        assert(!scan.collapsedAcrossCatalogs);
+        assert(scan.rows.size() == 1);
+        std::cout << "case 15 (no catalog supplied anything: falls back, does not claim a collapse) OK\n";
     }
 
     std::cout << "all collapse_catalog_rows_test cases passed\n";

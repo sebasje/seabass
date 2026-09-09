@@ -34,7 +34,7 @@ int main()
     fs::remove_all(root);
     fs::create_directories(root);
     fs::path engineRoot = root / "Engine Library";
-    fs::path backupDir = root / ".seabass-backups";
+    fs::path backupDir = root / "Seabass" / "backups";
 
     int64_t survivor1Id, doomed1Id, survivor2Id, doomed2Id;
     {
