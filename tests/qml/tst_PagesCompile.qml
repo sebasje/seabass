@@ -11,7 +11,7 @@ TestCase {
     name: "PagesCompile"
 
     readonly property var pages: [
-        "StickListPage", "DuplicatesHubPage", "BackupsHubPage", "ScanPage", "TrackDetailPage",
+        "StickListPage", "DuplicatesHubPage", "BackupsHubPage", "LibraryHealthHubPage", "ScanPage", "TrackDetailPage",
         "DuplicatesPage", "CleanupPage", "PendingDeletionsPage", "JunkCuePage", "LibraryConsistencyPage",
         "StickStatisticsPage", "EngineLibraryCreatorPage", "SyncPage", "BackupsPage", "LocalCuePage",
         "AboutPage", "DonationPage", "SettingsPage", "AppSettingsPage", "AnonymizeLibraryPage",

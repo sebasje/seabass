@@ -16,8 +16,17 @@ Page {
     required property string enginePath
     required property var playbackController
 
+    // The hub has usually just scanned this library, and a scan reads
+    // three catalogs and stats a few thousand files -- minutes on a full
+    // stick. When it hands its controller over, this page shows those
+    // results instead of asking the user to wait through the same work a
+    // second time. Opened directly (no hub), it scans for itself.
+    property var sharedController: null
+    readonly property var consistencyController: root.sharedController !== null
+        && root.sharedController !== undefined ? root.sharedController : ownController
+
     LibraryConsistencyController {
-        id: consistencyController
+        id: ownController
     }
 
     // Edit mode for this library: session, floating Save, leave guard.
@@ -69,7 +78,14 @@ Page {
         consistencyController.scan(root.rekordboxPath, root.enginePath);
     }
 
-    Component.onCompleted: rescan()
+    // Only when there is nothing to show yet: a shared controller arrives
+    // already holding this library's results, and re-running the scan
+    // would throw them away and make the user wait again.
+    Component.onCompleted: {
+        if (root.sharedController === null || root.sharedController === undefined) {
+            rescan();
+        }
+    }
 
     header: ToolBar {
         // Opaque background override, see AppSettingsPage.qml's header

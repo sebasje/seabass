@@ -319,7 +319,7 @@ ApplicationWindow {
                 rekordboxPath: rekordboxPath,
                 enginePath: enginePath,
             })
-            onLibraryHealthRequested: (stickLabel, rekordboxPath, enginePath) => stackView.push(libraryConsistencyPageComponent, {
+            onLibraryHealthRequested: (stickLabel, rekordboxPath, enginePath) => stackView.push(libraryHealthHubPageComponent, {
                 stickLabel: stickLabel,
                 rekordboxPath: rekordboxPath,
                 enginePath: enginePath,
@@ -466,6 +466,24 @@ ApplicationWindow {
         }
     }
 
+    // Library Health opens on its hub: every check run once, each
+    // reporting in a sentence. The detailed row-by-row view is pushed from
+    // there, and is handed the hub's own controller so it shows the scan
+    // that just ran rather than repeating it.
+    Component {
+        id: libraryHealthHubPageComponent
+        LibraryHealthHubPage {
+            id: healthHub
+            playbackController: playbackCtrl
+            onDetailRequested: (section) => stackView.push(libraryConsistencyPageComponent, {
+                stickLabel: healthHub.stickLabel,
+                rekordboxPath: healthHub.rekordboxPath,
+                enginePath: healthHub.enginePath,
+                sharedController: healthHub.consistencyController,
+            })
+        }
+    }
+
     Component {
         id: stickStatisticsPageComponent
         StickStatisticsPage {
@@ -578,7 +596,7 @@ ApplicationWindow {
                 defaultBackupDirectory: appSettingsCtrl.stickBackupDirectory
             }
             onFormatUsbRequested: stackView.push(formatUsbPageComponent)
-            onLibraryHealthRequested: (stickLabel, rekordboxPath, enginePath) => stackView.push(libraryConsistencyPageComponent, {
+            onLibraryHealthRequested: (stickLabel, rekordboxPath, enginePath) => stackView.push(libraryHealthHubPageComponent, {
                 stickLabel: stickLabel,
                 rekordboxPath: rekordboxPath,
                 enginePath: enginePath,

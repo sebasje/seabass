@@ -39,6 +39,7 @@ set(SEABASS_GUI_QML_FILES
     qml/common/InfoButton.qml
     qml/common/MessageDialog.qml
     qml/common/MessagePopup.qml
+    qml/common/HealthCheckCard.qml
     qml/common/PageTitle.qml
     qml/common/SeabassDialog.qml
     qml/common/SpaceReclaimBar.qml
@@ -74,6 +75,7 @@ set(SEABASS_GUI_QML_FILES
     qml/PendingDeletionsPage.qml
     qml/JunkCuePage.qml
     qml/LibraryConsistencyPage.qml
+    qml/LibraryHealthHubPage.qml
     qml/StickStatisticsPage.qml
     qml/TreemapView.qml
     qml/EngineLibraryCreatorPage.qml
