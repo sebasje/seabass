@@ -2198,6 +2198,153 @@ void caseLibraryHealthRepair(const DataSet &set, const fs::path &scratch, const 
     pass("matrix: a repair merges cues onto the survivor and removes the broken row");
 }
 
+// Matrix: a cleanup that has to write TWO catalogs. The whole point of
+// treating a file rather than a row as the unit of duplication is that one
+// file is listed by rekordbox and by Engine at once, and removing it means
+// removing both rows -- with each catalog's survivor row given the merged
+// cues BEFORE its doomed row goes, or the cues that only lived on the
+// doomed row are lost in that catalog.
+//
+// Built so it cannot pass unless the second catalog was really written.
+// The decisive assertions are the Engine ones: the Engine row gone from a
+// fresh Engine scan, and the merged cues present on the Engine survivor.
+// Nothing in the single-catalog path touches either, so a save that
+// quietly wrote only rekordbox fails here rather than looking correct --
+// which matters, because that is precisely the state this code was in
+// before, and 105 green tests said nothing about it.
+void caseCleanUpAcrossCatalogs(const DataSet &set, const fs::path &scratch)
+{
+    if (!set.rekordboxRoot || !set.engineRoot) {
+        std::cout << "    skipped matrix/cross-catalog cleanup: this set has only one catalog\n";
+        return;
+    }
+
+    // A real stick's layout, not the set's own: catalogPathFor() finds the
+    // sibling catalog by walking up from one of them, so the two have to
+    // sit under a single root named the way a stick names them. That is
+    // also what makes this test exercise the path resolution rather than
+    // being handed both paths.
+    const fs::path stick = scratch / "matrix-xcat";
+    fs::remove_all(stick);
+    fs::create_directories(stick);
+    fs::copy(*set.rekordboxRoot, stick / "PIONEER", fs::copy_options::recursive);
+    fs::copy(*set.engineRoot, stick / "Engine Library", fs::copy_options::recursive);
+    const fs::path pioneer = stick / "PIONEER";
+    const fs::path engineLib = stick / "Engine Library";
+
+    auto rekordboxBefore = rescanRekordbox(pioneer);
+    auto engineBefore = rescanEngine(engineLib);
+
+    std::vector<domain::Track> rows = rekordboxBefore;
+    rows.insert(rows.end(), engineBefore.begin(), engineBefore.end());
+    const auto files = application::collapseCatalogRows(rows);
+
+    auto bothFormats = [](const domain::Track &file) {
+        bool rekordbox = false, engine = false;
+        for (const auto &row : file.catalogRows) {
+            rekordbox = rekordbox || row.format == "rekordbox";
+            engine = engine || row.format == "engine";
+        }
+        return rekordbox && engine;
+    };
+    // Chosen by the real planner rather than by hand. Picking a survivor
+    // with no cues (as the single-catalog case does) cannot work here: a
+    // collapsed file's cues are the union of its rows', so on real data
+    // every one of the 1161 cross-format files has some. Running the
+    // planner also means this exercises survivor selection and the
+    // stranding check rather than assuming them.
+    std::vector<const domain::Track *> crossFormat;
+    for (const auto &file : files) {
+        if (bothFormats(file)) {
+            crossFormat.push_back(&file);
+        }
+    }
+
+    domain::DuplicateCleanupPlan plan;
+    bool found = false;
+    // Bounded: a pair is normally found within the first few, and this is
+    // a matrix case that runs on every corpus set.
+    const std::size_t limit = std::min<std::size_t>(crossFormat.size(), 60);
+    for (std::size_t i = 0; i < limit && !found; ++i) {
+        for (std::size_t j = 0; j < limit && !found; ++j) {
+            if (i == j) {
+                continue;
+            }
+            domain::DuplicateGroup group;
+            group.tracks = {*crossFormat[i], *crossFormat[j]};
+            auto candidate = domain::DuplicateCleanupPlanner::plan(group);
+            // Needs a cue the survivor does not already have, or the save
+            // writes no cues and the Engine cue assertion below would pass
+            // against data that was already correct -- the exact shape of
+            // check this suite has been finding all day.
+            if (candidate.mergedCuesForSurvivor.size() > candidate.survivor.cues.size()
+                && !candidate.wouldStrandAFormat && !candidate.toRemove.empty()
+                && !candidate.toRemove[0].isUnreferenced) {
+                plan = candidate;
+                found = true;
+            }
+        }
+    }
+    if (!found) {
+        std::cout << "    (no cross-catalog cleanup to check: this set has no pair of files listed by "
+                     "both catalogs where one holds a cue the other lacks)\n";
+        fs::remove_all(stick);
+        return;
+    }
+    const domain::Track *survivor = &plan.survivor;
+    const domain::Track *doomed = &plan.toRemove[0];
+
+    auto rowIdIn = [](const domain::Track &track, const std::string &format) {
+        for (const auto &row : track.catalogRows) {
+            if (row.format == format) {
+                return row.sourceId;
+            }
+        }
+        return std::string();
+    };
+    const std::string doomedEngineId = rowIdIn(*doomed, "engine");
+    const std::string survivorEngineId = rowIdIn(*survivor, "engine");
+    const std::string doomedRekordboxId = rowIdIn(*doomed, "rekordbox");
+
+    auto change = std::make_shared<gui::CleanupGroupChange>("rekordbox", QString::fromStdString(pioneer.string()),
+                                                            plan, 1);
+    auto result = runChanges({change}, pioneer, engineLib);
+    if (!check(result.error.isEmpty(),
+               "the cross-catalog cleanup save reported no error: " + result.error.toStdString())) {
+        fs::remove_all(stick);
+        return;
+    }
+
+    auto rekordboxAfter = rescanRekordbox(pioneer);
+    auto engineAfter = rescanEngine(engineLib);
+
+    check(findTrack(rekordboxAfter, doomedRekordboxId) == nullptr,
+          "the doomed copy's rekordbox row is gone");
+
+    // The four that only the second catalog's write can satisfy.
+    check(engineAfter.size() == engineBefore.size() - 1,
+          "the Engine catalog lost exactly one row");
+    check(findTrack(engineAfter, doomedEngineId) == nullptr,
+          "the doomed copy's ENGINE row is gone, not just its rekordbox one");
+    const domain::Track *engineSurvivor = findTrack(engineAfter, survivorEngineId);
+    if (check(engineSurvivor != nullptr, "the survivor's Engine row is still there")) {
+        for (const auto &wanted : plan.mergedCuesForSurvivor) {
+            bool landed = false;
+            for (const auto &actual : engineSurvivor->cues) {
+                if (actual.kind == wanted.kind && actual.hotCueNumber == wanted.hotCueNumber
+                    && actual.positionMs == wanted.positionMs) {
+                    landed = true;
+                }
+            }
+            check(landed, "a cue that only existed on the removed copy survived onto the ENGINE survivor");
+        }
+    }
+    std::cout << "    cross-catalog cleanup: rekordbox " << rekordboxBefore.size() << "->"
+              << rekordboxAfter.size() << ", engine " << engineBefore.size() << "->" << engineAfter.size()
+              << ", " << plan.mergedCuesForSurvivor.size() << " cue(s) preserved in both\n";
+    fs::remove_all(stick);
+}
+
 // Matrix: Clean Up duplicates. The survivor ends up with the union of the
 // group's cues, every removed row is gone from a fresh scan, and each
 // removed copy is named in the pending-deletion manifest rather than
@@ -2363,6 +2510,7 @@ void runMatrix(const DataSet &set, const fs::path &scratch, const Catalogs &cata
     caseBackupPrecedesWrites(set, scratch, catalogs);
     caseNoPaddedStringsFromRekordbox(set, catalogs);
     caseCollapseGroupsAcrossFormats(set, catalogs);
+    caseCleanUpAcrossCatalogs(set, scratch);
     caseBackupPathResolver(set, scratch, catalogs);
     caseBackupCoversEveryChangedFile(set, scratch, catalogs);
     caseSync(set, scratch, catalogs, expected);
