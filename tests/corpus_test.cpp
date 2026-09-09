@@ -819,23 +819,29 @@ void caseEngineStability(const DataSet &set, const fs::path &scratch, const Cata
     fs::remove_all(root);
     fs::copy(*set.engineRoot, root, fs::copy_options::recursive);
 
-    infrastructure::engine::LibdjinteropEngineCueWriter writer(root.string());
-    domain::CuePoint cue;
-    cue.kind = domain::CuePoint::Kind::Hot;
-    cue.hotCueNumber = 1;
-    cue.positionMs = 1000.0;
-
     int attempted = 0;
     int refused = 0;
-    for (const auto &track : catalogs.engine) {
-        if (attempted >= sampleSize) {
-            break;
-        }
-        ++attempted;
-        try {
-            writer.writeHotCues(track.sourceId, {cue});
-        } catch (const std::exception &) {
-            ++refused;
+    // Scoped so the writer's own SQLite connection is closed before
+    // remove_all() below deletes the tree -- POSIX happily unlinks a file
+    // still open elsewhere in the same process (frees it on last close),
+    // so this only showed up on Windows, which locks it.
+    {
+        infrastructure::engine::LibdjinteropEngineCueWriter writer(root.string());
+        domain::CuePoint cue;
+        cue.kind = domain::CuePoint::Kind::Hot;
+        cue.hotCueNumber = 1;
+        cue.positionMs = 1000.0;
+
+        for (const auto &track : catalogs.engine) {
+            if (attempted >= sampleSize) {
+                break;
+            }
+            ++attempted;
+            try {
+                writer.writeHotCues(track.sourceId, {cue});
+            } catch (const std::exception &) {
+                ++refused;
+            }
         }
     }
     // A refusal must not be silent, and it must not take the rest of the
@@ -871,18 +877,23 @@ void caseWorkCounts(const DataSet &set, const fs::path &scratch, const Catalogs 
         items = static_cast<int>(catalogs.engine.size());
     }
 
-    infrastructure::engine::LibdjinteropEngineCueWriter writer(root.string());
-    domain::CuePoint cue;
-    cue.kind = domain::CuePoint::Kind::Hot;
-    cue.hotCueNumber = 1;
-    cue.positionMs = 2000.0;
-
     WorkCounters::instance().reset();
-    for (int i = 0; i < items; ++i) {
-        try {
-            writer.writeHotCues(catalogs.engine[static_cast<size_t>(i)].sourceId, {cue});
-        } catch (const std::exception &) {
-            // counted by the stability case, not here
+    // Scoped so the writer's own SQLite connection is closed before
+    // remove_all() below deletes the tree -- see caseEngineStability's
+    // own comment on the same fix.
+    {
+        infrastructure::engine::LibdjinteropEngineCueWriter writer(root.string());
+        domain::CuePoint cue;
+        cue.kind = domain::CuePoint::Kind::Hot;
+        cue.hotCueNumber = 1;
+        cue.positionMs = 2000.0;
+
+        for (int i = 0; i < items; ++i) {
+            try {
+                writer.writeHotCues(catalogs.engine[static_cast<size_t>(i)].sourceId, {cue});
+            } catch (const std::exception &) {
+                // counted by the stability case, not here
+            }
         }
     }
     const auto counts = WorkCounters::instance().snapshot();
@@ -1046,6 +1057,12 @@ void caseAddCue(const DataSet &set, const fs::path &scratch, const Catalogs &cat
                     // through it come back as plausible-looking garbage.
                     const std::vector<domain::Track> oneLibraryTracks = reader.readAll();
                     const std::string wanted = trimmed(reread->filePath);
+                    // Named, not a temporary bound into the range-for: a
+                    // pointer taken into readAll()'s returned vector must
+                    // outlive the loop that fills `mirrored`, and a
+                    // temporary's lifetime ends with the loop itself,
+                    // leaving mirrored dangling the moment it's read below.
+                    auto oneLibraryTracks = reader.readAll();
                     const domain::Track *mirrored = nullptr;
                     for (const auto &t : oneLibraryTracks) {
                         if (trimmed(t.filePath) == wanted) {

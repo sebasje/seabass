@@ -107,7 +107,7 @@ private:
     QString m_enginePath;
     std::unique_ptr<application::OperationLog> m_log;
     std::unique_ptr<infrastructure::backup::FilesystemBackupStore> m_backupStore;
-    std::map<std::string, std::string> m_backedUp;  // file -> backup id
+    std::map<std::string, std::string> m_backedUp;  // normalizedPathKey(file) -> backup id
     std::map<std::string, std::string> m_recordByLabel;  // label -> this save's record for it
     std::vector<UndoableBackup> m_backups;
     std::map<std::string, std::shared_ptr<void>> m_shared;
