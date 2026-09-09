@@ -71,6 +71,18 @@ SaveLoopResult runSaveLoop(const std::vector<std::shared_ptr<PendingChange>> &ch
             result.error = *hookError;
         }
     }
+    // Only after the whole batch went through, and only if the stick is
+    // actually tight. On a failure or a cancel the backups are the thing
+    // that saves you, so nothing is released then; and while there is
+    // room, a backup is worth far more than the space it takes.
+    //
+    // Deliberately not reported as a step or an error: this is Seabass
+    // tidying up after itself, and a save that succeeded must not look
+    // like it half-failed because a cleanup could not get the lock.
+    if (result.error.isEmpty() && !result.cancelled) {
+        result.bytesReleased = ctx.releaseAutomaticBackupsIfTight();
+    }
+
     ctx.progress().finish();
     result.backups = ctx.takeBackups();
     return result;

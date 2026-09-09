@@ -1,4 +1,5 @@
 #include <cassert>
+#include <map>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -6,6 +7,7 @@
 #include "infrastructure/backup/filesystem_backup_store.hpp"
 
 using namespace seabass::infrastructure::backup;
+using seabass::application::BackupOrigin;
 namespace fs = std::filesystem;
 
 namespace
@@ -306,7 +308,7 @@ int main()
     // paths and a version 1 header. Those must keep restoring exactly as
     // they did, at the path they name.
     {
-        fs::path stick = root / "legacy";
+        fs::path stick = root / "legacy-origins";
         fs::path target = stick / "PIONEER" / "rekordbox" / "export.pdb";
         writeFile(target, "restored from a v1 backup");
         fs::path recordDir = stick / ".seabass-backups" / "20260101T000000-sync";
@@ -392,6 +394,169 @@ int main()
         assert(store.restore(record.id));
         assert(readFile(a) == "loose original");
         std::cout << "case 15 (the loose layout is untouched) OK\n";
+    }
+
+    // --- who owns a backup, and therefore who may delete it -----------
+    //
+    // Automatic records are Seabass's own safety copies and Seabass may
+    // release them under space pressure. Anything the user asked for is
+    // the user's. Getting this wrong deletes data that cannot be got
+    // back, so each rule is checked rather than assumed.
+    {
+        fs::path stick = root / "origins";
+        fs::path a = stick / "PIONEER" / "export.pdb";
+        FilesystemBackupStore store((stick / ".seabass-backups").string());
+
+        writeFile(a, "one");
+        auto auto1 = store.backup({a.string()}, "sync");
+        writeFile(a, "two");
+        auto mine = store.backup({a.string()}, "before-gig", BackupOrigin::UserRequested);
+        writeFile(a, "three");
+        auto auto2 = store.backup({a.string()}, "sync");
+
+        auto records = store.list();
+        assert(records.size() == 3);
+        std::map<std::string, BackupOrigin> byId;
+        for (const auto &r : records) {
+            byId[r.id] = r.origin;
+        }
+        assert(byId[auto1.id] == BackupOrigin::Automatic);
+        assert(byId[mine.id] == BackupOrigin::UserRequested);
+        assert(byId[auto2.id] == BackupOrigin::Automatic);
+        std::cout << "case 16 (origin survives a round trip through the store) OK\n";
+
+        // keepCount counts automatic records only. Were the user's
+        // counted, three of their own backups would push out every
+        // safety copy Seabass still needs.
+        std::uint64_t freed = store.prune(1);
+        assert(freed > 0);
+        assert(fs::exists(mine.path));   // never Seabass's to delete
+        assert(fs::exists(auto2.path));  // newest automatic, the keepCount survivor
+        assert(!fs::exists(auto1.path));
+        std::cout << "case 17 (prune deletes automatic backups and leaves the user's) OK\n";
+    }
+
+    // The newest automatic record is what Undo Last Save needs, so the
+    // pressure release never takes it however much space is asked for.
+    {
+        fs::path stick = root / "release";
+        fs::path a = stick / "PIONEER" / "export.pdb";
+        FilesystemBackupStore store((stick / ".seabass-backups").string());
+
+        writeFile(a, std::string(4096, 'x'));
+        auto oldest = store.backup({a.string()}, "sync");
+        writeFile(a, std::string(4096, 'y'));
+        auto middle = store.backup({a.string()}, "sync");
+        writeFile(a, std::string(4096, 'z'));
+        auto newest = store.backup({a.string()}, "sync");
+
+        std::uint64_t freed = store.releaseAutomaticBackups(1);
+        assert(freed > 0);
+        assert(!fs::exists(oldest.path));  // oldest first
+        assert(fs::exists(middle.path));   // asked for 1 byte, stopped once it had it
+        assert(fs::exists(newest.path));
+        std::cout << "case 18 (the release takes the oldest first and stops when satisfied) OK\n";
+
+        // Far more than the records hold: it must still refuse the last one.
+        store.releaseAutomaticBackups(1ull << 40);
+        assert(fs::exists(newest.path));
+        assert(!fs::exists(middle.path));
+        std::cout << "case 19 (the newest automatic backup is never released) OK\n";
+
+        // Nothing asked for, nothing deleted.
+        auto before = store.list().size();
+        assert(store.releaseAutomaticBackups(0) == 0);
+        assert(store.list().size() == before);
+        std::cout << "case 20 (asking for no bytes deletes nothing) OK\n";
+    }
+
+    // Records written before .origin existed. Every one of them was made
+    // by a save, so they read as automatic -- except restore()'s copy of
+    // what it was about to overwrite, which the user asked for.
+    {
+        fs::path stick = root / "legacy-origins";
+        fs::path a = stick / "PIONEER" / "export.pdb";
+        FilesystemBackupStore store((stick / ".seabass-backups").string());
+
+        writeFile(a, "old");
+        auto save = store.backup({a.string()}, "sync");
+        auto preRestore = store.backup({a.string()}, "pre-restore");
+        fs::remove(fs::path(save.path) / ".origin");
+        fs::remove(fs::path(preRestore.path) / ".origin");
+
+        std::map<std::string, BackupOrigin> byId;
+        for (const auto &r : store.list()) {
+            byId[r.id] = r.origin;
+        }
+        assert(byId[save.id] == BackupOrigin::Automatic);
+        assert(byId[preRestore.id] == BackupOrigin::UserRequested);
+        std::cout << "case 21 (a record with no origin is read from what made it) OK\n";
+
+        // Two restores inside one second: backup() disambiguates the
+        // directory with a "-1" suffix, and the label is read back out of
+        // the directory name, so the label is "pre-restore-1". An exact
+        // match would call that automatic and hand the user's own record
+        // to the pressure release.
+        auto second = store.backup({a.string()}, "pre-restore");
+        assert(second.id != preRestore.id);
+        fs::remove(fs::path(second.path) / ".origin");
+        for (const auto &r : store.list()) {
+            if (r.id == second.id) {
+                assert(r.label != "pre-restore");  // the suffix really is in there
+                assert(r.origin == BackupOrigin::UserRequested);
+            }
+        }
+        std::cout << "case 21b (a suffixed pre-restore label is still the user's) OK\n";
+    }
+
+    // restore() takes a copy of what it is about to overwrite. The user
+    // asked for the restore, so that copy is theirs.
+    {
+        fs::path stick = root / "prerestore";
+        fs::path a = stick / "PIONEER" / "export.pdb";
+        FilesystemBackupStore store((stick / ".seabass-backups").string());
+
+        writeFile(a, "original");
+        auto record = store.backup({a.string()}, "sync");
+        writeFile(a, "changed");
+        assert(store.restore(record.id));
+
+        bool sawUserOwned = false;
+        for (const auto &r : store.list()) {
+            if (r.label == "pre-restore") {
+                assert(r.origin == BackupOrigin::UserRequested);
+                sawUserOwned = true;
+            }
+        }
+        assert(sawUserOwned);
+        // And the pressure release must not be able to take it.
+        store.releaseAutomaticBackups(1ull << 40);
+        bool stillThere = false;
+        for (const auto &r : store.list()) {
+            stillThere = stillThere || r.label == "pre-restore";
+        }
+        assert(stillThere);
+        std::cout << "case 22 (a restore's undo copy belongs to the user) OK\n";
+    }
+
+    // The marker is bookkeeping, not content: it must not show up as a
+    // backed-up file or inflate the record's reported size.
+    {
+        fs::path stick = root / "marker";
+        fs::path a = stick / "PIONEER" / "export.pdb";
+        FilesystemBackupStore store((stick / ".seabass-backups").string());
+        writeFile(a, "payload");
+        auto record = store.backup({a.string()}, "sync");
+        for (const auto &listed : store.list()) {
+            if (listed.id != record.id) {
+                continue;
+            }
+            for (const auto &f : listed.filePaths) {
+                assert(f.find(".origin") == std::string::npos);
+            }
+            assert(listed.sizeBytes == std::string("payload").size());
+        }
+        std::cout << "case 23 (the origin marker is not a backed-up file) OK\n";
     }
 
     std::cout << "all cases passed\n";

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 #include <QString>
 
 #include <functional>
@@ -67,6 +69,23 @@ public:
     // The same store, as itself: the archive-backed record is a
     // FilesystemBackupStore feature, not part of the port.
     infrastructure::backup::FilesystemBackupStore &archiveStore();
+
+    // Deletes automatic backups, oldest first, if this stick has dropped
+    // below its headroom -- and only then. Returns the bytes freed.
+    //
+    // Space is the binding constraint rather than time: a cue backup stays
+    // on the stick permanently, nothing prunes it, and both real sticks
+    // sampled were 95% and 97% full. While there is room a backup is worth
+    // far more than the space it occupies, so this does nothing at all
+    // until the stick is genuinely tight.
+    //
+    // Automatic records only. What the user asked for is the user's, and
+    // the newest automatic record is kept whatever happens, because it is
+    // the one Undo Last Save needs.
+    //
+    // Call only after a save that SUCCEEDED. After a failure or a cancel
+    // the backups are precisely the thing that saves you.
+    std::uint64_t releaseAutomaticBackupsIfTight();
 
     // Backs `file` up under `label` unless this save already did; records
     // the backup for undo. Returns true when a backup was made now.

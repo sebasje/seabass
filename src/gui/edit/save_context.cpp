@@ -1,5 +1,9 @@
 #include "gui/edit/save_context.hpp"
 
+#include "infrastructure/backup/stick_write_lock.hpp"
+
+#include "infrastructure/backup/stick_space.hpp"
+
 #include <map>
 #include <set>
 #include <vector>
@@ -70,6 +74,36 @@ infrastructure::backup::FilesystemBackupStore &SaveContext::archiveStore()
             infrastructure::backup::backupDirForStickRoot(stickRoot()));
     }
     return *m_backupStore;
+}
+
+std::uint64_t SaveContext::releaseAutomaticBackupsIfTight()
+{
+    const auto space = infrastructure::backup::measureStickSpace(stickRoot());
+    if (space.capacityBytes == 0) {
+        // measureStickSpace() returns zeros for a stick it could not read
+        // rather than throwing. Nothing measured means nothing deleted:
+        // "I could not tell how full it is" is not a reason to start
+        // removing the user's undo history.
+        return 0;
+    }
+    const std::uint64_t headroom = space.headroomBytes();
+    if (space.freeBytes >= headroom) {
+        return 0;
+    }
+
+    try {
+        // The same lock the Backups page takes for every action, so a
+        // record cannot be deleted out from under another session's
+        // restore or listing.
+        infrastructure::backup::StickWriteLock lock(
+            infrastructure::backup::backupDirForStickRoot(stickRoot()) + "/.write.lock");
+        return archiveStore().releaseAutomaticBackups(headroom - space.freeBytes);
+    } catch (const std::exception &) {
+        // Another session holds the lock. Releasing space is an
+        // opportunistic tidy-up, never the point of the save, so it is
+        // dropped rather than retried or reported.
+        return 0;
+    }
 }
 
 void SaveContext::backupAllNow(const std::vector<BackupTarget> &targets)

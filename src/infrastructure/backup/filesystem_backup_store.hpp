@@ -29,7 +29,9 @@ class FilesystemBackupStore : public application::BackupStore
 public:
     explicit FilesystemBackupStore(std::string baseDirectory);
 
-    application::BackupRecord backup(const std::vector<std::string> &filePaths, const std::string &label) override;
+    application::BackupRecord backup(const std::vector<std::string> &filePaths, const std::string &label,
+                                     application::BackupOrigin origin
+                                     = application::BackupOrigin::Automatic) override;
 
     // One record, one archive, written in a single pass and deflated.
     //
@@ -43,7 +45,9 @@ public:
     // Unlike backup()+addToBackup() this needs the whole file list up
     // front, because an archive gets one central directory rather than
     // one per appended file.
-    application::BackupRecord backupToArchive(const std::vector<std::string> &filePaths, const std::string &label);
+    application::BackupRecord backupToArchive(const std::vector<std::string> &filePaths, const std::string &label,
+                                              application::BackupOrigin origin
+                                              = application::BackupOrigin::Automatic);
 
     // Appends to an archive record, the way addToBackup() appends to a
     // loose one, so a save that discovers its files as it goes can still
@@ -59,6 +63,20 @@ public:
     application::BackupRecord addToBackup(const std::string &id,
                                           const std::vector<std::string> &filePaths) override;
     std::uint64_t prune(size_t keepCount) override;
+
+    // Deletes automatic backups, oldest first, until at least bytesWanted
+    // has been freed or only the newest automatic record is left. Returns
+    // the bytes actually freed.
+    //
+    // For the space-pressure case: a stick that has dropped below its
+    // headroom after a save. Only ever called after a SUCCESSFUL save --
+    // on a failure or a cancel the backups are the thing that saves you.
+    //
+    // This buys capacity and nothing else. Neither stick sampled supports
+    // TRIM (discard_max_bytes is 0), so freeing space returns nothing to
+    // the flash controller and the device does not get faster. Nothing in
+    // the UI should suggest otherwise.
+    std::uint64_t releaseAutomaticBackups(std::uint64_t bytesWanted);
     void setDescription(const std::string &id, const std::string &description) override;
     bool restore(const std::string &id) override;
     bool remove(const std::string &id) override;

@@ -22,6 +22,7 @@ namespace seabass::infrastructure::backup
 {
 
 namespace fs = std::filesystem;
+using application::BackupOrigin;
 using application::BackupRecord;
 
 namespace
@@ -33,6 +34,12 @@ namespace
 // they never collide with a real backed-up file's basename.
 constexpr const char *ManifestFileName = ".manifest";
 constexpr const char *DescriptionFileName = ".description";
+// A separate dotfile rather than a manifest line, because readManifest()
+// turns every unrecognised key into a backed-up file entry: an
+// "ORIGIN\tautomatic" line would restore as a file called ORIGIN in any
+// build older than this one. A dotfile is ignored by those builds and by
+// this one's size accounting.
+constexpr const char *OriginFileName = ".origin";
 
 std::string timestampNow()
 {
@@ -53,7 +60,8 @@ std::uint64_t directorySize(const fs::path &dir)
     std::error_code ec;
     for (const auto &entry : fs::recursive_directory_iterator(dir, ec)) {
         if (entry.is_regular_file() && entry.path().filename() != ManifestFileName &&
-            entry.path().filename() != DescriptionFileName) {
+            entry.path().filename() != DescriptionFileName &&
+            entry.path().filename() != OriginFileName) {
             total += entry.file_size(ec);
         }
     }
@@ -134,6 +142,40 @@ Manifest readManifest(const fs::path &dir)
     return manifest;
 }
 
+// Absent means the record predates this field. Those are read as
+// Automatic rather than as unknown, and that is a factual claim rather
+// than an optimistic default: until this field existed, nothing in this
+// store created a record except a save taking its own safety copy before
+// a write. The single exception is the copy restore() takes of what it is
+// about to overwrite, which is the user's -- they asked for the restore --
+// and is identifiable by its label.
+//
+// Getting this wrong deletes data that cannot be got back, so it is
+// decided from what the code actually did, not from what would be
+// convenient.
+BackupOrigin readOrigin(const fs::path &dir, const std::string &label)
+{
+    std::ifstream in(dir / OriginFileName);
+    if (in.is_open()) {
+        std::string value;
+        std::getline(in, value);
+        return value == "user" ? BackupOrigin::UserRequested : BackupOrigin::Automatic;
+    }
+    // Prefix, not equality: backup() appends "-1", "-2" ... when two
+    // records would land in the same directory, and the label is read
+    // back out of the directory name, so a second restore inside one
+    // second is labelled "pre-restore-1". Matching exactly would call
+    // that automatic and make it deletable. Found by a test that shared
+    // a directory with an earlier case by accident.
+    return label.rfind("pre-restore", 0) == 0 ? BackupOrigin::UserRequested : BackupOrigin::Automatic;
+}
+
+void writeOrigin(const fs::path &dir, BackupOrigin origin)
+{
+    std::ofstream out(dir / OriginFileName, std::ios::trunc);
+    out << (origin == BackupOrigin::UserRequested ? "user" : "automatic") << '\n';
+}
+
 }  // namespace
 
 // The stick this store lives on: baseDirectory is <stick>/.seabass-backups.
@@ -176,7 +218,8 @@ fs::path FilesystemBackupStore::resolveRecordedPath(const std::string &recorded)
 
 FilesystemBackupStore::FilesystemBackupStore(std::string baseDirectory) : m_baseDirectory(std::move(baseDirectory)) {}
 
-BackupRecord FilesystemBackupStore::backup(const std::vector<std::string> &filePaths, const std::string &label)
+BackupRecord FilesystemBackupStore::backup(const std::vector<std::string> &filePaths, const std::string &label,
+                                          BackupOrigin origin)
 {
     // timestampNow() only has second resolution, and callers that back up
     // several files under the same label in a tight loop (e.g. writing
@@ -200,12 +243,14 @@ BackupRecord FilesystemBackupStore::backup(const std::vector<std::string> &fileP
         std::ofstream manifest(dir / ManifestFileName, std::ios::app);
         manifest << "MANIFEST-VERSION\t" << CurrentManifestFormatVersion << '\n';
     }
+    writeOrigin(dir, origin);
     appendFiles(dir, filePaths);
 
     BackupRecord record;
     record.id = id;
     record.path = dir.string();
     record.label = label;
+    record.origin = origin;
     record.sizeBytes = stateFor(dir).sizeBytes;
     return record;
 }
@@ -274,7 +319,7 @@ FilesystemBackupStore::writeArchiveEntries(const fs::path &dir, const std::vecto
 }
 
 BackupRecord FilesystemBackupStore::backupToArchive(const std::vector<std::string> &filePaths,
-                                                    const std::string &label)
+                                                    const std::string &label, BackupOrigin origin)
 {
     std::string baseId = timestampNow() + "-" + sanitize(label);
     std::string id = baseId;
@@ -295,6 +340,8 @@ BackupRecord FilesystemBackupStore::backupToArchive(const std::vector<std::strin
         }
     }
 
+    writeOrigin(dir, origin);
+
     DirectoryState &state = stateFor(dir);
     state.sizeBytes = archiveBytes;
 
@@ -302,6 +349,7 @@ BackupRecord FilesystemBackupStore::backupToArchive(const std::vector<std::strin
     record.id = id;
     record.path = dir.string();
     record.label = label;
+    record.origin = origin;
     record.sizeBytes = archiveBytes;
     for (const auto &[entryName, recorded] : written) {
         record.filePaths.push_back(recorded);
@@ -406,7 +454,7 @@ FilesystemBackupStore::DirectoryState &FilesystemBackupStore::stateFor(const fs:
         }
         const std::string name = entry.path().filename().string();
         state.takenNames.insert(name);
-        if (name != ManifestFileName && name != DescriptionFileName) {
+        if (name != ManifestFileName && name != DescriptionFileName && name != OriginFileName) {
             state.sizeBytes += entry.file_size(ec);
         }
     }
@@ -470,6 +518,7 @@ std::vector<BackupRecord> FilesystemBackupStore::list()
         size_t dash = record.id.find('-');
         record.label = dash == std::string::npos ? "" : record.id.substr(dash + 1);
         record.description = readWholeFile(entry.path() / DescriptionFileName);
+        record.origin = readOrigin(entry.path(), record.label);
         record.sizeBytes = directorySize(entry.path());
         for (const auto &[onDisk, originalPath] : readManifest(entry.path()).entries) {
             record.filePaths.push_back(resolveRecordedPath(originalPath).string());
@@ -484,17 +533,54 @@ std::vector<BackupRecord> FilesystemBackupStore::list()
 
 std::uint64_t FilesystemBackupStore::prune(size_t keepCount)
 {
-    auto records = list();
-    if (records.size() <= keepCount) {
+    std::vector<BackupRecord> automatic;
+    for (auto &record : list()) {  // oldest first
+        if (record.origin == BackupOrigin::Automatic) {
+            automatic.push_back(std::move(record));
+        }
+    }
+    if (automatic.size() <= keepCount) {
         return 0;
     }
 
     std::uint64_t freed = 0;
-    size_t toRemove = records.size() - keepCount;
+    size_t toRemove = automatic.size() - keepCount;
     for (size_t i = 0; i < toRemove; ++i) {
         std::error_code ec;
-        freed += records[i].sizeBytes;
-        fs::remove_all(records[i].path, ec);
+        fs::remove_all(automatic[i].path, ec);
+        if (!ec) {
+            freed += automatic[i].sizeBytes;
+        }
+    }
+    return freed;
+}
+
+std::uint64_t FilesystemBackupStore::releaseAutomaticBackups(std::uint64_t bytesWanted)
+{
+    if (bytesWanted == 0) {
+        return 0;
+    }
+    std::vector<BackupRecord> automatic;
+    for (auto &record : list()) {  // oldest first
+        if (record.origin == BackupOrigin::Automatic) {
+            automatic.push_back(std::move(record));
+        }
+    }
+    // The newest automatic record is the one Undo Last Save needs, so it
+    // is never released here. A stick tight enough that even that has to
+    // go is not a situation to resolve by quietly deleting the only undo
+    // the user has left.
+    if (automatic.size() <= 1) {
+        return 0;
+    }
+
+    std::uint64_t freed = 0;
+    for (size_t i = 0; i + 1 < automatic.size() && freed < bytesWanted; ++i) {
+        std::error_code ec;
+        fs::remove_all(automatic[i].path, ec);
+        if (!ec) {
+            freed += automatic[i].sizeBytes;
+        }
     }
     return freed;
 }
@@ -541,7 +627,9 @@ bool FilesystemBackupStore::restore(const std::string &id)
         }
     }
     if (!currentPaths.empty()) {
-        backup(currentPaths, "pre-restore");
+        // The user asked for this restore, so the copy of what it is
+        // about to overwrite is theirs and Seabass never releases it.
+        backup(currentPaths, "pre-restore", BackupOrigin::UserRequested);
     }
 
     if (manifest.version >= ArchiveManifestFormatVersion) {
