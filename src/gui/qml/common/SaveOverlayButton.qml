@@ -18,7 +18,12 @@ Item {
 
     implicitWidth: button.implicitWidth
     implicitHeight: button.implicitHeight
-    visible: root.hasSession
+    // Only when there is something to save. It used to sit there
+    // permanently on any page with an edit session, which made a
+    // floating button that does nothing the most prominent thing on a
+    // page the user was only reading. Stays up while a save is running,
+    // because that is when its progress matters most.
+    visible: root.hasSession && (root.pendingCount > 0 || root.session.state === "writing")
 
     Button {
         id: button
