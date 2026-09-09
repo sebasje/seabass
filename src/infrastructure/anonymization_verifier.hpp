@@ -53,7 +53,21 @@ struct AnonymizationVerification
 // engine/ -- the staging directory AnonymizeLibrary builds before zipping.
 // Sampling is capped so this stays fast enough to run on every export;
 // analysis files are checked in full, because they are where the leak was.
-AnonymizationVerification verifyAnonymizedExport(const std::string &exportRoot, int trackSampleSize = 200);
+// trackSampleSize caps how many tracks per catalog are checked. The
+// default, 0, means every one of them.
+//
+// It used to default to 200, which on a 1161-track library left 83% of
+// the rows unexamined -- a real title planted on the last track passed
+// the gate with zero problems reported. This is the check that decides
+// whether a DJ's library metadata gets uploaded to a stranger, so it
+// looks at all of it. It costs almost nothing: the tracks are already
+// read in full to be checked at all, and the per-track work is string
+// comparison. Measured on the committed fixture, sampling 200 against
+// sweeping everything is 1.58 s against 1.60 s.
+//
+// The parameter stays so tests can force a small sample and show the
+// difference.
+AnonymizationVerification verifyAnonymizedExport(const std::string &exportRoot, int trackSampleSize = 0);
 
 // True when `value` could be a placeholder of `kind` produced by
 // anonymizationPlaceholder(), including one the rekordbox writer truncated

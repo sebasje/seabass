@@ -303,7 +303,7 @@ AnonymizationVerification verifyAnonymizedExport(const std::string &exportRoot, 
     auto checkTracks = [&](const std::vector<domain::Track> &tracks, const std::string &label, int &sampled) {
         int checked = 0;
         for (const auto &track : tracks) {
-            if (checked >= trackSampleSize) {
+            if (trackSampleSize > 0 && checked >= trackSampleSize) {
                 break;
             }
             ++checked;

@@ -1487,7 +1487,18 @@ target_link_libraries(extract_testdata PRIVATE seabass_core)
 add_executable(verify_anonymized_export tools/verify_anonymized_export.cpp)
 target_include_directories(verify_anonymized_export PRIVATE src)
 target_link_libraries(verify_anonymized_export PRIVATE seabass_core)
-add_test(NAME anonymization_verifier_test COMMAND verify_anonymized_export
+# Two different things, and the names now say which is which. The tool
+# run proves the committed fixture is clean; it cannot prove the verifier
+# would refuse anything, because the fixture never leaks.
+add_test(NAME anonymized_fixture_is_clean_test COMMAND verify_anonymized_export
+    ${CMAKE_SOURCE_DIR}/tests/fixtures/anonymized_library)
+set_tests_properties(anonymized_fixture_is_clean_test PROPERTIES LABELS "integration")
+
+# Plants a specific leak per case and asserts the verifier catches it.
+add_executable(anonymization_verifier_test tests/anonymization_verifier_test.cpp)
+target_include_directories(anonymization_verifier_test PRIVATE src)
+target_link_libraries(anonymization_verifier_test PRIVATE seabass_core)
+add_test(NAME anonymization_verifier_test COMMAND anonymization_verifier_test
     ${CMAKE_SOURCE_DIR}/tests/fixtures/anonymized_library)
 set_tests_properties(anonymization_verifier_test PROPERTIES LABELS "integration")
 
