@@ -13,6 +13,30 @@ write down the message verbatim.
 Always start on a **scratch copy** of a stick, never the live one, the
 first time through a list.
 
+## Where an individual item lives
+
+This file holds the checklists -- a sequence of steps someone works
+through in one sitting. A single change that is blocked on hardware does
+not belong here; it belongs on its own GitHub issue, labelled, so it is
+findable from the issue tracker rather than from a document nobody opens
+until they are already testing.
+
+The labels on `sebasje/seabass`:
+
+| Label | Means |
+|---|---|
+| `manual-testing` | a human has to exercise this |
+| `testing-linux`, `testing-windows` | platform |
+| `testing-denon` | Denon / Engine DJ hardware |
+| `testing-pioneer-old` | older Pioneer, e.g. XDJ-RX2 -- DeviceLibrary (`export.pdb`) |
+| `testing-pioneer-new` | OMNIS-DUO, CDJ-3000 -- OneLibrary (`exportLibrary.db`) |
+
+Pick the hardware label from the **format the change writes**, not from
+the machine that happens to be plugged in. Newer players read
+`export.pdb` too, but the older parsers are the unforgiving ones, so
+`export.pdb` work is `testing-pioneer-old` even when it is first checked
+on newer gear.
+
 ## 1. Archive concurrency fix — the reason this list exists
 
 Branch `worktree-archive-concurrency`. A Full Stick Backup of a real
