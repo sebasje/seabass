@@ -698,6 +698,10 @@ target_include_directories(metadata_cache_test PRIVATE src)
 target_link_libraries(metadata_cache_test PRIVATE seabass_core)
 add_test(NAME metadata_cache_test COMMAND metadata_cache_test)
 
+add_executable(no_em_dashes_test tests/no_em_dashes_test.cpp)
+target_compile_definitions(no_em_dashes_test PRIVATE SEABASS_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+add_test(NAME no_em_dashes_test COMMAND no_em_dashes_test)
+
 add_executable(real_file_sizes_test tests/real_file_sizes_test.cpp)
 target_include_directories(real_file_sizes_test PRIVATE src)
 target_link_libraries(real_file_sizes_test PRIVATE seabass_core)
