@@ -1212,6 +1212,10 @@ target_compile_definitions(backup_archive_crossvalidation_test PRIVATE
     SEABASS_CONFIGURED_UNZIP="${UNZIP_EXECUTABLE}"
     SEABASS_CONFIGURED_SEVENZIP="${SEVENZIP_EXECUTABLE}"
 )
+add_executable(assertions_live_test tests/assertions_live_test.cpp)
+target_include_directories(assertions_live_test PRIVATE src)
+add_test(NAME assertions_live_test COMMAND assertions_live_test)
+
 add_executable(path_key_test
     src/application/path_key.cpp
     tests/path_key_test.cpp
@@ -1543,9 +1547,40 @@ foreach(_seabass_test IN LISTS _seabass_all_tests)
 endforeach()
 
 get_property(_seabass_all_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+set(_seabass_flagged_targets "")
 foreach(_seabass_target IN LISTS _seabass_all_targets)
     if(_seabass_target MATCHES "_test$|_tests$")
         target_compile_options(${_seabass_target} PRIVATE
             "$<IF:$<CXX_COMPILER_ID:MSVC>,/UNDEBUG,-UNDEBUG>")
+        list(APPEND _seabass_flagged_targets ${_seabass_target})
+    endif()
+endforeach()
+
+# The loop above matches on NAME, so a test registered under a name that
+# does not end in _test/_tests silently gets no flag and every assert()
+# inside it dies in a Release build -- the exact failure this is here to
+# prevent, reintroduced by nothing more than a naming choice.
+#
+# So check the other direction: every target an add_test() actually
+# points at must be one the loop flagged. This is not the loop grading
+# its own homework -- the two sets are built from different properties
+# (BUILDSYSTEM_TARGETS filtered by name, against the COMMAND of each
+# registered test), and it is the mismatch between them that is the bug.
+#
+# tests/assertions_live_test.cpp covers the other half: that the flag,
+# once applied, really does keep NDEBUG out of the translation unit.
+get_property(_seabass_registered_tests DIRECTORY PROPERTY TESTS)
+foreach(_seabass_test IN LISTS _seabass_registered_tests)
+    # Matched by name because that is how this project registers tests --
+    # add_test(NAME x COMMAND x) for every one of them. The test's COMMAND
+    # property is deliberately not used: it reads back as NOTFOUND here,
+    # which silently made an earlier version of this check pass over
+    # everything. Watched it fail before trusting it this time.
+    if(TARGET ${_seabass_test} AND NOT ${_seabass_test} IN_LIST _seabass_flagged_targets)
+        message(FATAL_ERROR
+            "Test target '${_seabass_test}' did not receive -UNDEBUG, because its name does "
+            "not end in _test or _tests. Every assert() in it would be a no-op in a "
+            "Release/RelWithDebInfo/MinSizeRel build, and it would pass while checking "
+            "nothing. Rename the target, or widen the match above.")
     endif()
 endforeach()
