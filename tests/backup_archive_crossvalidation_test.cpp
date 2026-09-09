@@ -5,9 +5,19 @@
 // with the same author can agree with each other and both disagree with
 // the ZIP specification.
 //
-// Exits 77 (ctest SKIP_RETURN_CODE) when no python3 was found at
-// configure time, so a bare build machine does not fail, but CI with
-// python installed exercises it for real.
+// Skipping is the dangerous state for a test like this, because a skip
+// and a pass look the same in every summary. So the tools are looked for
+// three ways -- the environment (ctest supplies absolute paths), the path
+// CMake found at configure time, and finally the bare name on PATH -- and
+// a tool the build was configured with is a **failure** when it cannot be
+// run, never a skip. Exit 77 (ctest SKIP_RETURN_CODE) is reserved for the
+// one honest case: a machine that genuinely has no python3, where the
+// dependency is absent rather than broken.
+//
+// Previously the python path came only from ctest's ENVIRONMENT property,
+// so running the binary directly -- by hand, or from a CI lane that
+// invokes tests rather than ctest -- skipped every case on a machine with
+// python3 sitting in /bin.
 
 #include <cassert>
 #include <cstdio>
@@ -45,6 +55,35 @@ std::string envOrEmpty(const char *name)
     }
     return s;
 }
+
+// What CMake found when this build was configured. Empty when it found
+// nothing. Baked in so the binary can tell "this machine has no python"
+// apart from "this build expected python and something has since moved",
+// which are the same symptom and very different bugs.
+#ifndef SEABASS_CONFIGURED_PYTHON3
+#define SEABASS_CONFIGURED_PYTHON3 ""
+#endif
+#ifndef SEABASS_CONFIGURED_UNZIP
+#define SEABASS_CONFIGURED_UNZIP ""
+#endif
+#ifndef SEABASS_CONFIGURED_SEVENZIP
+#define SEABASS_CONFIGURED_SEVENZIP ""
+#endif
+
+std::string configured(const char *value)
+{
+    std::string s(value);
+    if (s.size() >= 8 && s.compare(s.size() - 8, 8, "NOTFOUND") == 0) {
+        return {};
+    }
+    return s;
+}
+
+#if defined(_WIN32)
+constexpr const char *kNullDevice = "NUL";
+#else
+constexpr const char *kNullDevice = "/dev/null";
+#endif
 
 std::string shellQuote(const std::string &s)
 {
@@ -91,6 +130,47 @@ std::pair<int, std::string> run(const std::string &command)
     }
 #endif
     return {status, output};
+}
+
+// Finds a tool the three ways it can be known about, most specific
+// first, and proves the answer by running it -- a name that resolves and
+// a name that works are different things, and the difference is exactly
+// what silently emptied this test before.
+std::string locateTool(const char *envName, const std::string &configuredPath,
+                       const std::vector<std::string> &candidates, const std::string &probeArgs)
+{
+    std::vector<std::string> tries;
+    if (std::string fromEnv = envOrEmpty(envName); !fromEnv.empty()) {
+        tries.push_back(fromEnv);
+    }
+    if (!configuredPath.empty()) {
+        tries.push_back(configuredPath);
+    }
+    tries.insert(tries.end(), candidates.begin(), candidates.end());
+
+    for (const std::string &candidate : tries) {
+        auto [status, output] = run(shellQuote(candidate) + " " + probeArgs + " >" + kNullDevice + " 2>&1");
+        (void)output;
+        if (status == 0) {
+            return candidate;
+        }
+    }
+    return {};
+}
+
+// Reports a tool that the build was configured with and that cannot be
+// run now. That is a broken build rather than an absent dependency, so
+// it must fail: skipping here is how a green suite stops checking
+// anything.
+bool refuseIfConfiguredButMissing(const char *label, const std::string &configuredPath, const std::string &located)
+{
+    if (!located.empty() || configuredPath.empty()) {
+        return false;
+    }
+    std::cerr << "FAILED: this build was configured with " << label << " at " << configuredPath
+              << ", and it cannot be run now. Refusing to skip: a cross-validation test that\n"
+                 "silently validates nothing is worse than one that is absent.\n";
+    return true;
 }
 
 std::string pseudoRandom(std::size_t size, std::uint64_t seed)
@@ -168,13 +248,29 @@ void compareWithOurReader(const fs::path &archive,
 
 int main()
 {
-    std::string python = envOrEmpty("SEABASS_PYTHON3");
-    std::string unzip = envOrEmpty("SEABASS_UNZIP");
-    std::string sevenZip = envOrEmpty("SEABASS_SEVENZIP");
+    const std::string configuredPython = configured(SEABASS_CONFIGURED_PYTHON3);
+    const std::string configuredUnzip = configured(SEABASS_CONFIGURED_UNZIP);
+    const std::string configuredSevenZip = configured(SEABASS_CONFIGURED_SEVENZIP);
+
+    const std::string python = locateTool("SEABASS_PYTHON3", configuredPython, {"python3", "python"}, "--version");
+    const std::string unzip = locateTool("SEABASS_UNZIP", configuredUnzip, {"unzip"}, "-v");
+    const std::string sevenZip = locateTool("SEABASS_SEVENZIP", configuredSevenZip, {"7z", "7zz", "7za"}, "i");
+
+    bool broken = refuseIfConfiguredButMissing("python3", configuredPython, python);
+    broken = refuseIfConfiguredButMissing("unzip", configuredUnzip, unzip) || broken;
+    broken = refuseIfConfiguredButMissing("7-Zip", configuredSevenZip, sevenZip) || broken;
+    if (broken) {
+        return 1;
+    }
     if (python.empty()) {
-        std::cout << "skipped: no python3 available (SEABASS_PYTHON3 unset)\n";
+        // The one honest skip: no python3 anywhere, and the build never
+        // expected one. Said on stderr so it survives a quiet log.
+        std::cerr << "skipped: no python3 on this machine, and this build was not configured with one.\n"
+                     "The ZIP writer is therefore graded only by our own reader in this run.\n";
         return 77;
     }
+    std::cout << "using python3=" << python << " unzip=" << (unzip.empty() ? "(none)" : unzip)
+              << " 7z=" << (sevenZip.empty() ? "(none)" : sevenZip) << "\n";
 
     fs::path root = fs::temp_directory_path() / "seabass_backup_archive_crossvalidation_test";
     fs::remove_all(root);

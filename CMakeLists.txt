@@ -1184,6 +1184,17 @@ add_executable(backup_archive_crossvalidation_test
 )
 target_include_directories(backup_archive_crossvalidation_test PRIVATE src)
 target_link_libraries(backup_archive_crossvalidation_test PRIVATE ZLIB::ZLIB)
+# Baked in as well as passed through the environment. The environment only
+# reaches the test when ctest runs it; the definitions travel with the
+# binary, so running it by hand exercises the same tools instead of
+# skipping every case. They also let the test tell "no python here" apart
+# from "python moved since this build was configured" -- one is a skip and
+# the other is a failure.
+target_compile_definitions(backup_archive_crossvalidation_test PRIVATE
+    SEABASS_CONFIGURED_PYTHON3="${Python3_EXECUTABLE}"
+    SEABASS_CONFIGURED_UNZIP="${UNZIP_EXECUTABLE}"
+    SEABASS_CONFIGURED_SEVENZIP="${SEVENZIP_EXECUTABLE}"
+)
 add_test(NAME backup_archive_crossvalidation_test COMMAND backup_archive_crossvalidation_test)
 set_tests_properties(backup_archive_crossvalidation_test PROPERTIES
     ENVIRONMENT "SEABASS_PYTHON3=${Python3_EXECUTABLE};SEABASS_UNZIP=${UNZIP_EXECUTABLE};SEABASS_SEVENZIP=${SEVENZIP_EXECUTABLE}"
@@ -1459,3 +1470,28 @@ endif()
 add_test(NAME corpus_test COMMAND corpus_test WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 set_tests_properties(corpus_test PROPERTIES LABELS "integration")
 
+
+# ---------------------------------------------------------------------------
+# Keep assertions alive in test binaries, whatever the build type.
+#
+# 87 of the 88 test files are built out of assert() -- 2108 of them, none
+# guarded. Three of CMake's four standard build types (Release,
+# RelWithDebInfo, MinSizeRel) put -DNDEBUG in CMAKE_CXX_FLAGS_<CONFIG>,
+# which turns every one of those into a no-op. The suite then passes
+# without checking anything, and passes *faster*, so nothing looks wrong.
+#
+# Verified rather than assumed, both halves: a Release configure of this
+# project really does put -DNDEBUG on the test targets, and
+# `assert(1 == 2)` compiled with it exits 0.
+#
+# Target options are emitted after CMAKE_CXX_FLAGS_<CONFIG>, so -UNDEBUG
+# here wins over the -DNDEBUG the build type added. Applied by name so a
+# test added later is covered without anyone remembering this exists; the
+# application keeps its NDEBUG, since only the tests depend on assert.
+get_property(_seabass_all_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+foreach(_seabass_target IN LISTS _seabass_all_targets)
+    if(_seabass_target MATCHES "_test$|_tests$")
+        target_compile_options(${_seabass_target} PRIVATE
+            "$<IF:$<CXX_COMPILER_ID:MSVC>,/UNDEBUG,-UNDEBUG>")
+    endif()
+endforeach()
