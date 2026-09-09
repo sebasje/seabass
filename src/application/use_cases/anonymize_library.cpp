@@ -1,4 +1,7 @@
 #include "application/use_cases/anonymize_library.hpp"
+#include <algorithm>
+#include "infrastructure/anonymization_placeholder.hpp"
+#include "infrastructure/cleanup/audio_file_walk.hpp"
 
 #include <filesystem>
 #include <fstream>
@@ -66,6 +69,67 @@ std::string humanSize(std::uintmax_t bytes)
         oss << std::fixed << (static_cast<double>(bytes) / Kib) << " KB";
     }
     return oss.str();
+}
+
+// The stick's audio files, listed rather than shipped.
+//
+// An export carries three catalogs and no audio, which means the whole
+// files-versus-catalog half of Seabass -- unreferenced files, orphan
+// detection, the cleanup that decides a file is safe to delete -- has
+// nothing to run against on shared data. The files themselves cannot be
+// shipped: they are gigabytes and they are not the submitter's to
+// distribute.
+//
+// A listing costs kilobytes and is enough. Names go through the same
+// placeholder as the catalog rows, so a manifest entry and the row that
+// points at it still match, and the sizes are real, which is what the
+// duplicate and orphan heuristics actually compare. A consumer can
+// materialise the tree as empty files and exercise every one of those
+// paths at no bytes.
+//
+// Written as TSV rather than prose: this one is read by programs.
+void writeFileListing(const fs::path &listingPath, const fs::path &stickRoot, int &filesListed)
+{
+    std::error_code ec;
+    std::ofstream out(listingPath, std::ios::trunc);
+    out << "# relative path\tsize in bytes\n";
+    if (!fs::is_directory(stickRoot, ec)) {
+        return;
+    }
+    std::vector<std::pair<std::string, std::uintmax_t>> rows;
+    for (const auto &entry : fs::recursive_directory_iterator(
+             stickRoot, fs::directory_options::skip_permission_denied, ec)) {
+        if (ec) {
+            break;
+        }
+        if (!entry.is_regular_file(ec)) {
+            continue;
+        }
+        const std::string name = entry.path().filename().string();
+        if (!infrastructure::cleanup::isAudioExtension(name)) {
+            continue;
+        }
+        const fs::path relative = fs::relative(entry.path(), stickRoot, ec);
+        if (ec) {
+            continue;
+        }
+        // Directory names are a DJ's own filing -- artist and album --
+        // so only the depth survives, never the words.
+        std::string anonymized;
+        const std::size_t depth = std::distance(relative.begin(), relative.end());
+        for (std::size_t i = 0; i + 1 < depth; ++i) {
+            anonymized += "d" + std::to_string(i) + "/";
+        }
+        anonymized += infrastructure::anonymizationFilenamePlaceholder(name);
+        const std::uintmax_t size = entry.file_size(ec);
+        rows.emplace_back(anonymized, ec ? 0 : size);
+    }
+    // Sorted so two exports of the same stick produce the same file.
+    std::sort(rows.begin(), rows.end());
+    for (const auto &[path, size] : rows) {
+        out << path << '\t' << size << '\n';
+    }
+    filesListed = static_cast<int>(rows.size());
 }
 
 void writeManifest(const fs::path &manifestPath, const AnonymizationSummary &summary,
@@ -181,7 +245,8 @@ AnonymizationSummary AnonymizeLibrary::execute(const std::optional<std::string> 
     if (rekordboxRoot) {
         summary.rekordboxAttempted = true;
         auto result = infrastructure::rekordbox::anonymizeRekordboxLibrary(
-            *rekordboxRoot, (fs::path(outputDir) / "rekordbox").string(), options.maxTracks, reporter);
+            *rekordboxRoot, (fs::path(outputDir) / "rekordbox").string(), options.maxTracks,
+            options.pruneUnreferencedAnalysisFiles, reporter);
         summary.rekordboxTracksKept = result.tracksKept;
         summary.rekordboxTracksDropped = result.tracksDropped;
         summary.rekordboxArtistsRenamed = result.artistsRenamed;
@@ -205,6 +270,13 @@ AnonymizationSummary AnonymizeLibrary::execute(const std::optional<std::string> 
     std::uintmax_t engineBytes = infrastructure::directoryTreeSizeBytes(fs::path(outputDir) / "engine");
     summary.outputSizeBytes = rekordboxBytes + engineBytes;
     summary.estimatedZippedBytes = estimateZippedBytes(rekordboxBytes, engineBytes);
+
+    // The stick root is the parent of whichever catalog directory was
+    // given; both live directly under it.
+    if (rekordboxRoot || engineRoot) {
+        const fs::path anyCatalog(rekordboxRoot ? *rekordboxRoot : *engineRoot);
+        writeFileListing(fs::path(outputDir) / "files.tsv", anyCatalog.parent_path(), summary.audioFilesListed);
+    }
 
     summary.manifestPath = (fs::path(outputDir) / "MANIFEST.txt").string();
     writeManifest(summary.manifestPath, summary, options);

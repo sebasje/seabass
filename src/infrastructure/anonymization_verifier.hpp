@@ -41,6 +41,8 @@ struct AnonymizationVerification
     // which scans both catalogs and checks their counts.
     std::vector<std::string> warnings;
     int analysisFilesChecked = 0;
+    // Entries in files.tsv whose name was confirmed to be a placeholder.
+    int audioFilesChecked = 0;
     int rekordboxTracksSampled = 0;
     int engineTracksSampled = 0;
     int oneLibraryTracksSampled = 0;

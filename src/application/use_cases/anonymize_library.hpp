@@ -19,6 +19,21 @@ struct AnonymizationOptions
     // rather than an on-by-default sampling step.
     std::optional<size_t> maxTracks;
 
+    // Removes every analysis file no kept track points at, instead of
+    // scrubbing and shipping it.
+    //
+    // Off by default, because for a submitted library those files are
+    // real data worth having: they are where rekordbox keeps its cues,
+    // and the ones no row points at are a genuine on-stick condition the
+    // cleanup features exist to find.
+    //
+    // On for building a small in-repository fixture, where they are the
+    // bulk and almost none of it earns its place: on a real stick they
+    // are 20.7 MB across 5976 files, against 2 MB for all three
+    // catalogs, and 827 of 1983 triples belong to tracks that are not in
+    // the library any more.
+    bool pruneUnreferencedAnalysisFiles = false;
+
     // Free text captured verbatim into MANIFEST.txt (and shown back to
     // the caller before anything is sent anywhere) -- what hardware the
     // submitter uses, and anything they'd like tested. Not validated or
@@ -30,6 +45,11 @@ struct AnonymizationOptions
 
 struct AnonymizationSummary
 {
+    // Audio files listed in files.tsv. The files themselves are never
+    // copied: they are gigabytes, and they are not the submitter's to
+    // distribute. The listing is what lets the unreferenced-file and
+    // orphan-cleanup paths run against shared data at all.
+    int audioFilesListed = 0;
     bool rekordboxAttempted = false;
     int rekordboxTracksKept = 0;
     int rekordboxTracksDropped = 0;

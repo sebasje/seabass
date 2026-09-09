@@ -1105,7 +1105,8 @@ int runSyncCommand(bool wantRekordbox, bool wantEngine, const std::optional<std:
 // writes to DIR.
 int runAnonymizeCommand(bool wantRekordbox, bool wantEngine, const std::optional<std::string> &rekordboxPath,
                          const std::optional<std::string> &enginePath, const std::optional<std::string> &outDir,
-                         std::optional<size_t> maxTracks, const std::string &hardware, const std::string &notes)
+                         std::optional<size_t> maxTracks, bool pruneAnalysis, const std::string &hardware,
+                         const std::string &notes)
 {
     if (!outDir) {
         Console::error("anonymize requires --out DIR");
@@ -1119,6 +1120,7 @@ int runAnonymizeCommand(bool wantRekordbox, bool wantEngine, const std::optional
 
     AnonymizationOptions options;
     options.maxTracks = maxTracks;
+    options.pruneUnreferencedAnalysisFiles = pruneAnalysis;
     options.hardware = hardware;
     options.notes = notes;
 
@@ -1219,6 +1221,7 @@ int main(int argc, char **argv)
     std::optional<std::string> trackFilter;
     std::optional<std::string> outDir;
     std::optional<size_t> maxTracks;
+    bool pruneAnalysis = false;
     std::string hardware;
     std::string notes;
     std::vector<std::string> commands;
@@ -1283,6 +1286,8 @@ int main(int argc, char **argv)
                 return 1;
             }
             outDir = args[++i];
+        } else if (arg == "--prune-analysis") {
+            pruneAnalysis = true;
         } else if (arg == "--max-tracks") {
             if (i + 1 >= args.size()) {
                 Console::error("--max-tracks requires a number");
@@ -1338,8 +1343,8 @@ int main(int argc, char **argv)
     }
 
     if (commands[0] == "anonymize") {
-        return runAnonymizeCommand(wantRekordbox, wantEngine, rekordboxPath, enginePath, outDir, maxTracks, hardware,
-                                    notes);
+        return runAnonymizeCommand(wantRekordbox, wantEngine, rekordboxPath, enginePath, outDir, maxTracks,
+                                    pruneAnalysis, hardware, notes);
     }
 
     // commands[0] == "scan". Every detected stick carrying a requested

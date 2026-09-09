@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <fstream>
 #include <set>
 #include <sstream>
 
@@ -176,6 +177,9 @@ std::string AnonymizationVerification::describe() const
     std::ostringstream out;
     out << (ok ? "Anonymization verified." : "ANONYMIZATION CHECK FAILED -- do not share this export.") << "\n";
     out << "Analysis files checked: " << analysisFilesChecked << "\n";
+    if (audioFilesChecked > 0) {
+        out << "Audio files listed and checked: " << audioFilesChecked << "\n";
+    }
     out << "rekordbox tracks sampled: " << rekordboxTracksSampled << "\n";
     out << "Engine tracks sampled: " << engineTracksSampled << "\n";
     out << "OneLibrary tracks sampled: " << oneLibraryTracksSampled << "\n";
@@ -212,7 +216,8 @@ AnonymizationVerification verifyAnonymizedExport(const std::string &exportRoot, 
     const fs::path engineRoot = root / "engine";
     for (const auto &entry : fs::directory_iterator(root, ec)) {
         const std::string name = entry.path().filename().string();
-        if (name == "MANIFEST.txt" || name == "rekordbox" || name == "engine" || isHarnessFile(name)) {
+        if (name == "MANIFEST.txt" || name == "files.tsv" || name == "rekordbox" || name == "engine"
+            || isHarnessFile(name)) {
             continue;
         }
         fail("unexpected file at the top level of the export: " + name);
@@ -312,6 +317,31 @@ AnonymizationVerification verifyAnonymizedExport(const std::string &exportRoot, 
                 fail("could not read " + fs::relative(entry.path(), root, ec).string() + ": " + e.what());
             }
         }
+    }
+
+    // --- The audio file listing, if one was written. ---
+    //
+    // It carries file names, so it is exactly as capable of leaking as a
+    // catalog row is, and it is plain text that anyone opening the zip
+    // will read first.
+    if (const fs::path listing = root / "files.tsv"; fs::is_regular_file(listing, ec)) {
+        std::ifstream in(listing);
+        std::string line;
+        int checked = 0;
+        while (std::getline(in, line)) {
+            if (line.empty() || line[0] == '#') {
+                continue;
+            }
+            const std::string path = line.substr(0, line.find('\t'));
+            const std::size_t slash = path.find_last_of('/');
+            const std::string base = slash == std::string::npos ? path : path.substr(slash + 1);
+            if (!looksLikeFilenamePlaceholder(base)) {
+                fail("files.tsv still names a real file: \"" + path + "\"");
+                break;  // one is enough; the rest would say the same thing
+            }
+            ++checked;
+        }
+        result.audioFilesChecked = checked;
     }
 
     // --- Track fields, sampled through the app's own readers. ---

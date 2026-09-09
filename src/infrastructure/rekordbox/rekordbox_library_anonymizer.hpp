@@ -16,6 +16,9 @@ struct RekordboxAnonymizationResult
     int tracksDropped = 0;  // only nonzero when maxTracks was set and exceeded
     int artistsRenamed = 0;
     int playlistsRenamed = 0;
+    // Analysis files removed because no kept track pointed at them, when
+    // pruneUnreferencedAnalysisFiles was asked for.
+    int orphanedAnalysisFilesRemoved = 0;
     // Files found in the catalog directory that no anonymizer knows how
     // to scrub, and were therefore dropped rather than shipped. Reported
     // so the manifest can say what is missing from the export instead of
@@ -74,6 +77,10 @@ struct RekordboxAnonymizationResult
 // KaitaiRekordboxReader's own convention (see its header comment).
 RekordboxAnonymizationResult anonymizeRekordboxLibrary(
     const std::string &sourceRoot, const std::string &destinationRoot, std::optional<size_t> maxTracks,
+    // See AnonymizationOptions::pruneUnreferencedAnalysisFiles: removes
+    // the analysis files no kept track points at rather than scrubbing
+    // and shipping them.
+    bool pruneUnreferencedAnalysisFiles = false,
     application::ProgressReporter &reporter = application::NullProgressReporter::instance());
 
 }  // namespace seabass::infrastructure::rekordbox

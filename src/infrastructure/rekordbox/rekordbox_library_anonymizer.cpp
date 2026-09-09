@@ -347,6 +347,7 @@ void copyTreeIfPresent(const fs::path &from, const fs::path &to)
 
 RekordboxAnonymizationResult anonymizeRekordboxLibrary(const std::string &sourceRoot, const std::string &destinationRoot,
                                                          std::optional<size_t> maxTracks,
+                                                         bool pruneUnreferencedAnalysisFiles,
                                                          application::ProgressReporter &reporter)
 {
     RekordboxAnonymizationResult result;
@@ -575,6 +576,15 @@ RekordboxAnonymizationResult anonymizeRekordboxLibrary(const std::string &source
                     continue;
                 }
                 if (visitedAnlz.count(entry.path().string()) > 0) {
+                    continue;
+                }
+                if (pruneUnreferencedAnalysisFiles) {
+                    // Removed rather than scrubbed. Nothing in the export
+                    // points at it, and for a small fixture these are the
+                    // bulk of the bytes.
+                    std::error_code removeEc;
+                    fs::remove(entry.path(), removeEc);
+                    ++result.orphanedAnalysisFilesRemoved;
                     continue;
                 }
                 anonymizeAnlzFile(entry.path().string(), nextCueCommentIndex);
