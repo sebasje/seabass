@@ -78,6 +78,8 @@ QVariant DetectedStickListModel::data(const QModelIndex &index, int role) const
         return QString::fromStdString(stick.identity.hardwareSerial);
     case IdentityStrengthRole:
         return QString::fromLatin1(application::StickIdentity::strengthName(stick.identity.strength()));
+    case CapacityBytesRole:
+        return QVariant::fromValue(static_cast<qulonglong>(stick.capacityBytes));
     default:
         return {};
     }
@@ -87,6 +89,7 @@ QHash<int, QByteArray> DetectedStickListModel::roleNames() const
 {
     return {
         {LabelRole, "label"},
+        {CapacityBytesRole, "capacityBytes"},
         {MountPointRole, "mountPoint"},
         {DevicePathRole, "devicePath"},
         {MountedRole, "mounted"},
