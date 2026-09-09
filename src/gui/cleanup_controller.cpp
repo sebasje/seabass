@@ -15,6 +15,7 @@
 #include <unordered_map>
 
 #include "application/use_cases/collapse_catalog_rows.hpp"
+#include "application/use_cases/real_file_sizes.hpp"
 #include "application/ports/cue_writer.hpp"
 #include "application/ports/library_cleanup_writer.hpp"
 #include "domain/duplicate_cue_consolidation.hpp"
@@ -670,6 +671,20 @@ CleanupTaskResult runRescanTask(QString format, QString path, QString playlistNa
             plans.push_back(std::move(plan));
         }
         result.plans = std::move(plans);
+
+        // Sizes from the stick, not from a catalog. Two of the three
+        // formats record no file size at all, so every "space saved"
+        // figure derived from them was structurally zero -- the same
+        // library reported 0 GB scanned one way and 6.35 GB scanned
+        // another. Rewrites Track::fileSizeBytes on the copies these
+        // plans would remove, which is what every figure the page shows
+        // is derived from, so one correction makes all of them true.
+        //
+        // After planning on purpose: the planner weighs file size when
+        // choosing a survivor, and giving it real numbers would change
+        // which copy is kept. That is very likely an improvement and it
+        // is not this change.
+        result.sizes = application::measureRealFileSizes(result.plans);
     } catch (const application::OperationCancelled &) {
         result.cancelled = true;
     } catch (const std::exception &e) {

@@ -311,6 +311,7 @@ add_library(seabass_core STATIC
     src/application/use_cases/fill_missing_durations.cpp
     src/application/path_key.cpp
     src/application/use_cases/collapse_catalog_rows.cpp
+    src/application/use_cases/real_file_sizes.cpp
     src/application/use_cases/find_unreferenced_files.cpp
     src/infrastructure/stick_layout.cpp
     src/application/use_cases/unreferenced_tracks.cpp
@@ -696,6 +697,11 @@ add_executable(metadata_cache_test tests/metadata_cache_test.cpp)
 target_include_directories(metadata_cache_test PRIVATE src)
 target_link_libraries(metadata_cache_test PRIVATE seabass_core)
 add_test(NAME metadata_cache_test COMMAND metadata_cache_test)
+
+add_executable(real_file_sizes_test tests/real_file_sizes_test.cpp)
+target_include_directories(real_file_sizes_test PRIVATE src)
+target_link_libraries(real_file_sizes_test PRIVATE seabass_core)
+add_test(NAME real_file_sizes_test COMMAND real_file_sizes_test)
 
 add_executable(collapse_catalog_rows_test tests/collapse_catalog_rows_test.cpp)
 target_include_directories(collapse_catalog_rows_test PRIVATE src)

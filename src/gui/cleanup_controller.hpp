@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "application/ports/cancellation_token.hpp"
+#include "application/use_cases/real_file_sizes.hpp"
 #include "domain/duplicate_cleanup.hpp"
 #include "gui/qt_progress_reporter.hpp"
 #include "infrastructure/cleanup/pending_deletion_manifest.hpp"
@@ -203,6 +204,11 @@ struct CleanupTaskResult
     // silently dropped: a group that vanishes with no explanation reads
     // as a scan that missed it, and the DJ would go looking.
     int groupsHeldBackStranding = 0;
+
+    // What the filesystem said about the files these plans would remove.
+    // See application::measureRealFileSizes(): the catalogs cannot answer
+    // this, because two of the three record no file size at all.
+    application::MeasuredFileSizes sizes;
 
     // True when rows from every catalog on the stick were folded into
     // files before grouping. False when a catalog could not be read, in
