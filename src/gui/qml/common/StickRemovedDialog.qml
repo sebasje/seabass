@@ -42,6 +42,10 @@ SeabassDialog {
 
     footer: DialogButtonBox {
         Button {
+            Keys.onReturnPressed: root.activateFooterSelection()
+            Keys.onEnterPressed: root.activateFooterSelection()
+            Keys.onLeftPressed: root.moveFooterSelection(-1)
+            Keys.onRightPressed: root.moveFooterSelection(1)
             objectName: "discardButton"
             text: "Discard Changes"
             DialogButtonBox.buttonRole: DialogButtonBox.DestructiveRole
@@ -51,6 +55,10 @@ SeabassDialog {
             }
         }
         Button {
+            Keys.onReturnPressed: root.activateFooterSelection()
+            Keys.onEnterPressed: root.activateFooterSelection()
+            Keys.onLeftPressed: root.moveFooterSelection(-1)
+            Keys.onRightPressed: root.moveFooterSelection(1)
             objectName: "understoodButton"
             text: "Understood"
             highlighted: true

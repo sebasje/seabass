@@ -27,6 +27,10 @@ SeabassDialog {
 
     footer: DialogButtonBox {
         Button {
+            Keys.onReturnPressed: root.activateFooterSelection()
+            Keys.onEnterPressed: root.activateFooterSelection()
+            Keys.onLeftPressed: root.moveFooterSelection(-1)
+            Keys.onRightPressed: root.moveFooterSelection(1)
             objectName: dialog.acceptObjectName
             text: dialog.acceptText
             DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole

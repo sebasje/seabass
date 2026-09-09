@@ -84,6 +84,99 @@ Dialog {
     onFooterChanged: root.alignFooter()
     Component.onCompleted: root.alignFooter()
 
+    // --- Keyboard: every dialog answers the same way ---
+    //
+    // Return presses the selected button, Left/Right move the selection,
+    // Escape cancels (closePolicy, which for a Dialog is reject() -- the
+    // same thing the Cancel button does, so a dialog dismissed either way
+    // is indistinguishable to whatever is waiting on the answer).
+    //
+    // Selection IS keyboard focus, and the highlight follows it. If the
+    // arrows moved focus without moving the highlight, the dialog would
+    // be showing one answer while Return performed another.
+    //
+    // The arrow keys are handled on the BUTTONS, never on the dialog: a
+    // dialog with a text field in it (TypedConfirmDialog asks you to type
+    // a word) must let Left/Right move the cursor. Bound at the dialog
+    // level they would steal it.
+    function footerButtons() {
+        var box = root.footer;
+        if (!box || box.contentChildren === undefined) {
+            return [];
+        }
+        var out = [];
+        for (var i = 0; i < box.contentChildren.length; ++i) {
+            var b = box.contentChildren[i];
+            if (b && b.visible && b.enabled !== false) {
+                out.push(b);
+            }
+        }
+        return out;
+    }
+
+    function selectFooterButton(target) {
+        var list = root.footerButtons();
+        for (var i = 0; i < list.length; ++i) {
+            // Assigned, not bound: DialogButtonBox writes to `highlighted`
+            // itself and simply discards a binding.
+            if (list[i].highlighted !== undefined) {
+                list[i].highlighted = (list[i] === target);
+            }
+        }
+        if (target) {
+            target.forceActiveFocus();
+        }
+    }
+
+    function moveFooterSelection(delta) {
+        var list = root.footerButtons();
+        if (list.length < 2) {
+            return;
+        }
+        var index = 0;
+        for (var i = 0; i < list.length; ++i) {
+            if (list[i].activeFocus) {
+                index = i;
+            }
+        }
+        root.selectFooterButton(list[(index + delta + list.length) % list.length]);
+    }
+
+    function activateFooterSelection() {
+        var list = root.footerButtons();
+        for (var i = 0; i < list.length; ++i) {
+            if (list[i].activeFocus) {
+                list[i].clicked();
+                return;
+            }
+        }
+        if (list.length > 0) {
+            list[0].clicked();
+        }
+    }
+
+    // Whatever the dialog marked as its default, so Return does the
+    // expected thing the instant it opens without anyone having to click
+    // into the dialog first.
+    function focusDefaultFooterButton() {
+        var list = root.footerButtons();
+        for (var i = 0; i < list.length; ++i) {
+            if (list[i].highlighted) {
+                list[i].forceActiveFocus();
+                return;
+            }
+        }
+        // Nothing marked as default: take the LAST button rather than the
+        // first. Every footer here declares the affirmative action first
+        // and the way out last, so the last one is the safe answer, and a
+        // dialog that failed to mark a default must not hand Return to
+        // the destructive button by accident.
+        if (list.length > 0) {
+            root.selectFooterButton(list[list.length - 1]);
+        }
+    }
+    onOpened: Qt.callLater(root.focusDefaultFooterButton)
+
     RowLayout {
         width: parent.width
         spacing: 14
