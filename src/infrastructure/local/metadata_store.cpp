@@ -134,6 +134,10 @@ void MetadataStore::openAndMigrate()
         throw std::runtime_error(std::string(Context) + ": " + message);
     }
 
+    // Two connections exist in the running app: the one the browse view
+    // reads through and the one a backup writes through. A reader that
+    // arrives mid-transaction should wait rather than fail the page.
+    sqlite3_busy_timeout(m_db, 5000);
     exec(m_db, "PRAGMA foreign_keys = ON;");
     exec(m_db, R"sql(
         CREATE TABLE IF NOT EXISTS tracks (

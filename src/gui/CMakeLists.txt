@@ -85,6 +85,7 @@ set(SEABASS_GUI_QML_FILES
     qml/SyncPage.qml
     qml/BackupsPage.qml
     qml/LocalCuePage.qml
+    qml/MetadataBackupPage.qml
     qml/FormatToggle.qml
     qml/LibrarySourceToggle.qml
     qml/KeyBadge.qml
@@ -151,6 +152,8 @@ set(SEABASS_GUI_SOURCES
     backups_controller.cpp
     local_cue_controller.hpp
     local_cue_controller.cpp
+    metadata_backup_controller.hpp
+    metadata_backup_controller.cpp
     playback_controller.hpp
     playback_controller.cpp
     settings_controller.hpp

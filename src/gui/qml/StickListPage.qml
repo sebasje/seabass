@@ -82,6 +82,7 @@ Page {
     // (or stickLabel/rekordboxPath/enginePath) may all be empty; the
     // target page picks its own drive/backup/library from within itself.
     signal localCueRequested(string stickLabel, string rekordboxPath, string enginePath)
+    signal metadataBackupRequested(string stickLabel, string rekordboxPath, string enginePath, string libraryId)
     // Copy the library on another mounted stick onto this one -- either a
     // fresh backup stick (targetHasLibrary false) or an update of an older
     // copy (true). The source's catalog paths come from the advisor.
@@ -527,6 +528,19 @@ Page {
                             visible: delegateRoot.hasKnownLibrary
                             enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
                             onClicked: root.stickStatisticsRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
+                        }
+                        ActionCard {
+                            cardTitle: "Metadata Backup"
+                            cardSubtitle: "Copy this stick's cues, ratings and comments to this computer"
+                            cardIcon: "💾"
+                            // Not gated on the write lock: this only ever
+                            // writes to the local store, so another
+                            // session editing the library is no reason to
+                            // refuse a copy of what is on it.
+                            visible: delegateRoot.hasKnownLibrary
+                            enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
+                            onClicked: root.metadataBackupRequested(delegateRoot.label, delegateRoot.rekordboxPath,
+                                                                    delegateRoot.enginePath, delegateRoot.libraryId)
                         }
                         ActionCard {
                             cardTitle: "Create Engine Library"
