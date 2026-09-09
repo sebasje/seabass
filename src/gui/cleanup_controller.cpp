@@ -5,6 +5,7 @@
 #include <QtConcurrent/QtConcurrentRun>
 
 #include <algorithm>
+#include <set>
 #include <chrono>
 #include <filesystem>
 #include <functional>
@@ -13,9 +14,12 @@
 #include <set>
 #include <unordered_map>
 
+#include "application/use_cases/collapse_catalog_rows.hpp"
+#include "application/use_cases/real_file_sizes.hpp"
 #include "application/ports/cue_writer.hpp"
 #include "application/ports/library_cleanup_writer.hpp"
 #include "domain/duplicate_cue_consolidation.hpp"
+#include "domain/track_scope.hpp"
 #include "gui/edit/edit_session_registry.hpp"
 #include "gui/edit/format_write_session.hpp"
 #include "gui/edit/library_edit_session.hpp"
@@ -555,7 +559,8 @@ PendingDeletionApplyResult runDeletePendingTask(QString format, QString path,
     return result;
 }
 
-CleanupTaskResult runRescanTask(QString format, QString path, std::shared_ptr<QtProgressReporter> reporter,
+CleanupTaskResult runRescanTask(QString format, QString path, QString playlistName, QString searchQuery,
+                                 std::shared_ptr<QtProgressReporter> reporter,
                                 application::CancellationToken cancel)
 {
     CleanupTaskResult result;
@@ -583,6 +588,25 @@ CleanupTaskResult runRescanTask(QString format, QString path, std::shared_ptr<Qt
         // from Engine, and on a real stick that difference was 307
         // files. See readAllStickCatalogs()'s own comment.
         auto stickCatalogs = readAllStickCatalogs(path.toStdString(), *reporter, cancel);
+
+        // A file, not a row, is the unit of duplication: the same audio is
+        // listed by rekordbox, Engine and OneLibrary at once, and removing
+        // a copy means removing every catalog's row for it. Folding rows
+        // into files here is what lets one save do that -- see
+        // CleanupGroupChange::apply(), which writes each catalog the
+        // collapsed file names.
+        //
+        // The decision, including the refusal to collapse when a catalog
+        // could not be read, lives in collapseForCleanupScan() where it
+        // can be tested. Before scoping and before the strays join, never
+        // after: see collapseCatalogRows()'s header.
+        {
+            auto scanRows = application::collapseForCleanupScan(stickCatalogs.catalogs, stickCatalogs.failed,
+                                                                 std::move(tracks));
+            tracks = std::move(scanRows.rows);
+            result.collapsedAcrossCatalogs = scanRows.collapsedAcrossCatalogs;
+        }
+
         auto strays = infrastructure::cleanup::scanStrayFiles(
             fs::path(path.toStdString()).parent_path().string(), stickCatalogs.catalogs, stickCatalogs.failed, cancel);
 
@@ -598,14 +622,69 @@ CleanupTaskResult runRescanTask(QString format, QString path, std::shared_ptr<Qt
         }
         tracks.insert(tracks.end(), strays.tracks.begin(), strays.tracks.end());
 
+        // Every playlist the unscoped library knows about, so the
+        // picker still offers the others after one is chosen.
+        {
+            std::set<QString> names;
+            for (const auto &track : tracks) {
+                for (const auto &membership : track.playlists) {
+                    names.insert(QString::fromStdString(membership.name));
+                }
+            }
+            for (const auto &name : names) {
+                result.playlistNames << name;
+            }
+        }
+
+        // Scope last, once the stray files are in: a playlist or a
+        // search names tracks, and a stray copy of a scoped track has to
+        // be reachable by the same name, or scoping would quietly hide
+        // exactly the copies this page exists to find. Applied after the
+        // list is whole, never to the catalogs on the way in -- see
+        // collapseCatalogRows()'s header for why narrowing before the
+        // parts of a file are together is the one order that breaks.
+        if (!playlistName.isEmpty()) {
+            tracks = domain::filterByScope(tracks, domain::TrackScope::playlist(playlistName.toStdString()));
+        }
+        if (!searchQuery.isEmpty()) {
+            tracks = domain::filterByScope(tracks, domain::TrackScope::search(searchQuery.toStdString()));
+        }
+
         std::vector<domain::DuplicateCleanupPlan> plans;
         for (const auto &group : domain::DuplicateTrackFinder::find(tracks)) {
             auto plan = domain::DuplicateCleanupPlanner::plan(group);
-            if (!plan.toRemove.empty()) {
-                plans.push_back(std::move(plan));
+            if (plan.toRemove.empty()) {
+                continue;
             }
+            // Not offered at all, rather than offered-but-unchecked like
+            // `differs` and `hasUnpreservableDataAtRisk`. Those two are
+            // judgement calls a DJ may overrule; this one has no correct
+            // way to apply yet -- the doomed row lives in a catalog the
+            // survivor has no row in, so removing it takes the recording
+            // out of that catalog rather than deduplicating it. The
+            // writer refuses these too, but by then the DJ has already
+            // chosen them and the save fails; better never to offer.
+            if (plan.wouldStrandAFormat) {
+                ++result.groupsHeldBackStranding;
+                continue;
+            }
+            plans.push_back(std::move(plan));
         }
         result.plans = std::move(plans);
+
+        // Sizes from the stick, not from a catalog. Two of the three
+        // formats record no file size at all, so every "space saved"
+        // figure derived from them was structurally zero -- the same
+        // library reported 0 GB scanned one way and 6.35 GB scanned
+        // another. Rewrites Track::fileSizeBytes on the copies these
+        // plans would remove, which is what every figure the page shows
+        // is derived from, so one correction makes all of them true.
+        //
+        // After planning on purpose: the planner weighs file size when
+        // choosing a survivor, and giving it real numbers would change
+        // which copy is kept. That is very likely an improvement and it
+        // is not this change.
+        result.sizes = application::measureRealFileSizes(result.plans);
     } catch (const application::OperationCancelled &) {
         result.cancelled = true;
     } catch (const std::exception &e) {
@@ -725,10 +804,13 @@ qlonglong CleanupController::stickFreeBytes() const
     return stickSpace(m_path).second;
 }
 
-void CleanupController::scan(const QString &format, const QString &path)
+void CleanupController::scan(const QString &format, const QString &path, const QString &playlistName,
+                              const QString &searchQuery)
 {
     m_format = format;
     m_path = path;
+    m_playlistName = playlistName;
+    m_searchQuery = searchQuery;
     attachSession();
     rescan();
 }
@@ -779,7 +861,8 @@ void CleanupController::rescan()
     setBusy(true);
 
     m_scanCancel = application::CancellationToken();
-    m_watcher.setFuture(QtConcurrent::run(runRescanTask, m_format, m_path, makeReporter(), m_scanCancel));
+    m_watcher.setFuture(QtConcurrent::run(runRescanTask, m_format, m_path, m_playlistName, m_searchQuery,
+                                          makeReporter(), m_scanCancel));
 }
 
 void CleanupController::cancelScan()
@@ -832,6 +915,7 @@ void CleanupController::onRescanFinished()
     }
 
     m_strays = result.strays;
+    m_playlistNames = result.playlistNames;
     m_model.setPlans(std::move(result.plans));
     // Groups staged before this rescan keep their mark if they are still
     // listed (the change itself lives in the session).

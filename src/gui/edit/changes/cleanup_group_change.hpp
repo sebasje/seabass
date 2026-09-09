@@ -23,6 +23,10 @@ public:
     QString description() const override;
     QString unit() const override;
     QStringList formatsTouched() const override;
+    // The catalogs whose rows this group's doomed copies actually live
+    // in. Empty of anything but m_format until rows are collapsed into
+    // files -- see application::collapseCatalogRows().
+    QStringList doomedRowFormats() const;
     std::vector<BackupTarget> filesToBackup(SaveContext &ctx) const override;
     ChangeOutcome apply(SaveContext &ctx) override;
 
