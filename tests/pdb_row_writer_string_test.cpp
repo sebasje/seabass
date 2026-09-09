@@ -209,6 +209,28 @@ struct TrackTexts
     std::string title, comment, filename, filePath;
 };
 
+// sqlText() trims the format's field padding, which is right for every
+// consumer -- the padding is filler, not data. The writer's contract is
+// the opposite: a shorter string must be padded out so the field keeps
+// its capacity. So this reads the field WITHOUT trimming, which is the
+// only way to assert padding once the normal reader stops showing it.
+std::string rawText(Pdb::device_sql_string_t *s)
+{
+    auto *body = s->body();
+    if (auto *a = dynamic_cast<Pdb::device_sql_short_ascii_t *>(body)) {
+        return a->text();
+    }
+    if (auto *a = dynamic_cast<Pdb::device_sql_long_ascii_t *>(body)) {
+        return a->text();
+    }
+    if (auto *a = dynamic_cast<Pdb::device_sql_long_utf16le_t *>(body)) {
+        return a->text();
+    }
+    return "";
+}
+
+TrackTexts readRawTrackTexts(const fs::path &path, uint32_t trackId);
+
 TrackTexts readTrackTexts(const fs::path &path, uint32_t trackId)
 {
     std::ifstream ifs(path, std::ifstream::binary);
@@ -231,6 +253,36 @@ TrackTexts readTrackTexts(const fs::path &path, uint32_t trackId)
                         out.comment = sqlText(t->comment());
                         out.filename = sqlText(t->filename());
                         out.filePath = sqlText(t->file_path());
+                    }
+                }
+            }
+        });
+    }
+    return out;
+}
+
+TrackTexts readRawTrackTexts(const fs::path &path, uint32_t trackId)
+{
+    std::ifstream ifs(path, std::ifstream::binary);
+    kaitai::kstream ks(&ifs);
+    Pdb pdb(false, &ks);
+    TrackTexts out;
+    for (const auto &table : *pdb.tables()) {
+        if (table->type() != Pdb::PAGE_TYPE_TRACKS) {
+            continue;
+        }
+        forEachDataPage(*table, [&](Pdb::page_t *page) {
+            for (const auto &group : *page->row_groups()) {
+                for (const auto &row : *group->rows()) {
+                    if (!row->present()) {
+                        continue;
+                    }
+                    auto *t = dynamic_cast<Pdb::track_row_t *>(row->body());
+                    if (t && t->id() == trackId) {
+                        out.title = rawText(t->title());
+                        out.comment = rawText(t->comment());
+                        out.filename = rawText(t->filename());
+                        out.filePath = rawText(t->file_path());
                     }
                 }
             }
@@ -266,6 +318,33 @@ std::string readArtistName(const fs::path &path, uint32_t artistId)
     return result;
 }
 
+std::string readRawArtistName(const fs::path &path, uint32_t artistId)
+{
+    std::ifstream ifs(path, std::ifstream::binary);
+    kaitai::kstream ks(&ifs);
+    Pdb pdb(false, &ks);
+    std::string result;
+    for (const auto &table : *pdb.tables()) {
+        if (table->type() != Pdb::PAGE_TYPE_ARTISTS) {
+            continue;
+        }
+        forEachDataPage(*table, [&](Pdb::page_t *page) {
+            for (const auto &group : *page->row_groups()) {
+                for (const auto &row : *group->rows()) {
+                    if (!row->present()) {
+                        continue;
+                    }
+                    auto *a = dynamic_cast<Pdb::artist_row_t *>(row->body());
+                    if (a && a->id() == artistId) {
+                        result = rawText(a->name());
+                    }
+                }
+            }
+        });
+    }
+    return result;
+}
+
 std::string readPlaylistName(const fs::path &path, uint32_t playlistId)
 {
     std::ifstream ifs(path, std::ifstream::binary);
@@ -285,6 +364,33 @@ std::string readPlaylistName(const fs::path &path, uint32_t playlistId)
                     auto *p = dynamic_cast<Pdb::playlist_tree_row_t *>(row->body());
                     if (p && p->id() == playlistId) {
                         result = sqlText(p->name());
+                    }
+                }
+            }
+        });
+    }
+    return result;
+}
+
+std::string readRawPlaylistName(const fs::path &path, uint32_t playlistId)
+{
+    std::ifstream ifs(path, std::ifstream::binary);
+    kaitai::kstream ks(&ifs);
+    Pdb pdb(false, &ks);
+    std::string result;
+    for (const auto &table : *pdb.tables()) {
+        if (table->type() != Pdb::PAGE_TYPE_PLAYLIST_TREE) {
+            continue;
+        }
+        forEachDataPage(*table, [&](Pdb::page_t *page) {
+            for (const auto &group : *page->row_groups()) {
+                for (const auto &row : *group->rows()) {
+                    if (!row->present()) {
+                        continue;
+                    }
+                    auto *p = dynamic_cast<Pdb::playlist_tree_row_t *>(row->body());
+                    if (p && p->id() == playlistId) {
+                        result = rawText(p->name());
                     }
                 }
             }
@@ -367,7 +473,7 @@ int main()
         bool committed = writer.commit();
         assert(committed);
 
-        auto texts = readTrackTexts(pdbPath, 100);
+        auto texts = readRawTrackTexts(pdbPath, 100);
         // Original field capacities: title=10 (len("Real Title")),
         // comment=2 (len("Hi")), filename=8 (len("real.mp3")) -- padding
         // computed rather than hand-counted in a literal, to avoid an
@@ -407,8 +513,8 @@ int main()
 
         // Original capacities: artist name=11 (len("Real Artist")),
         // playlist name=13 (len("Real Playlist")).
-        assert(readArtistName(pdbPath, 5) == "Artist Z" + std::string(11 - 8, ' '));
-        assert(readPlaylistName(pdbPath, 9) == "Set 1" + std::string(13 - 5, ' '));
+        assert(readRawArtistName(pdbPath, 5) == "Artist Z" + std::string(11 - 8, ' '));
+        assert(readRawPlaylistName(pdbPath, 9) == "Set 1" + std::string(13 - 5, ' '));
         assert(readTrackTitle(pdbPath, 100) == "Real Title");     // track row untouched
         std::cout << "case 5 (overwriteArtistName/overwritePlaylistName: fit to capacity, other tables untouched) OK\n";
     }

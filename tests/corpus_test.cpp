@@ -36,6 +36,7 @@
 #include <string>
 #include <vector>
 
+#include "application/path_key.hpp"
 #include "application/use_cases/scan_library.hpp"
 #include "application/use_cases/sync_libraries.hpp"
 #include "domain/library_consistency.hpp"
@@ -1215,6 +1216,49 @@ void caseBackupCoversEveryChangedFile(const DataSet &set, const fs::path &scratc
 // Checked against the real fixture rather than a synthetic one: the
 // rekordbox branch resolves a track id through export.pdb, which is
 // exactly the step that can go wrong.
+// export.pdb keeps strings in fixed-length fields and right-pads them.
+// Every string the reader hands out must already be trimmed, because
+// three destructive decisions compare these against paths walked off the
+// filesystem, which are not padded: a padded catalog path makes every
+// referenced file look unreferenced, and unreferenced files are offered
+// for deletion.
+//
+// Against the real corpus rather than a synthetic string, because the
+// padding is a property of what rekordbox actually wrote.
+void caseNoPaddedStringsFromRekordbox(const DataSet &set, const Catalogs &catalogs)
+{
+    (void)set;
+    auto padded = [](const std::string &value) {
+        return !value.empty() && (value.back() == ' ' || value.back() == '\t' || value.back() == '\0');
+    };
+    std::size_t paddedPaths = 0, paddedText = 0;
+    for (const auto &track : catalogs.rekordbox) {
+        if (padded(track.filePath) || padded(track.filename)) {
+            ++paddedPaths;
+        }
+        if (padded(track.title) || padded(track.artist)) {
+            ++paddedText;
+        }
+    }
+    check(paddedPaths == 0, "rekordbox track paths must not carry the format's field padding");
+    check(paddedText == 0, "rekordbox track titles/artists must not carry the format's field padding");
+
+    // And the property that actually matters: a catalog path and the same
+    // path as it would come off the filesystem key the same.
+    std::size_t agreed = 0;
+    for (const auto &track : catalogs.rekordbox) {
+        if (track.filePath.empty()) {
+            continue;
+        }
+        if (application::normalizedPathKey(track.filePath)
+            == application::normalizedPathKey(fs::path(track.filePath).lexically_normal().string())) {
+            ++agreed;
+        }
+    }
+    check(agreed == catalogs.rekordbox.size(),
+          "every rekordbox path must key the same as its on-disk spelling");
+}
+
 void caseBackupPathResolver(const DataSet &set, const fs::path &scratch, const Catalogs &catalogs)
 {
     if (catalogs.rekordbox.empty()) {
@@ -2204,6 +2248,7 @@ void runMatrix(const DataSet &set, const fs::path &scratch, const Catalogs &cata
     caseAddCue(set, scratch, catalogs, expected);
     caseStrayCueRemoval(set, scratch, catalogs, expected);
     caseBackupPrecedesWrites(set, scratch, catalogs);
+    caseNoPaddedStringsFromRekordbox(set, catalogs);
     caseBackupPathResolver(set, scratch, catalogs);
     caseBackupCoversEveryChangedFile(set, scratch, catalogs);
     caseSync(set, scratch, catalogs, expected);

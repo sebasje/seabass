@@ -1212,6 +1212,13 @@ target_compile_definitions(backup_archive_crossvalidation_test PRIVATE
     SEABASS_CONFIGURED_UNZIP="${UNZIP_EXECUTABLE}"
     SEABASS_CONFIGURED_SEVENZIP="${SEVENZIP_EXECUTABLE}"
 )
+add_executable(path_key_test
+    src/application/path_key.cpp
+    tests/path_key_test.cpp
+)
+target_include_directories(path_key_test PRIVATE src)
+add_test(NAME path_key_test COMMAND path_key_test)
+
 add_executable(seabass_paths_test
     src/infrastructure/paths/seabass_paths.cpp
     tests/seabass_paths_test.cpp
@@ -1512,6 +1519,29 @@ set_tests_properties(corpus_test PROPERTIES LABELS "integration")
 # here wins over the -DNDEBUG the build type added. Applied by name so a
 # test added later is covered without anyone remembering this exists; the
 # application keeps its NDEBUG, since only the tests depend on assert.
+# ---------------------------------------------------------------------------
+# No test may write into the user's real ~/Seabass.
+#
+# Since the QML tests build the real controllers, a test run created
+# ~/Seabass/backups/full/TESTSTICK.zip and ~/Seabass/metadata/cues.db in
+# the developer's own tree -- and, sharing one cues.db between parallel
+# tests, made the suite intermittently fail under `ctest -j`.
+#
+# SEABASS_HOME (see infrastructure/paths/seabass_paths.hpp) redirects the
+# local root, and it is applied to every registered test rather than to
+# the few that were noticed: any test can reach a default path through a
+# controller it merely constructs. Appended rather than assigned, because
+# some tests already carry an ENVIRONMENT property.
+get_property(_seabass_all_tests DIRECTORY PROPERTY TESTS)
+foreach(_seabass_test IN LISTS _seabass_all_tests)
+    get_test_property(${_seabass_test} ENVIRONMENT _seabass_test_env)
+    if(_seabass_test_env STREQUAL "NOTFOUND")
+        set(_seabass_test_env "")
+    endif()
+    list(APPEND _seabass_test_env "SEABASS_HOME=${CMAKE_CURRENT_BINARY_DIR}/test-home/${_seabass_test}")
+    set_tests_properties(${_seabass_test} PROPERTIES ENVIRONMENT "${_seabass_test_env}")
+endforeach()
+
 get_property(_seabass_all_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
 foreach(_seabass_target IN LISTS _seabass_all_targets)
     if(_seabass_target MATCHES "_test$|_tests$")

@@ -9,20 +9,39 @@ namespace seabass::infrastructure::rekordbox
 
 using Pdb = rekordbox_pdb_t;
 
+// export.pdb stores strings in fixed-length fields and right-pads them
+// with spaces (see rekordbox_library_anonymizer.cpp, which has always
+// trimmed for exactly this reason). Trimming here rather than at each
+// call site because every string in the catalog comes through this one
+// function, and the padding is not data: it is the format's filler, and
+// a field cannot distinguish a trailing space it was given from one it
+// was padded with.
+//
+// Left untrimmed, this was destructive rather than cosmetic. Every
+// track's filePath arrived padded, so normalizedPathKey() said a
+// catalog's own file and the same file on disk were different files --
+// which is what findUnreferencedFiles and resolvePendingDeletions use to
+// decide that a file can be deleted.
 std::string sqlText(Pdb::device_sql_string_t *s)
 {
+    auto trimmed = [](std::string value) {
+        while (!value.empty() && (value.back() == ' ' || value.back() == '\t' || value.back() == '\0')) {
+            value.pop_back();
+        }
+        return value;
+    };
     if (!s) {
         return "";
     }
     auto *body = s->body();
     if (auto *a = dynamic_cast<Pdb::device_sql_short_ascii_t *>(body)) {
-        return a->text();
+        return trimmed(a->text());
     }
     if (auto *a = dynamic_cast<Pdb::device_sql_long_ascii_t *>(body)) {
-        return a->text();
+        return trimmed(a->text());
     }
     if (auto *a = dynamic_cast<Pdb::device_sql_long_utf16le_t *>(body)) {
-        return a->text();
+        return trimmed(a->text());
     }
     return "";
 }
