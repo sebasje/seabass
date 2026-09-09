@@ -50,11 +50,6 @@ std::string hostOsName()
 // size so a caller (or the CLI's own printed summary) can judge whether
 // to re-run with a smaller AnonymizationOptions::maxTracks before
 // attaching this to an email.
-std::uintmax_t estimateZippedBytes(std::uintmax_t rekordboxRawBytes, std::uintmax_t engineRawBytes)
-{
-    return static_cast<std::uintmax_t>(static_cast<double>(rekordboxRawBytes) * 0.47) +
-           static_cast<std::uintmax_t>(static_cast<double>(engineRawBytes) * 0.58);
-}
 
 std::string humanSize(std::uintmax_t bytes)
 {
@@ -206,8 +201,14 @@ void writeManifest(const fs::path &manifestPath, const AnonymizationSummary &sum
          "was inspected before the zip was written. Had anything still\n"
          "held real data, no file would have been produced.\n\n";
 
-    m << "Output size: " << humanSize(summary.outputSizeBytes) << " raw, roughly "
-      << humanSize(summary.estimatedZippedBytes) << " estimated once zipped.\n\n";
+    // Raw only. This file is written before the zip exists and ends up
+    // inside it, so the real compressed size cannot be stated here --
+    // and the fixed-ratio guess that used to stand in its place was off
+    // by more than double on a slimmed export (2.5 MB predicted, 1.1 MB
+    // actual). A number that wrong is worse than no number; the app and
+    // the CLI both report the real one once the file exists.
+    m << "Output size: " << humanSize(summary.outputSizeBytes) << " before compression ("
+      << summary.filesWritten << " files).\n\n";
 
     m << "Nothing has been sent anywhere; this only wrote a single zip\n"
          "file. Review its contents, then attach that zip to an email to\n"
@@ -270,7 +271,12 @@ AnonymizationSummary AnonymizeLibrary::execute(const std::optional<std::string> 
     std::uintmax_t rekordboxBytes = infrastructure::directoryTreeSizeBytes(fs::path(outputDir) / "rekordbox");
     std::uintmax_t engineBytes = infrastructure::directoryTreeSizeBytes(fs::path(outputDir) / "engine");
     summary.outputSizeBytes = rekordboxBytes + engineBytes;
-    summary.estimatedZippedBytes = estimateZippedBytes(rekordboxBytes, engineBytes);
+    std::error_code countEc;
+    for (const auto &entry : fs::recursive_directory_iterator(outputDir, countEc)) {
+        if (entry.is_regular_file(countEc)) {
+            ++summary.filesWritten;
+        }
+    }
 
     // The stick root is the parent of whichever catalog directory was
     // given; both live directly under it.

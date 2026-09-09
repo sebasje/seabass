@@ -263,8 +263,15 @@ int main()
         assert(summary.rekordboxTracksKept == 1);
         assert(summary.engineTracksKept == 1);
         assert(summary.outputSizeBytes > 0);
-        assert(summary.estimatedZippedBytes > 0);
-        assert(summary.estimatedZippedBytes < summary.outputSizeBytes);  // an estimate, but should shrink, not grow
+        assert(summary.filesWritten > 0);
+        // The size that gets reported is now measured rather than
+        // predicted from a fixed ratio -- the prediction was out by more
+        // than double on a slimmed export. So this asserts the real file
+        // exists and is smaller than the tree it came from, which is the
+        // property the estimate was only ever guessing at.
+        assert(summary.finalZipBytes > 0);
+        assert(summary.finalZipBytes < summary.outputSizeBytes);
+        assert(summary.finalZipBytes == fs::file_size(summary.outputZipPath));
 
         // The staging directory is gone -- everything lives in one zip
         // file now, not a loose tree the caller has to zip themselves.

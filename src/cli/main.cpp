@@ -1174,8 +1174,9 @@ int runAnonymizeCommand(bool wantRekordbox, bool wantEngine, const std::optional
         line += "; renamed " + std::to_string(summary.enginePlaylistsRenamed) + " playlist(s)/folder(s)";
         Console::info(line);
     }
-    Console::info("  " + humanSize(static_cast<std::uint64_t>(summary.outputSizeBytes)) + " raw, " +
-                   humanSize(static_cast<std::uint64_t>(summary.finalZipBytes)) + " zipped");
+    Console::info("  " + humanSize(static_cast<std::uint64_t>(summary.finalZipBytes)) + " zipped, " +
+                   std::to_string(summary.filesWritten) + " file(s) (" +
+                   humanSize(static_cast<std::uint64_t>(summary.outputSizeBytes)) + " before compression)");
     Console::info("");
     Console::info("MANIFEST.txt (inside the zip) documents exactly what's included and excluded:");
     Console::info("");

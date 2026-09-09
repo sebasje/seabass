@@ -82,13 +82,13 @@ struct AnonymizationSummary
     // kept only for code inside this use case that needs it mid-run.
     std::string manifestPath;
     std::uintmax_t outputSizeBytes = 0;  // raw, uncompressed, before zipping
+    int filesWritten = 0;                // files in the export, before zipping
     // A ratio-based estimate (real compression measurements against
     // actual rekordbox/Engine files, see estimateZippedBytes() in the
     // .cpp) baked into MANIFEST.txt's own text -- written *before* the
     // real zip exists (the manifest is itself one of the zipped files,
     // so it can't know its own archive's final exact size). Prefer
     // finalZipBytes below for anything reported after execute() returns.
-    std::uintmax_t estimatedZippedBytes = 0;
 
     // The single .zip file this run actually produced -- everything
     // execute() wrote ends up in here; no loose directory is left

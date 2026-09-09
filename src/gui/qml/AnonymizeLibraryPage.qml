@@ -75,10 +75,10 @@ Page {
     // model name, so grouping never changes what ends up in MANIFEST.txt.
     readonly property var hardwareGroups: [
         { vendor: "Pioneer DJ / AlphaTheta", items: [
-            "CDJ-3000", "CDJ-2000NXS2", "XDJ-RX3", "XDJ-XZ", "DJM-900NXS2", "DJM-750MK2", "DJM-A9",
+            "CDJ-3000", "CDJ-2000NXS2", "XDJ-RX3", "XDJ-RX2", "XDJ-XZ", "DJM-900NXS2", "DJM-750MK2", "DJM-A9",
         ] },
         { vendor: "Denon DJ / inMusic", items: [
-            "Prime 4", "Prime 4+", "Prime GO", "SC5000", "SC6000", "SC-Live 4",
+            "Prime 4", "Prime 4+", "Prime GO(+)", "SC5000", "SC6000", "SC-Live 4",
         ] },
     ]
 

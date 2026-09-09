@@ -88,9 +88,16 @@ AnonymizeLibraryTaskResult runAnonymizeTask(QString rekordboxPath, QString engin
             line += QString("; renamed %1 playlist(s)/folder(s)").arg(summary.enginePlaylistsRenamed);
             lines << line;
         }
-        double outputMb = static_cast<double>(summary.outputSizeBytes) / (1024.0 * 1024.0);
-        double zippedMb = static_cast<double>(summary.finalZipBytes) / (1024.0 * 1024.0);
-        lines << QString("%1 MB raw, %2 MB zipped").arg(outputMb, 0, 'f', 1).arg(zippedMb, 0, 'f', 1);
+        // The zip is what the person actually has, so it leads. The raw
+        // figure follows in brackets for context rather than being the
+        // headline number, and there is no estimate any more: this runs
+        // after the file exists, so the size is measured.
+        const double zippedMb = static_cast<double>(summary.finalZipBytes) / (1024.0 * 1024.0);
+        const double outputMb = static_cast<double>(summary.outputSizeBytes) / (1024.0 * 1024.0);
+        lines << QString("%1 MB zipped, %2 file(s) (%3 MB before compression)")
+                     .arg(zippedMb, 0, 'f', 1)
+                     .arg(summary.filesWritten)
+                     .arg(outputMb, 0, 'f', 1);
         result.summaryText = lines.join("\n");
     } catch (const std::exception &e) {
         result.errorMessage = QString::fromStdString(e.what());
