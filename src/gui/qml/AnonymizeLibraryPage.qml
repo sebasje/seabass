@@ -283,6 +283,7 @@ Page {
             }
 
             GroupBox {
+                id: submissionBox
                 label: Subtitle { text: "For the submission (optional; saved into MANIFEST.txt as entered)" }
                 Layout.fillWidth: true
                 ColumnLayout {
@@ -344,6 +345,16 @@ Page {
 
             RowLayout {
                 Layout.fillWidth: true
+                // Every field above lives inside a GroupBox, so the right
+                // edge a reader lines things up against is the box's
+                // CONTENT edge -- where the "Choose..." button and the two
+                // text fields end -- not the frame around it. This row is
+                // a direct child of the page column, so without the same
+                // inset it overhangs them by the box's own padding: six
+                // pixels in the desktop style, which is exactly enough to
+                // look wrong. Borrowed from a real GroupBox rather than
+                // hardcoded, because that padding is the style's to pick
+                // and it differs between them.
                 spacing: 12
                 // Right-aligned, the same way SeabassDialog places its
                 // accept button: the action that commits the page sits at
