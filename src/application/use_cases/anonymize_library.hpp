@@ -19,20 +19,28 @@ struct AnonymizationOptions
     // rather than an on-by-default sampling step.
     std::optional<size_t> maxTracks;
 
-    // Removes every analysis file no kept track points at, instead of
-    // scrubbing and shipping it.
+    // Strips the export down to what a test suite needs: the three
+    // catalogs and the cues, and none of the binary bulk.
     //
-    // Off by default, because for a submitted library those files are
-    // real data worth having: they are where rekordbox keeps its cues,
-    // and the ones no row points at are a genuine on-stick condition the
-    // cleanup features exist to find.
+    //   - analysis files no kept track points at are removed rather than
+    //     scrubbed and shipped (20.7 MB across 5976 files on a real
+    //     stick, against 2 MB for all three catalogs)
+    //   - Engine's overviewWaveFormData column is emptied, and its
+    //     OverviewData directory of .rgb previews removed
+    //   - m.db is vacuumed, so the pages freed by the two above are
+    //     actually given back rather than left as slack
     //
-    // On for building a small in-repository fixture, where they are the
-    // bulk and almost none of it earns its place: on a real stick they
-    // are 20.7 MB across 5976 files, against 2 MB for all three
-    // catalogs, and 827 of 1983 triples belong to tracks that are not in
-    // the library any more.
-    bool pruneUnreferencedAnalysisFiles = false;
+    // What it never touches is the cue data. Engine keeps its cues in
+    // PerformanceData.quickCues and .loops, right beside the waveform
+    // column, and rekordbox keeps its in the analysis files rather than
+    // in export.pdb -- so an export slimmed any harder than this could
+    // not exercise a cue write at all, which is most of what the suite
+    // is for.
+    //
+    // Off by default: a library someone submits is more useful whole,
+    // and the unreferenced analysis files are a real on-stick condition
+    // the cleanup features exist to find.
+    bool slimForTesting = false;
 
     // Free text captured verbatim into MANIFEST.txt (and shown back to
     // the caller before anything is sent anywhere) -- what hardware the

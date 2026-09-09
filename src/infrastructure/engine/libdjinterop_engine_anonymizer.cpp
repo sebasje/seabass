@@ -30,6 +30,36 @@ namespace
 //
 // Done in SQL, after libdjinterop has closed its own connection, because
 // there is no setter to do it through.
+// Empties the waveform blob and reclaims what that frees.
+//
+// PerformanceData holds the cues (quickCues, loops) and the waveform
+// (overviewWaveFormData) in the same row, so this clears one column
+// rather than dropping the table. Vacuuming afterwards is the point of
+// doing it at all: without it SQLite keeps the pages as free space and
+// the file does not shrink, which is the whole reason this exists.
+int emptyEngineWaveformColumn(const std::string &dbPath)
+{
+    sqlite3 *db = nullptr;
+    if (sqlite3_open(dbPath.c_str(), &db) != SQLITE_OK) {
+        sqlite3_close(db);
+        return 0;
+    }
+    int changed = 0;
+    char *error = nullptr;
+    if (sqlite3_exec(db, "UPDATE PerformanceData SET overviewWaveFormData = NULL "
+                         "WHERE overviewWaveFormData IS NOT NULL;",
+                     nullptr, nullptr, &error)
+        == SQLITE_OK) {
+        changed = sqlite3_changes(db);
+    }
+    sqlite3_free(error);
+    error = nullptr;
+    sqlite3_exec(db, "VACUUM;", nullptr, nullptr, &error);
+    sqlite3_free(error);
+    sqlite3_close(db);
+    return changed;
+}
+
 int scrubFilenameColumn(const std::string &destinationRoot)
 {
     const std::string dbPath = (std::filesystem::path(destinationRoot) / "Database2" / "m.db").string();
@@ -124,7 +154,8 @@ void copyTreeIfPresent(const fs::path &from, const fs::path &to)
 }  // namespace
 
 EngineAnonymizationResult anonymizeEngineLibrary(const std::string &sourceRoot, const std::string &destinationRoot,
-                                                  std::optional<size_t> maxTracks, application::ProgressReporter &reporter)
+                                                  std::optional<size_t> maxTracks, bool slimForTesting,
+                                                  application::ProgressReporter &reporter)
 {
     EngineAnonymizationResult result;
 
@@ -165,6 +196,22 @@ EngineAnonymizationResult anonymizeEngineLibrary(const std::string &sourceRoot, 
                 fs::remove(path, removeEc);
                 result.removedUnanonymizableFiles.push_back(path.filename().string());
             }
+        }
+
+        if (slimForTesting) {
+            // The waveform, and only the waveform. Engine keeps its cues
+            // in PerformanceData.quickCues and .loops, in the same table
+            // and right beside this column, so the two have to be told
+            // apart rather than the table dropped: on a real export the
+            // waveform is 0.89 MB against 0.32 MB for every cue and loop
+            // in the library.
+            //
+            // OverviewData is the same data again as .rgb files, 2.8 MB
+            // of it, and nothing but a picture.
+            std::error_code slimEc;
+            fs::remove_all(fs::path(destinationRoot) / "Database2" / "OverviewData", slimEc);
+            result.waveformRowsEmptied = emptyEngineWaveformColumn(
+                (fs::path(destinationRoot) / "Database2" / "m.db").string());
         }
 
         if (!djinterop::engine::database_exists(destinationRoot)) {

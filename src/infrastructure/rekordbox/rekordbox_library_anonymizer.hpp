@@ -77,10 +77,10 @@ struct RekordboxAnonymizationResult
 // KaitaiRekordboxReader's own convention (see its header comment).
 RekordboxAnonymizationResult anonymizeRekordboxLibrary(
     const std::string &sourceRoot, const std::string &destinationRoot, std::optional<size_t> maxTracks,
-    // See AnonymizationOptions::pruneUnreferencedAnalysisFiles: removes
-    // the analysis files no kept track points at rather than scrubbing
-    // and shipping them.
-    bool pruneUnreferencedAnalysisFiles = false,
+    // See AnonymizationOptions::slimForTesting: removes the analysis
+    // files no kept track points at rather than scrubbing and shipping
+    // them.
+    bool slimForTesting = false,
     application::ProgressReporter &reporter = application::NullProgressReporter::instance());
 
 }  // namespace seabass::infrastructure::rekordbox

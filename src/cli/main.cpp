@@ -149,6 +149,10 @@ void printUsage()
                    "; pass N to change that, or 0 for no limit.");
     Console::info("  --out DIR           anonymize only: where to write the anonymized library/ies");
     Console::info("                      and MANIFEST.txt. Required.");
+    Console::info("  --slim              anonymize only: the three catalogs and the cues, without");
+    Console::info("                      the binary bulk -- unreferenced analysis files, Engine's");
+    Console::info("                      waveform blobs and .rgb previews all go. For building a");
+    Console::info("                      test fixture; leave off for a library you are submitting.");
     Console::info("  --max-tracks N      anonymize only: include at most N real tracks (dropped");
     Console::info("                      ones are pruned, not just hidden). Omit to keep every");
     Console::info("                      real track -- see \"anonymize\" above for why that's the");
@@ -1105,7 +1109,7 @@ int runSyncCommand(bool wantRekordbox, bool wantEngine, const std::optional<std:
 // writes to DIR.
 int runAnonymizeCommand(bool wantRekordbox, bool wantEngine, const std::optional<std::string> &rekordboxPath,
                          const std::optional<std::string> &enginePath, const std::optional<std::string> &outDir,
-                         std::optional<size_t> maxTracks, bool pruneAnalysis, const std::string &hardware,
+                         std::optional<size_t> maxTracks, bool slim, const std::string &hardware,
                          const std::string &notes)
 {
     if (!outDir) {
@@ -1120,7 +1124,7 @@ int runAnonymizeCommand(bool wantRekordbox, bool wantEngine, const std::optional
 
     AnonymizationOptions options;
     options.maxTracks = maxTracks;
-    options.pruneUnreferencedAnalysisFiles = pruneAnalysis;
+    options.slimForTesting = slim;
     options.hardware = hardware;
     options.notes = notes;
 
@@ -1221,7 +1225,7 @@ int main(int argc, char **argv)
     std::optional<std::string> trackFilter;
     std::optional<std::string> outDir;
     std::optional<size_t> maxTracks;
-    bool pruneAnalysis = false;
+    bool slim = false;
     std::string hardware;
     std::string notes;
     std::vector<std::string> commands;
@@ -1286,8 +1290,8 @@ int main(int argc, char **argv)
                 return 1;
             }
             outDir = args[++i];
-        } else if (arg == "--prune-analysis") {
-            pruneAnalysis = true;
+        } else if (arg == "--slim") {
+            slim = true;
         } else if (arg == "--max-tracks") {
             if (i + 1 >= args.size()) {
                 Console::error("--max-tracks requires a number");
@@ -1344,7 +1348,7 @@ int main(int argc, char **argv)
 
     if (commands[0] == "anonymize") {
         return runAnonymizeCommand(wantRekordbox, wantEngine, rekordboxPath, enginePath, outDir, maxTracks,
-                                    pruneAnalysis, hardware, notes);
+                                    slim, hardware, notes);
     }
 
     // commands[0] == "scan". Every detected stick carrying a requested

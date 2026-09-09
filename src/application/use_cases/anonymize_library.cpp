@@ -246,7 +246,7 @@ AnonymizationSummary AnonymizeLibrary::execute(const std::optional<std::string> 
         summary.rekordboxAttempted = true;
         auto result = infrastructure::rekordbox::anonymizeRekordboxLibrary(
             *rekordboxRoot, (fs::path(outputDir) / "rekordbox").string(), options.maxTracks,
-            options.pruneUnreferencedAnalysisFiles, reporter);
+            options.slimForTesting, reporter);
         summary.rekordboxTracksKept = result.tracksKept;
         summary.rekordboxTracksDropped = result.tracksDropped;
         summary.rekordboxArtistsRenamed = result.artistsRenamed;
@@ -257,7 +257,8 @@ AnonymizationSummary AnonymizeLibrary::execute(const std::optional<std::string> 
     if (engineRoot) {
         summary.engineAttempted = true;
         auto result = infrastructure::engine::anonymizeEngineLibrary(
-            *engineRoot, (fs::path(outputDir) / "engine").string(), options.maxTracks, reporter);
+            *engineRoot, (fs::path(outputDir) / "engine").string(), options.maxTracks, options.slimForTesting,
+            reporter);
         summary.engineTracksKept = result.tracksKept;
         summary.engineTracksDropped = result.tracksDropped;
         summary.enginePlaylistsRenamed = result.playlistsRenamed;
