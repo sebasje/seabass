@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <optional>
 #include <span>
 #include <sstream>
 
@@ -34,12 +35,7 @@ namespace
 // they never collide with a real backed-up file's basename.
 constexpr const char *ManifestFileName = ".manifest";
 constexpr const char *DescriptionFileName = ".description";
-// A separate dotfile rather than a manifest line, because readManifest()
-// turns every unrecognised key into a backed-up file entry: an
-// "ORIGIN\tautomatic" line would restore as a file called ORIGIN in any
-// build older than this one. A dotfile is ignored by those builds and by
-// this one's size accounting.
-constexpr const char *OriginFileName = ".origin";
+constexpr const char *OriginKey = "ORIGIN";
 
 std::string timestampNow()
 {
@@ -60,8 +56,7 @@ std::uint64_t directorySize(const fs::path &dir)
     std::error_code ec;
     for (const auto &entry : fs::recursive_directory_iterator(dir, ec)) {
         if (entry.is_regular_file() && entry.path().filename() != ManifestFileName &&
-            entry.path().filename() != DescriptionFileName &&
-            entry.path().filename() != OriginFileName) {
+            entry.path().filename() != DescriptionFileName) {
             total += entry.file_size(ec);
         }
     }
@@ -113,6 +108,9 @@ struct Manifest
 {
     int version = 1;
     std::vector<std::pair<std::string, std::string>> entries;
+    // Absent in records written before this field existed -- see
+    // originOf() for how those are read.
+    std::optional<BackupOrigin> origin;
 };
 
 // Backups made before this versioning scheme existed have no
@@ -135,6 +133,8 @@ Manifest readManifest(const fs::path &dir)
         std::string value = line.substr(tab + 1);
         if (key == "MANIFEST-VERSION") {
             manifest.version = std::atoi(value.c_str());
+        } else if (key == OriginKey) {
+            manifest.origin = value == "user" ? BackupOrigin::UserRequested : BackupOrigin::Automatic;
         } else {
             manifest.entries.emplace_back(std::move(key), std::move(value));
         }
@@ -142,38 +142,38 @@ Manifest readManifest(const fs::path &dir)
     return manifest;
 }
 
-// Absent means the record predates this field. Those are read as
-// Automatic rather than as unknown, and that is a factual claim rather
-// than an optimistic default: until this field existed, nothing in this
-// store created a record except a save taking its own safety copy before
-// a write. The single exception is the copy restore() takes of what it is
-// about to overwrite, which is the user's -- they asked for the restore --
-// and is identifiable by its label.
+// Records already sitting on a real stick have no ORIGIN line and have to
+// be classified without one. This is about data already written, not
+// about old builds: nothing here tries to stay readable by an earlier
+// Seabass.
+//
+// They read as Automatic, which is a factual claim rather than a
+// convenient default: until this field existed, nothing in this store
+// created a record except a save taking its safety copy before a write.
+// The single exception is the copy restore() takes of what it is about to
+// overwrite -- the user asked for that one -- and it is identifiable by
+// its label.
+//
+// Prefix, not equality: backup() appends "-1", "-2" ... when two records
+// would land in the same directory, and the label is read back out of the
+// directory name, so a second restore inside one second is labelled
+// "pre-restore-1". Matching exactly would call that automatic and make it
+// deletable. Found by a test that shared a directory with an earlier case
+// by accident.
 //
 // Getting this wrong deletes data that cannot be got back, so it is
-// decided from what the code actually did, not from what would be
-// convenient.
-BackupOrigin readOrigin(const fs::path &dir, const std::string &label)
+// decided from what the code actually did, not from what is convenient.
+BackupOrigin originOf(const Manifest &manifest, const std::string &label)
 {
-    std::ifstream in(dir / OriginFileName);
-    if (in.is_open()) {
-        std::string value;
-        std::getline(in, value);
-        return value == "user" ? BackupOrigin::UserRequested : BackupOrigin::Automatic;
+    if (manifest.origin) {
+        return *manifest.origin;
     }
-    // Prefix, not equality: backup() appends "-1", "-2" ... when two
-    // records would land in the same directory, and the label is read
-    // back out of the directory name, so a second restore inside one
-    // second is labelled "pre-restore-1". Matching exactly would call
-    // that automatic and make it deletable. Found by a test that shared
-    // a directory with an earlier case by accident.
     return label.rfind("pre-restore", 0) == 0 ? BackupOrigin::UserRequested : BackupOrigin::Automatic;
 }
 
-void writeOrigin(const fs::path &dir, BackupOrigin origin)
+std::string originValue(BackupOrigin origin)
 {
-    std::ofstream out(dir / OriginFileName, std::ios::trunc);
-    out << (origin == BackupOrigin::UserRequested ? "user" : "automatic") << '\n';
+    return origin == BackupOrigin::UserRequested ? "user" : "automatic";
 }
 
 }  // namespace
@@ -242,8 +242,8 @@ BackupRecord FilesystemBackupStore::backup(const std::vector<std::string> &fileP
     {
         std::ofstream manifest(dir / ManifestFileName, std::ios::app);
         manifest << "MANIFEST-VERSION\t" << CurrentManifestFormatVersion << '\n';
+        manifest << OriginKey << '\t' << originValue(origin) << '\n';
     }
-    writeOrigin(dir, origin);
     appendFiles(dir, filePaths);
 
     BackupRecord record;
@@ -339,8 +339,6 @@ BackupRecord FilesystemBackupStore::backupToArchive(const std::vector<std::strin
             manifest << entryName << '\t' << recorded << '\n';
         }
     }
-
-    writeOrigin(dir, origin);
 
     DirectoryState &state = stateFor(dir);
     state.sizeBytes = archiveBytes;
@@ -454,7 +452,7 @@ FilesystemBackupStore::DirectoryState &FilesystemBackupStore::stateFor(const fs:
         }
         const std::string name = entry.path().filename().string();
         state.takenNames.insert(name);
-        if (name != ManifestFileName && name != DescriptionFileName && name != OriginFileName) {
+        if (name != ManifestFileName && name != DescriptionFileName) {
             state.sizeBytes += entry.file_size(ec);
         }
     }
@@ -518,9 +516,10 @@ std::vector<BackupRecord> FilesystemBackupStore::list()
         size_t dash = record.id.find('-');
         record.label = dash == std::string::npos ? "" : record.id.substr(dash + 1);
         record.description = readWholeFile(entry.path() / DescriptionFileName);
-        record.origin = readOrigin(entry.path(), record.label);
         record.sizeBytes = directorySize(entry.path());
-        for (const auto &[onDisk, originalPath] : readManifest(entry.path()).entries) {
+        const Manifest manifest = readManifest(entry.path());
+        record.origin = originOf(manifest, record.label);
+        for (const auto &[onDisk, originalPath] : manifest.entries) {
             record.filePaths.push_back(resolveRecordedPath(originalPath).string());
         }
         records.push_back(std::move(record));

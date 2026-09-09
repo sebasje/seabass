@@ -1,5 +1,7 @@
 #include <cassert>
 #include <map>
+#include <string>
+#include <vector>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -12,6 +14,25 @@ namespace fs = std::filesystem;
 
 namespace
 {
+
+// Makes a record look like one written before ORIGIN existed -- which is
+// what is actually sitting on the real sticks.
+void stripOriginLine(const fs::path &manifestPath)
+{
+    std::ifstream in(manifestPath);
+    std::vector<std::string> kept;
+    std::string line;
+    while (std::getline(in, line)) {
+        if (line.rfind("ORIGIN\t", 0) != 0) {
+            kept.push_back(line);
+        }
+    }
+    in.close();
+    std::ofstream out(manifestPath, std::ios::trunc);
+    for (const auto &l : kept) {
+        out << l << '\n';
+    }
+}
 
 void writeFile(const fs::path &path, const std::string &content)
 {
@@ -481,8 +502,8 @@ int main()
         writeFile(a, "old");
         auto save = store.backup({a.string()}, "sync");
         auto preRestore = store.backup({a.string()}, "pre-restore");
-        fs::remove(fs::path(save.path) / ".origin");
-        fs::remove(fs::path(preRestore.path) / ".origin");
+        stripOriginLine(fs::path(save.path) / ".manifest");
+        stripOriginLine(fs::path(preRestore.path) / ".manifest");
 
         std::map<std::string, BackupOrigin> byId;
         for (const auto &r : store.list()) {
@@ -499,7 +520,7 @@ int main()
         // to the pressure release.
         auto second = store.backup({a.string()}, "pre-restore");
         assert(second.id != preRestore.id);
-        fs::remove(fs::path(second.path) / ".origin");
+        stripOriginLine(fs::path(second.path) / ".manifest");
         for (const auto &r : store.list()) {
             if (r.id == second.id) {
                 assert(r.label != "pre-restore");  // the suffix really is in there
@@ -552,11 +573,11 @@ int main()
                 continue;
             }
             for (const auto &f : listed.filePaths) {
-                assert(f.find(".origin") == std::string::npos);
+                assert(f.find("ORIGIN") == std::string::npos);
             }
             assert(listed.sizeBytes == std::string("payload").size());
         }
-        std::cout << "case 23 (the origin marker is not a backed-up file) OK\n";
+        std::cout << "case 23 (the origin line is not read back as a backed-up file) OK\n";
     }
 
     std::cout << "all cases passed\n";
