@@ -1051,18 +1051,16 @@ void caseAddCue(const DataSet &set, const fs::path &scratch, const Catalogs &cat
                 };
                 try {
                     infrastructure::onelibrary::OneLibraryReader reader(root.string());
-                    // Held in a named vector: taking the address of an
-                    // element of the temporary readAll() returns leaves a
-                    // dangling pointer the moment the loop ends, and reads
-                    // through it come back as plausible-looking garbage.
-                    const std::vector<domain::Track> oneLibraryTracks = reader.readAll();
-                    const std::string wanted = trimmed(reread->filePath);
                     // Named, not a temporary bound into the range-for: a
                     // pointer taken into readAll()'s returned vector must
                     // outlive the loop that fills `mirrored`, and a
                     // temporary's lifetime ends with the loop itself,
-                    // leaving mirrored dangling the moment it's read below.
-                    auto oneLibraryTracks = reader.readAll();
+                    // leaving mirrored dangling the moment it is read.
+                    // Reads through it come back as plausible-looking
+                    // garbage -- a hot-cue number that differs between runs
+                    // of identical input, which cost a night's debugging.
+                    const std::vector<domain::Track> oneLibraryTracks = reader.readAll();
+                    const std::string wanted = trimmed(reread->filePath);
                     const domain::Track *mirrored = nullptr;
                     for (const auto &t : oneLibraryTracks) {
                         if (trimmed(t.filePath) == wanted) {
