@@ -38,6 +38,8 @@ public:
         PlaylistNamesRole,
         StreamingSourceRole,
         RatingRole,
+        BitrateRole,
+        CommentRole,
     };
 
     explicit TrackListModel(QObject *parent = nullptr);
@@ -151,6 +153,15 @@ public:
     // rows and disambiguate near-identical titles by file path. Capped at
     // 50 matches; a query that vague isn't narrowing anything anyway.
     Q_INVOKABLE QVariantList findMergeCandidates(const QString &query, const QString &excludeSourceId) const;
+
+    // Every other track by one artist, for the "more by this artist" list
+    // on the track panel. Matched on the whole artist string rather than
+    // a substring: "Kollektiv Turmstrasse" and "Kollektiv Turmstrasse &
+    // Someone" are different credits, and folding them together would
+    // offer a jump to a track the DJ did not ask about. Searches the
+    // unfiltered set, so the list still works while a playlist or a
+    // search is narrowing the view.
+    Q_INVOKABLE QVariantList tracksByArtist(const QString &artist, const QString &excludeSourceId) const;
 
     // For the Matching panel (Experimental): searches the full
     // last-scanned track list (same m_allTracks findMergeCandidates()

@@ -19,7 +19,27 @@ Pane {
     required property var playbackController
     property string format: ""
     property string libraryPath: ""
+    // Adding cues is switched off for now: one property rather than
+    // deleting the UI, so turning it back on is a one-line change and the
+    // code stays under the compiler and the tests meanwhile. Covers the
+    // whole feature -- the waveform's click-to-add, the staging form, and
+    // the hint that tells you to click.
+    property bool addCueEnabled: false
+    // Camelot or traditional, from AppSettingsController. Threaded
+    // through by the host rather than read from Theme here, the same way
+    // every other KeyBadge call site does it, so the panel stays
+    // testable without a running AppSettingsController.
+    property string keyNotation: "camelot"
+
     signal closeRequested()
+    // The row to open instead, by sourceId. The panel does not know how
+    // the list is sorted or filtered, so it names the track and lets
+    // ScanPage find and select it.
+    signal jumpToTrackRequested(string sourceId)
+    // Supplied by ScanPage so the artist list can be built. Optional:
+    // without it the section simply does not appear, which is what the
+    // page-instantiation test hands it.
+    property var scanController: null
     // The page's track list is refreshed after a cue is added, so it is
     // not showing stale cue counts.
     signal rescanRequested()
@@ -40,6 +60,14 @@ Pane {
     property double trackDurationMs: 0
     property var trackPlaylistNames: []
     property string trackStreamingSource: ""
+    property string trackArtworkPath: ""
+    property string trackFilePath: ""
+    property int trackRating: -1      // -1 is "unrated", distinct from 0 stars
+    property double trackBpm: 0
+    property string trackKey: ""
+    property int trackBitrate: 0      // 0 means this format records none
+    property string trackComment: ""
+    property int trackPlayCount: 0
     // -1 means no pending Add-Cue form; set by clicking the
     // waveform below.
     property real pendingPositionMs: -1
@@ -56,12 +84,60 @@ Pane {
         panel.trackDurationMs = delegate.durationSeconds * 1000;
         panel.trackPlaylistNames = delegate.playlistNames;
         panel.trackStreamingSource = delegate.streamingSource;
+        // Read with a fallback rather than straight off the delegate.
+        // showFor() is handed whatever row the caller has, and a row from
+        // a model without these roles would otherwise assign undefined
+        // and throw. Every default here is also the value that hides the
+        // field, so a caller that cannot supply one shows nothing rather
+        // than a wrong number.
+        function value(name, fallback) {
+            return delegate[name] !== undefined && delegate[name] !== null ? delegate[name] : fallback;
+        }
+        panel.trackArtworkPath = value("artworkPath", "");
+        panel.trackFilePath = value("filePath", "");
+        panel.trackRating = value("rating", -1);
+        panel.trackBpm = value("bpm", 0);
+        panel.trackKey = value("key", "");
+        panel.trackBitrate = value("bitrate", 0);
+        panel.trackComment = value("comment", "");
+        panel.trackPlayCount = value("playCount", 0);
         panel.pendingPositionMs = -1;
         panel.pendingLoopEndMs = -1;
         waveformView.waveformData = playbackController.waveformFor(
             panel.format, panel.libraryPath, delegate.sourceId);
         waveformView.format = panel.format;
+        // Last, once every field above is set.
+        panel.refreshArtistTracks();
     }
+
+    // Other tracks credited to the same artist. Recomputed when the shown
+    // track changes rather than bound to a function call, so it is not
+    // re-run on every unrelated property change in the panel.
+    property var artistTracks: []
+    // Said out loud when a jump cannot land: the artist list searches the
+    // whole library while the list behind it may be showing one playlist
+    // or a search, so the track really can be absent from the view.
+    property string jumpMissMessage: ""
+    function reportJumpMiss() {
+        panel.jumpMissMessage = "That track is not in the current view. Clear the playlist or search filter to reach it.";
+    }
+
+    function refreshArtistTracks() {
+        if (panel.scanController === null || typeof panel.scanController.tracksByArtist !== "function"
+                || panel.trackArtist.length === 0) {
+            panel.artistTracks = [];
+            return;
+        }
+        panel.artistTracks = panel.scanController.tracksByArtist(panel.trackArtist, panel.trackSourceId);
+    }
+    // One handler: QML allows a signal only one, and both of these have
+    // to happen when the shown track changes.
+    // Only the message here. The artist list is refreshed at the END of
+    // showFor() instead: trackSourceId is assigned first, so a refresh
+    // driven off its change ran while trackArtist still held the
+    // PREVIOUS track's name, and the panel listed that artist's tracks
+    // under this one's heading.
+    onTrackSourceIdChanged: panel.jumpMissMessage = ""
 
     // Cues staged for this track and not on the stick yet (see
     // AddCueController: adding stages, the floating Save writes).
@@ -145,22 +221,207 @@ Pane {
         width: parent.width
         spacing: 10
 
-        ColumnLayout {
-            spacing: 1
-            Label {
-                text: panel.trackTitle
-                font.bold: true
-                font.pointSize: Theme.fontMedium
+
+        // Title, artist and the facts in one column, with the artwork
+        // beside all of it and pinned to the top. Previously the artwork
+        // sat in a row with the facts alone, so its top edge lined up
+        // with "Length" rather than with the track's own title.
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 12
+
+            ColumnLayout {
                 Layout.fillWidth: true
-                elide: Text.ElideRight
+                Layout.alignment: Qt.AlignTop
+                spacing: 10
+
+            ColumnLayout {
+                spacing: 1
+                Label {
+                    text: panel.trackTitle
+                    font.bold: true
+                    font.pointSize: Theme.fontMedium
+                    Layout.fillWidth: true
+                    elide: Text.ElideRight
+                }
+                Label {
+                    text: panel.trackArtist
+                    color: Theme.textMuted
+                    Layout.fillWidth: true
+                    elide: Text.ElideRight
+                }
             }
-            Label {
-                text: panel.trackArtist
-                color: Theme.textMuted
-                Layout.fillWidth: true
-                elide: Text.ElideRight
+
+                GridLayout {
+                    columns: 2
+                    columnSpacing: 12
+                    rowSpacing: 4
+
+                    // Labels right-aligned against their values, both a size
+                    // down from body text: this is reference data you glance
+                    // at, not prose, and at body size six rows of it shouted
+                    // over the track's own title.
+                    component FactLabel: Label {
+                        color: Theme.textMuted
+                        font.pointSize: Theme.fontSmall
+                        horizontalAlignment: Text.AlignRight
+                        Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                    }
+                    // Numbers in the tabular face, so the column of them
+                    // lines up digit for digit.
+                    component FactValue: Label {
+                        font.family: Theme.dataFamily
+                        font.pointSize: Theme.fontSmall
+                        Layout.alignment: Qt.AlignVCenter
+                    }
+
+                    FactLabel { visible: panel.trackDurationMs > 0; text: "Length" }
+                    FactValue {
+                        visible: panel.trackDurationMs > 0
+                        // m:ss, not Theme.humanDuration(): that rounds to
+                        // "~6 min", the right answer for how long an
+                        // operation takes and the wrong one for a piece of
+                        // music. A DJ reads a track length to the second.
+                        text: {
+                            var total = Math.round(panel.trackDurationMs / 1000);
+                            var minutes = Math.floor(total / 60);
+                            var seconds = total % 60;
+                            return minutes + ":" + (seconds < 10 ? "0" : "") + seconds;
+                        }
+                    }
+
+                    FactLabel { visible: panel.trackBpm > 0; text: "BPM" }
+                    FactValue { visible: panel.trackBpm > 0; text: panel.trackBpm.toFixed(1) }
+
+                    FactLabel { visible: panel.trackKey.length > 0; text: "Key" }
+                    KeyBadge {
+                        visible: panel.trackKey.length > 0
+                        keyName: panel.trackKey
+                        notation: panel.keyNotation
+                    }
+
+                    FactLabel { visible: panel.trackBitrate > 0; text: "Bitrate" }
+                    RowLayout {
+                        visible: panel.trackBitrate > 0
+                        spacing: 3
+                        Layout.alignment: Qt.AlignVCenter
+                        Label {
+                            text: panel.trackBitrate
+                            font.family: Theme.dataFamily
+                            font.pointSize: Theme.fontSmall
+                        }
+                        // The unit dimmer than the number: the number is what
+                        // is being compared between two copies of a track,
+                        // the unit is the same every time.
+                        Label {
+                            text: "kbps"
+                            color: Theme.textMuted
+                            font.pointSize: Theme.fontSmall
+                        }
+                    }
+
+                    // Unrated and zero stars are different answers, and both
+                    // formats store them the same way at the file level, so
+                    // the distinction only survives if it is shown.
+                    FactLabel { visible: panel.trackRating >= 0; text: "Rating" }
+                    Label {
+                        visible: panel.trackRating >= 0
+                        font.pointSize: Theme.fontSmall
+                        Layout.alignment: Qt.AlignVCenter
+                        text: panel.trackRating > 0 ? "\u2605".repeat(panel.trackRating)
+                                                     + "\u2606".repeat(5 - panel.trackRating)
+                                                    : "not rated above zero"
+                        color: panel.trackRating > 0 ? Theme.warnIcon : Theme.textMuted
+                    }
+
+                    FactLabel { visible: panel.trackPlayCount > 0; text: "Plays" }
+                    FactValue { visible: panel.trackPlayCount > 0; text: panel.trackPlayCount }
+                }
+            }
+
+            Item {
+                id: artwork
+                // 1.6x the original 96: big enough to recognise a sleeve
+                // at a glance, which is what artwork is for here.
+                Layout.preferredWidth: 154
+                Layout.preferredHeight: 154
+                Layout.alignment: Qt.AlignTop | Qt.AlignRight
+                visible: panel.trackArtworkPath.length > 0
+
+                // Only a track with a local file can play: a streaming
+                // row's path names a cache on another machine, so it gets
+                // no play button rather than one that fails.
+                readonly property bool playable: panel.trackFilePath.length > 0
+                    && panel.trackStreamingSource.length === 0
+
+                Image {
+                    anchors.fill: parent
+                    // Assigned straight through: ArtworkPathRole already
+                    // comes back as a file:// URL (toLocalFileUrl in
+                    // scan_controller.cpp), so prefixing it again gave
+                    // "file://file:///..." and an image that silently did
+                    // not load.
+                    source: panel.trackArtworkPath
+                    fillMode: Image.PreserveAspectCrop
+                    // Decoded at twice the display size, so it stays
+                    // sharp on a hidpi screen without holding a
+                    // full-resolution sleeve in memory.
+                    sourceSize.width: 308
+                    sourceSize.height: 308
+                    // Synchronous: one small image, and loading it in the
+                    // background made it pop in a frame or two after the
+                    // rest of the panel. It also made the panel
+                    // unscreenshotable, since a grab right after
+                    // showFor() caught it before the image arrived.
+                    asynchronous: false
+                    smooth: true
+                }
+
+                // Fades rather than snaps: the sleeve is the thing being
+                // looked at, and a control appearing over it instantly
+                // reads as the image itself changing.
+                Rectangle {
+                    anchors.fill: parent
+                    color: "#80000000"
+                    opacity: artworkHover.hovered && artwork.playable ? 1 : 0
+                    visible: opacity > 0
+                    Behavior on opacity { NumberAnimation { duration: 120 } }
+
+                    Label {
+                        anchors.centerIn: parent
+                        text: "\u25b6"
+                        color: "white"
+                        font.pointSize: Theme.fontLarge * 1.6
+                    }
+                }
+
+                HoverHandler { id: artworkHover }
+
+                MouseArea {
+                    anchors.fill: parent
+                    enabled: artwork.playable
+                    cursorShape: artwork.playable ? Qt.PointingHandCursor : Qt.ArrowCursor
+                    onClicked: panel.playbackController.load(panel.format, panel.libraryPath,
+                        panel.trackSourceId, panel.trackFilePath, panel.trackTitle, panel.trackArtist,
+                        panel.trackArtworkPath, panel.trackCues)
+                }
             }
         }
+
+        // The DJ's own words about the track, so it wraps rather than
+        // being squeezed into the grid above.
+        ColumnLayout {
+            visible: panel.trackComment.length > 0
+            Layout.fillWidth: true
+            spacing: 2
+            Label { text: "Comment"; color: Theme.textMuted }
+            Label {
+                text: panel.trackComment
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+            }
+        }
+
 
         Label {
             visible: panel.trackStreamingSource.length > 0
@@ -178,16 +439,19 @@ Pane {
             cueData: panel.trackCues
             trackDurationMs: panel.trackDurationMs
             progress: -1
-            cueEditable: true
+            // Off with the rest of the feature: without this the waveform
+            // still invites a click that now leads nowhere, which is
+            // worse than a waveform that is plainly read-only.
+            cueEditable: panel.addCueEnabled
             onPositionClicked: (ms) => {
-                if (panel.trackStreamingSource.length > 0) {
+                if (!panel.addCueEnabled || panel.trackStreamingSource.length > 0) {
                     return;
                 }
                 panel.pendingPositionMs = ms;
                 panel.pendingLoopEndMs = -1;
             }
             onLoopRangeSelected: (startMs, endMs) => {
-                if (panel.trackStreamingSource.length > 0) {
+                if (!panel.addCueEnabled || panel.trackStreamingSource.length > 0) {
                     return;
                 }
                 panel.pendingPositionMs = startMs;
@@ -199,7 +463,8 @@ Pane {
         }
 
         Label {
-            visible: panel.pendingPositionMs < 0 && panel.trackStreamingSource.length === 0
+            visible: panel.addCueEnabled && panel.pendingPositionMs < 0
+                && panel.trackStreamingSource.length === 0
             text: "Click the waveform above to add a cue there, or drag to add a loop."
             color: Theme.textMuted
             font.pointSize: Theme.fontSmall
@@ -209,7 +474,7 @@ Pane {
         // AddCueController's own class comment for why.
         ColumnLayout {
             id: addCueForm
-            visible: panel.pendingPositionMs >= 0
+            visible: panel.addCueEnabled && panel.pendingPositionMs >= 0
             Layout.fillWidth: true
             spacing: 6
 
@@ -354,6 +619,7 @@ Pane {
             }
         }
 
+
         Label {
             text: "Playlists"
             font.bold: true
@@ -366,6 +632,61 @@ Pane {
             text: panel.trackPlaylistNames.length > 0
                 ? panel.trackPlaylistNames.join("\n")
                 : "Not in any playlist"
+        }
+
+        ColumnLayout {
+            visible: panel.artistTracks.length > 0
+            Layout.fillWidth: true
+            spacing: 4
+
+            Label {
+                text: panel.artistTracks.length === 1
+                    ? "1 more track by " + panel.trackArtist
+                    : panel.artistTracks.length + " more tracks by " + panel.trackArtist
+                color: Theme.textMuted
+                Layout.fillWidth: true
+                elide: Text.ElideRight
+            }
+
+            Label {
+                visible: panel.jumpMissMessage.length > 0
+                text: panel.jumpMissMessage
+                color: Theme.warnText
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+            }
+
+            Repeater {
+                model: panel.artistTracks
+                delegate: ItemDelegate {
+                    required property var modelData
+                    Layout.fillWidth: true
+                    padding: 6
+                    onClicked: panel.jumpToTrackRequested(modelData.sourceId)
+                    ToolTip.visible: hovered
+                    ToolTip.text: "Open this track"
+                    contentItem: RowLayout {
+                        spacing: 8
+                        Label {
+                            text: modelData.title
+                            Layout.fillWidth: true
+                            elide: Text.ElideRight
+                        }
+                        Label {
+                            visible: modelData.key.length > 0
+                            text: modelData.key
+                            color: Theme.textMuted
+                            font.family: Theme.dataFamily
+                        }
+                        Label {
+                            visible: modelData.durationSeconds > 0
+                            text: Theme.humanDuration(modelData.durationSeconds)
+                            color: Theme.textMuted
+                            font.family: Theme.dataFamily
+                        }
+                    }
+                }
+            }
         }
     }
         }
