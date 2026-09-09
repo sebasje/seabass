@@ -343,9 +343,14 @@ Page {
             }
 
             RowLayout {
+                Layout.fillWidth: true
                 spacing: 12
+                // Right-aligned, the same way SeabassDialog places its
+                // accept button: the action that commits the page sits at
+                // the trailing edge, where KDE's own dialogs put it.
+                Item { Layout.fillWidth: true }
                 Button {
-                    text: "Generate"
+                    text: "Export Library"
                     enabled: !controller.busy && root.selectedStick !== null && root.outputPath.length > 0
                     onClicked: controller.run(
                         root.selectedStick.hasRekordbox ? root.selectedStick.rekordboxPath : "",
@@ -364,70 +369,33 @@ Page {
                 color: Theme.danger
             }
 
-            ColumnLayout {
-                visible: controller.summaryText.length > 0
-                Layout.fillWidth: true
-                spacing: 8
-                Label {
-                    text: "Written to " + controller.outputZipPath
-                    color: Theme.good
-                    font.bold: true
-                    wrapMode: Text.WordWrap
-                    Layout.fillWidth: true
+            // The result is a confirmation, not page furniture: it says
+            // where the file went and what the person still has to do
+            // with it, and both are easy to scroll past when they sit
+            // inline under a long form. A dialog makes the reader
+            // acknowledge it, and gives the "show me the file" action
+            // somewhere to live that is not competing with the form.
+            MessageDialog {
+                id: exportedDialog
+                severity: SeabassDialog.Info
+                title: "Anonymized library exported"
+                headline: "Written to " + controller.outputZipPath
+                detailText: controller.summaryText
+                acceptText: "Show in Folder"
+                rejectText: "Close"
+                onAccepted: {
+                    const lastSlash = controller.outputZipPath.lastIndexOf("/");
+                    const folder = lastSlash >= 0
+                        ? controller.outputZipPath.substring(0, lastSlash) : controller.outputZipPath;
+                    Qt.openUrlExternally("file://" + folder);
                 }
-                Label {
-                    text: controller.summaryText
-                    wrapMode: Text.WordWrap
-                    Layout.fillWidth: true
-                }
+            }
 
-                RowLayout {
-                    spacing: 12
-                    Button {
-                        text: "Show in Folder"
-                        ToolTip.visible: hovered
-                        ToolTip.text: "Open the folder containing the zip file"
-                        onClicked: {
-                            var lastSlash = controller.outputZipPath.lastIndexOf("/");
-                            var containingFolder = lastSlash >= 0
-                                ? controller.outputZipPath.substring(0, lastSlash) : controller.outputZipPath;
-                            Qt.openUrlExternally("file://" + containingFolder);
-                        }
-                    }
-                }
-
-                Rectangle {
-                    Layout.fillWidth: true
-                    implicitHeight: submitText.implicitHeight + 16
-                    color: Theme.warnBg
-                    border.color: Theme.warnBorder
-                    radius: 4
-                    Label {
-                        id: submitText
-                        anchors.fill: parent
-                        anchors.margins: 8
-                        wrapMode: Text.WordWrap
-                        color: Theme.warnText
-                        text: "To help test Seabass, review the zip file's contents, then attach it "
-                            + "to an email to sebas@kde.org. Nothing has been sent yet; this is a "
-                            + "manual step you do yourself."
-                    }
-                }
-
-                GroupBox {
-                    label: Subtitle { text: "MANIFEST.txt" }
-                    Layout.fillWidth: true
-                    ScrollView {
-                        anchors.fill: parent
-                        implicitHeight: 300
-                        ScrollBar.vertical: BigScrollBar {}
-                        TextArea {
-                            readOnly: true
-                            wrapMode: Text.WordWrap
-                            text: controller.manifestText
-                            font.family: "monospace"
-                            font.pointSize: Theme.fontSmall
-                        }
+            Connections {
+                target: controller
+                function onResultChanged() {
+                    if (controller.summaryText.length > 0 && controller.outputZipPath.length > 0) {
+                        exportedDialog.open();
                     }
                 }
             }
