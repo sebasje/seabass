@@ -14,13 +14,19 @@ Item {
     // clarity" -- best-effort, see DetectedStick::isSdCard's own comment
     // for what "best-effort" means per platform.
     property bool isSdCard: false
+    // A library opened from an ordinary directory rather than found on
+    // removable media (see MediaController::openFolder): drawn as a
+    // folder so the list says at a glance which rows are real hardware.
+    // Wins over isSdCard -- a folder is not on a card even when the file
+    // it was restored from was.
+    property bool isFolder: false
     implicitWidth: Theme.iconSizeSmall
     implicitHeight: Theme.iconSizeSmall
 
     // USB-stick pictogram: a rounded body plus a small connector prong.
     Item {
         anchors.fill: parent
-        visible: !root.isSdCard
+        visible: !root.isSdCard && !root.isFolder
         Rectangle {
             width: parent.width * 0.30
             height: parent.height * 0.22
@@ -44,6 +50,32 @@ Item {
     // at a glance rather than just "a smaller rectangle" -- not
     // achievable with axis-aligned Rectangles alone, hence the one
     // Shape in this app's whole icon set.
+    // Folder pictogram: a body plus the raised tab on the left, which is
+    // what separates it from a plain rounded rectangle at this size.
+    Item {
+        anchors.fill: parent
+        visible: root.isFolder
+        Rectangle {
+            width: parent.width * 0.40
+            height: parent.height * 0.16
+            radius: height * 0.35
+            color: root.color
+            anchors.left: parent.left
+            anchors.leftMargin: parent.width * 0.07
+            anchors.top: parent.top
+            anchors.topMargin: parent.height * 0.10
+        }
+        Rectangle {
+            width: parent.width * 0.86
+            height: parent.height * 0.60
+            radius: width * 0.09
+            color: root.color
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: parent.height * 0.14
+        }
+    }
+
     Shape {
         anchors.fill: parent
         visible: root.isSdCard

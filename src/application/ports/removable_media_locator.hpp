@@ -25,6 +25,13 @@ struct DetectedStick
     // comment for how (or whether, on that platform) it's actually
     // determined; a locator that can't tell just leaves this false.
     bool isSdCard = false;
+    // True for a library the user opened from an ordinary directory (see
+    // MediaController::openFolder) rather than one found on removable
+    // media: the same rekordboxPath/enginePath, but there is nothing to
+    // mount, eject, format or benchmark, and no locator ever produces
+    // one -- MediaController merges them into the same list so every page
+    // downstream keeps taking a stick and needs no new case.
+    bool isFolder = false;
     std::optional<std::string> rekordboxPath;  // the "PIONEER" folder, if export.pdb was found under it
     std::optional<std::string> enginePath;     // the "Engine Library" folder, if Database2/m.db was found under it
 

@@ -26,17 +26,32 @@ struct StickIdentity
     std::string hardwareSerial;   // USB device serial (udev ID_SERIAL_SHORT, STORAGE_DEVICE_DESCRIPTOR); "" if unknown
     std::string filesystemUuid;   // ID_FS_UUID / Windows volume serial as 8 hex digits; "" if none
     std::string label;
+    // Set instead of every hardware field when the library is an ordinary
+    // directory the user opened rather than a stick that was detected
+    // (see MediaController::openFolder). Its absolute path is the only
+    // stable identity such a library has, so the caller derives an id
+    // from that and puts it here; libraryId() then returns it verbatim.
+    // Deliberately not stuffed into filesystemUuid: that would report an
+    // identity strength this library has not earned.
+    std::string explicitLibraryId;
     std::uint64_t capacityBytes = 0;
 
     enum class Strength {
         Hardware,    // a hardware serial is known
         Filesystem,  // only the filesystem UUID is known
         Weak,        // label + capacity only
+        Folder,      // an ordinary directory, identified by its path
         None,        // nothing at all (no label either)
     };
 
     Strength strength() const
     {
+        // Checked before the hardware fields because a folder library has
+        // none of them, and because "which directory" is the whole of its
+        // identity -- there is no physical thing to be more sure about.
+        if (!explicitLibraryId.empty()) {
+            return Strength::Folder;
+        }
         if (!hardwareSerial.empty()) {
             return Strength::Hardware;
         }
@@ -58,6 +73,8 @@ struct StickIdentity
             return "filesystem";
         case Strength::Weak:
             return "weak";
+        case Strength::Folder:
+            return "folder";
         case Strength::None:
             return "none";
         }
@@ -68,6 +85,9 @@ struct StickIdentity
     // there is genuinely nothing to key on (a blank, unlabelled drive).
     std::string libraryId() const
     {
+        if (!explicitLibraryId.empty()) {
+            return explicitLibraryId;
+        }
         if (!filesystemUuid.empty()) {
             return filesystemUuid;
         }

@@ -23,7 +23,8 @@ TestCase {
         var s = {
             label: "MAIN", mountPoint: "/media/MAIN", devicePath: "/dev/sdb1", mounted: true,
             hasRekordbox: true, hasEngine: true, rekordboxPath: "/media/MAIN/PIONEER",
-            enginePath: "/media/MAIN/Engine Library", isSdCard: false, libraryId: "lib-main",
+            enginePath: "/media/MAIN/Engine Library", isSdCard: false, isFolder: false,
+            libraryId: "lib-main",
         };
         for (var key in overrides) {
             s[key] = overrides[key];
@@ -50,7 +51,9 @@ TestCase {
         var props = {
             mediaController: {sticks: sticks, errorMessage: "", busy: false, busyDevicePath: "", calls: [],
                               mountStick: function(d) { this.calls.push("mount:" + d); },
-                              unmountStick: function(d) { this.calls.push("unmount:" + d); }},
+                              unmountStick: function(d) { this.calls.push("unmount:" + d); },
+                              openFolder: function(p) { this.calls.push("openFolder:" + p); return ""; },
+                              closeFolder: function(p) { this.calls.push("closeFolder:" + p); }},
             playbackController: {stop: function() {}},
             appSettingsController: {experimentalFeaturesEnabled: true},
             backupAdvisor: {advice: advice, calls: [],
@@ -320,6 +323,56 @@ TestCase {
         // No specific match: the restore page opens to browse, not to a
         // preselected archive.
         compare(restore.signalArguments[0][2], "");
+    }
+
+    // A library opened from an ordinary folder (a restored stick backup,
+    // or a copy on an internal disk) is listed like a stick and offers
+    // the same library cards -- but the actions that need a real drive
+    // behind them are gone, because there is not one.
+    function test_folderLibraryListsWithoutDeviceOnlyActions() {
+        var folder = makeStick({
+            label: "restored-backup", mountPoint: "/home/dj/restored", devicePath: "",
+            isFolder: true, libraryId: "folder-abc123",
+            rekordboxPath: "/home/dj/restored/PIONEER",
+            enginePath: "/home/dj/restored/Engine Library",
+        });
+        var page = makePage([folder], makeAdvice({state: "no-backups"}),
+                            {appSettingsController: {experimentalFeaturesEnabled: true}});
+
+        // The library is reachable: the ordinary cards are all there.
+        verify(findCard(page, "/home/dj/restored", "Browse Library") !== null);
+        verify(findCard(page, "/home/dj/restored", "Housekeeping") !== null);
+        verify(findCard(page, "/home/dj/restored", "Sync Cue Points") !== null);
+
+        // Formatting would erase a drive this row does not have.
+        var format = findCard(page, "/home/dj/restored", "Format USB Stick");
+        verify(format === null || !format.visible);
+
+        // Eject is replaced by "remove from this list", which touches
+        // nothing on disk.
+        var eject = findRowObject(page, "/home/dj/restored", "ejectButton");
+        verify(eject === null || !eject.visible);
+        var close = findRowObject(page, "/home/dj/restored", "closeFolderButton");
+        verify(close !== null);
+        compare(close.visible, true);
+        close.clicked();
+        compare(page.mediaController.calls.indexOf("closeFolder:/home/dj/restored") >= 0, true);
+
+        saveScreenshot(page, "stick-list-folder-library");
+    }
+
+    // The entry point itself: the toolbar button opens the folder picker.
+    function test_openFolderButtonIsOnTheToolbar() {
+        var page = makePage([], makeAdvice({}), {});
+        var button = null;
+        function walk(item) {
+            if (button !== null) return;
+            if (item.objectName === "openFolderButton") { button = item; return; }
+            for (var i = 0; i < item.children.length; ++i) walk(item.children[i]);
+        }
+        walk(page);
+        verify(button !== null, "no openFolderButton on the toolbar");
+        compare(button.visible, true);
     }
 
     Component {

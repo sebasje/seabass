@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Dialogs
 import QtQuick.Layouts
 import SeabassGui
 
@@ -43,6 +44,37 @@ Page {
         repeat: true
         running: root.StackView.status === StackView.Active
         onTriggered: root.refreshLocks()
+    }
+    // Opening a library that is not on removable media: a restored stick
+    // backup, a copy on an internal disk, a test fixture. The folder to
+    // pick is the one *holding* PIONEER / Engine Library, which is what a
+    // stick's own root looks like -- see MediaController::openFolder.
+    FolderDialog {
+        id: openFolderDialog
+        objectName: "openFolderDialog"
+        title: "Open a folder holding a rekordbox or Engine DJ library"
+        onAccepted: {
+            var message = root.mediaController.openFolder(
+                selectedFolder.toString().replace(/^file:\/\//, ""));
+            if (message.length > 0) {
+                openFolderError.text = message;
+                openFolderError.open();
+            }
+        }
+    }
+    Dialog {
+        id: openFolderError
+        objectName: "openFolderError"
+        property alias text: openFolderErrorLabel.text
+        anchors.centerIn: Overlay.overlay
+        modal: true
+        title: "Cannot open that folder"
+        standardButtons: Dialog.Ok
+        Label {
+            id: openFolderErrorLabel
+            width: Math.min(implicitWidth, 420)
+            wrapMode: Text.WordWrap
+        }
     }
     LockedLibraryDialog {
         id: lockedDialog
@@ -125,6 +157,14 @@ Page {
                 level: "page"
             }
             Item { Layout.fillWidth: true }
+            ToolButton {
+                objectName: "openFolderButton"
+                text: "📂"
+                font.pointSize: Theme.fontLarge
+                ToolTip.visible: hovered
+                ToolTip.text: "Open a library from a folder -- a restored stick backup, or a copy on this computer"
+                onClicked: openFolderDialog.open()
+            }
             ToolButton {
                 // Plain "ℹ️"/"⚙️" (with the emoji variation selector) render
                 // in the system's color emoji font instead of a flat
@@ -277,6 +317,7 @@ Page {
                 required property string rekordboxPath
                 required property string enginePath
                 required property bool isSdCard
+                required property bool isFolder
                 required property string libraryId
                 readonly property bool hasKnownLibrary: hasRekordbox || hasEngine
                 // Another instance is editing this stick's library: every
@@ -369,6 +410,7 @@ Page {
                                 Layout.preferredHeight: Theme.iconSizeNormal
                                 Layout.alignment: Qt.AlignVCenter
                                 isSdCard: delegateRoot.isSdCard
+                                isFolder: delegateRoot.isFolder
                             }
 
                             ColumnLayout {
@@ -434,8 +476,24 @@ Page {
                         Layout.alignment: Qt.AlignVCenter
                     }
 
+                    // A folder was never mounted, so there is nothing to
+                    // eject -- the equivalent is dropping it from the
+                    // list, which touches nothing on disk.
                     ToolButton {
-                        visible: !delegateRoot.thisRowBusy
+                        visible: delegateRoot.isFolder
+                        objectName: "closeFolderButton"
+                        text: "✕"
+                        font.pointSize: Theme.fontLarge
+                        Layout.preferredWidth: Theme.iconSizeLarge
+                        Layout.preferredHeight: Theme.iconSizeLarge
+                        Layout.alignment: Qt.AlignVCenter
+                        ToolTip.visible: hovered
+                        ToolTip.text: "Remove " + delegateRoot.label + " from this list (nothing on disk is changed)"
+                        onClicked: root.mediaController.closeFolder(delegateRoot.mountPoint)
+                    }
+
+                    ToolButton {
+                        visible: !delegateRoot.thisRowBusy && !delegateRoot.isFolder
                         // Not `!root.mediaController.busy`: that disabled
                         // every OTHER row's button too while any one stick's
                         // task was running (including a background auto-
@@ -620,6 +678,9 @@ Page {
                         }
                         ActionCard {
                             cardTitle: "Format USB Stick"
+                            // There is no drive behind a folder row to
+                            // erase, and devicePath is empty for one.
+                            visible: !delegateRoot.isFolder
                             cardSubtitle: "Erase and prepare this drive for CDJs, XDJs, and Denon Engine players"
                             cardIcon: "💽"
                             // Experimental (see docs/experimental-features.md):
@@ -676,7 +737,9 @@ Page {
                             // it: the disaster case is a blank replacement
                             // drive. A stick that already has a library
                             // updates from its own Backups page instead.
-                            visible: !delegateRoot.hasKnownLibrary
+                            // Restoring writes a whole stick through
+                            // devicePath, which a folder row does not have.
+                            visible: !delegateRoot.hasKnownLibrary && !delegateRoot.isFolder
                             // The disk-backup path isn't gated on `mounted`:
                             // a stick fresh out of Format USB Stick is not
                             // remounted, and the restore page mounts it

@@ -1065,6 +1065,17 @@ if(TARGET Qt6::Core)
     target_link_libraries(edit_session_save_loop_test PRIVATE seabass_core Qt6::Core)
     add_test(NAME edit_session_save_loop_test COMMAND edit_session_save_loop_test)
 
+    # Links media_controller.cpp directly, the way every other GUI-class
+    # test here does: the GUI is one executable target, not a library, so
+    # there is nothing to link against but the sources actually needed.
+    add_executable(open_folder_test
+        src/gui/media_controller.cpp
+        tests/open_folder_test.cpp
+    )
+    target_include_directories(open_folder_test PRIVATE src)
+    target_link_libraries(open_folder_test PRIVATE seabass_core Qt6::Core Qt6::Concurrent Qt6::Qml)
+    add_test(NAME open_folder_test COMMAND open_folder_test)
+
     add_executable(format_write_session_test tests/format_write_session_test.cpp)
     target_include_directories(format_write_session_test PRIVATE src)
     target_link_libraries(format_write_session_test PRIVATE seabass_edit Qt6::Core)
