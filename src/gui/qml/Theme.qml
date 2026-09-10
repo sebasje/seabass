@@ -337,6 +337,31 @@ QtObject {
     readonly property real iconSizeNormal: 40 * iconScale
     readonly property real iconSizeLarge: 48 * iconScale
 
+    // ---- spacing scale --------------------------------------------
+    //
+    // One page, one left edge. These exist because the page they were
+    // added for had four different left edges on screen at once -- a
+    // header inset by 10, a body by 16, a card's contents by 30, and a
+    // breadcrumb whose hover pill pushed its text out by another 8 --
+    // and none of the four was a decision anyone had made.
+    //
+    // pageMargin insets a page's body AND its header, which is what
+    // puts the breadcrumb and the first line of content on one vertical
+    // line. BackBreadcrumb subtracts crumbTextInset for itself: its
+    // segments are hover pills with their own padding, so the row has
+    // to start that much further left for the text inside to land on
+    // the line.
+    //
+    // Unscaled on purpose. These are gaps between things, not type, and
+    // the pages already in the tree use these same numbers literally --
+    // so adopting the tokens moves nothing that was already right.
+    readonly property real pageMargin: 16
+    readonly property real cardPadding: 16
+    readonly property real sectionSpacing: 14   // between blocks down a page
+    readonly property real rowSpacing: 10       // between controls across a row
+    readonly property real tightSpacing: 6      // a label and the thing it labels
+    readonly property real crumbTextInset: 8 * iconScale
+
     // ---- Titles -- a dedicated (non-bold) display face + scale, set once
     // here and consumed only via PageTitle.qml, so every page title stays
     // consistent. Falls back to the platform's default sans if "Manrope"

@@ -38,7 +38,7 @@ Page {
 
         RowLayout {
             anchors.fill: parent
-            anchors.margins: 8
+            anchors.margins: Theme.pageMargin
             BackBreadcrumb {
                 middleLabel: root.stickLabel
                 title: "Device Profile"

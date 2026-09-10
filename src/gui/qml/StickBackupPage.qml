@@ -100,7 +100,7 @@ Page {
         background: Rectangle { color: Theme.surface }
         RowLayout {
             anchors.fill: parent
-            anchors.margins: 10
+            anchors.margins: Theme.pageMargin
             spacing: 12
             BackBreadcrumb {
                 middleLabel: "Backups"

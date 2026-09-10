@@ -16,7 +16,7 @@ Page {
 
         RowLayout {
             anchors.fill: parent
-            anchors.margins: 10
+            anchors.margins: Theme.pageMargin
             BackBreadcrumb {
                 title: "Support Seabass"
                 onHomeRequested: root.StackView.view.pop(null)

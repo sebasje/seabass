@@ -50,8 +50,8 @@ Page {
         background: Rectangle { color: Theme.surface }
         RowLayout {
             anchors.fill: parent
-            anchors.margins: 10
-            spacing: 12
+            anchors.margins: Theme.pageMargin
+            spacing: Theme.rowSpacing
             BackBreadcrumb {
                 middleLabel: root.stickLabel
                 title: "Metadata Backup"
@@ -64,8 +64,8 @@ Page {
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 16
-        spacing: 14
+        anchors.margins: Theme.pageMargin
+        spacing: Theme.sectionSpacing
 
         Subtitle {
             Layout.fillWidth: true
@@ -80,103 +80,99 @@ Page {
         }
 
         // ---- run a backup -------------------------------------------
-        Rectangle {
+        //
+        // Not in a card. A bordered box indents everything inside it by
+        // its own padding, which is how this page ended up with four
+        // different left edges at once; there is one block above the
+        // list, so a border separating it from nothing costs the
+        // alignment and buys nothing.
+        ColumnLayout {
+            id: runLayout
             Layout.fillWidth: true
-            radius: 8
-            color: Theme.surface
-            border.width: 1
-            border.color: Theme.borderSubtle
-            implicitHeight: runLayout.implicitHeight + 28
+            spacing: Theme.tightSpacing
 
-            ColumnLayout {
-                id: runLayout
-                anchors.fill: parent
-                anchors.margins: 14
-                spacing: 10
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: 10
-                    Label {
-                        text: root.hasStick ? "Back up " + root.stickLabel : "No stick selected"
-                        color: Theme.text
-                        font.family: Theme.titleFamily
-                        font.weight: Theme.cardTitleWeight
-                        font.pointSize: Theme.fontMedium
-                    }
-                    Item { Layout.fillWidth: true }
-                    InfoButton {
-                        explanationTitle: "What a metadata backup stores"
-                        explanationText: "Seabass reads every catalog on the stick (DeviceLibrary, "
-                            + "Device Library Plus and Engine) and folds them into one entry per file, so a "
-                            + "track all three list is stored once with the union of its cues.\n\n"
-                            + "Stored: cues and loops, rating, comment, play count, playlist membership, "
-                            + "cover art, and enough of the title, artist and length to find the track "
-                            + "again later.\n\n"
-                            + "Not stored: waveforms, beat grids, analysis files and audio. All of it is "
-                            + "derived from the audio file, all of it is large, and none of it is your work.\n\n"
-                            + "Tracks are matched on their path within the stick, so the same track on a "
-                            + "rebuilt stick lands on the entry it already had."
-                    }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.rowSpacing
+                Label {
+                    text: root.hasStick ? "Back up " + root.stickLabel : "No stick selected"
+                    color: Theme.text
+                    font.family: Theme.titleFamily
+                    font.weight: Theme.cardTitleWeight
+                    font.pointSize: Theme.fontMedium
                 }
+                Item { Layout.fillWidth: true }
+                InfoButton {
+                    explanationTitle: "What a metadata backup stores"
+                    explanationText: "Seabass reads every catalog on the stick (DeviceLibrary, "
+                        + "Device Library Plus and Engine) and folds them into one entry per file, so a "
+                        + "track all three list is stored once with the union of its cues.\n\n"
+                        + "Stored: cues and loops, rating, comment, play count, playlist membership, "
+                        + "cover art, and enough of the title, artist and length to find the track "
+                        + "again later.\n\n"
+                        + "Not stored: waveforms, beat grids, analysis files and audio. All of it is "
+                        + "derived from the audio file, all of it is large, and none of it is your work.\n\n"
+                        + "Tracks are matched on their path within the stick, so the same track on a "
+                        + "rebuilt stick lands on the entry it already had."
+                }
+            }
+
+            Label {
+                Layout.fillWidth: true
+                visible: !controller.busy
+                text: "Nothing on the stick is changed or at risk. This only ever writes here: "
+                    + controller.storeLocation
+                color: Theme.textMuted
+                font.pointSize: Theme.fontSmall
+                wrapMode: Text.WordWrap
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                visible: !controller.busy
+                spacing: Theme.rowSpacing
 
                 Label {
-                    Layout.fillWidth: true
-                    visible: !controller.busy
-                    text: "Nothing on the stick is changed or at risk. This only ever writes here: "
-                        + controller.storeLocation
+                    text: "If a track is already stored and differs:"
                     color: Theme.textMuted
                     font.pointSize: Theme.fontSmall
-                    wrapMode: Text.WordWrap
                 }
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    visible: !controller.busy
-                    spacing: 12
-
-                    Label {
-                        text: "If a track is already stored and differs:"
-                        color: Theme.textMuted
-                        font.pointSize: Theme.fontSmall
-                    }
-                    RadioButton {
-                        objectName: "overwriteRadio"
-                        text: "Take the stick's version"
-                        checked: root.overwriteOnConflict
-                        onToggled: if (checked) root.overwriteOnConflict = true
-                        ToolTip.visible: hovered
-                        ToolTip.text: "The usual case: you have been cueing on the stick since the last backup."
-                    }
-                    RadioButton {
-                        objectName: "keepStoredRadio"
-                        text: "Keep what is stored"
-                        checked: !root.overwriteOnConflict
-                        onToggled: if (checked) root.overwriteOnConflict = false
-                        ToolTip.visible: hovered
-                        ToolTip.text: "For a stick you suspect has lost cues. Empty fields are still filled in."
-                    }
-                    Item { Layout.fillWidth: true }
-                    Button {
-                        objectName: "backUpNowButton"
-                        text: "Back Up Now"
-                        enabled: root.hasStick && !controller.busy
-                        highlighted: true
-                        onClicked: controller.backUp(root.libraryPath, root.libraryId, root.stickLabel,
-                                                     root.overwriteOnConflict)
-                    }
+                RadioButton {
+                    objectName: "overwriteRadio"
+                    text: "Take the stick's version"
+                    checked: root.overwriteOnConflict
+                    onToggled: if (checked) root.overwriteOnConflict = true
+                    ToolTip.visible: hovered
+                    ToolTip.text: "The usual case: you have been cueing on the stick since the last backup."
                 }
-
-                ProgressReport {
-                    Layout.fillWidth: true
-                    visible: controller.busy
-                    phase: controller.currentPhase
-                    unitsDone: controller.progressCurrent
-                    unitsTotal: controller.progressTotal
-                    unitName: "tracks"
-                    cancellable: true
-                    onCancelRequested: controller.cancel()
+                RadioButton {
+                    objectName: "keepStoredRadio"
+                    text: "Keep what is stored"
+                    checked: !root.overwriteOnConflict
+                    onToggled: if (checked) root.overwriteOnConflict = false
+                    ToolTip.visible: hovered
+                    ToolTip.text: "For a stick you suspect has lost cues. Empty fields are still filled in."
                 }
+                Item { Layout.fillWidth: true }
+                Button {
+                    objectName: "backUpNowButton"
+                    text: "Back Up Now"
+                    enabled: root.hasStick && !controller.busy
+                    highlighted: true
+                    onClicked: controller.backUp(root.libraryPath, root.libraryId, root.stickLabel,
+                                                 root.overwriteOnConflict)
+                }
+            }
+
+            ProgressReport {
+                Layout.fillWidth: true
+                visible: controller.busy
+                phase: controller.currentPhase
+                unitsDone: controller.progressCurrent
+                unitsTotal: controller.progressTotal
+                unitName: "tracks"
+                cancellable: true
+                onCancelRequested: controller.cancel()
             }
         }
 
@@ -188,10 +184,16 @@ Page {
             color: Theme.danger
         }
 
+        Rectangle {
+            Layout.fillWidth: true
+            implicitHeight: 1
+            color: Theme.borderSubtle
+        }
+
         // ---- what is in the store -----------------------------------
         RowLayout {
             Layout.fillWidth: true
-            spacing: 12
+            spacing: Theme.rowSpacing
 
             TextField {
                 objectName: "searchField"
@@ -245,9 +247,13 @@ Page {
                 required property string stickLabel
 
                 readonly property bool expanded: root.expandedTrackId === trackRow.trackId
+                // Where everything after the thumbnail starts. One
+                // number, so the expanded detail lines up under the
+                // title rather than under the artwork.
+                readonly property real textColumn: Theme.iconSizeNormal + Theme.rowSpacing
 
                 width: ListView.view.width
-                implicitHeight: rowLayout.implicitHeight + 16
+                implicitHeight: rowLayout.implicitHeight + 2 * Theme.tightSpacing
                 color: rowMouse.containsMouse ? Theme.rowHover
                      : (trackRow.index % 2 === 0 ? Theme.rowEven : Theme.rowOdd)
                 radius: 4
@@ -262,12 +268,15 @@ Page {
                 ColumnLayout {
                     id: rowLayout
                     anchors.fill: parent
-                    anchors.margins: 8
-                    spacing: 6
+                    anchors.margins: Theme.tightSpacing
+                    // The thumbnail's left edge is the row's left edge,
+                    // and the list is already on the page's left line.
+                    anchors.leftMargin: 0
+                    spacing: Theme.tightSpacing
 
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: 10
+                        spacing: Theme.rowSpacing
 
                         Rectangle {
                             Layout.preferredWidth: Theme.iconSizeNormal
@@ -287,7 +296,7 @@ Page {
                         ColumnLayout {
                             Layout.fillWidth: true
                             Layout.minimumWidth: 0
-                            spacing: 1
+                            spacing: 0
                             Label {
                                 Layout.fillWidth: true
                                 text: trackRow.title.length > 0 ? trackRow.title : trackRow.filename
@@ -330,9 +339,10 @@ Page {
                     // ---- the one expanded row ------------------------
                     ColumnLayout {
                         Layout.fillWidth: true
-                        Layout.leftMargin: Theme.iconSizeNormal + 10
+                        Layout.leftMargin: trackRow.textColumn
+                        Layout.bottomMargin: Theme.tightSpacing
                         visible: trackRow.expanded
-                        spacing: 2
+                        spacing: 0
 
                         Label {
                             Layout.fillWidth: true
@@ -406,7 +416,7 @@ Page {
             if (run.tracksUpdated > 0) detail.push(run.tracksUpdated + " brought up to date");
             if (run.tracksSkipped > 0) detail.push(run.tracksSkipped + " left as stored");
             if (run.tracksUnchanged > 0) detail.push(run.tracksUnchanged + " already current");
-            if (run.tracksWithoutFile > 0) detail.push(run.tracksWithoutFile + " with no file on this stick");
+            if (run.tracksWithoutIdentity > 0) detail.push(run.tracksWithoutIdentity + " with too little to go on");
             var lines = [detail.join(", ") + "."];
             lines.push(run.cuesStored + (run.cuesStored === 1 ? " cue" : " cues") + " stored"
                        + (run.artworkFilesAdded > 0

@@ -5,6 +5,8 @@
 #include <iostream>
 #include <string>
 
+#include <sqlite3.h>
+
 #include "application/ports/progress_reporter.hpp"
 #include "domain/track.hpp"
 #include "infrastructure/local/metadata_store.hpp"
@@ -213,14 +215,16 @@ int main()
 
     // ---- case 5: the same track, a different stick ------------------
     //
-    // The whole point of the feature: a rebuilt stick, mounted somewhere
-    // else, spelling the same relative path. It must land on the row
-    // that already exists, not add a second one.
+    // The whole point of the feature: the same recording on a rebuilt
+    // stick, under a different path, mounted somewhere else. It is
+    // matched on artist, title and length, so it lands on the row it
+    // already had rather than adding a second one. A path-keyed store
+    // would have made two.
     {
         const fs::path otherStick = root / "another-mount" / "REBUILT";
-        writeFile(otherStick / "Contents" / "Kalte Nacht" / "Erste.mp3", "audio");
+        writeFile(otherStick / "Music" / "2026" / "erste-remaster.mp3", "audio");
         MetadataStore metadata(db);
-        Track moved = sampleTrack(otherStick, "Contents/Kalte Nacht/Erste.mp3", "Erste");
+        Track moved = sampleTrack(otherStick, "Music/2026/erste-remaster.mp3", "Erste");
         moved.rating = 3;
 
         const auto summary = store(metadata, {moved}, sourceFor(otherStick, "REBUILT"), ConflictPolicy::Overwrite);
@@ -229,10 +233,38 @@ int main()
         assert(metadata.trackCount() == 2);  // still two rows, not three
         const auto rows = metadata.browse("Erste", 10, 0);
         assert(rows[0].stickLabel == "REBUILT");
+        assert(rows[0].relativePath == "Music/2026/erste-remaster.mp3");
         // The cues from the first stick are still there: this stick had
         // none to overwrite them with.
         assert(rows[0].cueCount == 2);
-        std::cout << "case 5 (same track on another stick is one row) OK\n";
+        std::cout << "case 5 (the same recording under another path is one row) OK\n";
+    }
+
+    // ---- case 5b: same artist and title, different length ------------
+    //
+    // A radio edit and an extended mix. Length is the guard that keeps
+    // them apart; without it one would silently take the other's cues.
+    {
+        const fs::path mixDb = root / "mixes" / "metadata.db";
+        MetadataStore metadata(mixDb);
+        Track radioEdit = sampleTrack(stick, "Contents/A/edit.mp3", "One Track");
+        radioEdit.durationSeconds = 210.0;
+        radioEdit.cues = {hotCue(1, 1000.0)};
+        Track extended = sampleTrack(stick, "Contents/A/extended.mp3", "One Track");
+        extended.durationSeconds = 480.0;
+        extended.cues = {hotCue(1, 9000.0)};
+
+        store(metadata, {radioEdit, extended}, sourceFor(stick), ConflictPolicy::Overwrite);
+        assert(metadata.trackCount() == 2);
+
+        // And a re-read of the shorter one, two seconds out, still finds
+        // its own row rather than making a third.
+        Track reread = radioEdit;
+        reread.durationSeconds = 211.5;
+        const auto again = store(metadata, {reread}, sourceFor(stick), ConflictPolicy::Overwrite);
+        assert(again.tracksAdded == 0);
+        assert(metadata.trackCount() == 2);
+        std::cout << "case 5b (same title, different length, two tracks) OK\n";
     }
 
     // ---- case 6: rows with no file on this stick --------------------
@@ -246,10 +278,10 @@ int main()
 
         const auto summary = store(metadata, {streaming, unresolved}, sourceFor(stick), ConflictPolicy::Overwrite);
         assert(summary.tracksSeen == 2);
-        assert(summary.tracksWithoutFile == 2);
+        assert(summary.tracksWithoutIdentity == 2);
         assert(summary.tracksAdded == 0);
         assert(metadata.trackCount() == 2);
-        std::cout << "case 6 (streaming links and pathless rows are not stored) OK\n";
+        std::cout << "case 6 (streaming links and rows with nothing to match on) OK\n";
     }
 
     // ---- case 7: unrated is not zero -------------------------------
@@ -291,7 +323,9 @@ int main()
             assert(track.format == "metadata-store");
             // Stick-relative, deliberately: an absolute path here would
             // be a claim about a file on a stick that may not be here.
-            assert(track.filePath.rfind("Contents/", 0) == 0);
+            assert(!track.filePath.empty());
+            assert(track.filePath.find(':') == std::string::npos);
+            assert(track.filePath.rfind('/', 0) != 0);
             if (track.title == "Erste") {
                 assert(track.cues.size() == 2);
                 foundCues = true;
@@ -314,6 +348,46 @@ int main()
         assert(summary.tracksSeen == 0);
         assert(metadata.trackCount() == 0);
         std::cout << "case 10 (a cancelled run commits what it had) OK\n";
+    }
+
+    // ---- case 11: a database from another schema ---------------------
+    //
+    // Pre-1.0, the schema changes and there is no migration. What must
+    // never happen is losing the file: this store may hold the only copy
+    // of cues a reformatted stick no longer has.
+    {
+        const fs::path oldDb = root / "old-schema" / "metadata.db";
+        fs::create_directories(oldDb.parent_path());
+        {
+            // A plausible earlier schema: a tracks table keyed the way
+            // this store used to key it, and a version that is not ours.
+            sqlite3 *raw = nullptr;
+            assert(sqlite3_open(oldDb.string().c_str(), &raw) == SQLITE_OK);
+            sqlite3_exec(raw, "CREATE TABLE tracks (id INTEGER PRIMARY KEY, path_key TEXT)", nullptr, nullptr,
+                         nullptr);
+            sqlite3_exec(raw, "INSERT INTO tracks (path_key) VALUES ('contents/a.mp3')", nullptr, nullptr, nullptr);
+            sqlite3_exec(raw, "CREATE TABLE schema_version (version INTEGER NOT NULL)", nullptr, nullptr, nullptr);
+            sqlite3_exec(raw, "INSERT INTO schema_version (version) VALUES (99)", nullptr, nullptr, nullptr);
+            sqlite3_close(raw);
+        }
+
+        MetadataStore metadata(oldDb);
+        // A working store, not a thrown error and not a broken one.
+        Track track = sampleTrack(stick, "Contents/A/new.mp3", "New");
+        track.cues = {memoryCue(0.0)};
+        const auto summary = store(metadata, {track}, sourceFor(stick), ConflictPolicy::Overwrite);
+        assert(summary.tracksAdded == 1);
+        assert(metadata.trackCount() == 1);
+
+        // And the old file is still on disk, beside it.
+        bool foundSuperseded = false;
+        for (const auto &entry : fs::directory_iterator(oldDb.parent_path())) {
+            if (entry.path().filename().string().find("metadata.db.superseded-99-") == 0) {
+                foundSuperseded = true;
+            }
+        }
+        assert(foundSuperseded);
+        std::cout << "case 11 (a database from another schema is moved aside, never deleted) OK\n";
     }
 
     fs::remove_all(root);

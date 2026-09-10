@@ -701,6 +701,8 @@ add_test(NAME metadata_cache_test COMMAND metadata_cache_test)
 
 add_executable(metadata_store_test tests/metadata_store_test.cpp)
 target_include_directories(metadata_store_test PRIVATE src)
+# Links SQLite directly as well: one case writes a database in an
+# earlier schema by hand, to prove the store moves it aside.
 target_link_libraries(metadata_store_test PRIVATE seabass_core)
 add_test(NAME metadata_store_test COMMAND metadata_store_test)
 

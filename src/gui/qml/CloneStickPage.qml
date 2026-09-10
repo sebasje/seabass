@@ -86,7 +86,7 @@ Page {
         background: Rectangle { color: Theme.surface }
         RowLayout {
             anchors.fill: parent
-            anchors.margins: 10
+            anchors.margins: Theme.pageMargin
             spacing: 12
             BackBreadcrumb {
                 title: root.isUpdate ? "Update " + root.targetName + " from " + root.sourceLabel

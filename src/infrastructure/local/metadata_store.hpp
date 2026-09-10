@@ -50,10 +50,10 @@ struct MetadataBackupSummary
     int tracksSkipped = 0;
     // Already stored and nothing incoming was new.
     int tracksUnchanged = 0;
-    // No resolvable file on this stick (an unresolved row, or a
-    // streaming link), so nothing to key the row on. Not an error, and
-    // counted separately so the totals still add up.
-    int tracksWithoutFile = 0;
+    // Nothing to recognise the row by later: no artist and title, and
+    // no filename either, or a streaming link that names no file on any
+    // stick. Not an error, and counted separately so the totals add up.
+    int tracksWithoutIdentity = 0;
     int cuesStored = 0;
     int artworkFilesAdded = 0;
     std::uint64_t artworkBytesAdded = 0;

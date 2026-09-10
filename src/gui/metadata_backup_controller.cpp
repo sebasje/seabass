@@ -324,7 +324,7 @@ void MetadataBackupController::onBackupFinished()
         {"tracksUpdated", summary.tracksUpdated},
         {"tracksSkipped", summary.tracksSkipped},
         {"tracksUnchanged", summary.tracksUnchanged},
-        {"tracksWithoutFile", summary.tracksWithoutFile},
+        {"tracksWithoutIdentity", summary.tracksWithoutIdentity},
         {"cuesStored", summary.cuesStored},
         {"artworkFilesAdded", summary.artworkFilesAdded},
         {"artworkBytesAdded", static_cast<qint64>(summary.artworkBytesAdded)},

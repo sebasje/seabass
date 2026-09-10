@@ -94,7 +94,7 @@ Page {
         ColumnLayout {
             id: headerLayout
             anchors.fill: parent
-            anchors.margins: 10
+            anchors.margins: Theme.pageMargin
             spacing: 8
 
             RowLayout {

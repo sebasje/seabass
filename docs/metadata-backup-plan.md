@@ -68,22 +68,35 @@ This is the part that decides whether the feature works, because a
 restore onto a freshly written stick has to recognise tracks it has never
 seen a row for.
 
-Matching runs in this order, first hit wins:
+**Artist, title and length -- the same rule `domain::matchTracks()` uses
+everywhere else in Seabass.** The key is normalised artist + title; when
+either is missing, the normalised filename stands in, exactly as
+matchTracks falls back. Length is not part of the key, because two
+readings of one file differ by rounding. It is a guard applied to the
+candidates the key finds, with the same 2-second tolerance and the same
+"only when both readings are real" rule: a zero duration means unreadable,
+not a zero-length track, and gating on it would split one track into two
+rows the moment one catalog failed to report a length.
 
-1. **Stick-relative path key.** `Contents/Artist/Track.mp3` reduced
-   through `application::normalizedPathKey()`. rekordbox writes the same
-   layout every time it exports, so the same track on a rebuilt stick
-   usually lands on the same key. Strongest signal, and free.
-2. **title + artist**, then **filename**, then **duration within
-   tolerance** -- `domain::matchTracks()`, unchanged. The store
-   implements `application::LibraryReader`, so the same matcher that
-   pairs rekordbox rows with Engine rows pairs stick rows with stored
-   ones. One matcher, not two.
+Length earns its place on one real case: a radio edit and an extended mix
+share an artist and a title, and without it one would silently inherit the
+other's cues.
 
-The store is therefore keyed on the path key and **not** on which stick
-the track came from. A track is one row no matter how many sticks carry
-it; the `library_id` column records where it was last seen, for the
-browse view and for nothing else.
+**Not the file path**, which was this document's first answer and was
+wrong. A path is the strongest signal when both sides are looking at one
+stick -- which is why `matchTracks` tries it first -- and the weakest
+thing to key a store on. The whole point of this store is that it outlives
+the stick: a re-export renames folders, a rebuilt library moves
+`Contents/` around, and the same track bought again lands somewhere else
+entirely. Artist and title travel with the recording; the path does not.
+
+The stick-relative path is still stored, for display and for saying where
+a track was last seen. Nothing matches on it.
+
+The store is therefore keyed on the recording and not on which stick it
+came from. A track is one row no matter how many sticks carry it; the
+`library_id` and `stick_label` columns record where it was last seen, for
+the browse view and for nothing else.
 
 ## Conflict policy
 
@@ -139,8 +152,8 @@ over a year is not.
 ```sql
 CREATE TABLE tracks (
   id INTEGER PRIMARY KEY,
-  path_key TEXT NOT NULL UNIQUE,   -- normalizedPathKey of the stick-relative path
-  relative_path TEXT NOT NULL,     -- as spelled, for display
+  match_key TEXT NOT NULL,         -- normalised "artist|title", or "filename" as fallback
+  relative_path TEXT NOT NULL,     -- where it was last seen, for display only
   filename TEXT NOT NULL,
   title TEXT, artist TEXT,
   duration_seconds REAL, bpm REAL, music_key TEXT,
@@ -188,8 +201,8 @@ flattening it here would throw the distinction away on the way in.
 
 - Storing waveforms or analysis files. It is a metadata store; the moment
   it holds derived binary data it is a slow, partial stick backup.
-- Keying tracks by stick. The feature exists so metadata survives the
-  stick.
+- Keying tracks by path. The feature exists so metadata survives the
+  stick, and a path is a fact about a stick.
 - Writing to the stick outside the edit session. Every other write path
   in Seabass backs up first; this one does not get an exception.
 - A per-track conflict prompt.

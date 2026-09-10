@@ -104,7 +104,7 @@ Page {
 
         RowLayout {
             anchors.fill: parent
-            anchors.margins: 8
+            anchors.margins: Theme.pageMargin
             BackBreadcrumb {
                 middleLabel: "Browse Library"
                 title: root.track ? (root.track.title + " - " + root.track.artist) : "Track"

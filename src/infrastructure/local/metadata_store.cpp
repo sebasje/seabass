@@ -4,12 +4,12 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <fstream>
 #include <iterator>
 #include <system_error>
 
-#include "application/path_key.hpp"
 #include "domain/track_matching.hpp"
 #include "infrastructure/hashing/sha256.hpp"
 #include "infrastructure/local/sqlite_statement.hpp"
@@ -41,14 +41,13 @@ void exec(sqlite3 *db, const char *sql)
     local::exec(db, sql, Context);
 }
 
-// The path a track keeps once it is off the stick.
+// How a track is spelled for display once it is off the stick.
 //
-// Stick-relative, because that is what survives: the same export written
-// to another stick, or the same stick mounted at another point, spells
-// "Contents/Artist/Track.mp3" identically and the absolute path not at
-// all. Purely lexical -- lexically_relative rather than fs::relative --
-// so it never touches the filesystem and gives the same answer for a
-// stick that is no longer plugged in.
+// Stick-relative, because an absolute path is a claim about a mount
+// point that will not be there next time. Display only: it is not what
+// tracks are matched on. Purely lexical -- lexically_relative rather
+// than fs::relative -- so it never touches the filesystem and gives the
+// same answer for a stick that is no longer plugged in.
 std::string stickRelativePath(const std::string &filePath, const fs::path &stickRoot)
 {
     if (filePath.empty()) {
@@ -68,6 +67,44 @@ std::string stickRelativePath(const std::string &filePath, const fs::path &stick
     // filename is a weaker key rather than no key. Losing the track
     // entirely would be worse.
     return fs::path(filePath).filename().generic_string();
+}
+
+// What two rows have to agree on to be the same track: artist, title
+// and length, the same rule domain::matchTracks() uses everywhere else
+// in Seabass.
+//
+// Not the file path. A path is the strongest signal when both sides are
+// looking at one stick, and the weakest thing to key a store on: the
+// whole point of this store is that it outlives the stick, and a
+// re-export renames folders, a rebuilt library moves Contents/ around,
+// and the same track bought again lands somewhere else entirely.
+// Artist and title travel with the recording.
+//
+// Length is not part of the key, because two readings of one file differ
+// by rounding; it is a guard applied to the candidates the key finds,
+// with the same tolerance and the same "only when both readings are
+// real" rule matchTracks uses. A zero duration means unreadable, not a
+// zero-length track, and gating on it would split one track into two
+// rows the moment one catalog failed to report a length.
+constexpr double DurationToleranceSeconds = 2.0;
+
+std::string matchKeyFor(const Track &track)
+{
+    if (auto key = domain::titleArtistKey(track)) {
+        return "ta:" + *key;
+    }
+    // Missing title or artist: fall back to the filename, exactly as
+    // matchTracks does, rather than dropping the track.
+    const std::string filename = domain::normalizeFilename(track.filename);
+    return filename.empty() ? std::string() : "fn:" + filename;
+}
+
+bool durationsAgree(double a, double b)
+{
+    if (a <= 0.0 || b <= 0.0) {
+        return true;
+    }
+    return std::abs(a - b) <= DurationToleranceSeconds;
 }
 
 std::string lowercased(std::string text)
@@ -122,10 +159,61 @@ fs::path MetadataStore::artworkDir() const
     return m_databasePath.parent_path() / "artwork";
 }
 
+// The version an existing database was written with, or 0 when it has
+// none (no file, or one written before schema_version existed).
+namespace
+{
+
+int schemaVersionOf(const fs::path &databasePath)
+{
+    std::error_code ec;
+    if (!fs::exists(databasePath, ec)) {
+        return 0;
+    }
+    sqlite3 *db = nullptr;
+    if (sqlite3_open_v2(databasePath.string().c_str(), &db, SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK) {
+        sqlite3_close(db);
+        return -1;  // there is a file, and it is not a database we can read
+    }
+    int version = 0;
+    sqlite3_stmt *stmt = nullptr;
+    if (sqlite3_prepare_v2(db, "SELECT version FROM schema_version", -1, &stmt, nullptr) == SQLITE_OK) {
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            version = sqlite3_column_int(stmt, 0);
+        }
+    }
+    sqlite3_finalize(stmt);
+    sqlite3_close(db);
+    return version;
+}
+
+}  // namespace
+
 void MetadataStore::openAndMigrate()
 {
     std::error_code ec;
     fs::create_directories(m_databasePath.parent_path(), ec);
+
+    // A database from a different schema is moved aside rather than
+    // migrated or deleted.
+    //
+    // Seabass is pre-1.0 and does not pay back-compatibility tax, so
+    // there is no migration to write. But this store is the one place
+    // that may hold cues no stick has any more, so deleting it is not
+    // available either: "we changed the schema" is not a reason to lose
+    // a DJ's work. Renaming costs nothing, leaves the file where a
+    // person can find it, and CREATE TABLE IF NOT EXISTS then builds a
+    // clean one -- which a single Back Up Now refills from the stick.
+    const int existing = schemaVersionOf(m_databasePath);
+    if (existing != 0 && existing != SchemaVersion) {
+        fs::path superseded = m_databasePath;
+        superseded += ".superseded-" + std::to_string(existing) + "-" + isoTimestampUtc();
+        fs::rename(m_databasePath, superseded, ec);
+        if (ec) {
+            throw std::runtime_error(std::string(Context) + ": found a database written by another version of "
+                                      "Seabass and could not move it aside: " + ec.message());
+        }
+    }
 
     if (sqlite3_open(m_databasePath.string().c_str(), &m_db) != SQLITE_OK) {
         const std::string message = m_db ? sqlite3_errmsg(m_db) : "could not open database";
@@ -142,7 +230,7 @@ void MetadataStore::openAndMigrate()
     exec(m_db, R"sql(
         CREATE TABLE IF NOT EXISTS tracks (
             id INTEGER PRIMARY KEY,
-            path_key TEXT NOT NULL UNIQUE,
+            match_key TEXT NOT NULL,
             relative_path TEXT NOT NULL,
             filename TEXT NOT NULL,
             title TEXT NOT NULL DEFAULT '',
@@ -182,6 +270,7 @@ void MetadataStore::openAndMigrate()
             position INTEGER NOT NULL DEFAULT -1
         );
     )sql");
+    exec(m_db, "CREATE INDEX IF NOT EXISTS tracks_by_match_key ON tracks(match_key);");
     exec(m_db, "CREATE INDEX IF NOT EXISTS cues_by_track ON cues(track_id);");
     exec(m_db, "CREATE INDEX IF NOT EXISTS playlists_by_track ON playlists(track_id);");
     exec(m_db, "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL);");
@@ -312,20 +401,22 @@ MetadataBackupSummary MetadataStore::store(const std::vector<Track> &tracks, con
         const Track &track = tracks[i];
         summary.tracksSeen++;
 
-        // A streaming link has no file on the stick and never will; its
-        // filePath points into a cache on whatever computer manages
-        // playback. Storing one would key a row on a path that is not a
-        // path here.
+        // A streaming link names no file on any stick -- its path
+        // points into a cache on whatever computer manages playback --
+        // so there is nothing a restore could ever put back on it.
         if (!track.streamingSource.empty()) {
-            summary.tracksWithoutFile++;
+            summary.tracksWithoutIdentity++;
+            continue;
+        }
+        const std::string matchKey = matchKeyFor(track);
+        if (matchKey.empty()) {
+            // No artist and title, and no filename either. There is
+            // nothing to recognise this row by later, so storing it
+            // would only ever produce a row nothing can match.
+            summary.tracksWithoutIdentity++;
             continue;
         }
         const std::string relativePath = stickRelativePath(track.filePath, source.stickRoot);
-        if (relativePath.empty()) {
-            summary.tracksWithoutFile++;
-            continue;
-        }
-        const std::string pathKey = application::normalizedPathKey(relativePath);
 
         std::int64_t id = 0;
         bool exists = false;
@@ -334,15 +425,24 @@ MetadataBackupSummary MetadataStore::store(const std::vector<Track> &tracks, con
         std::string storedComment;
         std::string storedArtworkSha;
         {
-            Stmt find(m_db, "SELECT id, rating, comment, play_count, artwork_sha FROM tracks WHERE path_key = ?");
-            find.bind(1, pathKey);
-            if (find.step()) {
+            // Every row this artist and title could mean, then the first
+            // whose length agrees. Two rows under one key is the real
+            // case this handles: a radio edit and an extended mix.
+            Stmt find(m_db,
+                      "SELECT id, rating, comment, play_count, artwork_sha, duration_seconds "
+                      "FROM tracks WHERE match_key = ? ORDER BY id");
+            find.bind(1, matchKey);
+            while (find.step()) {
+                if (!durationsAgree(find.columnDouble(5), track.durationSeconds)) {
+                    continue;
+                }
                 exists = true;
                 id = find.columnInt64(0);
                 storedRating = find.columnOptionalInt(1);
                 storedComment = find.columnText(2);
                 storedPlayCount = find.columnOptionalInt(3);
                 storedArtworkSha = find.columnText(4);
+                break;
             }
         }
 
@@ -398,13 +498,13 @@ MetadataBackupSummary MetadataStore::store(const std::vector<Track> &tracks, con
 
         if (!exists) {
             Stmt insert(m_db, R"sql(
-                INSERT INTO tracks (path_key, relative_path, filename, title, artist,
+                INSERT INTO tracks (match_key, relative_path, filename, title, artist,
                                     duration_seconds, bpm, music_key, rating, comment,
                                     play_count, last_played_at, artwork_sha, artwork_extension,
                                     library_id, stick_label, source_format, first_seen, updated_at)
                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             )sql");
-            insert.bind(1, pathKey);
+            insert.bind(1, matchKey);
             insert.bind(2, relativePath);
             insert.bind(3, track.filename);
             insert.bind(4, track.title);
@@ -434,23 +534,27 @@ MetadataBackupSummary MetadataStore::store(const std::vector<Track> &tracks, con
         // them is the best one.
         if (exists) {
             Stmt update(m_db, R"sql(
-                UPDATE tracks SET relative_path = ?, filename = ?, title = ?, artist = ?,
+                UPDATE tracks SET match_key = ?, relative_path = ?, filename = ?, title = ?, artist = ?,
                                   duration_seconds = ?, bpm = ?, music_key = ?,
                                   library_id = ?, stick_label = ?, source_format = ?, updated_at = ?
                 WHERE id = ?
             )sql");
-            update.bind(1, relativePath);
-            update.bind(2, track.filename);
-            update.bind(3, track.title);
-            update.bind(4, track.artist);
-            update.bind(5, track.durationSeconds);
-            update.bind(6, track.bpm);
-            update.bind(7, track.key);
-            update.bind(8, source.libraryId);
-            update.bind(9, source.stickLabel);
-            update.bind(10, track.format);
-            update.bind(11, now);
-            update.bindInt64(12, id);
+            // match_key refreshes with the rest: a title corrected on
+            // the stick has to be findable under the corrected spelling,
+            // or the next backup files it as a second track.
+            update.bind(1, matchKey);
+            update.bind(2, relativePath);
+            update.bind(3, track.filename);
+            update.bind(4, track.title);
+            update.bind(5, track.artist);
+            update.bind(6, track.durationSeconds);
+            update.bind(7, track.bpm);
+            update.bind(8, track.key);
+            update.bind(9, source.libraryId);
+            update.bind(10, source.stickLabel);
+            update.bind(11, track.format);
+            update.bind(12, now);
+            update.bindInt64(13, id);
             update.run();
 
             if (writeRating) {
