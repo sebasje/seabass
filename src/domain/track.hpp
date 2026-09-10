@@ -118,6 +118,12 @@ struct Track
     // DJ actually rated" vs. "how many are literally 0 stars").
     std::optional<int> rating;
     std::string comment;  // the DJ's own free-text comment field, empty if none
+    // Album title, empty if the format did not record one or the track
+    // has none. Held in a normalized table in both formats -- rekordbox's
+    // export.pdb keeps an album_row per title with track rows carrying an
+    // album_id, Engine stores it on the track -- so a reader has to
+    // resolve it rather than read it off the row.
+    std::string album;
 
     // Every row that points at this same file, in each format that has
     // one, this row included -- set by

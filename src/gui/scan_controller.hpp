@@ -40,6 +40,7 @@ public:
         RatingRole,
         BitrateRole,
         CommentRole,
+        AlbumRole,
     };
 
     explicit TrackListModel(QObject *parent = nullptr);

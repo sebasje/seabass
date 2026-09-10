@@ -67,6 +67,7 @@ Pane {
     property string trackKey: ""
     property int trackBitrate: 0      // 0 means this format records none
     property string trackComment: ""
+    property string trackAlbum: ""
     property int trackPlayCount: 0
     // -1 means no pending Add-Cue form; set by clicking the
     // waveform below.
@@ -100,6 +101,7 @@ Pane {
         panel.trackKey = value("key", "");
         panel.trackBitrate = value("bitrate", 0);
         panel.trackComment = value("comment", "");
+        panel.trackAlbum = value("album", "");
         panel.trackPlayCount = value("playCount", 0);
         panel.pendingPositionMs = -1;
         panel.pendingLoopEndMs = -1;
@@ -247,6 +249,17 @@ Pane {
                 Label {
                     text: panel.trackArtist
                     color: Theme.textMuted
+                    Layout.fillWidth: true
+                    elide: Text.ElideRight
+                }
+                // Under the artist rather than in the facts grid: an
+                // album is part of how a record is named, not a
+                // measurement of it.
+                Label {
+                    visible: panel.trackAlbum.length > 0
+                    text: panel.trackAlbum
+                    color: Theme.textMuted
+                    font.pointSize: Theme.fontSmall
                     Layout.fillWidth: true
                     elide: Text.ElideRight
                 }

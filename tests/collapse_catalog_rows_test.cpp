@@ -240,6 +240,20 @@ int main()
         std::cout << "case 11 (collapse then scope keeps every row that must go with the file) OK\n";
     }
 
+    // An album one catalog recorded and another did not. Same rule as
+    // every other gap-fill: the formats describe one library, so a value
+    // missing from one of them is one another already holds about that
+    // same track.
+    {
+        Track rb = row("rekordbox", "rb1", "/stick/Contents/a.mp3", "Sorry", 200.0, 256);
+        Track en = row("engine", "en1", "/stick/Contents/a.mp3", "Sorry", 200.0, 0);
+        en.album = "Sounds From The Deep";
+        auto files = collapseCatalogRows({rb, en});
+        assert(files.size() == 1);
+        assert(files[0].album == "Sounds From The Deep");
+        std::cout << "case 16 (an album only one catalog recorded survives the collapse) OK\n";
+    }
+
     // --- collapseForCleanupScan: the scan's collapse-or-not decision ---
 
     // Every catalog readable: rows from all of them fold into files, so a
