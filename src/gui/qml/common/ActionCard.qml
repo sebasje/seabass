@@ -37,7 +37,13 @@ Button {
     signal readOnlyClicked()
     visible: !experimental || experimentalFeaturesEnabled
     Layout.fillWidth: true
-    Layout.preferredHeight: 68
+    // A minimum, not a fixed height: a long title next to a badge (a
+    // narrow GridLayout column, e.g. StickListPage's 3-column grid,
+    // leaves too little room for both on one line) wraps to a second
+    // line instead of eliding, and GridLayout equalizes every card in
+    // that row to match, so the row stays aligned rather than only the
+    // wrapped card growing on its own.
+    Layout.minimumHeight: 68
 
     contentItem: RowLayout {
         spacing: 10
@@ -61,7 +67,7 @@ Button {
                     font.weight: Theme.cardTitleWeight
                     font.pointSize: Theme.cardTitleSize
                     Layout.fillWidth: true
-                    elide: Text.ElideRight
+                    wrapMode: Text.WordWrap
                 }
                 // Warning-toned (not the muted/neutral badge idiom used
                 // elsewhere, e.g. the streaming-source badge) -- this one's
