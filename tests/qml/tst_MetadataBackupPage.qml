@@ -101,6 +101,42 @@ TestCase {
         verify(page.hasStick, "the fixture stick must count as a stick");
     }
 
+    // The breadcrumb's own text has to start on the same vertical line
+    // as the page body under it. It did not: the style gives ToolBar 4px
+    // of padding of its own, and the crumb is a hover pill with another
+    // 8.8 inside that, so "Home" sat 4px right of every line beneath it.
+    //
+    // Asserted on measured positions rather than on the properties that
+    // produce them, because the properties were all individually
+    // defensible and the result still did not line up. Any page header
+    // would do; this one is simply the one that has a test.
+    function test_headerTextLinesUpWithTheBody() {
+        var page = make();
+        var crumbText = null;
+        var bodyText = null;
+        function walk(item) {
+            for (var i = 0; i < item.children.length; ++i) {
+                var child = item.children[i];
+                if (child.text === "Home" && child.width < 120) {
+                    crumbText = child;
+                }
+                if (child.text !== undefined && typeof child.text === "string"
+                        && child.text.indexOf("The cues, ratings") === 0) {
+                    bodyText = child;
+                }
+                walk(child);
+            }
+        }
+        walk(page);
+        verify(crumbText, "the Home crumb's label was not found");
+        verify(bodyText, "the page's first body line was not found");
+        var crumbX = crumbText.mapToItem(page, 0, 0).x;
+        var bodyX = bodyText.mapToItem(page, 0, 0).x;
+        compare(crumbX, bodyX, "breadcrumb text at " + crumbX + " and body text at " + bodyX
+                + " must share a left edge (crumb w=" + crumbText.width + ")");
+        compare(bodyX, Theme.pageMargin, "and that edge is Theme.pageMargin");
+    }
+
     function test_screenshot() {
         if (!screenshotDir) {
             skip("SEABASS_SCREENSHOT_DIR not set");
