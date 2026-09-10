@@ -498,6 +498,8 @@ Page {
                             text: delegateRoot.description
                             color: Theme.textMuted
                             leftPadding: 168
+                            Layout.fillWidth: true
+                            wrapMode: Text.WordWrap
                         }
                     }
                 }
