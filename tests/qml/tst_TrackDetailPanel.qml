@@ -40,7 +40,39 @@ TestCase {
     function makeDelegate() {
         return {sourceId: "42", title: "Major Tom (Reworked 2024)", artist: "DJ Amador",
                 cues: [{kind: "hot", hotCueNumber: 1, positionMs: 32000, isLoop: false, loopEndMs: 0, color: "#ffcc00", comment: ""}],
-                durationSeconds: 372, playlistNames: ["Peaktime", "Warm-up"], streamingSource: ""};
+                durationSeconds: 372, playlistNames: ["Peaktime", "Warm-up"], streamingSource: "",
+                rating: 4, bpm: 126.5, key: "Fm", bitrate: 320, playCount: 17,
+                artworkPath: "file:///covers/major-tom.jpg",
+                comment: "Big room, drop at 1:04"};
+    }
+
+    // The artist list is built from the track being SHOWN, not the one
+    // that was showing before. showFor() assigns trackSourceId first, so
+    // refreshing on that property's change read the previous track's
+    // artist and listed the wrong artist's tracks under this one's
+    // heading -- which is what it did, on real data, until this test.
+    function test_artistListFollowsTheTrackBeingShown() {
+        var asked = [];
+        var panel = makePanel();
+        panel.scanController = {
+            tracksByArtist: function (artist, excludeSourceId) {
+                asked.push(artist);
+                return [{sourceId: "99", title: "Another One", durationSeconds: 300, bpm: 124, key: "8A",
+                         cueCount: 0}];
+            }
+        };
+
+        var first = makeDelegate();
+        panel.showFor(first);
+        compare(asked[asked.length - 1], "DJ Amador");
+
+        var second = makeDelegate();
+        second.sourceId = "77";
+        second.artist = "Someone Else";
+        second.title = "Different Track";
+        panel.showFor(second);
+        compare(asked[asked.length - 1], "Someone Else");
+        compare(panel.artistTracks.length, 1);
     }
 
     function test_showForFillsThePanel() {
@@ -50,6 +82,20 @@ TestCase {
         compare(panel.trackArtist, "DJ Amador");
         compare(panel.trackDurationMs, 372000);
         compare(panel.trackPlaylistNames.length, 2);
+        // The fields added for the details panel. Asserted here because
+        // showFor() reads each one with a fallback, and a typo in a name
+        // would silently leave the field at its "hide me" default rather
+        // than failing.
+        compare(panel.trackRating, 4);
+        compare(panel.trackBpm, 126.5);
+        compare(panel.trackKey, "Fm");
+        compare(panel.trackBitrate, 320);
+        compare(panel.trackPlayCount, 17);
+        compare(panel.trackComment, "Big room, drop at 1:04");
+        // Passed straight through, never re-prefixed: the role already
+        // hands over a file:// URL, and prefixing it again produced
+        // "file://file:///..." and an image that silently did not load.
+        compare(panel.trackArtworkPath, "file:///covers/major-tom.jpg");
         compare(panel.pendingPositionMs, -1);
         if (screenshotDir && screenshotDir.length > 0) {
             grabImage(panel).save(screenshotDir + "/track-panel.png");

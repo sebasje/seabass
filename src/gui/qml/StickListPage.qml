@@ -265,6 +265,12 @@ Page {
                 radius: 4
 
                 required property string label
+                // NOT required: a required property makes delegate
+                // creation fail for any model that lacks the role, which
+                // took out four StickListPage tests whose fake sticks
+                // predate it. Defaulted instead, and the size is hidden
+                // when it is zero anyway.
+                property var capacityBytes: 0
                 required property string mountPoint
                 required property string devicePath
                 required property bool mounted
@@ -382,10 +388,28 @@ Page {
                                     }
                                     Item { Layout.fillWidth: true }
                                 }
-                                Label {
-                                    text: delegateRoot.mounted ? delegateRoot.mountPoint : delegateRoot.devicePath
-                                    color: Theme.textMuted
-                                    font.pointSize: Theme.baseFontPointSize * 0.9
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 8
+                                    Label {
+                                        text: delegateRoot.mounted ? delegateRoot.mountPoint : delegateRoot.devicePath
+                                        color: Theme.textMuted
+                                        font.pointSize: Theme.baseFontPointSize * 0.9
+                                        elide: Text.ElideMiddle
+                                        Layout.maximumWidth: implicitWidth
+                                        Layout.fillWidth: true
+                                    }
+                                    // The stick's size, beside the path. Hidden
+                                    // rather than shown as "0 B" when the locator
+                                    // could not read a capacity, which happens for
+                                    // a drive with no partition table at all.
+                                    Label {
+                                        visible: delegateRoot.capacityBytes > 0
+                                        text: Theme.humanBytes(delegateRoot.capacityBytes)
+                                        color: Theme.textMuted
+                                        font.pointSize: Theme.baseFontPointSize * 0.9
+                                    }
+                                    Item { Layout.fillWidth: true }
                                 }
                                 RowLayout {
                                     visible: delegateRoot.mounted
