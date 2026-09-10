@@ -245,6 +245,8 @@ add_library(seabass_core STATIC
     src/infrastructure/benchmark/stick_speed_benchmark.cpp
     src/infrastructure/bulk_write_strategy.cpp
     src/infrastructure/durable_file_write.cpp
+    src/infrastructure/rekordbox/anlz_byte_source.cpp
+    src/infrastructure/stick_backup/archive_anlz_source.cpp
     src/infrastructure/rekordbox/anlz_cue_codec.cpp
     src/infrastructure/rekordbox/anlz_file.cpp
     src/infrastructure/rekordbox/pdb_lookup.cpp
@@ -929,6 +931,7 @@ add_executable(cue_color_normalization_test
     src/application/ports/progress_reporter.cpp
     src/infrastructure/engine/libdjinterop_engine_reader.cpp
     src/infrastructure/rekordbox/kaitai_rekordbox_reader.cpp
+    src/infrastructure/rekordbox/anlz_byte_source.cpp
     src/infrastructure/rekordbox/pdb_lookup.cpp
     src/infrastructure/rekordbox/anlz_path_index.cpp
     src/infrastructure/work_counters.cpp
@@ -1658,6 +1661,16 @@ target_link_libraries(anonymization_verifier_test PRIVATE seabass_core)
 add_test(NAME anonymization_verifier_test COMMAND anonymization_verifier_test
     ${CMAKE_SOURCE_DIR}/tests/fixtures/anonymized_library)
 set_tests_properties(anonymization_verifier_test PROPERTIES LABELS "integration")
+
+# Browsing a stick backup in place: cues read through the archive must
+# match cues read off the folder, byte for byte, with nothing extracted.
+# Real fixture data, both compression methods -- see the test's own header.
+add_executable(archive_anlz_source_test tests/archive_anlz_source_test.cpp)
+target_include_directories(archive_anlz_source_test PRIVATE src)
+target_link_libraries(archive_anlz_source_test PRIVATE seabass_core)
+add_test(NAME archive_anlz_source_test COMMAND archive_anlz_source_test
+    ${CMAKE_SOURCE_DIR}/tests/fixtures/anonymized_library)
+set_tests_properties(archive_anlz_source_test PROPERTIES LABELS "integration")
 
 add_executable(corpus_test tests/corpus_test.cpp)
 target_include_directories(corpus_test PRIVATE src)

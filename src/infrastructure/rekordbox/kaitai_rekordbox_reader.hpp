@@ -1,10 +1,12 @@
 #pragma once
 
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "application/ports/library_reader.hpp"
 #include "domain/track.hpp"
+#include "infrastructure/rekordbox/anlz_byte_source.hpp"
 
 namespace seabass::infrastructure::rekordbox
 {
@@ -32,10 +34,18 @@ public:
     // (i.e. the "PIONEER" folder itself).
     explicit KaitaiRekordboxReader(std::string pioneerRoot);
 
+    // Same, but with the per-track analysis files coming from somewhere
+    // other than that directory -- a stick backup read in place serves
+    // them out of the archive (see AnlzByteSource). export.pdb itself
+    // still has to be a real file at pioneerRoot, because the Kaitai
+    // parser seeks all over it.
+    KaitaiRekordboxReader(std::string pioneerRoot, std::shared_ptr<AnlzByteSource> anlzSource);
+
     std::vector<domain::Track> readAll() override;
 
 private:
     std::string m_pioneerRoot;
+    std::shared_ptr<AnlzByteSource> m_anlzSource;
 };
 
 }  // namespace seabass::infrastructure::rekordbox

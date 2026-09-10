@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <unordered_map>
 
 #include "infrastructure/rekordbox/generated/rekordbox_anlz.h"
@@ -55,13 +56,17 @@ std::string cueColor(Anlz::cue_extended_entry_t &cue)
                               hasRgb ? cue.color_blue() : 0, static_cast<int>(cue.color_id()));
 }
 
-std::vector<domain::CuePoint> readCues(const std::string &anlzPath)
+// Takes the file's bytes rather than its path: where they came from is
+// the AnlzByteSource's business (a real PIONEER folder, or an entry in a
+// stick backup being browsed). Kaitai parses from any std::istream, so
+// this is the same parse either way.
+std::vector<domain::CuePoint> readCues(const std::string &anlzBytes)
 {
     std::vector<domain::CuePoint> cues;
-    std::ifstream ifs(anlzPath, std::ifstream::binary);
-    if (!ifs.is_open()) {
+    if (anlzBytes.empty()) {
         return cues;
     }
+    std::istringstream ifs(anlzBytes, std::ios::binary);
 
     kaitai::kstream ks(&ifs);
     Anlz anlz(&ks);
@@ -132,8 +137,16 @@ std::string playlistPath(uint32_t id, const std::unordered_map<uint32_t, Playlis
 }  // namespace
 
 KaitaiRekordboxReader::KaitaiRekordboxReader(std::string pioneerRoot)
-    : m_pioneerRoot(std::move(pioneerRoot))
+    : m_pioneerRoot(pioneerRoot), m_anlzSource(std::make_shared<FilesystemAnlzSource>(std::move(pioneerRoot)))
 {
+}
+
+KaitaiRekordboxReader::KaitaiRekordboxReader(std::string pioneerRoot, std::shared_ptr<AnlzByteSource> anlzSource)
+    : m_pioneerRoot(std::move(pioneerRoot)), m_anlzSource(std::move(anlzSource))
+{
+    if (!m_anlzSource) {
+        m_anlzSource = std::make_shared<FilesystemAnlzSource>(m_pioneerRoot);
+    }
 }
 
 std::vector<domain::Track> KaitaiRekordboxReader::readAll()
@@ -347,7 +360,10 @@ std::vector<domain::Track> KaitaiRekordboxReader::readAll()
 
                     std::string analyzePath = sqlText(rowTrack->analyze_path());
                     if (!analyzePath.empty()) {
-                        track.cues = readCues(extAnlzPath(m_pioneerRoot, analyzePath));
+                        auto bytes = m_anlzSource->read(anlzRelativePath(analyzePath, /*wantExt=*/true));
+                        if (bytes) {
+                            track.cues = readCues(*bytes);
+                        }
                     }
                     tracks.push_back(std::move(track));
 

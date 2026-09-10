@@ -1,9 +1,11 @@
 #pragma once
 
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "domain/waveform.hpp"
+#include "infrastructure/rekordbox/anlz_byte_source.hpp"
 
 namespace seabass::infrastructure::rekordbox
 {
@@ -22,7 +24,13 @@ namespace seabass::infrastructure::rekordbox
 // returned column's bands share the same height, tinted brighter with the
 // whiteness bits -- an honest rendering of what this tag actually carries,
 // not a fabricated multi-band split.
+// `anlzSource` null (the default) reads the analysis file from
+// pioneerRoot, as this always did; pass one to serve it from somewhere
+// else, such as a stick backup being browsed in place. export.pdb is
+// still read from pioneerRoot either way -- findAnlzPathForTrackId()
+// needs a seekable file.
 std::vector<domain::WaveformColumn> readWaveformPreview(const std::string &pioneerRoot,
-                                                          const std::string &trackSourceId);
+                                                          const std::string &trackSourceId,
+                                                          std::shared_ptr<AnlzByteSource> anlzSource = nullptr);
 
 }  // namespace seabass::infrastructure::rekordbox
