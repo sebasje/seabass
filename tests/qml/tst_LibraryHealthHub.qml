@@ -124,6 +124,32 @@ TestCase {
     // card ran into the window edge while every sibling page inset its
     // content by 16. Asserted on both sides: a left-only anchor would
     // satisfy a check that only looked at x.
+    // The breadcrumb was the page's bare header, so it stretched across
+    // the full width and its text started at the header's own inset
+    // rather than the body's. It is a ToolBar now, like every other
+    // section page, and this asserts the thing that was actually wrong:
+    // the two left edges agree.
+    function test_header_text_lines_up_with_the_body() {
+        var page = createTemporaryObject(pageComponent, testCase, {width: 800, height: 600});
+        waitForRendering(page);
+        var scroll = findByObjectName(page, "healthScroll");
+        verify(scroll !== null);
+        var crumbText = null;
+        function walk(item) {
+            for (var i = 0; i < item.children.length; ++i) {
+                var child = item.children[i];
+                if (child.text === "Home" && child.width < 120) {
+                    crumbText = child;
+                }
+                walk(child);
+            }
+        }
+        walk(page);
+        verify(crumbText !== null, "the Home crumb's label was not found");
+        compare(crumbText.mapToItem(page, 0, 0).x, scroll.x,
+                "breadcrumb text and page content must share a left edge");
+    }
+
     function test_content_is_inset_from_both_edges() {
         var page = createTemporaryObject(pageComponent, testCase, {width: 800, height: 600});
         waitForRendering(page);

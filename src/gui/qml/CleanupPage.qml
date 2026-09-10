@@ -117,13 +117,13 @@ Page {
                     onBackRequested: editHost.requestLeave(() => root.StackView.view.pop())
                 }
                 Item { Layout.fillWidth: true }
-                LibrarySourceToggle {
-                    current: root.format
-                    hasRekordbox: root.hasRekordbox
-                    hasEngine: root.hasEngine
-                    hasOneLibrary: root.hasOneLibrary
-                    onSourceRequested: (value) => root.appSettingsController.preferredFormat = value
-                }
+                // No library-type toggle here any more. A cleanup save
+                // now writes every catalog that lists the file, so the
+                // format only ever chose which catalog was scanned for
+                // duplicates -- a distinction with no consequence the
+                // user could act on, presented as a choice they had to
+                // make before they could start. The global preference in
+                // Preferences still decides it.
             }
 
             // What this page is for, in three sentences. Real libraries
@@ -227,8 +227,27 @@ Page {
             // which is how the playlist picker and the group count came
             // to be invisible rather than merely cramped. A Flow wraps
             // onto a second line instead.
+            //
+            // Layout.minimumWidth: 0 is what makes that true, and without
+            // it the Flow was the widest thing on the page at every
+            // window size. A Flow's implicitWidth is its children laid
+            // out on ONE line -- the unwrapped width, 701px here -- and a
+            // ColumnLayout will not shrink a child below its implicit
+            // width unless a minimum says it may. So the Flow was handed
+            // 701 whatever the window did, never reached its own wrap
+            // point, and overflowed instead. Measured, not reasoned:
+            // tst_CleanupPage renders the page at 960, 700, 520 and 380
+            // and the row was 701 wide at all four.
+            //
+            // Everything inside sizes with `width:`. Layout.* attached
+            // properties do nothing here -- a Flow is a positioner, it
+            // places children and never sizes them, and it does not read
+            // them at all.
             Flow {
+                id: filterRow
+                objectName: "filterRow"
                 Layout.fillWidth: true
+                Layout.minimumWidth: 0
                 spacing: 12
                 Label {
                     text: "Playlist:"
@@ -260,21 +279,39 @@ Page {
                 TextField {
                     id: searchField
                     placeholderText: "Search title or artist..."
-                    width: Math.max(160, Math.min(280, root.width * 0.3))
+                    // Proportional with a cap and a floor, matching the
+                    // playlist picker above it. The floor is what lets a
+                    // genuinely narrow window still show a usable field
+                    // rather than a sliver.
+                    width: Math.max(110, Math.min(280, root.width * 0.3))
                     onTextChanged: cleanupController.search(text)
                 }
                 Label {
                     text: plansListView.count + " duplicate group(s) found"
                     color: Theme.textMuted
-                    width: Math.min(implicitWidth, root.width)
                     elide: Text.ElideRight
+                    // Natural width until it would not fit on a line of
+                    // its own, then elided. Eliding needs a width to
+                    // elide within; without one the label just grows.
+                    //
+                    // Bound to the page, never to the Flow. A child of a
+                    // Flow that sizes itself from the Flow's width is a
+                    // loop -- the Flow's width comes from its children --
+                    // and Qt breaks a loop by leaving a stale number,
+                    // which is a frozen row rather than an error.
+                    width: Math.min(implicitWidth, root.width - 2 * Theme.pageMargin)
                 }
                 Label {
                     visible: plansListView.count > 0
-                    text: "(" + cleanupController.totalWastedBytesHuman + " total if every copy kept only one file)"
+                    // "4.2 GB total if every copy kept only one file" was
+                    // a sentence in a status line. The page is about
+                    // duplicates; what the number means is already the
+                    // subject.
+                    text: "(" + cleanupController.totalWastedBytesHuman + " reclaimable)"
                     color: Theme.textMuted
+                    elide: Text.ElideRight
+                    width: Math.min(implicitWidth, root.width - 2 * Theme.pageMargin)
                 }
-                Item { Layout.fillWidth: true }
                 Label {
                     visible: cleanupController.stagedCount > 0
                     text: cleanupController.stagedCount + " staged, not saved yet"
@@ -466,56 +503,51 @@ Page {
                             StatusBadge {
                                 label: "ⓘ what's conserved"
                                 badgeColor: Theme.textMuted
-                                tooltipText: "Conserved: cues (merged, never lost) and playlist membership on both formats. "
-                                    + "Every playlist a removed copy was in now points at the kept copy instead. "
-                                    + "If the kept copy is missing bpm, musical key"
-                                    + (root.format === "engine" ? "" : ", or artwork")
-                                    + " and another copy has it, that's filled in too"
-                                    + (root.format === "engine"
-                                        ? " (artwork isn't included: Engine's library format has no way to write it back)."
-                                        : ".")
-                                    + (root.hasOneLibrary
-                                        ? " Also mirrored into OneLibrary (exportLibrary.db), including removing the "
-                                          + "duplicate's own OneLibrary row."
-                                        : "")
-                                    + " Not conserved: rating, comment, play count, and last-played date on the "
-                                    + "removed copies aren't copied over."
+                                // Was 558 characters of prose. A hover
+                                // tooltip is read standing up, with the
+                                // mouse held still -- two labelled lists
+                                // can be taken in at a glance, a
+                                // paragraph cannot. The conditional
+                                // clauses that made it long are the ones
+                                // a reader cannot act on either way.
+                                tooltipText: "Kept: cues (merged), playlist membership, and any missing BPM"
+                                    + (root.format === "engine" ? " or key." : ", key or artwork.")
+                                    + "\nLost: rating, comment, play count, last played."
                             }
                             StatusBadge {
                                 visible: delegateRoot.differs
                                 label: "⚠ copies differ"
                                 badgeColor: Theme.conflictText
-                                tooltipText: "These copies differ in quality and length. The higher-bitrate copy isn't the "
-                                    + "longest one. This may be intentional (e.g. a shorter edit kept for specific "
-                                    + "hardware), so this group is excluded by default. Check it above to include it anyway."
+                                // The "why" (a shorter edit kept on
+                                // purpose) is what the exclusion is FOR,
+                                // not something the reader decides with.
+                                tooltipText: "The highest-bitrate copy is not the longest one, so this group is "
+                                    + "excluded by default. Tick it to include it."
                             }
                             StatusBadge {
                                 visible: delegateRoot.unreferencedCount > 0
                                 label: delegateRoot.unreferencedCount + " uncatalogued file(s)"
                                 badgeColor: Theme.textMuted
-                                tooltipText: "This many of the copies below are audio files on the stick that no "
-                                    + "catalog references -- there is no library entry to remove, only the file "
-                                    + "itself. Saving lists them under \"Delete Orphaned Files\", which re-checks "
-                                    + "every catalog again before deleting anything."
+                                // What it is, then where it goes. The
+                                // re-check before deleting is a promise
+                                // the Delete Orphaned Files page makes;
+                                // it does not belong on a count badge.
+                                tooltipText: "Audio files on the stick that no catalog lists. Saving puts them "
+                                    + "under \"Delete Orphaned Files\"."
                             }
                             StatusBadge {
                                 visible: delegateRoot.unreferencedHeldBackCount > 0
                                 label: "⚠ " + delegateRoot.unreferencedHeldBackCount + " file(s) kept back"
                                 badgeColor: Theme.conflictText
-                                tooltipText: "These uncatalogued files are left on the stick whatever you choose "
-                                    + "here. Either this group's copies differ in a way that might be deliberate, "
-                                    + "or a length in it had to be estimated from the bitrate rather than read -- "
-                                    + "in which case these copies might not be the same recording at all, and no "
-                                    + "file is deleted on a guess."
+                                tooltipText: "Left on the stick either way: these copies may not be the same "
+                                    + "recording, and nothing is deleted on a guess."
                             }
                             StatusBadge {
                                 visible: delegateRoot.hasUnpreservableDataAtRisk
                                 label: "⚠ data would be lost"
                                 badgeColor: Theme.conflictText
-                                tooltipText: "These copies have different rating, comment, play count, or last-played data, "
-                                    + "none of which carries over to the kept copy. Removing the others would permanently "
-                                    + "lose whichever values didn't happen to land on the kept copy, so this group is "
-                                    + "excluded by default. Check it above to include it anyway."
+                                tooltipText: "Rating, comment, play count and last played differ and are not kept. "
+                                    + "Excluded by default; tick to include."
                             }
                             Item { Layout.fillWidth: true }
                             Label {

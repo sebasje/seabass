@@ -676,8 +676,15 @@ Page {
                             // no Engine Library already present to overwrite.
                             experimental: true
                             experimentalFeaturesEnabled: root.appSettingsController.experimentalFeaturesEnabled
-                            visible: delegateRoot.hasKnownLibrary
-                            enabled: delegateRoot.hasRekordbox && !delegateRoot.hasEngine
+                            // Gone once the stick has an Engine Library,
+                            // rather than shown greyed out. A disabled
+                            // control is an offer the user has to work out
+                            // they cannot take; "create" on a stick that
+                            // already has one is not an offer at all, and
+                            // the card it sat in front of pushes every
+                            // card below it down the page for nothing.
+                            visible: delegateRoot.hasKnownLibrary && !delegateRoot.hasEngine
+                            enabled: delegateRoot.hasRekordbox
                             onClicked: root.engineLibraryCreatorRequested(delegateRoot.label, delegateRoot.rekordboxPath)
                         }
                         ActionCard {

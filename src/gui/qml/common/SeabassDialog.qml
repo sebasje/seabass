@@ -73,12 +73,28 @@ Dialog {
     modal: true
     width: 520
 
-    // Every Seabass dialog puts its buttons on the right. Enforced here
-    // rather than left to each footer, so a derived dialog that supplies
-    // its own DialogButtonBox cannot quietly get it wrong.
+    // Every Seabass dialog puts its buttons on the right, inset from the
+    // edge. Enforced here rather than left to each footer, so a derived
+    // dialog that supplies its own DialogButtonBox cannot quietly get it
+    // wrong -- and several did: the buttons sat flush against the
+    // dialog's right border with the frame drawn right up against them.
+    //
+    // The padding is applied alongside the alignment because they are
+    // the same decision. Aligning right without insetting just moves the
+    // problem to the other edge.
     function alignFooter() {
-        if (root.footer && root.footer.alignment !== undefined) {
+        if (!root.footer) {
+            return;
+        }
+        if (root.footer.alignment !== undefined) {
             root.footer.alignment = Qt.AlignRight | Qt.AlignVCenter;
+        }
+        if (root.footer.rightPadding !== undefined) {
+            root.footer.rightPadding = 16 * Theme.iconScale;
+            root.footer.bottomPadding = 16 * Theme.iconScale;
+            // A little above them too, so the buttons read as separate
+            // from the message rather than as the end of it.
+            root.footer.topPadding = 8 * Theme.iconScale;
         }
     }
     onFooterChanged: root.alignFooter()

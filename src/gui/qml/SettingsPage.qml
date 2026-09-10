@@ -59,11 +59,11 @@ Page {
                 text: "ⓘ"
                 font.pointSize: Theme.baseFontPointSize * 1.2
                 ToolTip.visible: hovered
-                ToolTip.text: "These are the player/mixer preference files Rekordbox (Pioneer hardware) "
-                    + "writes to the stick: tempo range, quantize, auto cue level and similar. Denon "
-                    + "Prime hardware reads Rekordbox USB drives natively for library/track/cue data, "
-                    + "and some Prime units are reported to honor these same preference files too, "
-                    + "though that isn't something Seabass can verify from the stick alone."
+                // The Denon caveat is real but unverifiable and not
+                // something a reader acts on while hovering; the file
+                // list is what they came for.
+                ToolTip.text: "Player and mixer preferences rekordbox writes to the stick: tempo range, "
+                    + "quantize, auto cue level and similar."
             }
             Item { Layout.fillWidth: true }
             BusyIndicator {

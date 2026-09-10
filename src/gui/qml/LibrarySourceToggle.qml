@@ -78,8 +78,7 @@ RowLayout {
         enabled: root.hasEngine
         ButtonGroup.group: group
         ToolTip.visible: hovered
-        ToolTip.text: "Denon Engine DJ's own library format (m.db): what Denon/inMusic hardware "
-            + "(SC5000, Prime series, ...) reads directly from the stick."
+        ToolTip.text: "Engine DJ's own format (m.db), read by Denon hardware."
         onClicked: root.sourceRequested("engine")
     }
     SourceButton {
@@ -89,8 +88,7 @@ RowLayout {
         enabled: root.hasRekordbox
         ButtonGroup.group: group
         ToolTip.visible: hovered
-        ToolTip.text: "Rekordbox's classic per-stick export (export.pdb): what CDJs and XDJs read "
-            + "directly. Every rekordbox export has this."
+        ToolTip.text: "rekordbox's classic export (export.pdb), read by CDJs and XDJs."
         onClicked: root.sourceRequested("rekordbox")
     }
     SourceButton {
