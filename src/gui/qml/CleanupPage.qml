@@ -227,8 +227,27 @@ Page {
             // which is how the playlist picker and the group count came
             // to be invisible rather than merely cramped. A Flow wraps
             // onto a second line instead.
+            //
+            // Layout.minimumWidth: 0 is what makes that true, and without
+            // it the Flow was the widest thing on the page at every
+            // window size. A Flow's implicitWidth is its children laid
+            // out on ONE line -- the unwrapped width, 701px here -- and a
+            // ColumnLayout will not shrink a child below its implicit
+            // width unless a minimum says it may. So the Flow was handed
+            // 701 whatever the window did, never reached its own wrap
+            // point, and overflowed instead. Measured, not reasoned:
+            // tst_CleanupPage renders the page at 960, 700, 520 and 380
+            // and the row was 701 wide at all four.
+            //
+            // Everything inside sizes with `width:`. Layout.* attached
+            // properties do nothing here -- a Flow is a positioner, it
+            // places children and never sizes them, and it does not read
+            // them at all.
             Flow {
+                id: filterRow
+                objectName: "filterRow"
                 Layout.fillWidth: true
+                Layout.minimumWidth: 0
                 spacing: 12
                 Label {
                     text: "Playlist:"
@@ -260,24 +279,27 @@ Page {
                 TextField {
                     id: searchField
                     placeholderText: "Search title or artist..."
-                    // Proportional with a cap, and a floor it may
-                    // shrink to. Through Layout.*, not `width`: this is
-                    // a RowLayout child, so the layout assigns width
-                    // itself and a direct binding is overwritten the
-                    // moment the row lays out.
-                    Layout.preferredWidth: Math.max(160, Math.min(280, root.width * 0.3))
-                    Layout.minimumWidth: 110
+                    // Proportional with a cap and a floor, matching the
+                    // playlist picker above it. The floor is what lets a
+                    // genuinely narrow window still show a usable field
+                    // rather than a sliver.
+                    width: Math.max(110, Math.min(280, root.width * 0.3))
                     onTextChanged: cleanupController.search(text)
                 }
                 Label {
                     text: plansListView.count + " duplicate group(s) found"
                     color: Theme.textMuted
                     elide: Text.ElideRight
-                    // Same reason: a `width` binding here does nothing.
-                    // Eliding needs the layout to be allowed to make the
-                    // label narrower than its text, which is what a zero
-                    // minimum says.
-                    Layout.minimumWidth: 0
+                    // Natural width until it would not fit on a line of
+                    // its own, then elided. Eliding needs a width to
+                    // elide within; without one the label just grows.
+                    //
+                    // Bound to the page, never to the Flow. A child of a
+                    // Flow that sizes itself from the Flow's width is a
+                    // loop -- the Flow's width comes from its children --
+                    // and Qt breaks a loop by leaving a stale number,
+                    // which is a frozen row rather than an error.
+                    width: Math.min(implicitWidth, root.width - 2 * Theme.pageMargin)
                 }
                 Label {
                     visible: plansListView.count > 0
@@ -288,12 +310,8 @@ Page {
                     text: "(" + cleanupController.totalWastedBytesHuman + " reclaimable)"
                     color: Theme.textMuted
                     elide: Text.ElideRight
-                    // Takes the slack, and gives it back first when there
-                    // is none to give.
-                    Layout.fillWidth: true
-                    Layout.minimumWidth: 0
+                    width: Math.min(implicitWidth, root.width - 2 * Theme.pageMargin)
                 }
-                Item { Layout.fillWidth: true }
                 Label {
                     visible: cleanupController.stagedCount > 0
                     text: cleanupController.stagedCount + " staged, not saved yet"
