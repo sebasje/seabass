@@ -3,16 +3,10 @@
 #include <memory>
 #include <string>
 
-#include "infrastructure/local/browsed_backup_root.hpp"
 #include "infrastructure/rekordbox/anlz_byte_source.hpp"
 
 namespace seabass::infrastructure::rekordbox
 {
-
-// The marker's name, kept here as well so the callers that learned it
-// under this name keep resolving; the definition lives with the
-// is-this-a-browsed-backup question in infrastructure/local.
-inline constexpr const char *BackupSourceMarkerName = local::BrowsedBackupMarkerName;
 
 // The right AnlzByteSource for a PIONEER folder: an archive-backed source
 // when the folder's parent is a stick backup being browsed (decided by

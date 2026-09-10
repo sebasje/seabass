@@ -94,7 +94,7 @@ Page {
         standardButtons: Dialog.Ok
         Label {
             id: openFolderErrorLabel
-            width: 420
+            width: parent.width
             wrapMode: Text.WordWrap
         }
     }
@@ -532,7 +532,7 @@ Page {
                             // dirty, release a clean session's lock, then drop.
                             var reg = root.editRegistry;
                             var id = delegateRoot.libraryId;
-                            if (reg && typeof reg.hasSession === "function" && reg.hasSession(id)) {
+                            if (reg && reg.hasSession(id)) {
                                 var session = reg.sessionFor(id);
                                 if (session && session.dirty === true) {
                                     openFolderError.text = "\"" + delegateRoot.label
@@ -542,11 +542,7 @@ Page {
                                 }
                                 reg.closeSession(id);
                             }
-                            var message = root.mediaController.closeFolder(delegateRoot.mountPoint);
-                            if (message.length > 0) {
-                                openFolderError.text = message;
-                                openFolderError.open();
-                            }
+                            root.mediaController.closeFolder(delegateRoot.mountPoint);
                         }
                     }
 

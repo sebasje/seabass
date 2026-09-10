@@ -8,6 +8,7 @@
 #include <QQmlEngine>
 #include <QTimer>
 
+#include <filesystem>
 #include <map>
 #include <memory>
 #include <optional>
@@ -150,10 +151,9 @@ public:
 
     // Forgets a folder opened with openFolder(). Nothing on disk is
     // touched; the folder is only dropped from the list, and the shared
-    // open archive (a browsed backup) is released. Returns a message for
-    // the page on refusal, empty on success. The unsaved-changes check
-    // lives in StickListPage.qml, which holds the edit registry.
-    Q_INVOKABLE QString closeFolder(const QString &path);
+    // open archive (a browsed backup) is released. The unsaved-changes
+    // check lives in StickListPage.qml, which holds the edit registry.
+    Q_INVOKABLE void closeFolder(const QString &path);
 
     // Opens a full stick backup for browsing, without unpacking it: the
     // catalogs are extracted into a cache directory (about 1% of the
@@ -250,6 +250,7 @@ public:
     // a restored backup tomorrow).
     void loadOpenedFolders();
     void saveOpenedFolders();
+    static std::string folderLabelFor(const std::filesystem::path &dir, const QString &given);
 
 
     DetectedStickListModel m_model;

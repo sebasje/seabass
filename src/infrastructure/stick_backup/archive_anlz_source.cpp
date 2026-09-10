@@ -1,5 +1,6 @@
 #include "infrastructure/stick_backup/archive_anlz_source.hpp"
 
+#include <mutex>
 #include <utility>
 
 namespace seabass::infrastructure::stick_backup
@@ -16,6 +17,7 @@ std::optional<std::string> ArchiveAnlzSource::read(const std::string &relativePa
     if (!m_reader) {
         return std::nullopt;
     }
+    std::lock_guard<std::mutex> lock(m_readMutex);
     auto index = m_reader->findEntry(m_entryPrefix + relativePath);
     if (!index) {
         // A track whose analysis file is not in the backup reads as "no

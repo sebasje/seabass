@@ -90,6 +90,11 @@ public:
     // ...) take the same cookie for their duration so other instances see
     // the library as busy; false with the holder in lockHolder() when
     // another instance is editing it.
+    // Also false, with directWriteRefused(), for a stick backup being
+    // browsed: every direct writer -- backup, clone, restore, format,
+    // Engine Library creation, pending-file deletion -- passes through
+    // here, so this is the one place the read-only rule holds for all of
+    // them, whichever page's button led here.
     Q_INVOKABLE bool tryEnterDirectWrite(const QString &libraryId, const QString &stickLabel);
     Q_INVOKABLE void leaveDirectWrite(const QString &libraryId);
 
@@ -115,6 +120,8 @@ signals:
     void quitAfterSaveChanged();
     // Forwarded from every session, for the window's quit flow.
     void saveFinished(const QString &libraryId, const QVariantMap &summary);
+    // tryEnterDirectWrite() refused a browsed backup. Main.qml shows it.
+    void directWriteRefused(const QString &libraryId, const QString &reason);
 
 private:
     EditSessionRegistry();

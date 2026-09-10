@@ -6,6 +6,7 @@
 #include <memory>
 #include <mutex>
 
+#include "infrastructure/local/browsed_backup_root.hpp"
 #include "infrastructure/stick_backup/archive_anlz_source.hpp"
 #include "infrastructure/stick_backup/posix_archive_file.hpp"
 #include "infrastructure/stick_backup/zip64_reader.hpp"

@@ -53,7 +53,7 @@ TestCase {
                               mountStick: function(d) { this.calls.push("mount:" + d); },
                               unmountStick: function(d) { this.calls.push("unmount:" + d); },
                               openFolder: function(p) { this.calls.push("openFolder:" + p); return ""; },
-                              closeFolder: function(p) { this.calls.push("closeFolder:" + p); return ""; },
+                              closeFolder: function(p) { this.calls.push("closeFolder:" + p); },
                               openBackup: function(p) { this.calls.push("openBackup:" + p); return ""; }},
             playbackController: {stop: function() {}},
             appSettingsController: {experimentalFeaturesEnabled: true, stickBackupDirectory: "/tmp"},
@@ -137,6 +137,10 @@ TestCase {
             removeLock: function(id) { this.calls.push("remove:" + id); },
             lockHolder: function(id) { return {hostname: "studio-pc", pid: 4242, startedAtUtc: "2026-09-06T10:00:00Z"}; },
             libraryIdForPath: function(p) { return "lib-main"; },
+            // What the real registry always has; tests override as needed.
+            hasSession: function(id) { return false; },
+            sessionFor: function(id) { return null; },
+            closeSession: function(id) { this.calls.push("closeSession:" + id); },
         };
     }
 

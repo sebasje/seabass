@@ -15,8 +15,6 @@
 #include <vector>
 
 #include "scratch_path.hpp"
-#include <cstdlib>
-
 #include "application/use_cases/open_stick_backup.hpp"
 #include "infrastructure/paths/seabass_paths.hpp"
 #include "infrastructure/local/browsed_backup_root.hpp"
@@ -104,12 +102,10 @@ int main(int argc, char **argv)
     const fs::path scratch = seabass::testing::scratchRoot() / "open-backup-test";
     fs::remove_all(scratch);
     fs::create_directories(scratch);
-    // The marker is honoured only under the browse cache, so the cache
-    // under test has to live there. ctest sandboxes SEABASS_HOME per
-    // test; a manual run gets the same sandbox rather than ~/Seabass.
-    if (std::getenv("SEABASS_HOME") == nullptr) {
-        setenv("SEABASS_HOME", (scratch / "home").string().c_str(), 1);
-    }
+    // The cache lives where the app would put it. ctest sandboxes
+    // SEABASS_HOME per test; a manual run gets the same sandbox rather
+    // than ~/Seabass.
+    seabass::testing::sandboxSeabassHome(scratch / "home");
     const fs::path browseCache = seabass::infrastructure::paths::localBrowsedBackupsDir();
     fs::create_directories(browseCache);
     const fs::path archivePath = scratch / "TOURSTICK.zip";
@@ -164,12 +160,15 @@ int main(int argc, char **argv)
 
     // The marker is what makes the cache self-describing.
     {
-        const fs::path marker = cache / seabass::infrastructure::rekordbox::BackupSourceMarkerName;
+        const fs::path marker = cache / seabass::infrastructure::local::BrowsedBackupMarkerName;
         assert(fs::exists(marker));
         std::string line;
+        std::string rootLine;
         std::ifstream in(marker);
         std::getline(in, line);
+        std::getline(in, rootLine);
         assert(line == fs::absolute(archivePath).string());
+        assert(fs::path(rootLine) == fs::weakly_canonical(cache));
         std::cout << "case 3 (cache names its archive) OK\n";
     }
 
@@ -214,7 +213,7 @@ int main(int argc, char **argv)
         const auto failed = OpenStickBackup::execute(archivePath, cache);
         assert(!failed.error.empty());
         assert(fs::exists(cache / "PIONEER" / "rekordbox" / "export.pdb"));
-        assert(fs::exists(cache / seabass::infrastructure::rekordbox::BackupSourceMarkerName));
+        assert(fs::exists(cache / seabass::infrastructure::local::BrowsedBackupMarkerName));
         assert(!fs::exists(fs::path(cache.string() + ".partial")));
         fs::remove(archivePath);
         fs::rename(movedAside, archivePath);
@@ -246,14 +245,14 @@ int main(int argc, char **argv)
         std::cout << "case 5c (entry escaping the cache refused) OK\n";
     }
 
-    // The marker is honoured only under the browse cache. Copy the cache
+    // The marker names the directory it was written for. Copy the cache
     // somewhere else, marker and all, and it is an ordinary folder: the
     // reader looks for USBANLZ beside the databases, finds none, and the
     // tracks read as having no cues -- never as a browsed backup.
     {
         const fs::path copied = scratch / "copied-elsewhere";
         fs::copy(cache, copied, fs::copy_options::recursive);
-        assert(fs::exists(copied / seabass::infrastructure::rekordbox::BackupSourceMarkerName));
+        assert(fs::exists(copied / seabass::infrastructure::local::BrowsedBackupMarkerName));
         assert(!seabass::infrastructure::local::isBrowsedBackupRoot(copied));
         KaitaiRekordboxReader reader((copied / "PIONEER").string());
         std::size_t cues = 0;
@@ -261,7 +260,7 @@ int main(int argc, char **argv)
             cues += track.cues.size();
         }
         assert(cues == 0);
-        std::cout << "case 5d (marker outside the browse cache is ignored) OK\n";
+        std::cout << "case 5d (marker copied elsewhere is ignored) OK\n";
     }
 
     // A file that is not an archive at all is refused with a message.

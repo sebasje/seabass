@@ -216,12 +216,23 @@ void MediaController::detect()
             mountedRoots.push_back(std::filesystem::weakly_canonical(std::filesystem::path(stick.mountPoint), ec));
         }
     }
-    for (application::DetectedStick &folder : m_openedFolders) {
+    // Dropped, not merely hidden: a hidden entry stays persisted with no
+    // row to close it from, and comes back as a library-less ghost the
+    // moment the stick is unplugged. openFolder() already refuses this
+    // case by name at open time; this is the same rule for a folder the
+    // stick arrived under later.
+    const auto coincides = [&](const application::DetectedStick &folder) {
         std::error_code ec;
         const auto folderRoot = std::filesystem::weakly_canonical(std::filesystem::path(folder.mountPoint), ec);
-        if (std::find(mountedRoots.begin(), mountedRoots.end(), folderRoot) != mountedRoots.end()) {
-            continue;
-        }
+        return std::find(mountedRoots.begin(), mountedRoots.end(), folderRoot) != mountedRoots.end();
+    };
+    const auto before = m_openedFolders.size();
+    m_openedFolders.erase(std::remove_if(m_openedFolders.begin(), m_openedFolders.end(), coincides),
+                          m_openedFolders.end());
+    if (m_openedFolders.size() != before) {
+        saveOpenedFolders();
+    }
+    for (application::DetectedStick &folder : m_openedFolders) {
         folder.rekordboxPath.reset();
         folder.enginePath.reset();
         infrastructure::media::scanMountedRoot(folder.mountPoint, folder);
@@ -314,7 +325,9 @@ QString MediaController::openFolder(const QString &path, const QString &label)
     // two rows on one library and let the folder's synthetic id shadow
     // the real one in the pulled-stick lookup.
     for (const application::DetectedStick &stick : m_model.sticks()) {
-        if (!stick.isFolder && stick.mounted && stick.mountPoint == canonical) {
+        std::error_code cmpEc;
+        if (!stick.isFolder && stick.mounted
+            && std::filesystem::weakly_canonical(std::filesystem::path(stick.mountPoint), cmpEc) == dir) {
             return tr("That is the USB stick \"%1\", which is already in the list.")
                 .arg(QString::fromStdString(stick.label));
         }
@@ -324,11 +337,7 @@ QString MediaController::openFolder(const QString &path, const QString &label)
     folder.mountPoint = canonical;
     folder.mounted = true;  // there is nothing to mount; the library is readable now
     folder.isFolder = true;
-    // filename() is empty for a path ending in a separator, and for a root
-    // like "/" -- fall back to the path itself so the row is never blank.
-    folder.label = !label.isEmpty()      ? label.toStdString()
-                   : dir.filename().empty() ? canonical
-                                            : dir.filename().string();
+    folder.label = folderLabelFor(dir, label);
     infrastructure::media::scanMountedRoot(canonical, folder);
     if (!folder.rekordboxPath.has_value() && !folder.enginePath.has_value()) {
         return tr("No rekordbox or Engine DJ library in that folder. Open the folder that holds "
@@ -377,13 +386,24 @@ QString MediaController::openBackup(const QString &archivePath)
                       QString::fromStdString(opened.stickLabel));
 }
 
-QString MediaController::closeFolder(const QString &path)
+// The row's name: the one given (a browsed backup's stick label), else
+// the directory's own name, else -- for a path ending in a separator, or
+// a root like "/" -- the whole path, so the row is never blank.
+std::string MediaController::folderLabelFor(const std::filesystem::path &dir, const QString &given)
+{
+    if (!given.isEmpty()) {
+        return given.toStdString();
+    }
+    return dir.filename().empty() ? dir.string() : dir.filename().string();
+}
+
+void MediaController::closeFolder(const QString &path)
 {
     const std::string canonical = path.toStdString();
     auto it = std::find_if(m_openedFolders.begin(), m_openedFolders.end(),
                            [&](const application::DetectedStick &f) { return f.mountPoint == canonical; });
     if (it == m_openedFolders.end()) {
-        return {};
+        return;
     }
 
     // Unsaved edits are the page's business, not this controller's: the
@@ -401,7 +421,6 @@ QString MediaController::closeFolder(const QString &path)
     m_openedFolders.erase(it);
     saveOpenedFolders();
     detect();
-    return {};
 }
 
 void MediaController::loadOpenedFolders()
@@ -413,24 +432,25 @@ void MediaController::loadOpenedFolders()
     // silently fail to persist. Same construction as main.cpp and
     // AppSettingsController.
     QSettings settings("seabass", "seabass");
-    const QStringList paths = settings.value(QStringLiteral("openedFolders")).toStringList();
-    // Parallel to `paths`: the label each row was opened with. A browsed
-    // backup's directory is named after a hash, and its label is the
-    // stick the backup came from -- lose it and the row reads
-    // "folder-3f9a..." after every restart, and its identity.label (which
-    // the backup archive name is derived from) changes between sessions.
-    const QStringList labels = settings.value(QStringLiteral("openedFolderLabels")).toStringList();
-    for (int i = 0; i < paths.size(); ++i) {
-        const QString &path = paths[i];
+    // One array, one entry per row, path and label together -- so a row is
+    // either whole or absent. (Two parallel lists would let an index
+    // drift give row N row N+1's label, and on a browsed backup the label
+    // is what the backup archive's own name is derived from.) The label
+    // matters because a browsed backup's directory is named after a hash;
+    // its label is the stick the backup came from.
+    const int count = settings.beginReadArray(QStringLiteral("openedFolders"));
+    for (int i = 0; i < count; ++i) {
+        settings.setArrayIndex(i);
+        const QString path = settings.value(QStringLiteral("path")).toString();
+        if (path.isEmpty()) {
+            continue;
+        }
         application::DetectedStick folder;
         folder.mountPoint = path.toStdString();
         folder.mounted = true;
         folder.isFolder = true;
         const std::filesystem::path dir(folder.mountPoint);
-        const QString savedLabel = i < labels.size() ? labels[i] : QString();
-        folder.label = !savedLabel.isEmpty()   ? savedLabel.toStdString()
-                       : dir.filename().empty() ? folder.mountPoint
-                                                : dir.filename().string();
+        folder.label = folderLabelFor(dir, settings.value(QStringLiteral("label")).toString());
         folder.identity.label = folder.label;
         folder.identity.explicitLibraryId = folderLibraryId(folder.mountPoint);
         // Deliberately not re-scanned or existence-checked here: detect()
@@ -439,19 +459,19 @@ void MediaController::loadOpenedFolders()
         // up construction (or disappear from the list for good).
         m_openedFolders.push_back(std::move(folder));
     }
+    settings.endArray();
 }
 
 void MediaController::saveOpenedFolders()
 {
-    QStringList paths;
-    QStringList labels;
-    for (const application::DetectedStick &folder : m_openedFolders) {
-        paths << QString::fromStdString(folder.mountPoint);
-        labels << QString::fromStdString(folder.label);
-    }
     QSettings settings("seabass", "seabass");  // see loadOpenedFolders()
-    settings.setValue(QStringLiteral("openedFolders"), paths);
-    settings.setValue(QStringLiteral("openedFolderLabels"), labels);
+    settings.beginWriteArray(QStringLiteral("openedFolders"), static_cast<int>(m_openedFolders.size()));
+    for (std::size_t i = 0; i < m_openedFolders.size(); ++i) {
+        settings.setArrayIndex(static_cast<int>(i));
+        settings.setValue(QStringLiteral("path"), QString::fromStdString(m_openedFolders[i].mountPoint));
+        settings.setValue(QStringLiteral("label"), QString::fromStdString(m_openedFolders[i].label));
+    }
+    settings.endArray();
 }
 
 QString MediaController::libraryIdForMountPoint(const QString &mountPoint) const

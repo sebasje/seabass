@@ -293,6 +293,17 @@ bool EditSessionRegistry::tryEnterDirectWrite(const QString &libraryId, const QS
     if (libraryId.isEmpty()) {
         return true;  // nothing to lock against (a blank drive)
     }
+    if (m_mediaController) {
+        for (const application::DetectedStick &stick : m_mediaController->sticksModel()->sticks()) {
+            if (stick.isBrowsedBackup && stick.identity.libraryId() == libraryId.toStdString()) {
+                emit directWriteRefused(libraryId,
+                                        tr("\"%1\" is a stick backup being browsed. It cannot be written to; "
+                                           "restore it onto a stick first.")
+                                            .arg(QString::fromStdString(stick.label)));
+                return false;
+            }
+        }
+    }
     LibraryEditSession *session = findSession(libraryId);
     bool ownsAlready = (session && session->lockHeld()) || m_directWrites[libraryId] > 0;
     if (!ownsAlready) {

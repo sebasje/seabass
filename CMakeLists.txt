@@ -962,7 +962,6 @@ add_executable(cue_color_normalization_test
     # list those too.
     src/infrastructure/rekordbox/anlz_source_for_root.cpp
     src/infrastructure/local/browsed_backup_root.cpp
-    src/infrastructure/paths/seabass_paths.cpp
     src/infrastructure/stick_backup/archive_anlz_source.cpp
     src/infrastructure/stick_backup/posix_archive_file.cpp
     src/infrastructure/stick_backup/zip64_reader.cpp
@@ -1507,7 +1506,6 @@ add_executable(backup_stick_test
     src/application/ports/progress_reporter.cpp
     src/application/use_cases/backup_stick.cpp
     src/infrastructure/local/browsed_backup_root.cpp
-    src/infrastructure/paths/seabass_paths.cpp
     tests/backup_stick_test.cpp
 )
 target_include_directories(backup_stick_test PRIVATE src)
@@ -1522,7 +1520,6 @@ add_executable(backup_archive_concurrent_reader_test
     src/application/ports/progress_reporter.cpp
     src/application/use_cases/backup_stick.cpp
     src/infrastructure/local/browsed_backup_root.cpp
-    src/infrastructure/paths/seabass_paths.cpp
     src/application/use_cases/restore_stick_backup.cpp
     src/infrastructure/work_counters.cpp
     tests/backup_archive_concurrent_reader_test.cpp
@@ -1553,7 +1550,6 @@ add_executable(backup_restore_test
     src/application/ports/progress_reporter.cpp
     src/application/use_cases/backup_stick.cpp
     src/infrastructure/local/browsed_backup_root.cpp
-    src/infrastructure/paths/seabass_paths.cpp
     src/application/use_cases/compact_stick_backup.cpp
     src/application/use_cases/restore_stick_backup.cpp
     tests/backup_restore_test.cpp
@@ -1571,7 +1567,6 @@ add_executable(archive_write_lock_test
     src/application/ports/progress_reporter.cpp
     src/application/use_cases/backup_stick.cpp
     src/infrastructure/local/browsed_backup_root.cpp
-    src/infrastructure/paths/seabass_paths.cpp
     src/application/use_cases/compact_stick_backup.cpp
     src/application/use_cases/restore_stick_backup.cpp
     tests/archive_write_lock_test.cpp
@@ -1589,7 +1584,6 @@ add_executable(clone_stick_test
     src/application/ports/progress_reporter.cpp
     src/application/use_cases/backup_stick.cpp
     src/infrastructure/local/browsed_backup_root.cpp
-    src/infrastructure/paths/seabass_paths.cpp
     src/application/use_cases/compact_stick_backup.cpp
     src/application/use_cases/restore_stick_backup.cpp
     src/application/use_cases/clone_stick.cpp

@@ -66,6 +66,21 @@ OpenedStickBackup OpenStickBackup::execute(const fs::path &archivePath, const fs
         return result;
     }
 
+    // A leftover from an interrupted swap is cleared up front -- and if it
+    // cannot be, this open fails here, before any extraction, rather than
+    // after all of it. It is never deleted blindly later: in the one
+    // double-failure case below it may be the only good copy.
+    const fs::path retired = cacheRoot.string() + ".old";
+    std::error_code ec;
+    if (fs::exists(retired, ec)) {
+        fs::remove_all(retired, ec);
+        if (fs::exists(retired, ec)) {
+            result.error = "A previous copy of this backup could not be cleared away (" + retired.string()
+                           + "); close anything using it and try again.";
+            return result;
+        }
+    }
+
     // Everything is extracted into a staging directory beside the real
     // one and swapped in only at the end. Two reasons. A re-open that
     // fails part-way (the archive was rewritten, a disk filled up) must
@@ -75,7 +90,6 @@ OpenedStickBackup OpenStickBackup::execute(const fs::path &archivePath, const fs
     // the real directory while this runs sees a complete state, never one
     // with the marker missing.
     const fs::path staging = cacheRoot.string() + ".partial";
-    std::error_code ec;
     fs::remove_all(staging, ec);
     if (ec) {
         result.error = "Could not clear the staging directory for the backup: " + ec.message();
@@ -151,15 +165,11 @@ OpenedStickBackup OpenStickBackup::execute(const fs::path &archivePath, const fs
     // is what tells every rekordbox reader built against this root to
     // pull analysis files out of the archive rather than looking for
     // USBANLZ next to the databases (which is not there, on purpose).
-    // Written into staging, so it is present the instant the directory
-    // becomes the real one.
-    {
-        std::ofstream marker(staging / infrastructure::local::BrowsedBackupMarkerName, std::ios::trunc);
-        marker << fs::absolute(archivePath).string() << "\n";
-        if (!marker) {
-            result.error = "Could not record which backup this came from.";
-            return result;
-        }
+    // Written into staging, for the final directory, so it is present and
+    // valid the instant the rename lands.
+    if (!infrastructure::local::writeBrowsedBackupMarker(staging, archivePath, cacheRoot)) {
+        result.error = "Could not record which backup this came from.";
+        return result;
     }
 
     // The row's name comes from the backup's own manifest when it has a
@@ -180,8 +190,6 @@ OpenedStickBackup OpenStickBackup::execute(const fs::path &archivePath, const fs
     // way remove_all could), the new one is renamed into place, and only
     // then is the old one removed. If the second rename fails, the first
     // is undone and yesterday's cache is exactly where it was.
-    const fs::path retired = cacheRoot.string() + ".old";
-    fs::remove_all(retired, ec);  // a leftover from an interrupted swap
     const bool hadPrevious = fs::exists(cacheRoot, ec);
     if (hadPrevious) {
         fs::rename(cacheRoot, retired, ec);
@@ -196,6 +204,9 @@ OpenedStickBackup OpenStickBackup::execute(const fs::path &archivePath, const fs
         if (hadPrevious) {
             std::error_code undo;
             fs::rename(retired, cacheRoot, undo);
+            if (undo) {
+                result.error += " The previous copy is still intact at " + retired.string() + ".";
+            }
         }
         return result;
     }
