@@ -184,7 +184,7 @@ Page {
         id: archiveDialog
         title: "Choose a Seabass stick backup"
         nameFilters: ["Stick backups (*.zip)", "All files (*)"]
-        currentFolder: "file://" + (root.controller.defaultBackupDirectory || "")
+        currentFolder: root.controller.toLocalFileUrl(root.controller.defaultBackupDirectory || "")
         onAccepted: {
             root.controller.archivePath = selectedFile.toString();
             root.applySelection(root.selectedIndex);

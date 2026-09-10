@@ -1,3 +1,4 @@
+#include "infrastructure/local/browsed_backup_root.hpp"
 #include "gui/edit/edit_session_registry.hpp"
 
 #include <QUuid>
@@ -145,11 +146,8 @@ LibraryEditSession *EditSessionRegistry::ensureSession(const QString &libraryId,
     }
     QString mountPoint;
     if (m_mediaController) {
-        for (const application::DetectedStick &stick : m_mediaController->sticksModel()->sticks()) {
-            if (stick.mounted && QString::fromStdString(stick.identity.libraryId()) == libraryId) {
-                mountPoint = QString::fromStdString(stick.mountPoint);
-                break;
-            }
+        if (auto stick = m_mediaController->stickForLibraryId(libraryId); stick && stick->mounted) {
+            mountPoint = QString::fromStdString(stick->mountPoint);
         }
     }
     auto *session = new LibraryEditSession(this, libraryId, stickLabel, mountPoint);
@@ -205,6 +203,21 @@ LibraryEditSession *EditSessionRegistry::sessionFor(const QString &libraryId, co
 bool EditSessionRegistry::hasSession(const QString &libraryId) const
 {
     return findSession(libraryId) != nullptr;
+}
+
+bool EditSessionRegistry::isReadOnlyLibrary(const QString &libraryId) const
+{
+    if (!m_mediaController) {
+        return false;
+    }
+    const auto stick = m_mediaController->stickForLibraryId(libraryId);
+    return stick && stick->isBrowsedBackup;
+}
+
+void EditSessionRegistry::reportReadOnlyRefusal(const QString &libraryId, const QString &label)
+{
+    emit directWriteRefused(libraryId,
+                            QString::fromStdString(infrastructure::local::browsedBackupRefusal(label.toStdString())));
 }
 
 QString EditSessionRegistry::mountPointForPath(const QString &anyLibraryPath) const
@@ -293,16 +306,10 @@ bool EditSessionRegistry::tryEnterDirectWrite(const QString &libraryId, const QS
     if (libraryId.isEmpty()) {
         return true;  // nothing to lock against (a blank drive)
     }
-    if (m_mediaController) {
-        for (const application::DetectedStick &stick : m_mediaController->sticksModel()->sticks()) {
-            if (stick.isBrowsedBackup && stick.identity.libraryId() == libraryId.toStdString()) {
-                emit directWriteRefused(libraryId,
-                                        tr("\"%1\" is a stick backup being browsed. It cannot be written to; "
-                                           "restore it onto a stick first.")
-                                            .arg(QString::fromStdString(stick.label)));
-                return false;
-            }
-        }
+    if (isReadOnlyLibrary(libraryId)) {
+        const auto stick = m_mediaController->stickForLibraryId(libraryId);
+        reportReadOnlyRefusal(libraryId, stick ? QString::fromStdString(stick->label) : libraryId);
+        return false;
     }
     LibraryEditSession *session = findSession(libraryId);
     bool ownsAlready = (session && session->lockHeld()) || m_directWrites[libraryId] > 0;

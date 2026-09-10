@@ -96,6 +96,15 @@ public:
     // here, so this is the one place the read-only rule holds for all of
     // them, whichever page's button led here.
     Q_INVOKABLE bool tryEnterDirectWrite(const QString &libraryId, const QString &stickLabel);
+    // Whether the listed library with this id is a stick backup being
+    // browsed -- read-only. Explicit, so a caller refused by
+    // tryEnterDirectWrite() can tell this apart from a held lock
+    // instead of inferring it from an empty holder.
+    Q_INVOKABLE bool isReadOnlyLibrary(const QString &libraryId) const;
+    // Emits directWriteRefused() for a read-only library. Used by
+    // LibraryEditSession::stage() as well as tryEnterDirectWrite(), so
+    // one dialog (Main.qml) shows every such refusal.
+    void reportReadOnlyRefusal(const QString &libraryId, const QString &label);
     Q_INVOKABLE void leaveDirectWrite(const QString &libraryId);
 
     Q_INVOKABLE void refreshLocks();

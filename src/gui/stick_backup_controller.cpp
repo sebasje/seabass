@@ -269,9 +269,9 @@ void StickBackupController::applyProgress(const BackupProgress &progress)
 bool StickBackupController::enterDirectWrite(std::function<void()> retry)
 {
     const QString libraryId = EditSessionRegistry::instance()->libraryIdForPath(m_stickRoot);
-    if (auto holder = m_writeHold.acquire({libraryId}, m_stickLabel, std::move(retry))) {
-        if (!holder->isEmpty()) {  // empty: a read-only refusal, already shown
-            emit lockRefused(*holder, m_writeHold.refusedLibraryId());
+    if (auto refusal = m_writeHold.acquire({libraryId}, m_stickLabel, std::move(retry))) {
+        if (refusal->isLocked()) {
+            emit lockRefused(refusal->holder, m_writeHold.refusedLibraryId());
         }
         return false;
     }

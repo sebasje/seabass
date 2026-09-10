@@ -56,6 +56,8 @@ class RestoreStickBackupController : public QObject
     Q_PROPERTY(QString statusMessage READ statusMessage NOTIFY statusMessageChanged)
 
 public:
+    // For the page's FileDialog.currentFolder; see gui/local_file_url.hpp.
+    Q_INVOKABLE static QString toLocalFileUrl(const QString &path);
     explicit RestoreStickBackupController(QObject *parent = nullptr);
     ~RestoreStickBackupController() override;
 

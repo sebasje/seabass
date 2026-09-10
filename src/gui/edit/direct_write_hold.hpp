@@ -24,12 +24,26 @@ public:
     DirectWriteHold(const DirectWriteHold &) = delete;
     DirectWriteHold &operator=(const DirectWriteHold &) = delete;
 
+    // Why acquire() refused. Locked: another instance holds the library
+    // and `holder` says who -- the caller shows the locked dialog.
+    // ReadOnly: the library is a stick backup being browsed; the registry
+    // has already shown that, and `holder` is empty -- the caller shows
+    // nothing. Explicit, rather than "an empty holder means read-only",
+    // so the next reason to refuse gets a name instead of a convention.
+    struct Refusal
+    {
+        enum class Kind { Locked, ReadOnly };
+        Kind kind = Kind::Locked;
+        QVariantMap holder;
+        bool isLocked() const { return kind == Kind::Locked; }
+    };
+
     // Takes the edit lock of every id (empty ids are skipped: a blank
     // drive has no library). On the first refusal every lock taken so
-    // far is given back and the refusing library's holder is returned;
-    // nothing is held. `retry` is kept for retryLockedAction().
-    std::optional<QVariantMap> acquire(const QStringList &libraryIds, const QString &stickLabel,
-                                       std::function<void()> retry = {});
+    // far is given back and the refusal is returned; nothing is held.
+    // `retry` is kept for retryLockedAction().
+    std::optional<Refusal> acquire(const QStringList &libraryIds, const QString &stickLabel,
+                                   std::function<void()> retry = {});
     void release();
     bool held() const { return !m_held.isEmpty(); }
 

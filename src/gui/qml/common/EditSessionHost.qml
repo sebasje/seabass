@@ -218,32 +218,9 @@ Item {
         acceptObjectName: "understoodButton"
     }
 
-    // A browsed stick backup refused an edit (LibraryEditSession::stage,
-    // readOnlyRefused). The stick list withholds every writing card for
-    // such a row, but a write page is still reachable through another
-    // page's link (Statistics -> Sync, Browse -> merge); this is what the
-    // person sees instead of a Stage button that silently does nothing.
-    MessageDialog {
-        id: readOnlyDialog
-        objectName: "readOnlyDialog"
-        property string reason: ""
-        severity: SeabassDialog.Warning
-        closePolicy: Popup.NoAutoClose
-        title: "This library is read-only"
-        headline: readOnlyDialog.reason
-        detailText: "Nothing was changed."
-        showReject: false
-        acceptText: "Understood"
-        acceptObjectName: "readOnlyUnderstoodButton"
-    }
-
     Connections {
         target: host.session
         ignoreUnknownSignals: true
-        function onReadOnlyRefused(reason) {
-            readOnlyDialog.reason = reason;
-            readOnlyDialog.open();
-        }
         function onSaveFinished(summary) {
             // On quit the window shows its own summary (see Main.qml).
             if (!(host.registry && host.registry.quitAfterSave === true)) {

@@ -202,9 +202,9 @@ bool LibraryEditSession::stage(std::unique_ptr<PendingChange> change)
         if (libraryPath.isEmpty()) {
             continue;
         }
-        if (infrastructure::local::isBrowsedBackupRoot(std::filesystem::path(libraryPath.toStdString()).parent_path())) {
-            emit readOnlyRefused(tr("This is a stick backup being browsed. It cannot be edited here -- "
-                                    "restore it onto a stick first, or open the restored folder."));
+        if (infrastructure::local::isBrowsedBackupRoot(
+                infrastructure::backup::stickRootForCatalogPath(libraryPath.toStdString()))) {
+            m_registry->reportReadOnlyRefusal(m_libraryId, m_stickLabel);
             return false;
         }
     }
