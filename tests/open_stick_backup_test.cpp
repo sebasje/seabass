@@ -14,6 +14,7 @@
 #include <string>
 #include <vector>
 
+#include "scratch_path.hpp"
 #include "application/use_cases/open_stick_backup.hpp"
 #include "infrastructure/rekordbox/anlz_source_for_root.hpp"
 #include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
@@ -96,7 +97,7 @@ int main(int argc, char **argv)
     const fs::path fixturePioneer = fs::path(argv[1]) / "rekordbox";
     assert(fs::exists(fixturePioneer / "rekordbox" / "export.pdb"));
 
-    const fs::path scratch = fs::temp_directory_path() / "seabass-open-backup-test";
+    const fs::path scratch = seabass::testing::scratchRoot() / "open-backup-test";
     fs::remove_all(scratch);
     fs::create_directories(scratch);
     const fs::path archivePath = scratch / "TOURSTICK.zip";

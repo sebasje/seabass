@@ -18,6 +18,7 @@
 #include <iostream>
 #include <string>
 
+#include "scratch_path.hpp"
 #include "gui/media_controller.hpp"
 
 namespace fs = std::filesystem;
@@ -66,7 +67,7 @@ int main(int argc, char **argv)
     // Never touch the real user's settings: openFolder() persists the
     // opened-folder list through QSettings, and a test that wrote into
     // ~/.config would change what the actual app shows on next launch.
-    const fs::path scratch = fs::temp_directory_path() / "seabass-open-folder-test";
+    const fs::path scratch = seabass::testing::scratchRoot() / "open-folder-test";
     fs::remove_all(scratch);
     fs::create_directories(scratch);
     // Redirects the store by path and format rather than by naming the

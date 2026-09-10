@@ -18,6 +18,7 @@
 #include <string>
 #include <vector>
 
+#include "scratch_path.hpp"
 #include "infrastructure/rekordbox/anlz_byte_source.hpp"
 #include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
 #include "infrastructure/stick_backup/archive_anlz_source.hpp"
@@ -103,7 +104,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    const fs::path scratch = fs::temp_directory_path() / "seabass-archive-anlz-test";
+    const fs::path scratch = seabass::testing::scratchRoot() / "archive-anlz-test";
     fs::remove_all(scratch);
     fs::create_directories(scratch);
 
