@@ -48,6 +48,9 @@ inline StickPresenceDiff diffStickPresence(const std::vector<StickIdentity> &bef
 // size only" for Weak).
 inline StickIdentity::Strength matchStrength(const StickIdentity &a, const StickIdentity &b)
 {
+    if (!a.explicitLibraryId.empty() && !b.explicitLibraryId.empty()) {
+        return StickIdentity::Strength::Folder;
+    }
     if (!a.hardwareSerial.empty() && !b.hardwareSerial.empty()) {
         return StickIdentity::Strength::Hardware;
     }

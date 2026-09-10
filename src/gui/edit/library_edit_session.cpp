@@ -1,5 +1,7 @@
+#include "infrastructure/local/browsed_backup_root.hpp"
 #include "gui/edit/library_edit_session.hpp"
 
+#include <filesystem>
 #include <QtConcurrent/QtConcurrentRun>
 
 #include <algorithm>
@@ -192,6 +194,19 @@ bool LibraryEditSession::stage(std::unique_ptr<PendingChange> change)
 {
     if (!change || m_writing) {
         return false;
+    }
+    // Before anything else, including the lock: a browsed backup is
+    // read-only by construction (see MediaController::openBackup), and a
+    // refused attempt must leave no trace.
+    for (const QString &libraryPath : {m_rekordboxPath, m_enginePath}) {
+        if (libraryPath.isEmpty()) {
+            continue;
+        }
+        if (infrastructure::local::isBrowsedBackupRoot(std::filesystem::path(libraryPath.toStdString()).parent_path())) {
+            emit readOnlyRefused(tr("This is a stick backup being browsed. It cannot be edited here -- "
+                                    "restore it onto a stick first, or open the restored folder."));
+            return false;
+        }
     }
     // Checked before the lock is taken, so a refused attempt leaves no
     // trace: one library is edited by one page at a time, full stop.

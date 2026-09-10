@@ -50,6 +50,24 @@ int main()
         onAStick.explicitLibraryId = "folder-fedcba9876543210";
         assert(onAStick.libraryId() == "folder-fedcba9876543210");
         assert(onAStick.strength() == Strength::Folder);
+
+        // Two folders are the same stick only when they are the same
+        // folder. Both carry the same label and a capacity of zero, which
+        // the label rule alone would call a match.
+        StickIdentity monday;
+        monday.label = "TOURSTICK";
+        monday.explicitLibraryId = "folder-aaaaaaaaaaaaaaaa";
+        StickIdentity tuesday;
+        tuesday.label = "TOURSTICK";
+        tuesday.explicitLibraryId = "folder-bbbbbbbbbbbbbbbb";
+        assert(!monday.isSameStick(tuesday));
+        assert(monday.isSameStick(monday));
+        // ...and a folder is never the same stick as real hardware with
+        // the same label, in either direction.
+        StickIdentity hardware = make("S1", "U1");
+        hardware.label = "TOURSTICK";
+        assert(!monday.isSameStick(hardware));
+        assert(!hardware.isSameStick(monday));
         std::cout << "case 1b (folder identity) OK\n";
     }
 

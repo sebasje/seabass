@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdlib>
 #include <filesystem>
 #include <string>
 
@@ -46,6 +47,22 @@ inline std::filesystem::path scratchRoot()
     std::error_code ec;
     std::filesystem::create_directories(root, ec);
     return root;
+}
+
+// Points SEABASS_HOME at a directory under the test's scratch tree unless
+// ctest has already sandboxed it, so a test run by hand can never write
+// into the real ~/Seabass. Read every call by seabass_paths, so this
+// takes effect immediately.
+inline void sandboxSeabassHome(const std::filesystem::path &home)
+{
+    if (std::getenv("SEABASS_HOME") != nullptr) {
+        return;
+    }
+#if defined(_WIN32)
+    _putenv_s("SEABASS_HOME", home.string().c_str());
+#else
+    setenv("SEABASS_HOME", home.string().c_str(), 1);
+#endif
 }
 
 }  // namespace seabass::testing

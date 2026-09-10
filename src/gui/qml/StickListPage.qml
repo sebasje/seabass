@@ -54,8 +54,9 @@ Page {
         objectName: "openFolderDialog"
         title: "Open a folder holding a rekordbox or Engine DJ library"
         onAccepted: {
-            var message = root.mediaController.openFolder(
-                selectedFolder.toString().replace(/^file:\/\//, ""));
+            // Handed over as the URL it is; the controller converts it
+            // with QUrl::toLocalFile (see MediaController::localPathFrom).
+            var message = root.mediaController.openFolder(selectedFolder.toString());
             if (message.length > 0) {
                 openFolderError.text = message;
                 openFolderError.open();
@@ -70,10 +71,9 @@ Page {
         objectName: "openBackupDialog"
         title: "Open a full stick backup to browse"
         nameFilters: ["Stick backups (*.zip)", "All files (*)"]
-        currentFolder: "file://" + root.appSettingsController.stickBackupDirectory
+        currentFolder: root.appSettingsController.toLocalFileUrl(root.appSettingsController.stickBackupDirectory)
         onAccepted: {
-            var message = root.mediaController.openBackup(
-                selectedFile.toString().replace(/^file:\/\//, ""));
+            var message = root.mediaController.openBackup(selectedFile.toString());
             if (message.length > 0) {
                 openFolderError.text = message;
                 openFolderError.open();
@@ -85,12 +85,16 @@ Page {
         objectName: "openFolderError"
         property alias text: openFolderErrorLabel.text
         anchors.centerIn: Overlay.overlay
+        // Explicit, so the dialog's implicit width never has to be derived
+        // from content that is itself sized from the dialog -- the loop
+        // Qt reports as "Binding loop detected for implicitWidth".
+        width: 460
         modal: true
         title: "Cannot open that folder"
         standardButtons: Dialog.Ok
         Label {
             id: openFolderErrorLabel
-            width: Math.min(implicitWidth, 420)
+            width: parent.width
             wrapMode: Text.WordWrap
         }
     }
@@ -346,8 +350,13 @@ Page {
                 required property string enginePath
                 required property bool isSdCard
                 required property bool isFolder
+                required property bool isBrowsedBackup
                 required property string libraryId
                 readonly property bool hasKnownLibrary: hasRekordbox || hasEngine
+                // Which cards a row may offer that write: a library, and
+                // not a stick backup being browsed. Every writing card
+                // binds to this one line rather than restating the rule.
+                readonly property bool writable: hasKnownLibrary && !isBrowsedBackup
                 // Another instance is editing this stick's library: every
                 // card that would change it goes read-only.
                 readonly property bool lockedByOther: root.isLockedByOther(delegateRoot.libraryId)
@@ -370,7 +379,10 @@ Page {
                 readonly property bool thisRowBusy: root.mediaController.busy
                     && root.mediaController.busyDevicePath === delegateRoot.devicePath
                 function assessBackup() {
-                    if (mounted && mountPoint.length > 0) {
+                    // A browsed backup is never a backup subject or peer:
+                    // the advisor would offer it as the newest clone
+                    // source, and cloning from it targets its own archive.
+                    if (mounted && mountPoint.length > 0 && !isBrowsedBackup) {
                         root.backupAdvisor.assess(label, mountPoint, rekordboxPath, enginePath);
                     }
                 }
@@ -517,7 +529,25 @@ Page {
                         Layout.alignment: Qt.AlignVCenter
                         ToolTip.visible: hovered
                         ToolTip.text: "Remove " + delegateRoot.label + " from this list (nothing on disk is changed)"
-                        onClicked: root.mediaController.closeFolder(delegateRoot.mountPoint)
+                        onClicked: {
+                            // A folder row takes no part in the pulled-stick
+                            // prompts, so this is the one place its unsaved
+                            // edits would otherwise go unseen: refuse while
+                            // dirty, release a clean session's lock, then drop.
+                            var reg = root.editRegistry;
+                            var id = delegateRoot.libraryId;
+                            if (reg && reg.hasSession(id)) {
+                                var session = reg.sessionFor(id);
+                                if (session && session.dirty === true) {
+                                    openFolderError.text = "\"" + delegateRoot.label
+                                        + "\" has unsaved changes. Save or discard them before removing it from the list.";
+                                    openFolderError.open();
+                                    return;
+                                }
+                                reg.closeSession(id);
+                            }
+                            root.mediaController.closeFolder(delegateRoot.mountPoint);
+                        }
                     }
 
                     ToolButton {
@@ -604,13 +634,20 @@ Page {
                             enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
                             onClicked: root.browseRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
                         }
+                        // Every card below that writes is withheld for a
+                        // browsed backup: its analysis files are in the
+                        // archive, not on disk, so a rekordbox cue write
+                        // would fail mid-save, and the directory is
+                        // replaced on the next open, so an Engine write
+                        // would silently vanish. Browse, Statistics and
+                        // Metadata Backup only read, and stay.
                         ActionCard {
                             cardTitle: "Housekeeping"
                             readOnly: delegateRoot.lockedByOther
                             onReadOnlyClicked: root.explainLock(delegateRoot.libraryId)
                             cardSubtitle: "Duplicate stats, copy cues between copies, and clean up"
                             cardIcon: "▣"
-                            visible: delegateRoot.hasKnownLibrary
+                            visible: delegateRoot.writable
                             enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
                             onClicked: root.duplicateTracksHubRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
                         }
@@ -623,7 +660,7 @@ Page {
                             // Graduated from experimental (see
                             // docs/experimental-features.md) after real
                             // use with no incidents.
-                            visible: delegateRoot.hasKnownLibrary
+                            visible: delegateRoot.writable
                             enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
                             onClicked: root.libraryHealthRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
                         }
@@ -657,7 +694,7 @@ Page {
                             onReadOnlyClicked: root.explainLock(delegateRoot.libraryId)
                             cardSubtitle: "Put cues from this computer back on tracks that have lost them"
                             cardIcon: "📥"
-                            visible: delegateRoot.hasKnownLibrary
+                            visible: delegateRoot.writable
                             enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
                             onClicked: root.metadataRestoreRequested(delegateRoot.label, delegateRoot.rekordboxPath,
                                                                      delegateRoot.enginePath, delegateRoot.libraryId)
@@ -676,14 +713,19 @@ Page {
                             // no Engine Library already present to overwrite.
                             experimental: true
                             experimentalFeaturesEnabled: root.appSettingsController.experimentalFeaturesEnabled
-                            // Gone once the stick has an Engine Library,
-                            // rather than shown greyed out. A disabled
+                            // Both sides of a merge, kept. Master hides
+                            // this once the stick HAS an Engine Library
+                            // rather than showing it disabled: a disabled
                             // control is an offer the user has to work out
-                            // they cannot take; "create" on a stick that
-                            // already has one is not an offer at all, and
-                            // the card it sat in front of pushes every
-                            // card below it down the page for nothing.
-                            visible: delegateRoot.hasKnownLibrary && !delegateRoot.hasEngine
+                            // they cannot take, and it pushes every card
+                            // below it down the page for nothing.
+                            // backup-browsing hides it on anything not
+                            // writable, which is how a browsed backup
+                            // stops offering write actions at all.
+                            // `writable` already implies hasKnownLibrary
+                            // (hasKnownLibrary && !isBrowsedBackup), so
+                            // the two compose without repeating it.
+                            visible: delegateRoot.writable && !delegateRoot.hasEngine
                             enabled: delegateRoot.hasRekordbox
                             onClicked: root.engineLibraryCreatorRequested(delegateRoot.label, delegateRoot.rekordboxPath)
                         }
@@ -694,7 +736,7 @@ Page {
                             cardSubtitle: "Copy cues between DeviceLibrary and Engine"
                             cardIcon: "⇄"
                             cardIconFont: "Noto Sans Math"
-                            visible: delegateRoot.hasKnownLibrary
+                            visible: delegateRoot.writable
                             enabled: delegateRoot.hasRekordbox && delegateRoot.hasEngine
                             onClicked: root.syncRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
                         }
@@ -719,7 +761,7 @@ Page {
                                 }
                             }
                             cardIcon: "🗄"
-                            visible: delegateRoot.hasKnownLibrary
+                            visible: delegateRoot.writable
                             enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
                             onClicked: root.backupsHubRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath,
                                 delegateRoot.mountPoint, delegateRoot.devicePath)
@@ -731,7 +773,7 @@ Page {
                             cardSubtitle: "View this stick's saved Rekordbox player settings"
                             cardIcon: "⚙"
                             cardIconFont: "Noto Sans Symbols"
-                            visible: delegateRoot.hasKnownLibrary
+                            visible: delegateRoot.writable
                             enabled: delegateRoot.hasRekordbox
                             onClicked: root.settingsRequested(delegateRoot.label, delegateRoot.rekordboxPath)
                         }

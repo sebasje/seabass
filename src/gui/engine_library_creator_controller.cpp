@@ -123,7 +123,10 @@ void EngineLibraryCreatorController::create(const QString &rekordboxPath, int sc
     auto *registry = EditSessionRegistry::instance();
     m_libraryId = registry->libraryIdForPath(rekordboxPath);
     if (!registry->tryEnterDirectWrite(m_libraryId, stickLabel)) {
-        emit lockRefused(registry->lockHolder(m_libraryId));
+        const QVariantMap holder = registry->lockHolder(m_libraryId);
+        if (!holder.isEmpty()) {  // empty: a read-only refusal, already shown
+            emit lockRefused(holder);
+        }
         return;
     }
     m_holdsDirectWrite = true;

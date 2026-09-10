@@ -109,8 +109,27 @@ ApplicationWindow {
         }
     }
 
+    // A direct writer (backup, clone, restore, format, ...) was refused
+    // because the library is a stick backup being browsed. Shown here,
+    // registry-level, because the refusal can come from any page.
+    MessageDialog {
+        id: directWriteRefusedDialog
+        objectName: "directWriteRefusedDialog"
+        property string reason: ""
+        severity: SeabassDialog.Warning
+        closePolicy: Popup.NoAutoClose
+        title: "This library is read-only"
+        headline: directWriteRefusedDialog.reason
+        detailText: "Nothing was changed."
+        showReject: false
+        acceptText: "Understood"
+    }
     Connections {
         target: EditSessionRegistry
+        function onDirectWriteRefused(libraryId, reason) {
+            directWriteRefusedDialog.reason = reason;
+            directWriteRefusedDialog.open();
+        }
         function onSaveFinished(libraryId, summary) {
             if (EditSessionRegistry.quitAfterSave && !EditSessionRegistry.anyWriting) {
                 quitSummaryDialog.show(summary);

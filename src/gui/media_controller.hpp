@@ -8,6 +8,7 @@
 #include <QQmlEngine>
 #include <QTimer>
 
+#include <filesystem>
 #include <map>
 #include <memory>
 #include <optional>
@@ -43,6 +44,10 @@ public:
         // than found on removable media: the list still shows it, but
         // there is nothing to mount, eject, format or benchmark.
         IsFolderRole,
+        // See DetectedStick::isBrowsedBackup: a folder row whose catalogs
+        // were extracted from a stick backup. Read-only; the write cards
+        // are withheld for it.
+        IsBrowsedBackupRole,
         // See application::StickIdentity. libraryId is the key every
         // edit-mode/lock feature uses for "this library"; identityStrength
         // ("hardware"/"filesystem"/"weak"/"none") says how trustworthy
@@ -132,6 +137,11 @@ public:
     //
     // Everything downstream of here already takes plain paths -- this
     // entry point was the only thing missing.
+    //
+    // `path` may be a file:// URL, which is what a QML FolderDialog hands
+    // over; it is converted with QUrl::toLocalFile, never by stripping the
+    // scheme, so a Windows path ("file:///C:/...") and a name with '#' or
+    // '%' in it both survive.
     Q_INVOKABLE QString openFolder(const QString &path);
 
     // openFolder() with the row's name given rather than taken from the
@@ -140,7 +150,9 @@ public:
     QString openFolder(const QString &path, const QString &label);
 
     // Forgets a folder opened with openFolder(). Nothing on disk is
-    // touched; the folder is only dropped from the list.
+    // touched; the folder is only dropped from the list, and the shared
+    // open archive (a browsed backup) is released. The unsaved-changes
+    // check lives in StickListPage.qml, which holds the edit registry.
     Q_INVOKABLE void closeFolder(const QString &path);
 
     // Opens a full stick backup for browsing, without unpacking it: the
@@ -150,8 +162,12 @@ public:
     // a folder library like any other. Returns a message for the page to
     // show, or an empty string on success.
     //
-    // Read-only in practice: the row it produces points at the cache, not
-    // at the archive, so nothing a page does can write into a backup.
+    // Read-only, and enforced: the row is flagged isBrowsedBackup, which
+    // withholds every card that writes, and LibraryEditSession refuses to
+    // stage a change against a directory carrying the backup marker. The
+    // row points at the cache, never at the archive, so even a write that
+    // got through could not reach the backup itself. `archivePath` may be
+    // a file:// URL, as for openFolder().
     Q_INVOKABLE QString openBackup(const QString &archivePath);
 
     // Both run the actual mount/unmount (a real syscall/subprocess that
@@ -234,6 +250,8 @@ public:
     // a restored backup tomorrow).
     void loadOpenedFolders();
     void saveOpenedFolders();
+    static std::string folderLabelFor(const std::filesystem::path &dir, const QString &given);
+
 
     DetectedStickListModel m_model;
     // Kept separately from the model because detect() rebuilds that from

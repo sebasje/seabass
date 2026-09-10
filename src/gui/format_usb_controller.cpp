@@ -172,7 +172,9 @@ void FormatUsbController::format(const QString &wholeDiskPath, const QString &fi
     if (auto holder = m_writeHold.acquire({libraryId}, volumeLabel, [this, wholeDiskPath, filesystem, volumeLabel] {
             format(wholeDiskPath, filesystem, volumeLabel);
         })) {
-        emit lockRefused(*holder, m_writeHold.refusedLibraryId());
+        if (!holder->isEmpty()) {  // empty: a read-only refusal, already shown
+            emit lockRefused(*holder, m_writeHold.refusedLibraryId());
+        }
         return;
     }
     setErrorMessage({});

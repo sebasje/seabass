@@ -1,3 +1,4 @@
+#include "infrastructure/local/browsed_backup_root.hpp"
 #include "backup_advisor_controller.hpp"
 
 #include <QDateTime>
@@ -204,6 +205,15 @@ void BackupAdvisorController::recomputeAdvice()
         input.backups = m_backups;
         for (auto other = m_facts.constBegin(); other != m_facts.constEnd(); ++other) {
             if (other == it || !other.value().hasLibrary) {
+                continue;
+            }
+            // A stick backup being browsed is a catalogs-only cache with
+            // the newest mtime in the room. Offered as a clone source it
+            // would resolve, by label, to the very archive it came from --
+            // and BackupStick would rewrite that archive from the cache.
+            // BackupStick refuses too; this keeps the offer from ever
+            // appearing on an empty stick's card.
+            if (infrastructure::local::isBrowsedBackupRoot(std::filesystem::path(other.key().toStdString()))) {
                 continue;
             }
             StickBackupAdviceInput::PeerStick peer;

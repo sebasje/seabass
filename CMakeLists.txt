@@ -248,6 +248,7 @@ add_library(seabass_core STATIC
     src/infrastructure/durable_file_write.cpp
     src/infrastructure/rekordbox/anlz_byte_source.cpp
     src/infrastructure/rekordbox/anlz_source_for_root.cpp
+    src/infrastructure/local/browsed_backup_root.cpp
     src/application/use_cases/open_stick_backup.cpp
     src/infrastructure/stick_backup/archive_anlz_source.cpp
     src/infrastructure/rekordbox/anlz_cue_codec.cpp
@@ -960,6 +961,8 @@ add_executable(cue_color_normalization_test
     # in the archive stack, so a test that lists its own sources has to
     # list those too.
     src/infrastructure/rekordbox/anlz_source_for_root.cpp
+    src/infrastructure/local/browsed_backup_root.cpp
+    src/infrastructure/durable_file_write.cpp
     src/infrastructure/stick_backup/archive_anlz_source.cpp
     src/infrastructure/stick_backup/posix_archive_file.cpp
     src/infrastructure/stick_backup/zip64_reader.cpp
@@ -1509,6 +1512,9 @@ add_executable(backup_stick_test
     ${SEABASS_STICK_BACKUP_STICK_SOURCES}
     src/application/ports/progress_reporter.cpp
     src/application/use_cases/backup_stick.cpp
+    src/infrastructure/local/browsed_backup_root.cpp
+    src/infrastructure/durable_file_write.cpp
+    src/infrastructure/work_counters.cpp
     tests/backup_stick_test.cpp
 )
 target_include_directories(backup_stick_test PRIVATE src)
@@ -1522,6 +1528,7 @@ add_executable(backup_archive_concurrent_reader_test
     src/infrastructure/stick_backup/restore_path_sanitizer.cpp
     src/application/ports/progress_reporter.cpp
     src/application/use_cases/backup_stick.cpp
+    src/infrastructure/local/browsed_backup_root.cpp
     src/application/use_cases/restore_stick_backup.cpp
     src/infrastructure/work_counters.cpp
     tests/backup_archive_concurrent_reader_test.cpp
@@ -1551,6 +1558,7 @@ add_executable(backup_restore_test
     src/infrastructure/stick_backup/restore_path_sanitizer.cpp
     src/application/ports/progress_reporter.cpp
     src/application/use_cases/backup_stick.cpp
+    src/infrastructure/local/browsed_backup_root.cpp
     src/application/use_cases/compact_stick_backup.cpp
     src/application/use_cases/restore_stick_backup.cpp
     tests/backup_restore_test.cpp
@@ -1567,6 +1575,7 @@ add_executable(archive_write_lock_test
     src/infrastructure/stick_backup/restore_path_sanitizer.cpp
     src/application/ports/progress_reporter.cpp
     src/application/use_cases/backup_stick.cpp
+    src/infrastructure/local/browsed_backup_root.cpp
     src/application/use_cases/compact_stick_backup.cpp
     src/application/use_cases/restore_stick_backup.cpp
     tests/archive_write_lock_test.cpp
@@ -1583,6 +1592,7 @@ add_executable(clone_stick_test
     src/infrastructure/stick_backup/restore_path_sanitizer.cpp
     src/application/ports/progress_reporter.cpp
     src/application/use_cases/backup_stick.cpp
+    src/infrastructure/local/browsed_backup_root.cpp
     src/application/use_cases/compact_stick_backup.cpp
     src/application/use_cases/restore_stick_backup.cpp
     src/application/use_cases/clone_stick.cpp
