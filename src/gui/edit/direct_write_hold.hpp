@@ -1,6 +1,8 @@
 #pragma once
 
 #include <QStringList>
+
+#include "gui/edit/edit_session_registry.hpp"
 #include <QVariantMap>
 
 #include <functional>
@@ -24,19 +26,10 @@ public:
     DirectWriteHold(const DirectWriteHold &) = delete;
     DirectWriteHold &operator=(const DirectWriteHold &) = delete;
 
-    // Why acquire() refused. Locked: another instance holds the library
-    // and `holder` says who -- the caller shows the locked dialog.
-    // ReadOnly: the library is a stick backup being browsed; the registry
-    // has already shown that, and `holder` is empty -- the caller shows
-    // nothing. Explicit, rather than "an empty holder means read-only",
-    // so the next reason to refuse gets a name instead of a convention.
-    struct Refusal
-    {
-        enum class Kind { Locked, ReadOnly };
-        Kind kind = Kind::Locked;
-        QVariantMap holder;
-        bool isLocked() const { return kind == Kind::Locked; }
-    };
+    // The registry produces the refusal; this forwards it unchanged, so
+    // there is one definition of what a refusal is and one place that
+    // decides whether it has anything to show (Refusal::showsLockedDialog).
+    using Refusal = EditSessionRegistry::Refusal;
 
     // Takes the edit lock of every id (empty ids are skipped: a blank
     // drive has no library). On the first refusal every lock taken so

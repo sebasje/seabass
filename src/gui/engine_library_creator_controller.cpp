@@ -122,9 +122,9 @@ void EngineLibraryCreatorController::create(const QString &rekordboxPath, int sc
     // A direct write on the stick's library: the new folder joins it.
     auto *registry = EditSessionRegistry::instance();
     m_libraryId = registry->libraryIdForPath(rekordboxPath);
-    if (!registry->tryEnterDirectWrite(m_libraryId, stickLabel)) {
-        if (!registry->isReadOnlyLibrary(m_libraryId)) {  // a read-only refusal was already shown
-            emit lockRefused(registry->lockHolder(m_libraryId));
+    if (auto refusal = registry->enterDirectWrite(m_libraryId, stickLabel)) {
+        if (refusal->showsLockedDialog()) {
+            emit lockRefused(refusal->holder);
         }
         return;
     }

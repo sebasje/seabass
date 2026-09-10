@@ -1220,9 +1220,9 @@ void CleanupController::deleteSelectedPendingFiles()
     // held for exactly this run.
     auto *registry = EditSessionRegistry::instance();
     const QString libraryId = registry->libraryIdForPath(m_path);
-    if (!registry->tryEnterDirectWrite(libraryId, QString())) {
-        if (!registry->isReadOnlyLibrary(libraryId)) {  // a read-only refusal was already shown
-            emit lockRefused(registry->lockHolder(libraryId));
+    if (auto refusal = registry->enterDirectWrite(libraryId, QString())) {
+        if (refusal->showsLockedDialog()) {
+            emit lockRefused(refusal->holder);
         }
         return;
     }

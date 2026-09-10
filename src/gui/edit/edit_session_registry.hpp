@@ -95,6 +95,32 @@ public:
     // Engine Library creation, pending-file deletion -- passes through
     // here, so this is the one place the read-only rule holds for all of
     // them, whichever page's button led here.
+    //
+    // Why a direct write was refused. Produced once, here, so no caller
+    // has to re-derive it -- and so the "is there anything to show the
+    // user" decision is made in one place rather than seven.
+    struct Refusal
+    {
+        enum class Kind { Locked, ReadOnly };
+        Kind kind = Kind::Locked;
+        QVariantMap holder;  // Locked only, and may still be empty -- see below
+
+        // True only when there is a holder to name. A lock attempt can
+        // fail with nobody to report: an unparseable cookie, a lock
+        // directory that cannot be written, or the holder releasing
+        // between the attempt and the probe. A "locked by another
+        // instance" dialog with a blank Held-by line and a Remove Lock
+        // button for a lock nobody holds is worse than saying nothing,
+        // which is what these paths did before.
+        bool showsLockedDialog() const { return kind == Kind::Locked && !holder.isEmpty(); }
+        // ReadOnly refusals have already shown their own dialog, from
+        // reportReadOnlyRefusal() -- callers show nothing more.
+        bool isReadOnly() const { return kind == Kind::ReadOnly; }
+    };
+
+    // Takes the direct-write hold, or says why not; nullopt means the
+    // write may proceed.
+    std::optional<Refusal> enterDirectWrite(const QString &libraryId, const QString &stickLabel);
     Q_INVOKABLE bool tryEnterDirectWrite(const QString &libraryId, const QString &stickLabel);
     // Whether the listed library with this id is a stick backup being
     // browsed -- read-only. Explicit, so a caller refused by

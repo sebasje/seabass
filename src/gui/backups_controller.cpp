@@ -290,9 +290,9 @@ void BackupsController::startTask(BackupsAction action, int keepCount, const QSt
     bool mutating = action != BackupsAction::Load;
     if (mutating) {
         auto *registry = EditSessionRegistry::instance();
-        if (!registry->tryEnterDirectWrite(m_libraryId, m_stickLabel)) {
-            if (!registry->isReadOnlyLibrary(m_libraryId)) {  // a read-only refusal was already shown
-                emit lockRefused(registry->lockHolder(m_libraryId));
+        if (auto refusal = registry->enterDirectWrite(m_libraryId, m_stickLabel)) {
+            if (refusal->showsLockedDialog()) {
+                emit lockRefused(refusal->holder);
             }
             return;
         }

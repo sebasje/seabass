@@ -132,11 +132,6 @@ void RestoreStickBackupController::refresh()
     emit disksChanged();
 }
 
-QString RestoreStickBackupController::toLocalFileUrl(const QString &path)
-{
-    return seabass::gui::toLocalFileUrl(path.toStdString());
-}
-
 void RestoreStickBackupController::setArchivePath(const QString &path)
 {
     const QString cleaned = localPathFromUrl(path);
@@ -371,8 +366,9 @@ void RestoreStickBackupController::restore(const QString &targetRoot, bool exact
     const QString archiveId = m_archiveInfo.value("identifier").toString();
     if (auto refusal = m_writeHold.acquire({targetId, archiveId}, QString(),
                                           [this, targetRoot, exact] { restore(targetRoot, exact); })) {
-        if (refusal->isLocked()) {
+        if (refusal->showsLockedDialog()) {
             emit lockRefused(refusal->holder, m_writeHold.refusedLibraryId());
+
         }
         return;
     }

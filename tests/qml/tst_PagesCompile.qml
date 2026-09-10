@@ -91,7 +91,7 @@ TestCase {
             {name: "AppSettingsPage", props: props({appSettingsController: realAppSettings})},
             {name: "AnonymizeLibraryPage", props: props({mediaController: realMedia, appSettingsController: realAppSettings})},
             {name: "FormatUsbPage", props: props({controller: realFormatUsb})},
-            {name: "RestoreStickBackupPage", props: props({controller: realRestore})},
+            {name: "RestoreStickBackupPage", props: props({controller: realRestore, appSettingsController: realAppSettings})},
             {name: "CloneStickPage", props: props({controller: realClone})},
             {name: "SettingsPage", props: props({stickLabel: stick.stickLabel, pioneerRoot: stick.rekordboxPath})},
             {name: "EngineLibraryCreatorPage", props: props({stickLabel: stick.stickLabel, rekordboxPath: stick.rekordboxPath})},

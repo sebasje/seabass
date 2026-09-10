@@ -624,6 +624,7 @@ ApplicationWindow {
     Component {
         id: restoreStickBackupPageComponent
         RestoreStickBackupPage {
+            appSettingsController: appSettingsCtrl
             controller: RestoreStickBackupController {
                 defaultBackupDirectory: appSettingsCtrl.stickBackupDirectory
             }
