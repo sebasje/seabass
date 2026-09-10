@@ -20,6 +20,23 @@ TestCase {
         HealthCheckCard {}
     }
 
+    // The hub page itself. Pointed at a stick that is not there, the same
+    // way tst_PagesCompile does it: nothing scans, but the page still
+    // builds and lays out, which is all the margin check needs.
+    // The page requires a playback controller; the real one, unpointed at
+    // any stick, the way tst_PagesCompile builds its pages.
+    PlaybackController { id: realPlayback }
+
+    Component {
+        id: pageComponent
+        LibraryHealthHubPage {
+            playbackController: realPlayback
+            stickLabel: "TESTSTICK"
+            rekordboxPath: "/nonexistent/TESTSTICK/PIONEER"
+            enginePath: "/nonexistent/TESTSTICK/Engine Library"
+        }
+    }
+
     function findByObjectName(item, name) {
         if (!item) return null;
         if (item.objectName === name) return item;
@@ -102,5 +119,22 @@ TestCase {
             waitForRendering(card);
             grabImage(card).save(screenshotDir + "/" + states[i].name + ".png");
         }
+    }
+    // The page used to fill its parent with no margins at all, so every
+    // card ran into the window edge while every sibling page inset its
+    // content by 16. Asserted on both sides: a left-only anchor would
+    // satisfy a check that only looked at x.
+    function test_content_is_inset_from_both_edges() {
+        var page = createTemporaryObject(pageComponent, testCase, {width: 800, height: 600});
+        waitForRendering(page);
+        var scroll = findByObjectName(page, "healthScroll");
+        var column = findByObjectName(page, "healthColumn");
+        verify(scroll !== null);
+        verify(column !== null);
+        compare(scroll.x, 16);
+        compare(page.width - (scroll.x + scroll.width), 16);
+        // And the content inside it stays within that inset box.
+        verify(column.width > 0);
+        verify(column.width <= scroll.width);
     }
 }
