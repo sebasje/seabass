@@ -202,21 +202,50 @@ int main(int argc, char **argv)
         std::cout << "case 5 (archive gone: catalogs still browse, no cues) OK\n";
     }
 
-    // A failed re-open leaves yesterday's cache exactly as it was: the
-    // archive is replaced by something unreadable, the open fails, and
-    // the previously extracted catalogs and marker are still there.
+    // A failed re-open leaves yesterday's cache exactly as it was. There
+    // are two ways for an open to fail and only the second one puts the
+    // cache in danger, so the case has to cover it: refusing a file that
+    // is not an archive happens before anything is written, while an
+    // archive that reads fine and only *then* turns out to hold no
+    // catalog fails at the end -- past the point where an extraction
+    // straight into the cache would already have emptied it.
     {
         assert(fs::exists(cache / "PIONEER" / "rekordbox" / "export.pdb"));
         const fs::path movedAside = scratch / "good.zip";
         fs::rename(archivePath, movedAside);
+
+        // Not an archive at all: refused before the cache is touched.
         std::ofstream(archivePath) << "this replaced the backup and is not a zip";
+        {
+            const auto failed = OpenStickBackup::execute(archivePath, cache);
+            assert(!failed.error.empty());
+            assert(fs::exists(cache / "PIONEER" / "rekordbox" / "export.pdb"));
+        }
+
+        // A readable archive holding nothing to extract: the open gets
+        // all the way to "no catalog in there" and must still not have
+        // touched the cache on its way.
+        fs::remove(archivePath);
+        {
+            PosixArchiveFile file(archivePath, PosixArchiveFile::OpenMode::ReadWrite);
+            Zip64Writer writer(file, {});
+            const std::string audio(1024, '\x02');
+            Zip64Writer::EntrySink sink = writer.beginFile("Contents/track.mp3", 1, Compression::Store);
+            sink.write(zip::bytesOf(std::string_view(audio)));
+            sink.finish();
+            writer.finish("", std::string(ManifestEntryName), 1);
+        }
         const auto failed = OpenStickBackup::execute(archivePath, cache);
         assert(!failed.error.empty());
         assert(fs::exists(cache / "PIONEER" / "rekordbox" / "export.pdb"));
         assert(fs::exists(cache / seabass::infrastructure::local::BrowsedBackupMarkerName));
         assert(!fs::exists(fs::path(cache.string() + ".partial")));
+
         fs::remove(archivePath);
         fs::rename(movedAside, archivePath);
+        // Intact, not merely present: with its archive back, the cache
+        // reports the cues it did before the two failed opens.
+        assert(cueDigest(cache / "PIONEER") == cueDigest(fixturePioneer));
         std::cout << "case 5b (failed re-open keeps the previous cache) OK\n";
     }
 
