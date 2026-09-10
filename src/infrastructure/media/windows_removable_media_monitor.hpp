@@ -1,8 +1,10 @@
 #pragma once
 
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <functional>
+#include <mutex>
 #include <thread>
 
 #include "application/ports/removable_media_monitor.hpp"
@@ -41,6 +43,10 @@ private:
     std::atomic<bool> m_running{false};
     std::function<void()> m_onChange;
     std::uint32_t m_lastDriveMask = 0;
+    // Lets stop() wake run() immediately instead of leaving it asleep in
+    // the poll interval -- see stop()'s own comment.
+    std::mutex m_wakeMutex;
+    std::condition_variable m_wakeCv;
 };
 
 }  // namespace seabass::infrastructure::media

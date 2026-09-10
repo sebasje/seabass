@@ -21,9 +21,9 @@
 #include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#endif
 
 #include "scratch_path.hpp"
-#endif
 
 using namespace seabass::infrastructure::local;
 using seabass::application::EditLockStatus;

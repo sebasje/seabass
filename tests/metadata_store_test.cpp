@@ -28,7 +28,11 @@ namespace
 
 fs::path scratchRoot()
 {
-    return seabass::testing::scratchRoot() / ("seabass-metadata-store-test-" + std::to_string(::getpid()));
+    // seabass::testing::scratchRoot() (scratch_path.hpp) already
+    // namespaces by pid -- ::getpid() doesn't exist in that unqualified
+    // form on Windows, and appending it again here was redundant even on
+    // platforms where it does.
+    return seabass::testing::scratchRoot() / "seabass-metadata-store-test";
 }
 
 void writeFile(const fs::path &path, const std::string &data)

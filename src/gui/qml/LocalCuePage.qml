@@ -456,8 +456,18 @@ Page {
                             ColumnLayout {
                                 Layout.fillWidth: true
                                 spacing: 2
-                                Label { text: candidateRow.title.length > 0 ? (candidateRow.title + " - " + candidateRow.artist) : candidateRow.filename; font.bold: true }
-                                Label { text: candidateRow.description + " new cue(s) would be added"; color: Theme.textMuted }
+                                Label {
+                                    text: candidateRow.title.length > 0 ? (candidateRow.title + " - " + candidateRow.artist) : candidateRow.filename
+                                    font.bold: true
+                                    Layout.fillWidth: true
+                                    elide: Text.ElideRight
+                                }
+                                Label {
+                                    text: candidateRow.description + " new cue(s) would be added"
+                                    color: Theme.textMuted
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                }
                             }
                             StatusBadge {
                                 visible: candidateRow.staged

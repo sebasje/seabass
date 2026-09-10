@@ -206,8 +206,17 @@ void MetadataStore::openAndMigrate()
     // clean one -- which a single Back Up Now refills from the stick.
     const int existing = schemaVersionOf(m_databasePath);
     if (existing != 0 && existing != SchemaVersion) {
+        // isoTimestampUtc()'s colons (the "T14:23:45Z" part) are fine as
+        // a stored value -- every other call site uses it that way --
+        // but not as part of a filename: NTFS reads a colon there as the
+        // start of an Alternate Data Stream name, so fs::rename() failed
+        // to find any such "file", set ec, and this correctly-but-
+        // needlessly threw "could not move it aside" on every Windows
+        // run that ever hit this path.
+        std::string timestamp = isoTimestampUtc();
+        std::replace(timestamp.begin(), timestamp.end(), ':', '-');
         fs::path superseded = m_databasePath;
-        superseded += ".superseded-" + std::to_string(existing) + "-" + isoTimestampUtc();
+        superseded += ".superseded-" + std::to_string(existing) + "-" + timestamp;
         fs::rename(m_databasePath, superseded, ec);
         if (ec) {
             throw std::runtime_error(std::string(Context) + ": found a database written by another version of "
