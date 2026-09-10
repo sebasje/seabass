@@ -11,6 +11,7 @@
 
 #include "infrastructure/engine/libdjinterop_engine_cue_writer.hpp"
 #include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
+#include "gui/edit/format_write_session.hpp"
 #include "infrastructure/rekordbox/anlz_path_index.hpp"
 
 namespace seabass::gui
@@ -123,5 +124,29 @@ infrastructure::onelibrary::OneLibraryCueWriter &sharedOneLibraryWriter(
 // full SQLite open plus schema detection, about 151 ms against a stick.
 infrastructure::engine::LibdjinteropEngineCueWriter &sharedEngineCueWriter(SaveContext &ctx,
                                                                            const std::string &engineLibraryPath);
+
+// The save's one write target for a catalog database -- the scratch
+// decision, the backup and the commit -- for every change that writes it,
+// whichever feature staged that change.
+//
+// Keyed on the database file, deliberately, and not on the feature.
+// FormatWriteSession's own class comment has always promised that "every
+// change of one save that writes the same catalog uses the same copy",
+// but each feature kept a session inside its own per-feature context, so
+// the promise held only within a feature. Two features writing one
+// database in one save is not hypothetical: Clean Up scratches
+// export.pdb while Restore Metadata writes a rating into it, and whoever
+// commits second wins -- either the ratings vanish while the page reports
+// them applied, or a save that landed reports failure. Sharing the
+// session means there is one copy, one commit, and nothing to race.
+//
+// itemCountHint and label come from whichever change asks first, since
+// the scratch decision is made once, at construction. That makes the
+// hint a lower bound rather than a total, which only ever costs speed:
+// too low a hint writes directly to a database that would have been
+// faster to scratch. Correctness does not depend on it.
+FormatWriteSession &sharedFormatWriteSession(SaveContext &ctx, const std::string &format,
+                                              const std::string &catalogPath, int itemCountHint,
+                                              const std::string &label);
 
 }  // namespace seabass::gui

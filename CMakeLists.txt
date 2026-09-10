@@ -1140,6 +1140,8 @@ if(TARGET Qt6::Core)
     # them: SQLCipher is loaded at runtime.
     add_executable(restore_metadata_change_test tests/restore_metadata_change_test.cpp)
     target_include_directories(restore_metadata_change_test PRIVATE src)
+    target_compile_definitions(restore_metadata_change_test PRIVATE
+        SEABASS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     target_link_libraries(restore_metadata_change_test PRIVATE seabass_edit Qt6::Core ZLIB::ZLIB)
     if(NOT WIN32)
         target_link_libraries(restore_metadata_change_test PRIVATE ${CMAKE_DL_LIBS})

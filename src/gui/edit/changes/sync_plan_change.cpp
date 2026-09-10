@@ -38,7 +38,8 @@ struct SyncFormatWriter
 {
     SyncFormatWriter(const std::string &format, const std::string &catalogPath, int itemCountHint, SaveContext &ctx,
                      const infrastructure::rekordbox::AnlzPathIndex *pathIndex)
-        : session(format, catalogPath, format == "rekordbox" ? 0 : itemCountHint, "sync", ctx)
+        : session(sharedFormatWriteSession(ctx, format, catalogPath,
+                                            format == "rekordbox" ? 0 : itemCountHint, "sync"))
     {
         if (format == "rekordbox") {
             rekordbox = std::make_unique<infrastructure::rekordbox::RekordboxCueWriter>(session.realRoot(),
@@ -54,7 +55,9 @@ struct SyncFormatWriter
         }
     }
 
-    FormatWriteSession session;
+    // The save's session for this database, shared with every
+    // other change that writes it -- see sharedFormatWriteSession().
+    FormatWriteSession &session;
     std::unique_ptr<infrastructure::rekordbox::RekordboxCueWriter> rekordbox;
     std::unique_ptr<infrastructure::engine::LibdjinteropEngineCueWriter> engine;
     std::unique_ptr<infrastructure::onelibrary::OneLibraryCueWriter> oneLibrary;

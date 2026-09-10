@@ -32,7 +32,10 @@
 #include "gui/edit/save_context.hpp"
 #include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
 #include "infrastructure/onelibrary/onelibrary_key.hpp"
+#include "gui/edit/changes/change_helpers.hpp"
+#include "gui/edit/format_write_session.hpp"
 #include "infrastructure/onelibrary/sqlcipher_dyn.hpp"
+#include "infrastructure/rekordbox/kaitai_rekordbox_reader.hpp"
 #include "infrastructure/work_counters.hpp"
 
 #include "scratch_path.hpp"
@@ -355,6 +358,85 @@ int main()
         assert(three == 2);
         assert(three == one);  // per save, not per track saved
         std::cout << "case 6: counted, and pinned so the fix has to move it\n";
+    }
+
+    // Case 7: two writers, one export.pdb, one save.
+    //
+    // Clean Up and Sync write export.pdb through a FormatWriteSession,
+    // which -- for a batch big enough to earn it -- redirects them to a
+    // local scratch copy and copies the whole file back onto the stick
+    // when the save finishes. Restore Metadata writes a rating into the
+    // same file. While each feature kept a session of its own, the two
+    // wrote different files and whichever committed last won: the
+    // session's copy, taken before the rating was written, silently
+    // replaced it, and the page still reported the restore as applied.
+    //
+    // The session is now shared per database, so both write the one copy
+    // that gets committed. This drives the real machinery -- a session
+    // that really is scratching, and a real RestoreMetadataChange -- and
+    // then reads the rating back off the stick's own export.pdb through
+    // a fresh reader.
+    {
+        const fs::path scratch = seabass::testing::scratchRoot() / "seabass_restore_metadata_change_two_writers";
+        std::error_code ec;
+        fs::remove_all(scratch, ec);
+        fs::create_directories(scratch);
+        const fs::path source =
+            fs::path(SEABASS_SOURCE_DIR) / "tests" / "fixtures" / "anonymized_library" / "rekordbox";
+        assert(fs::is_directory(source));
+        const fs::path pioneer = scratch / "PIONEER";
+        fs::copy(source, pioneer, fs::copy_options::recursive);
+
+        seabass::infrastructure::rekordbox::KaitaiRekordboxReader reader(pioneer.string());
+        const auto before = reader.readAll();
+        assert(!before.empty());
+        std::string targetId;
+        std::string targetTitle;
+        for (const auto &track : before) {
+            if (!track.rating) {
+                targetId = track.sourceId;
+                targetTitle = track.title;
+                break;
+            }
+        }
+        assert(!targetId.empty());  // an unrated track, so the change is unambiguous
+
+        auto &noProgress = seabass::application::NullProgressReporter::instance();
+        CancellationToken token;
+        const QString root = QString::fromStdString(pioneer.string());
+        {
+            SaveContext ctx(token, noProgress, {}, root, {});
+
+            // Stand-in for a Clean Up or Sync change staged into the same
+            // save: the session, asked for first and with a hint big
+            // enough that it redirects to a scratch copy.
+            auto &other = sharedFormatWriteSession(ctx, "rekordbox", pioneer.string(), 5000, "test-other-feature");
+            assert(other.usesScratch());  // otherwise this case proves nothing
+
+            MetadataRestoreProposal proposal;
+            proposal.storedId = "stored-x";
+            proposal.stickTrack.sourceId = targetId;
+            proposal.stickTrack.title = targetTitle;
+            proposal.ratingOffered = true;
+            proposal.rating = 4;
+
+            RestoreMetadataChange change("rekordbox", root, QString::fromStdString(targetId), proposal);
+            assert(change.apply(ctx).ok);
+            assert(!ctx.runFinishHooks(true));
+        }
+
+        // Off the stick's own file, through a reader that knows nothing
+        // about any of the above.
+        seabass::infrastructure::rekordbox::KaitaiRekordboxReader after(pioneer.string());
+        bool found = false;
+        for (const auto &track : after.readAll()) {
+            if (track.sourceId == targetId) {
+                found = true;
+                assert(track.rating && *track.rating == 4);
+            }
+        }
+        assert(found);
+        std::cout << "case 7: a rating survives a save that also scratches export.pdb\n";
     }
 
     std::cout << "restore_metadata_change_test: all cases passed\n";

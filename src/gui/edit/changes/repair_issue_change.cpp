@@ -31,7 +31,8 @@ namespace
 struct RepairWriterContext
 {
     RepairWriterContext(const QString &format, const QString &path, int itemCountHint, SaveContext &ctx)
-        : session(format.toStdString(), path.toStdString(), itemCountHint, "consistency-repair", ctx)
+        : session(sharedFormatWriteSession(ctx, format.toStdString(), path.toStdString(), itemCountHint,
+                                            "consistency-repair"))
     {
         std::string root = path.toStdString();
         if (format == "rekordbox") {
@@ -49,7 +50,9 @@ struct RepairWriterContext
         }
     }
 
-    FormatWriteSession session;
+    // The save's session for this database, shared with every
+    // other change that writes it -- see sharedFormatWriteSession().
+    FormatWriteSession &session;
     std::unique_ptr<infrastructure::rekordbox::RekordboxCueWriter> rekordboxCues;
     std::unique_ptr<infrastructure::rekordbox::RekordboxCleanupWriter> rekordboxCleanup;
     std::unique_ptr<infrastructure::engine::LibdjinteropEngineCueWriter> engineCues;

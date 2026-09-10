@@ -149,4 +149,16 @@ infrastructure::engine::LibdjinteropEngineCueWriter &sharedEngineCueWriter(SaveC
     });
 }
 
+FormatWriteSession &sharedFormatWriteSession(SaveContext &ctx, const std::string &format,
+                                              const std::string &catalogPath, int itemCountHint,
+                                              const std::string &label)
+{
+    // The database, not the feature -- see the header for what went
+    // wrong while this was keyed the other way.
+    const std::string key = "write-session:" + FormatWriteSession::databaseFileFor(format, catalogPath);
+    return ctx.shared<FormatWriteSession>(key, [&]() {
+        return std::make_unique<FormatWriteSession>(format, catalogPath, itemCountHint, label, ctx);
+    });
+}
+
 }  // namespace seabass::gui

@@ -246,39 +246,46 @@ save rather than the log saying so after it:
   overwriting.
 - Letting the browse page read the whole store to show twenty rows.
 
-## Known open: two writers against export.pdb
+## Two writers against one database, and how that was closed
 
-`RestoreMetadataChange` writes the rating into the live `export.pdb`
-through its own `PdbRowWriter` and commits it in an `onFinish` hook.
-`CleanupGroupChange` and `SyncPlanChange` write the same file through a
-`FormatWriteSession` scratch copy and copy the whole file back in *their*
-`onFinish` hook. Both features share one `LibraryEditSession` per library,
-so both can be staged into a single save, and hooks run in creation
-order:
+`RestoreMetadataChange` writes a rating into `export.pdb`. Clean Up and
+Sync write the same file through a `FormatWriteSession`, which for a
+large enough batch redirects them to a local scratch copy and copies the
+whole file back when the save finishes. Both features share one
+`LibraryEditSession` per library, so both can land in a single save --
+and while each feature kept a session of its own, the two wrote
+*different files*. Whichever committed last won: the session's copy, made
+before the rating was written, silently replaced it while the page
+reported the restore as applied.
 
-- the session's hook last overwrites `export.pdb` with a scratch copy
-  made before the ratings were written -- the ratings are lost and the
-  page reports them applied;
-- the restore's hook last finds the file changed underneath it,
-  `commit()` returns false, the hook throws, and the save reports a
-  failure even though the cleanup landed.
+The same hole was open for Engine and OneLibrary, not just `export.pdb`:
+any change writing a catalog database directly loses to another change's
+scratch commit.
 
-Nothing serialises the two. This is new with this feature: before it, no
-change wrote `export.pdb` outside a `FormatWriteSession`.
+`FormatWriteSession`'s own class comment had promised the fix all along
+-- "every change of one save that writes the same catalog uses the same
+copy" -- but each feature obtained its session under a per-feature key,
+so the promise held only *within* a feature. It is now obtained through
+`sharedFormatWriteSession()`, keyed on the database file. One copy, one
+commit, nothing to race, and every writer in this feature points at
+`session.writeRoot()` rather than at the stick.
 
-Two ways out, and the choice is not obvious. **Key `FormatWriteSession`
-on (format, catalog path) rather than per feature**, so every change in a
-save shares one scratch copy and one commit -- correct, and what
-`sharedOneLibraryWriter()` already argues for in its own comment, but it
-touches Clean Up, Sync and Library Health repair and moves counts
-`corpus_test` pins. Or **refuse the combination**: have the edit session
-decline to stage a rekordbox rating restore while a change that rewrites
-`export.pdb` is staged, and say so -- small, and it follows the rule the
-browsed-backup incident left behind (refuse where the destruction
-happens, not where the button is), at the cost of a real workflow.
+Two smaller things fell out of it. The rating is written and committed
+per rated track rather than buffered across the save: `PdbRowWriter`
+reads the whole file at construction and refuses to commit if anything
+changed underneath, so holding one open across a save that another change
+also writes is a guaranteed loser. And rekordbox cues still go to the
+real catalog folder, because they live in per-track ANLZ files rather
+than in `export.pdb` -- the same split `makeContext()` draws in Clean Up.
 
-Until one of them lands, a save that stages Restore Metadata ratings and
-Clean Up together on one stick is not safe.
+`tests/restore_metadata_change_test.cpp` case 7 drives it: a session that
+really is scratching, a real restore change, and the rating read back off
+the stick's own `export.pdb` afterwards.
+
+Still on the same footing and not addressed here: `MergeCuesChange`
+(Local cue restore) writes its catalogs directly too. It is the
+deprecated ancestor of this feature and may be removed before it is worth
+converting.
 
 ## Relationship to Local Cue Backup
 
