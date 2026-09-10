@@ -16,6 +16,8 @@
 
 #include "infrastructure/backup/stick_space.hpp"
 
+#include "scratch_path.hpp"
+
 using namespace seabass::infrastructure::backup;
 namespace fs = std::filesystem;
 
@@ -82,7 +84,7 @@ int main()
 
     // ---- the measurement ------------------------------------------------
     {
-        const fs::path root = fs::temp_directory_path() / "seabass-stick-space-test";
+        const fs::path root = seabass::testing::scratchRoot() / "seabass-stick-space-test";
         fs::remove_all(root);
 
         // An absent stick measures as nothing rather than throwing.

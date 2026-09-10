@@ -19,6 +19,8 @@
 #include "gui/edit/save_context.hpp"
 #include "gui/edit/save_loop.hpp"
 
+#include "scratch_path.hpp"
+
 using namespace seabass::gui;
 using seabass::application::CancellationToken;
 namespace fs = std::filesystem;
@@ -92,7 +94,7 @@ fs::path makeStick(const fs::path &root)
 
 int main()
 {
-    fs::path root = fs::temp_directory_path() / "seabass_edit_session_save_loop_test";
+    fs::path root = seabass::testing::scratchRoot() / "seabass_edit_session_save_loop_test";
     fs::path pioneer = makeStick(root);
     auto &noProgress = seabass::application::NullProgressReporter::instance();
     QString rb = QString::fromStdString(pioneer.string());

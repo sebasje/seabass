@@ -83,6 +83,8 @@
 #include "gui/edit/changes/sync_plan_change.hpp"
 #include "gui/edit/save_context.hpp"
 #include "gui/edit/save_loop.hpp"
+
+#include "scratch_path.hpp"
 #endif
 
 namespace fs = std::filesystem;
@@ -184,7 +186,7 @@ std::optional<DataSet> asDataSet(const fs::path &dir)
 // Where a zipped set gets unpacked, once, before anything reads it.
 fs::path unpackedSetsRoot()
 {
-    return fs::temp_directory_path() / "seabass_corpus_unpacked";
+    return seabass::testing::scratchRoot() / "seabass_corpus_unpacked";
 }
 
 // A set kept as one file rather than six thousand. Unpacked into a scratch
@@ -334,11 +336,25 @@ public:
         if (!m_dirty) {
             return;
         }
-        std::ofstream out(m_path, std::ios::trunc);
-        out << "# Written by corpus_test. Delete this file to re-record after a\n"
-               "# deliberate change to the data set itself.\n";
-        for (const auto &[key, value] : m_values) {
-            out << key << " " << value << "\n";
+        // Written through a temp file and renamed, because this one path
+        // is shared by every corpus_test process on the machine and two
+        // of them re-recording at once would otherwise interleave into a
+        // half-written file that neither run could read back. Rare -- it
+        // needs two runs recording new expectations at the same moment --
+        // and cheap enough not to reason about.
+        const fs::path temp = m_path.string() + ".tmp-" + std::to_string(::getpid());
+        {
+            std::ofstream out(temp, std::ios::trunc);
+            out << "# Written by corpus_test. Delete this file to re-record after a\n"
+                   "# deliberate change to the data set itself.\n";
+            for (const auto &[key, value] : m_values) {
+                out << key << " " << value << "\n";
+            }
+        }
+        std::error_code ec;
+        fs::rename(temp, m_path, ec);
+        if (ec) {
+            fs::remove(temp, ec);
         }
     }
 
@@ -366,7 +382,7 @@ fs::path scratchFor(const std::string &name)
     for (char c : name) {
         safe += (c == ' ' || c == '/') ? '_' : c;
     }
-    fs::path root = fs::temp_directory_path() / ("seabass_corpus_test_" + safe);
+    fs::path root = seabass::testing::scratchRoot() / ("seabass_corpus_test_" + safe);
     fs::remove_all(root);
     fs::create_directories(root);
     return root;

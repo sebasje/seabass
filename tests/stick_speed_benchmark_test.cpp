@@ -5,6 +5,8 @@
 
 #include "infrastructure/benchmark/stick_speed_benchmark.hpp"
 
+#include "scratch_path.hpp"
+
 using namespace seabass::infrastructure::benchmark;
 namespace fs = std::filesystem;
 
@@ -23,7 +25,7 @@ void writeFile(const fs::path &path, std::size_t bytes)
 
 int main()
 {
-    fs::path root = fs::temp_directory_path() / "seabass_speed_benchmark_test";
+    fs::path root = seabass::testing::scratchRoot() / "seabass_speed_benchmark_test";
     fs::remove_all(root);
     fs::create_directories(root);
 

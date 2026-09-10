@@ -234,6 +234,7 @@ add_library(seabass_core STATIC
     src/domain/library_consistency.cpp
     src/domain/library_statistics.cpp
     src/domain/local_restore.cpp
+    src/domain/metadata_restore.cpp
     src/domain/sync_planning.cpp
     src/domain/track_matching.cpp
     src/domain/track_queries.cpp
@@ -529,6 +530,8 @@ if(SEABASS_GUI AND Qt6_FOUND)
         src/gui/edit/changes/device_setting_change.cpp
         src/gui/edit/changes/merge_cues_change.hpp
         src/gui/edit/changes/merge_cues_change.cpp
+        src/gui/edit/changes/restore_metadata_change.hpp
+        src/gui/edit/changes/restore_metadata_change.cpp
         src/gui/edit/changes/remove_junk_cue_change.hpp
         src/gui/edit/changes/remove_junk_cue_change.cpp
         src/gui/edit/changes/repair_issue_change.hpp
@@ -978,6 +981,14 @@ add_executable(local_restore_test
 )
 target_include_directories(local_restore_test PRIVATE src)
 add_test(NAME local_restore_test COMMAND local_restore_test)
+
+add_executable(metadata_restore_test
+    src/domain/metadata_restore.cpp
+    src/domain/track_matching.cpp
+    tests/metadata_restore_test.cpp
+)
+target_include_directories(metadata_restore_test PRIVATE src)
+add_test(NAME metadata_restore_test COMMAND metadata_restore_test)
 
 add_executable(durable_file_write_test
     src/infrastructure/durable_file_write.cpp

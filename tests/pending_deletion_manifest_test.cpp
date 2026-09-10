@@ -4,12 +4,14 @@
 
 #include "infrastructure/cleanup/pending_deletion_manifest.hpp"
 
+#include "scratch_path.hpp"
+
 using namespace seabass::infrastructure::cleanup;
 namespace fs = std::filesystem;
 
 int main()
 {
-    fs::path root = fs::temp_directory_path() / "seabass_pending_deletion_manifest_test";
+    fs::path root = seabass::testing::scratchRoot() / "seabass_pending_deletion_manifest_test";
     fs::remove_all(root);
     fs::create_directories(root);
     fs::path manifestPath = root / ".seabass-pending-deletions.jsonl";

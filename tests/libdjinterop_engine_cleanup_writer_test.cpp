@@ -7,12 +7,14 @@
 
 #include "infrastructure/engine/libdjinterop_engine_cleanup_writer.hpp"
 
+#include "scratch_path.hpp"
+
 using namespace seabass::infrastructure::engine;
 namespace fs = std::filesystem;
 
 int main()
 {
-    fs::path root = fs::temp_directory_path() / "seabass_engine_cleanup_writer_test" / "Engine Library";
+    fs::path root = seabass::testing::scratchRoot() / "seabass_engine_cleanup_writer_test" / "Engine Library";
     fs::remove_all(root.parent_path());
     fs::create_directories(root.parent_path());
 

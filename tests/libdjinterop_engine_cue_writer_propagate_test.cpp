@@ -8,6 +8,8 @@
 
 #include "infrastructure/engine/libdjinterop_engine_cue_writer.hpp"
 
+#include "scratch_path.hpp"
+
 using namespace seabass::infrastructure::engine;
 namespace fs = std::filesystem;
 
@@ -21,7 +23,7 @@ namespace
 fs::path freshRoot(const std::string &caseName)
 {
     fs::path root =
-        fs::temp_directory_path() / "seabass_engine_cue_writer_propagate_test" / caseName / "Engine Library";
+        seabass::testing::scratchRoot() / "seabass_engine_cue_writer_propagate_test" / caseName / "Engine Library";
     fs::remove_all(root.parent_path());
     fs::create_directories(root.parent_path());
     return root;

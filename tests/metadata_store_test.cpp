@@ -11,6 +11,8 @@
 #include "domain/track.hpp"
 #include "infrastructure/local/metadata_store.hpp"
 
+#include "scratch_path.hpp"
+
 using seabass::application::CancellationToken;
 using seabass::application::NullProgressReporter;
 using seabass::domain::CuePoint;
@@ -26,7 +28,7 @@ namespace
 
 fs::path scratchRoot()
 {
-    return fs::temp_directory_path() / ("seabass-metadata-store-test-" + std::to_string(::getpid()));
+    return seabass::testing::scratchRoot() / ("seabass-metadata-store-test-" + std::to_string(::getpid()));
 }
 
 void writeFile(const fs::path &path, const std::string &data)

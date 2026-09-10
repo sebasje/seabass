@@ -19,6 +19,8 @@
 #include "infrastructure/onelibrary/onelibrary_key.hpp"
 #include "infrastructure/onelibrary/sqlcipher_dyn.hpp"
 
+#include "scratch_path.hpp"
+
 namespace fs = std::filesystem;
 using namespace seabass::infrastructure::onelibrary;
 
@@ -94,7 +96,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    const fs::path root = fs::temp_directory_path() / "seabass_onelibrary_anonymizer_test";
+    const fs::path root = seabass::testing::scratchRoot() / "seabass_onelibrary_anonymizer_test";
     std::error_code ec;
     fs::remove_all(root, ec);
     fs::create_directories(root);

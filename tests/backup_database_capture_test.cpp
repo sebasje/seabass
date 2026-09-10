@@ -14,6 +14,8 @@
 #include "infrastructure/stick_backup/sqlite_db_set.hpp"
 #include "infrastructure/stick_backup/zip64_reader.hpp"
 
+#include "scratch_path.hpp"
+
 using namespace seabass::infrastructure::stick_backup;
 namespace fs = std::filesystem;
 
@@ -75,7 +77,7 @@ struct Harness
 
 int main()
 {
-    fs::path root = fs::temp_directory_path() / "seabass_backup_database_capture_test";
+    fs::path root = seabass::testing::scratchRoot() / "seabass_backup_database_capture_test";
     fs::remove_all(root);
     fs::create_directories(root / "Engine Library" / "Database2");
     fs::path mainDb = root / "Engine Library" / "Database2" / "m.db";

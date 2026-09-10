@@ -26,6 +26,8 @@
 #include "application/use_cases/compact_stick_backup.hpp"
 #include "application/use_cases/restore_stick_backup.hpp"
 
+#include "scratch_path.hpp"
+
 using namespace seabass::application;
 namespace fs = std::filesystem;
 
@@ -60,7 +62,7 @@ struct Fixture
     BackupStickOptions options;
 
     explicit Fixture(const std::string &name)
-        : root(fs::temp_directory_path() / ("seabass_archive_write_lock_test_" + name)), stick(root / "stick"),
+        : root(seabass::testing::scratchRoot() / ("seabass_archive_write_lock_test_" + name)), stick(root / "stick"),
           archive(root / "Seabass Backups" / "STICK.zip")
     {
         fs::remove_all(root);

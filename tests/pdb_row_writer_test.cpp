@@ -14,6 +14,8 @@
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 #include "infrastructure/rekordbox/pdb_row_writer.hpp"
 
+#include "scratch_path.hpp"
+
 using namespace seabass::infrastructure::rekordbox;
 namespace fs = std::filesystem;
 using Pdb = rekordbox_pdb_t;
@@ -235,7 +237,7 @@ std::optional<TrackFields> findTrackFields(const ReadBack &rb, uint32_t id)
 
 int main()
 {
-    fs::path root = fs::temp_directory_path() / "seabass_pdb_row_writer_test";
+    fs::path root = seabass::testing::scratchRoot() / "seabass_pdb_row_writer_test";
     fs::remove_all(root);
     fs::create_directories(root);
     fs::path pdbPath = root / "export.pdb";

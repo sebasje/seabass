@@ -6,6 +6,8 @@
 #include "infrastructure/stick_backup/library_catalog_mtime.hpp"
 #include "infrastructure/stick_backup/stick_tree_walker.hpp"
 
+#include "scratch_path.hpp"
+
 using namespace seabass::infrastructure::stick_backup;
 namespace fs = std::filesystem;
 
@@ -26,7 +28,7 @@ void writeFile(const fs::path &p, std::int64_t mtime)
 
 int main()
 {
-    const fs::path root = fs::temp_directory_path() / "seabass_library_catalog_mtime_test";
+    const fs::path root = seabass::testing::scratchRoot() / "seabass_library_catalog_mtime_test";
     fs::remove_all(root);
     fs::create_directories(root);
 

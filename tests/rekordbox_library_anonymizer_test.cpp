@@ -16,6 +16,8 @@
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 #include "infrastructure/rekordbox/rekordbox_library_anonymizer.hpp"
 
+#include "scratch_path.hpp"
+
 using namespace seabass::infrastructure::rekordbox;
 namespace fs = std::filesystem;
 using Pdb = rekordbox_pdb_t;
@@ -429,7 +431,7 @@ bool hasFourcc(const AnlzFile &f, Anlz::section_tags_t tag)
 
 int main()
 {
-    fs::path root = fs::temp_directory_path() / "seabass_rekordbox_library_anonymizer_test";
+    fs::path root = seabass::testing::scratchRoot() / "seabass_rekordbox_library_anonymizer_test";
     fs::remove_all(root);
     fs::create_directories(root);
 

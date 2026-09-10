@@ -7,6 +7,8 @@
 
 #include "infrastructure/rekordbox/pdb_row_writer.hpp"
 
+#include "scratch_path.hpp"
+
 // PdbRowWriter's staleness guard, against the one case that twice defeated
 // weaker versions of it: an external rewrite of the .pdb, in the SAME
 // process, at IDENTICAL length.
@@ -81,7 +83,7 @@ PdbRowWriter::TrackTextOverride titleOverride(const std::string &title)
 
 int main()
 {
-    const fs::path scratch = fs::temp_directory_path() / "seabass_pdb_row_writer_staleness_test";
+    const fs::path scratch = seabass::testing::scratchRoot() / "seabass_pdb_row_writer_staleness_test";
 
     // The control case is not a formality -- it's what distinguishes "the
     // guard works" from "the guard refuses everything". A guard stuck
