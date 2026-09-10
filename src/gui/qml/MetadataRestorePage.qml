@@ -187,6 +187,28 @@ Page {
             color: Theme.danger
         }
 
+        // Said before the save, not discovered in the log afterwards.
+        // A page that silently declines to write a field teaches the DJ
+        // that the field is unreliable; one that says which format
+        // cannot hold it teaches them something true about their own
+        // library.
+        Label {
+            Layout.fillWidth: true
+            visible: controller.commentsRekordboxCannotTake > 0
+            wrapMode: Text.WordWrap
+            color: Theme.warnText
+            font.pointSize: Theme.fontSmall
+            text: {
+                var n = controller.commentsRekordboxCannotTake;
+                return (n === 1 ? "One track's comment cannot be put back: it is"
+                                : n + " tracks' comments cannot be put back: they are")
+                     + " catalogued only in DeviceLibrary, which stores a comment in a fixed space "
+                     + "decided when the stick was exported and cannot make room for a new one. "
+                     + "Their cues and ratings still go back. Engine and Device Library Plus take "
+                     + "comments of any length.";
+            }
+        }
+
         Rectangle {
             Layout.fillWidth: true
             implicitHeight: 1
@@ -213,6 +235,8 @@ Page {
                 required property int cuesAdded
                 required property bool fillsAGap
                 required property bool conflict
+                required property int rating
+                required property string comment
                 required property bool staged
 
                 width: ListView.view.width
@@ -265,6 +289,21 @@ Page {
                             + " to put back"
                         color: Theme.textMuted
                         font.pointSize: Theme.fontSmall
+                    }
+                    StarRating {
+                        visible: proposalRow.rating >= 0
+                        value: Math.max(0, proposalRow.rating)
+                        editable: false
+                        ToolTip.visible: hovered
+                        ToolTip.text: "This rating goes back on the track"
+                    }
+                    Label {
+                        visible: proposalRow.comment.length > 0
+                        text: "comment"
+                        color: Theme.textMuted
+                        font.pointSize: Theme.fontSmall
+                        ToolTip.visible: hovered
+                        ToolTip.text: proposalRow.comment
                     }
                     Button {
                         objectName: "stageButton"

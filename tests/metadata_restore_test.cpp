@@ -209,6 +209,52 @@ int main()
         std::cout << "case 8 (only the tracks with something to gain) OK\n";
     }
 
+    // ---- case 9: what each format can actually take -------------------
+    //
+    // The planner offers a comment whenever the store has one and the
+    // stick does not; which formats can store it is the writer's
+    // business. This pins the fact the page depends on: a proposal
+    // carries the catalog rows that decide it, so a track catalogued
+    // only in DeviceLibrary is distinguishable from one Engine also
+    // holds. See tests/pdb_rating_write_test.cpp for why that matters.
+    {
+        Track rekordboxOnly = stickTrack("Erste");
+        rekordboxOnly.catalogRows = {{"rekordbox", "42"}};
+        Track alsoEngine = stickTrack("Zweite");
+        alsoEngine.sourceId = "43";
+        alsoEngine.catalogRows = {{"rekordbox", "43"}, {"engine", "900"}};
+
+        Track storedFirst = storedTrack("Erste");
+        storedFirst.comment = "peak time";
+        storedFirst.rating = 4;
+        Track storedSecond = storedTrack("Zweite");
+        storedSecond.sourceId = "8";
+        storedSecond.comment = "closer";
+
+        const auto proposals = planMetadataRestore({rekordboxOnly, alsoEngine}, {storedFirst, storedSecond},
+                                                    MetadataRestorePolicy::SkipConflicts);
+        assert(proposals.size() == 2);
+
+        const auto *first = find(proposals, "Erste");
+        assert(first && first->commentOffered);
+        assert(first->stickTrack.catalogRows.size() == 1);
+        assert(first->stickTrack.catalogRows[0].format == "rekordbox");
+        // A rating goes back even on this one: export.pdb stores it in a
+        // byte that is already there.
+        assert(first->ratingOffered && *first->rating == 4);
+
+        const auto *second = find(proposals, "Zweite");
+        assert(second && second->commentOffered);
+        bool hasEngine = false;
+        for (const auto &row : second->stickTrack.catalogRows) {
+            if (row.format == "engine") {
+                hasEngine = true;
+            }
+        }
+        assert(hasEngine);
+        std::cout << "case 9 (a proposal carries the catalogs that decide what can be written) OK\n";
+    }
+
     std::cout << "all metadata_restore_test cases passed\n";
     return 0;
 }

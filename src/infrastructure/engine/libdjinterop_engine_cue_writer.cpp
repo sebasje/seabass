@@ -43,6 +43,32 @@ djinterop::database &LibdjinteropEngineCueWriter::database()
     return *m_database;
 }
 
+void LibdjinteropEngineCueWriter::writeAnnotation(const std::string &trackSourceId,
+                                                    const std::optional<int> &stars,
+                                                    const std::optional<std::string> &comment)
+{
+    if (!stars && !comment) {
+        return;
+    }
+
+    auto &db = database();
+    auto track = db.track_by_id(std::stoll(trackSourceId));
+    if (!track) {
+        throw std::runtime_error("no Engine track with id=" + trackSourceId);
+    }
+
+    if (stars) {
+        // Engine stores 0 to 100; domain::Track carries 0 to 5, which is
+        // what every reader normalises to. Twenty per star, so three
+        // stars is 60 and the value round-trips through the reader's own
+        // division unchanged.
+        track->set_rating(*stars * 20);
+    }
+    if (comment) {
+        track->set_comment(*comment);
+    }
+}
+
 void LibdjinteropEngineCueWriter::writeHotCues(const std::string &trackSourceId,
                                                 const std::vector<domain::CuePoint> &cues)
 {

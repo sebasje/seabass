@@ -30,6 +30,13 @@ public:
     // artwork propagation isn't offered for this format. Either
     // optional being unset just skips that field; throws if the track
     // doesn't exist.
+    // The two authored fields that are not cues. Rating in stars (0 to
+    // 5, the scale domain::Track uses); Engine's own 0-to-100 scale is
+    // applied here rather than by the caller. Either may be absent, and
+    // an absent one is left alone rather than cleared.
+    void writeAnnotation(const std::string &trackSourceId, const std::optional<int> &stars,
+                          const std::optional<std::string> &comment);
+
     void propagateMissingFields(const std::string &trackSourceId, std::optional<double> bpm,
                                  std::optional<std::string> key);
 

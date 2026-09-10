@@ -447,6 +447,61 @@ void OneLibraryCueWriter::removeTrackByPathReplacingWith(const std::string &doom
     refreshStalenessBaseline();
 }
 
+void OneLibraryCueWriter::writeAnnotationForPath(const std::string &filePath, const std::optional<int> &stars,
+                                                   const std::optional<std::string> &comment)
+{
+    if (!stars && !comment) {
+        return;
+    }
+
+    checkNotStale();
+
+    const std::string contentPath = toContentPath(m_stickRoot, filePath);
+    SqlCipherDb &db = writeConnection();
+
+    int64_t contentId = -1;
+    {
+        SqlCipherStatement find(db, "SELECT content_id FROM content WHERE path = ?");
+        find.bindText(1, contentPath);
+        if (!find.step()) {
+            throw std::runtime_error("onelibrary: no content row for path " + contentPath);
+        }
+        contentId = find.columnInt64(0);
+    }
+
+    db.exec("BEGIN IMMEDIATE;");
+    try {
+        if (stars) {
+            // Stars, 0 to 5, the same scale rekordbox uses and the same
+            // one domain::Track carries. Not Engine's 0-100: measured on
+            // the committed fixture, whose one rated track reads 3 here
+            // and three stars everywhere else.
+            SqlCipherStatement set(db, "UPDATE content SET rating = ? WHERE content_id = ?");
+            set.bindInt64(1, *stars);
+            set.bindInt64(2, contentId);
+            set.run();
+        }
+        if (comment) {
+            // djComment, not "comment" -- the schema has no such column,
+            // and a scrub that looked for one silently did nothing for a
+            // while (see onelibrary_anonymizer.cpp's note).
+            SqlCipherStatement set(db, "UPDATE content SET djComment = ? WHERE content_id = ?");
+            set.bindText(1, *comment);
+            set.bindInt64(2, contentId);
+            set.run();
+        }
+        db.exec("COMMIT;");
+    } catch (...) {
+        try {
+            db.exec("ROLLBACK;");
+        } catch (...) {
+        }
+        throw;
+    }
+
+    refreshStalenessBaseline();
+}
+
 void OneLibraryCueWriter::propagateMissingFieldsForPath(const std::string &donorFilePath,
                                                           const std::string &targetFilePath, bool copyBpm,
                                                           bool copyKey, bool copyArtwork)

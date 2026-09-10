@@ -125,6 +125,18 @@ public:
     // opts that one field in; throws if either path has no matching
     // content row, or if the file changed since this writer was
     // constructed (same staleness guard as writeCuesForPath()).
+    // Writes the two authored fields that are not cues: the rating in
+    // stars (0 to 5, the scale domain::Track uses) and the DJ's own
+    // comment. Either may be absent, and an absent one is left alone
+    // rather than cleared.
+    //
+    // Unlike export.pdb, which keeps a comment in a fixed byte span it
+    // cannot grow, this is a plain SQL column: any comment fits. See
+    // docs/metadata-backup-plan.md for the per-format table that falls
+    // out of that difference.
+    void writeAnnotationForPath(const std::string &filePath, const std::optional<int> &stars,
+                                 const std::optional<std::string> &comment);
+
     void propagateMissingFieldsForPath(const std::string &donorFilePath, const std::string &targetFilePath,
                                         bool copyBpm, bool copyKey, bool copyArtwork);
 

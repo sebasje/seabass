@@ -12,6 +12,7 @@
 #include "infrastructure/engine/libdjinterop_engine_cue_writer.hpp"
 #include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
+#include "infrastructure/rekordbox/pdb_row_writer.hpp"
 #include "infrastructure/rekordbox/rekordbox_cue_writer.hpp"
 
 namespace seabass::gui
@@ -60,7 +61,88 @@ struct RestoreWriterContext
 
     std::unique_ptr<application::CueWriter> writer;
     std::unique_ptr<infrastructure::onelibrary::OneLibraryCueWriter> mirror;
+    // rekordbox only, and only when a rating is actually being written:
+    // this one rewrites export.pdb, which no cue write touches at all.
+    std::unique_ptr<infrastructure::rekordbox::PdbRowWriter> pdbRows;
+    std::string pdbPath;
+    bool pdbDirty = false;
 };
+
+// Writes the rating and the comment, per format, and says in the log
+// what each format could not take rather than leaving a gap.
+//
+// The per-format table is measured, not assumed -- see
+// docs/metadata-backup-plan.md and tests/pdb_rating_write_test.cpp:
+// Engine and OneLibrary take both fields; export.pdb takes the rating
+// (one byte, already there) and cannot take a comment it does not
+// already have room for.
+void applyAnnotation(SaveContext &ctx, RestoreWriterContext &writer, const QString &format, const QString &path,
+                      const std::string &sourceId, const domain::MetadataRestoreProposal &proposal)
+{
+    const std::optional<int> stars = proposal.ratingOffered ? proposal.rating : std::nullopt;
+    const std::optional<std::string> comment =
+        proposal.commentOffered ? std::optional<std::string>(proposal.comment) : std::nullopt;
+    if (!stars && !comment) {
+        return;
+    }
+
+    if (format == "engine") {
+        auto *engine = dynamic_cast<infrastructure::engine::LibdjinteropEngineCueWriter *>(writer.writer.get());
+        if (engine) {
+            engine->writeAnnotation(sourceId, stars, comment);
+        }
+        return;
+    }
+
+    if (format == "rekordbox") {
+        // The rating is a one-byte field in export.pdb, which no cue
+        // write touches -- so this needs its own writer, opened once per
+        // save and committed by an onFinish hook after the loop.
+        if (stars) {
+            if (!writer.pdbRows) {
+                writer.pdbPath = (fs::path(path.toStdString()) / "rekordbox" / "export.pdb").string();
+                ctx.backupOnce(writer.pdbPath, LogTag);
+                writer.pdbRows = std::make_unique<infrastructure::rekordbox::PdbRowWriter>(writer.pdbPath);
+                RestoreWriterContext *held = &writer;
+                ctx.onFinish([held](bool ok) {
+                    if (ok && held->pdbDirty && held->pdbRows) {
+                        held->pdbRows->commit();
+                    }
+                });
+            }
+            if (writer.pdbRows->setTrackRating(static_cast<uint32_t>(std::stoul(sourceId)), *stars)) {
+                writer.pdbDirty = true;
+            }
+        }
+        if (comment) {
+            // Measured: export.pdb keeps a comment in a byte span fixed
+            // at export time, and 1160 of the fixture's 1161 tracks have
+            // a span of zero. Writing a truncated prefix of the DJ's own
+            // sentence would be worse than not writing it, so this says
+            // so instead. The page says the same thing before the save.
+            ctx.log().record(std::string(LogTag) + ": DeviceLibrary cannot store a comment for \"" + proposal.stickTrack.title +
+                             "\" -- its row has no room to grow one");
+        }
+        // The mirror is the other half of the same library.
+        if (writer.mirror && !proposal.stickTrack.filePath.empty()) {
+            try {
+                writer.mirror->writeAnnotationForPath(proposal.stickTrack.filePath, stars, comment);
+            } catch (const std::exception &e) {
+                ctx.log().record(std::string(LogTag) + ": OneLibrary annotation write failed: " + e.what());
+            }
+        }
+        return;
+    }
+
+    // format == "onelibrary": its own writer is the adapter, so go
+    // through a plain OneLibraryCueWriter on the same root.
+    try {
+        infrastructure::onelibrary::OneLibraryCueWriter direct(path.toStdString());
+        direct.writeAnnotationForPath(proposal.stickTrack.filePath, stars, comment);
+    } catch (const std::exception &e) {
+        ctx.log().record(std::string(LogTag) + ": OneLibrary annotation write failed: " + e.what());
+    }
+}
 
 }  // namespace
 
@@ -158,6 +240,8 @@ ChangeOutcome RestoreMetadataChange::apply(SaveContext &ctx)
                              "\": " + e.what());
         }
     }
+
+    applyAnnotation(ctx, writer, m_format, m_path, sourceId, m_proposal);
     return ChangeOutcome::success();
 }
 
