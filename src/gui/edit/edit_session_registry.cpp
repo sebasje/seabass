@@ -207,17 +207,38 @@ bool EditSessionRegistry::hasSession(const QString &libraryId) const
 
 bool EditSessionRegistry::isReadOnlyLibrary(const QString &libraryId) const
 {
-    if (!m_mediaController) {
-        return false;
+    if (m_mediaController) {
+        if (const auto stick = m_mediaController->stickForLibraryId(libraryId)) {
+            return stick->isBrowsedBackup;
+        }
     }
-    const auto stick = m_mediaController->stickForLibraryId(libraryId);
-    return stick && stick->isBrowsedBackup;
+    // No row for this library -- the list has not refreshed yet, the row
+    // was dropped, or there is no media controller at all. Fall back to
+    // what is on disk, which is what stage() has always asked. Without
+    // this the two disagree: a staged edit is refused while a direct
+    // write into the same cache proceeds.
+    if (const auto it = m_sessions.find(libraryId); it != m_sessions.end() && it->second) {
+        return it->second->editsBrowsedBackup();
+    }
+    return false;
 }
 
 void EditSessionRegistry::reportReadOnlyRefusal(const QString &libraryId, const QString &label)
 {
+    // The label is often empty: a controller may create the session
+    // before the page that knows the stick's name. Resolved here so no
+    // caller can render '"" is a stick backup being browsed'.
+    QString name = label;
+    if (name.isEmpty() && m_mediaController) {
+        if (const auto stick = m_mediaController->stickForLibraryId(libraryId)) {
+            name = QString::fromStdString(stick->label);
+        }
+    }
+    if (name.isEmpty()) {
+        name = libraryId;
+    }
     emit directWriteRefused(libraryId,
-                            QString::fromStdString(infrastructure::local::browsedBackupRefusal(label.toStdString())));
+                            QString::fromStdString(infrastructure::local::browsedBackupRefusal(name.toStdString())));
 }
 
 QString EditSessionRegistry::mountPointForPath(const QString &anyLibraryPath) const
@@ -303,13 +324,18 @@ application::LibraryEditLock EditSessionRegistry::lockTemplate(const QString &li
 
 bool EditSessionRegistry::tryEnterDirectWrite(const QString &libraryId, const QString &stickLabel)
 {
+    return !enterDirectWrite(libraryId, stickLabel).has_value();
+}
+
+std::optional<EditSessionRegistry::Refusal> EditSessionRegistry::enterDirectWrite(const QString &libraryId,
+                                                                                  const QString &stickLabel)
+{
     if (libraryId.isEmpty()) {
-        return true;  // nothing to lock against (a blank drive)
+        return std::nullopt;  // nothing to lock against (a blank drive)
     }
     if (isReadOnlyLibrary(libraryId)) {
-        const auto stick = m_mediaController->stickForLibraryId(libraryId);
-        reportReadOnlyRefusal(libraryId, stick ? QString::fromStdString(stick->label) : libraryId);
-        return false;
+        reportReadOnlyRefusal(libraryId, stickLabel);
+        return Refusal{Refusal::Kind::ReadOnly, {}};
     }
     LibraryEditSession *session = findSession(libraryId);
     bool ownsAlready = (session && session->lockHeld()) || m_directWrites[libraryId] > 0;
@@ -319,12 +345,12 @@ bool EditSessionRegistry::tryEnterDirectWrite(const QString &libraryId, const QS
             mountPoint = session->mountPoint();
         }
         if (!m_store->tryAcquire(lockTemplate(libraryId, stickLabel, mountPoint))) {
-            return false;
+            return Refusal{Refusal::Kind::Locked, lockHolder(libraryId)};
         }
     }
     ++m_directWrites[libraryId];
     emit stateChanged();
-    return true;
+    return std::nullopt;
 }
 
 void EditSessionRegistry::leaveDirectWrite(const QString &libraryId)

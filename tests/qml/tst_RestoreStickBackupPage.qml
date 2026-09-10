@@ -81,8 +81,19 @@ TestCase {
         return c;
     }
 
+    // What the page reads on the real AppSettingsController. Without it
+    // the currentFolder binding throws in every test in this file --
+    // invisible, because the QML runner has no global failOnWarning.
+    function fakeAppSettings() {
+        return {
+            toLocalFileUrl: function(p) { return "file://" + p; },
+            localPathFromUrl: function(u) { return u.replace(/^file:\/\//, ""); },
+        };
+    }
+
     function makePage(disks, controllerOverrides, pageProps) {
-        var props = {controller: makeFakeController(disks, controllerOverrides || {})};
+        var props = {controller: makeFakeController(disks, controllerOverrides || {}),
+                     appSettingsController: fakeAppSettings()};
         for (var key in (pageProps || {})) {
             props[key] = pageProps[key];
         }

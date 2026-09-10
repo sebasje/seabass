@@ -12,6 +12,11 @@ import SeabassGui
 Page {
     id: root
     required property var controller
+    // For the archive picker's starting folder. Passed in rather than
+    // reached for through the controller: "file://" + path is malformed
+    // on Windows, and AppSettingsController already exposes the one
+    // converter (gui/local_file_url.hpp) every other page uses.
+    required property var appSettingsController
     property string preselectedMountPoint: ""
     // A target that is not mounted yet (a stick fresh out of Format USB
     // Stick): mounted here on open, then selected via onDriveMounted.
@@ -184,7 +189,7 @@ Page {
         id: archiveDialog
         title: "Choose a Seabass stick backup"
         nameFilters: ["Stick backups (*.zip)", "All files (*)"]
-        currentFolder: root.controller.toLocalFileUrl(root.controller.defaultBackupDirectory || "")
+        currentFolder: root.appSettingsController.toLocalFileUrl(root.controller.defaultBackupDirectory || "")
         onAccepted: {
             root.controller.archivePath = selectedFile.toString();
             root.applySelection(root.selectedIndex);

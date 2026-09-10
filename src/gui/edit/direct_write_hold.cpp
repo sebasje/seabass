@@ -20,13 +20,7 @@ std::optional<DirectWriteHold::Refusal> DirectWriteHold::acquire(const QStringLi
         if (id.isEmpty() || m_held.contains(id)) {
             continue;
         }
-        if (!registry->tryEnterDirectWrite(id, stickLabel)) {
-            Refusal refusal;
-            if (registry->isReadOnlyLibrary(id)) {
-                refusal.kind = Refusal::Kind::ReadOnly;
-            } else {
-                refusal.holder = registry->lockHolder(id);
-            }
+        if (auto refusal = registry->enterDirectWrite(id, stickLabel)) {
             release();
             m_refusedLibraryId = id;
             m_retry = std::move(retry);

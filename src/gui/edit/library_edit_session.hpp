@@ -103,6 +103,12 @@ public:
     double stickBytesCapacity() const { return static_cast<double>(m_stickSpace.capacityBytes); }
     double backupBytesWorstCase() const { return static_cast<double>(m_stickSpace.worstCaseBackupBytes); }
 
+    // True when this session's library is a stick backup being browsed --
+    // read-only by construction. Asked of the paths on disk, so it is
+    // still right when the stick list has no row for the library (or has
+    // a stale one); the registry consults it for exactly that reason.
+    bool editsBrowsedBackup() const;
+
     QString rekordboxPath() const { return m_rekordboxPath; }
     QString enginePath() const { return m_enginePath; }
 

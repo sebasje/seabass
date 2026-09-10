@@ -190,6 +190,20 @@ void LibraryEditSession::clearOwnerIfClean()
     }
 }
 
+bool LibraryEditSession::editsBrowsedBackup() const
+{
+    for (const QString &libraryPath : {m_rekordboxPath, m_enginePath}) {
+        if (libraryPath.isEmpty()) {
+            continue;
+        }
+        if (infrastructure::local::isBrowsedBackupRoot(
+                infrastructure::backup::stickRootForCatalogPath(libraryPath.toStdString()))) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool LibraryEditSession::stage(std::unique_ptr<PendingChange> change)
 {
     if (!change || m_writing) {
@@ -198,15 +212,9 @@ bool LibraryEditSession::stage(std::unique_ptr<PendingChange> change)
     // Before anything else, including the lock: a browsed backup is
     // read-only by construction (see MediaController::openBackup), and a
     // refused attempt must leave no trace.
-    for (const QString &libraryPath : {m_rekordboxPath, m_enginePath}) {
-        if (libraryPath.isEmpty()) {
-            continue;
-        }
-        if (infrastructure::local::isBrowsedBackupRoot(
-                infrastructure::backup::stickRootForCatalogPath(libraryPath.toStdString()))) {
-            m_registry->reportReadOnlyRefusal(m_libraryId, m_stickLabel);
-            return false;
-        }
+    if (editsBrowsedBackup()) {
+        m_registry->reportReadOnlyRefusal(m_libraryId, m_stickLabel);
+        return false;
     }
     // Checked before the lock is taken, so a refused attempt leaves no
     // trace: one library is edited by one page at a time, full stop.

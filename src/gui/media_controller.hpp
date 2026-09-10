@@ -200,8 +200,13 @@ public:
     static std::string folderLibraryId(const std::string &canonicalPath);
     std::optional<application::StickIdentity> lastKnownIdentity(const std::string &mountPoint) const;
     // The listed stick (removable or folder) whose identity has this
-    // library id, mounted or not. The one by-id lookup, so the edit
-    // registry's two call sites cannot drift in what they filter on.
+    // library id. The one by-id lookup, so the edit registry's call sites
+    // cannot drift in what they filter on.
+    //
+    // A mounted row wins over an unmounted one with the same id: two rows
+    // can share a weak identity (libraryId() falls back to label plus
+    // capacity when there is no filesystem UUID), and only a mounted row
+    // has a mount point to record in a lock cookie.
     std::optional<application::DetectedStick> stickForLibraryId(const QString &libraryId) const;
     std::string mountPointFor(const application::StickIdentity &identity) const;
 

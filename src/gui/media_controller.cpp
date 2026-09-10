@@ -496,10 +496,20 @@ QString MediaController::libraryIdForMountPoint(const QString &mountPoint) const
 std::optional<application::DetectedStick> MediaController::stickForLibraryId(const QString &libraryId) const
 {
     const std::string id = libraryId.toStdString();
+    const application::DetectedStick *unmounted = nullptr;
     for (const application::DetectedStick &stick : m_model.sticks()) {
-        if (stick.identity.libraryId() == id) {
+        if (stick.identity.libraryId() != id) {
+            continue;
+        }
+        if (stick.mounted) {
             return stick;
         }
+        if (!unmounted) {
+            unmounted = &stick;
+        }
+    }
+    if (unmounted) {
+        return *unmounted;
     }
     return std::nullopt;
 }
