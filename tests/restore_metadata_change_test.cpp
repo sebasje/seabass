@@ -439,15 +439,22 @@ int main()
         std::cout << "case 7: a rating survives a save that also scratches export.pdb\n";
     }
 
-    // Case 8: a cancelled save must not discard the writes it did make.
+    // Case 8: OneLibrary is never given a scratch copy, and a cancelled
+    // save keeps what it already wrote.
     //
-    // FormatWriteSession throws its scratch copy away when the save was
-    // cancelled or failed AND nothing was applied to it -- the copy holds
-    // nothing worth keeping in that case. But "nothing was applied" is
-    // counted, and the restore's Engine and OneLibrary writes go INTO
-    // that copy. While they went uncounted, a cancel could discard the
-    // copy holding them while the summary still counted those tracks as
-    // restored: written, reported, gone.
+    // exportLibrary.db is a WAL database. A save holds its writers open
+    // across the commit, so its committed rows are still in
+    // exportLibrary.db-wal -- and FormatWriteSession commits by copying
+    // the .db file alone. That loses this format's writes whichever root
+    // they went to: through the scratch they are stranded in a -wal file
+    // nobody copies, and at the real root they are overwritten by the
+    // copy. So the session must decline the scratch for this format no
+    // matter how large a batch asks for it.
+    //
+    // The second half is the reason the first half is not enough on its
+    // own: FormatWriteSession discards a scratch copy on a cancel when
+    // nothing was applied to it, so writes that DO go through one have
+    // to be counted.
     {
         Fixture fixture = freshFixture("cancelled_save");
         auto &noProgress = seabass::application::NullProgressReporter::instance();
@@ -455,11 +462,13 @@ int main()
         const QString root = QString::fromStdString(fixture.pioneerRoot.string());
         {
             SaveContext ctx(token, noProgress, {}, root, {});
-            // A hint big enough that the session really does redirect to
-            // a scratch copy; without that this case proves nothing.
+            // A hint far past the scratch threshold, from a stand-in for
+            // some other feature staged into the same save. It must make
+            // no difference.
             auto &session = sharedFormatWriteSession(ctx, "onelibrary", fixture.pioneerRoot.string(), 5000,
                                                      "test-other-feature");
-            assert(session.usesScratch());
+            assert(!session.usesScratch());
+            assert(session.writeRoot() == session.realRoot());
 
             MetadataRestoreProposal proposal = proposalFor(fixture);
             proposal.cuesOffered = true;
@@ -471,9 +480,76 @@ int main()
             // track went through.
             assert(!ctx.runFinishHooks(false));
         }
-        // The cue is on the stick, not only in a discarded scratch copy.
         assert(cueCount(fixture.pioneerRoot.string()) == 1);
-        std::cout << "case 8: a cancelled save keeps the tracks it already wrote\n";
+        std::cout << "case 8: OneLibrary declines the scratch copy, and a cancel keeps the write\n";
+    }
+
+    // Case 9: a save that fails part-way keeps the ratings it already
+    // committed.
+    //
+    // The rating goes into session.writeRoot()/rekordbox/export.pdb,
+    // which IS the scratch copy when the save has one -- and
+    // FormatWriteSession discards a scratch copy nothing was applied to.
+    // While the rating went uncounted, a Stage All of four hundred
+    // tracks that failed on track fifty-one threw away the fifty ratings
+    // already committed, with those fifty changes already in the save's
+    // applied list and their rows already off the page. Written,
+    // reported, gone -- the failure the whole branch is about, reached
+    // through the one path left uncounted.
+    {
+        const fs::path scratch = seabass::testing::scratchRoot() / "seabass_restore_metadata_change_partial";
+        std::error_code ec;
+        fs::remove_all(scratch, ec);
+        fs::create_directories(scratch);
+        const fs::path source =
+            fs::path(SEABASS_SOURCE_DIR) / "tests" / "fixtures" / "anonymized_library" / "rekordbox";
+        const fs::path pioneer = scratch / "PIONEER";
+        fs::copy(source, pioneer, fs::copy_options::recursive);
+
+        seabass::infrastructure::rekordbox::KaitaiRekordboxReader reader(pioneer.string());
+        std::string targetId;
+        for (const auto &track : reader.readAll()) {
+            if (!track.rating) {
+                targetId = track.sourceId;
+                break;
+            }
+        }
+        assert(!targetId.empty());
+
+        auto &noProgress = seabass::application::NullProgressReporter::instance();
+        CancellationToken token;
+        const QString root = QString::fromStdString(pioneer.string());
+        {
+            SaveContext ctx(token, noProgress, {}, root, {});
+            // A batch big enough to earn the scratch copy, which is the
+            // only situation in which the count matters at all.
+            auto &session = sharedFormatWriteSession(ctx, "rekordbox", pioneer.string(), 400, "test-batch");
+            assert(session.usesScratch());
+
+            MetadataRestoreProposal proposal;
+            proposal.storedId = "stored-partial";
+            proposal.stickTrack.sourceId = targetId;
+            proposal.stickTrack.title = "Partial";
+            proposal.ratingOffered = true;
+            proposal.rating = 5;
+
+            RestoreMetadataChange change("rekordbox", root, QString::fromStdString(targetId), proposal);
+            assert(change.apply(ctx).ok);
+            // ok == false: a later track in the same batch failed, or the
+            // DJ cancelled. This one already committed its rating.
+            assert(!ctx.runFinishHooks(false));
+        }
+
+        seabass::infrastructure::rekordbox::KaitaiRekordboxReader after(pioneer.string());
+        bool found = false;
+        for (const auto &track : after.readAll()) {
+            if (track.sourceId == targetId) {
+                found = true;
+                assert(track.rating && *track.rating == 5);
+            }
+        }
+        assert(found);
+        std::cout << "case 9: a failed batch keeps the ratings it already committed\n";
     }
 
     std::cout << "restore_metadata_change_test: all cases passed\n";

@@ -45,8 +45,11 @@ struct RepairWriterContext
             engineCleanup =
                 std::make_unique<infrastructure::engine::LibdjinteropEngineCleanupWriter>(session.writeRoot());
         } else {
-            oneLibrary = std::make_unique<infrastructure::onelibrary::OneLibraryCueWriter>(
-                session.writeRoot(), fs::path(root).parent_path().string());
+            // The save's one writer for this database -- see the same
+            // change in SyncPlanChange for why a private instance is a
+            // way to abort a save on a stick with both catalogs.
+            oneLibrary = &sharedOneLibraryWriter(ctx, session.writeRoot(),
+                                                  fs::path(root).parent_path().string());
         }
     }
 
@@ -57,7 +60,8 @@ struct RepairWriterContext
     std::unique_ptr<infrastructure::rekordbox::RekordboxCleanupWriter> rekordboxCleanup;
     std::unique_ptr<infrastructure::engine::LibdjinteropEngineCueWriter> engineCues;
     std::unique_ptr<infrastructure::engine::LibdjinteropEngineCleanupWriter> engineCleanup;
-    std::unique_ptr<infrastructure::onelibrary::OneLibraryCueWriter> oneLibrary;
+    // Owned by the save (SaveContext::shared), not by this context.
+    infrastructure::onelibrary::OneLibraryCueWriter *oneLibrary = nullptr;
     bool hasOneLibrary = false;
 };
 

@@ -156,8 +156,26 @@ FormatWriteSession &sharedFormatWriteSession(SaveContext &ctx, const std::string
     // The database, not the feature -- see the header for what went
     // wrong while this was keyed the other way.
     const std::string key = "write-session:" + FormatWriteSession::databaseFileFor(format, catalogPath);
+    // OneLibrary never gets a scratch copy, whatever it was asked for.
+    //
+    // exportLibrary.db is a WAL database (PRAGMA journal_mode reports
+    // "wal" on the committed fixture). A save holds its writers open
+    // across the commit, and in WAL mode the committed rows sit in
+    // exportLibrary.db-wal until something checkpoints them -- while
+    // FormatWriteSession commits by copying the single .db file back.
+    // So a scratch copy loses this format's writes twice over: what
+    // went through the scratch is stranded in a -wal file nobody
+    // copies, and what went to the real file is overwritten by the
+    // copy. Both were measured, the second by a test that had been
+    // passing only because its fixture was not WAL.
+    //
+    // Zero items is how FormatWriteSession is told not to bother, and
+    // it is the honest answer here: the optimisation was never
+    // available for this format, it only looked available. Engine's
+    // m.db is a rollback-journal database and keeps its scratch copy.
+    const int hint = format == "onelibrary" ? 0 : itemCountHint;
     return ctx.shared<FormatWriteSession>(key, [&]() {
-        return std::make_unique<FormatWriteSession>(format, catalogPath, itemCountHint, label, ctx);
+        return std::make_unique<FormatWriteSession>(format, catalogPath, hint, label, ctx);
     });
 }
 

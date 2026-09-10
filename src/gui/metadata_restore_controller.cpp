@@ -328,7 +328,18 @@ void MetadataRestoreController::attachSession()
 
 void MetadataRestoreController::stage(int index)
 {
-    // One track staged on its own is one track's worth of writing.
+    // One track staged on its own is one track's worth of writing, and
+    // saying otherwise is not the safe direction.
+    //
+    // The obvious-looking alternative -- hint the whole list, since the
+    // session is built by whichever change applies first and a running
+    // total is always 1 there -- makes the wrong trade for SQLite. A
+    // hint of 400 for a single staged Engine track has the save copy the
+    // entire m.db to scratch and durably copy it back for one row
+    // update, and a whole-file replace can lose the database in a way a
+    // page-level write cannot. Staging four hundred tracks one at a time
+    // therefore does not earn the scratch copy. Stage All, which is how
+    // that is actually done, passes the real count and does.
     stageOne(index, 1);
 }
 
@@ -406,8 +417,8 @@ void MetadataRestoreController::stageAll()
         if (m_stagedByStoredId.count(m_model.proposals()[static_cast<std::size_t>(i)].storedId)) {
             continue;
         }
-        // Every remaining proposal is about to be staged, so the save
-        // knows its own size here even though a single Stage does not.
+        // Every remaining proposal is about to be staged, so this is
+        // the same upper bound arrived at exactly.
         stageOne(i, count);
         if (m_session && !m_session->lockHeld()) {
             return;  // refused at the first one; no point trying the rest

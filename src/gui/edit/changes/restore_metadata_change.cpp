@@ -46,7 +46,11 @@ struct RestoreWriterContext
     // this wrote, the moment that copy is committed back -- and the page
     // reports the restore as applied.
     RestoreWriterContext(const QString &format, const QString &path, SaveContext &ctx, int itemCountHint)
-        : session(sharedFormatWriteSession(ctx, format.toStdString(), path.toStdString(), itemCountHint, LogTag))
+        // Hint 0 for OneLibrary: this feature writes that format's
+        // database directly, so it must never be the change that talks
+        // the session into a scratch copy nobody's writes would reach.
+        : session(sharedFormatWriteSession(ctx, format.toStdString(), path.toStdString(),
+                                            format == "onelibrary" ? 0 : itemCountHint, LogTag))
     {
         // The real catalog folder. rekordbox needs it even when the
         // session redirects: cues live in per-track ANLZ files next to
@@ -67,22 +71,24 @@ struct RestoreWriterContext
             // Best-effort: see OneLibraryCueWriter's class comment.
             if (infrastructure::onelibrary::OneLibraryCueWriter::existsFor(realRoot)) {
                 try {
-                    // The real PIONEER root, which is what every other
-                    // mirror write in the codebase passes -- Sync, Clean
-                    // Up, Library Health repair, Add Cue, stray-cue
-                    // removal. sharedOneLibraryWriter keys on the root
-                    // string it is handed, so passing a different one
-                    // here would not share their instance: it would make
-                    // a second writer against a second file and then
-                    // lose whichever of the two was committed first.
+                    // The real PIONEER root, like every other mirror
+                    // call site, and NOT this database's write session --
+                    // which was tried, and loses the write.
                     //
-                    // exportLibrary.db is deliberately not put behind
-                    // this format's session. That session is export.pdb's,
-                    // and giving the mirror one of its own would only
-                    // move the disagreement rather than settle it while
-                    // those other call sites still write the real file.
-                    // The mirror as a whole is the remaining piece of
-                    // this seam -- see docs/metadata-backup-plan.md.
+                    // exportLibrary.db runs in WAL mode. While a writer
+                    // connection is open, its committed rows live in
+                    // exportLibrary.db-wal, and FormatWriteSession
+                    // commits by copying the single .db file back. The
+                    // save holds its writers open across that copy, so
+                    // anything written through a scratch copy is left
+                    // behind in a -wal file nobody copies. Measured, not
+                    // reasoned: PRAGMA journal_mode returns "wal" on the
+                    // committed fixture, and a write through a scratching
+                    // session reads back empty afterwards.
+                    //
+                    // So the scratch path is the unsafe one for this
+                    // format, whichever way round the sharing argument
+                    // goes. See docs/metadata-backup-plan.md.
                     mirror = &sharedOneLibraryWriter(ctx, realRoot,
                                                       fs::path(realRoot).parent_path().string());
                 } catch (const std::exception &e) {
@@ -92,16 +98,22 @@ struct RestoreWriterContext
         } else if (format == "engine") {
             writer = std::make_unique<infrastructure::engine::LibdjinteropEngineCueWriter>(dbRoot);
         } else {
-            // Empty: each change registers its own track through
-            // notePath() as it applies, so one adapter serves the save.
-            // It writes through the save's shared writer for the same
-            // reason the mirror above does, and resolves content paths
-            // against the real stick rather than a scratch directory.
+            // OneLibrary writes go to the REAL root, never to a scratch
+            // copy, for the WAL reason spelled out on the mirror above:
+            // a scratch copy commits the .db file alone and leaves the
+            // rows behind in the -wal file. Engine's m.db is a
+            // rollback-journal database and has no such problem, which
+            // is why only this branch differs.
+            //
+            // Empty map: each change registers its own track through
+            // notePath() as it applies, so one adapter serves the save,
+            // and it writes through the save's shared writer so two
+            // features cannot open two instances against one file.
             auto adapter = std::make_unique<OneLibraryCueWriterAdapter>(
-                dbRoot, std::unordered_map<std::string, std::string>{},
+                realRoot, std::unordered_map<std::string, std::string>{},
                 fs::path(realRoot).parent_path().string());
             adapter->useSharedWriter(
-                sharedOneLibraryWriter(ctx, dbRoot, fs::path(realRoot).parent_path().string()));
+                sharedOneLibraryWriter(ctx, realRoot, fs::path(realRoot).parent_path().string()));
             writer = std::move(adapter);
         }
     }
@@ -120,17 +132,28 @@ struct RestoreWriterContext
 // Engine and OneLibrary take both fields; export.pdb takes the rating
 // (one byte, already there) and cannot take a comment it does not
 // already have room for.
-// Returns false only when a write was attempted and is known to have
-// failed, so the change can report a failure rather than let the page
-// take a track off its list that the stick never received.
-bool applyAnnotation(SaveContext &ctx, RestoreWriterContext &writer, const QString &format, const QString &path,
+// What one track's annotation write did. `ok` false means a write was
+// attempted and is known NOT to have reached the catalog, so the change
+// must report a failure rather than let the page take the track off its
+// list. `wroteToWriteRoot` says whether anything actually went into the
+// SESSION's write root -- which is what decides whether a cancelled save
+// may throw its scratch copy away. A write to some other database (the
+// OneLibrary mirror, which never goes through this format's session)
+// does not count towards it.
+struct AnnotationOutcome
+{
+    bool ok = true;
+    bool wroteToWriteRoot = false;
+};
+
+AnnotationOutcome applyAnnotation(SaveContext &ctx, RestoreWriterContext &writer, const QString &format, const QString &path,
                       const std::string &sourceId, const domain::MetadataRestoreProposal &proposal)
 {
     const std::optional<int> stars = proposal.ratingOffered ? proposal.rating : std::nullopt;
     const std::optional<std::string> comment =
         proposal.commentOffered ? std::optional<std::string>(proposal.comment) : std::nullopt;
     if (!stars && !comment) {
-        return true;
+        return {};
     }
 
     if (format == "engine") {
@@ -138,24 +161,30 @@ bool applyAnnotation(SaveContext &ctx, RestoreWriterContext &writer, const QStri
         if (!engine) {
             ctx.log().record(std::string(LogTag) + ": no Engine writer for \"" + proposal.stickTrack.title +
                              "\"; its rating and comment were not written");
-            return true;
+            return {};
         }
         // writeAnnotation throws when the track has gone from the
         // database since the scan. The cues for this track are already
         // written by now, so failing the whole save over a rating would
         // undo more than it saves: log it and let the rest through, the
         // way the OneLibrary paths below do.
+        // Reported as written only on the path that actually wrote. A
+        // save whose every Engine write threw has put nothing into the
+        // scratch copy, and saying otherwise would have a cancel commit
+        // that untouched copy back over the stick -- reverting whatever
+        // another change wrote to the real m.db.
         try {
             engine->writeAnnotation(sourceId, stars, comment);
+            return {.ok = true, .wroteToWriteRoot = true};
         } catch (const std::exception &e) {
             ctx.log().record(std::string(LogTag) + ": Engine annotation write failed for \"" +
                              proposal.stickTrack.title + "\": " + e.what());
         }
-        writer.session.noteItemApplied();
-        return true;
+        return {};
     }
 
     if (format == "rekordbox") {
+        AnnotationOutcome outcome;
         // The rating is a one-byte field in export.pdb, which no cue
         // write touches, so it needs a writer of its own.
         //
@@ -163,20 +192,8 @@ bool applyAnnotation(SaveContext &ctx, RestoreWriterContext &writer, const QStri
         // save. PdbRowWriter reads the whole file at construction and
         // commit() refuses if anything changed underneath, so holding
         // one open across a save that another change also writes
-        // export.pdb into -- Clean Up propagating bpm onto a survivor,
-        // say -- guarantees one of them loses. A commit per rated track
-        // is what every other export.pdb writer in the codebase already
-        // does, and when the batch is big enough to earn a scratch copy
-        // those writes land on local disk with one durable write to the
-        // stick at the end.
+        // export.pdb into guarantees one of them loses.
         if (stars) {
-          // Guarded whole: PdbRowWriter's constructor throws for an
-          // export.pdb that is missing, truncated or does not validate,
-          // and setTrackRating throws for a rating out of range. An
-          // escape from here reaches runSaveLoop as a change failure
-          // that breaks the batch -- aborting a save whose earlier
-          // tracks already had their cues written. A rating nobody can
-          // write is a line in the log, not the end of the save.
           try {
             // The session's root, not the stick's: when another change
             // has this database redirected to a scratch copy, that copy
@@ -185,34 +202,49 @@ bool applyAnnotation(SaveContext &ctx, RestoreWriterContext &writer, const QStri
                 (fs::path(writer.session.writeRoot()) / "rekordbox" / "export.pdb").string();
             infrastructure::rekordbox::PdbRowWriter rows(pdbPath);
             if (!rows.setTrackRating(static_cast<uint32_t>(std::stoul(sourceId)), *stars)) {
+                // The row this proposal was built from is not in the
+                // catalog any more. Nothing to write and nothing broken,
+                // so the save carries on and the log says why.
                 ctx.log().record(std::string(LogTag) + ": no DeviceLibrary row with id=" + sourceId +
                                  " (\"" + proposal.stickTrack.title + "\"); its rating was not written");
             } else if (!rows.commit()) {
-                // False, not a throw: a stale file, an edit that no
-                // longer reparses, or an atomic write with nowhere to
-                // put its temp copy -- these sticks run 95% full. The
-                // rating did NOT reach export.pdb, so this has to reach
-                // the DJ as a failed save; logging it and reporting
-                // success would take the track off the page's list while
-                // the old rating is still on the stick.
                 ctx.log().record(std::string(LogTag) + ": FAILED to write the restored rating into " + pdbPath +
                                  " for \"" + proposal.stickTrack.title + "\"");
-                return false;
+                outcome.ok = false;
             } else {
-                writer.session.noteItemApplied();
+                // Into the session's write root -- the scratch copy of
+                // export.pdb when this save has one. It has to be
+                // counted for exactly the reason the Engine path is:
+                // FormatWriteSession discards a scratch nothing was
+                // applied to, so an uncounted rating is a rating a
+                // cancelled or failed save throws away after the page
+                // has already been told it landed.
+                outcome.wroteToWriteRoot = true;
             }
           } catch (const std::exception &e) {
+            // A missing, truncated or unparseable export.pdb, or a
+            // rating out of range. The rating did not reach the catalog
+            // either way, so this reports a failed save for the same
+            // reason the commit() branch above does: success here would
+            // take the track off the page's list with the old rating
+            // still on the stick. Same room, other door.
             ctx.log().record(std::string(LogTag) + ": DeviceLibrary rating write failed for \"" +
                              proposal.stickTrack.title + "\": " + e.what());
+            outcome.ok = false;
           }
         }
         // The mirror is the other half of the same library, and it is
-        // the half that can take a comment of any length.
+        // the half that can take a comment of any length. Attempted even
+        // when export.pdb refused: a separate database, the only half
+        // that takes a comment at all, and giving up a write that had
+        // nothing wrong with it helps nobody.
         bool mirrorTookIt = false;
         if (writer.mirror && !proposal.stickTrack.filePath.empty()) {
             try {
                 writer.mirror->writeAnnotationForPath(proposal.stickTrack.filePath, stars, comment);
                 mirrorTookIt = true;
+                // Deliberately NOT counted: this is exportLibrary.db,
+                // a different database from the one this session holds.
             } catch (const std::exception &e) {
                 ctx.log().record(std::string(LogTag) + ": OneLibrary annotation write failed: " + e.what());
             }
@@ -227,10 +259,10 @@ bool applyAnnotation(SaveContext &ctx, RestoreWriterContext &writer, const QStri
             // Only when the mirror did not take it: on a stick carrying
             // both catalogs the comment did go back, and saying it could
             // not would contradict both the page and the truth.
-            ctx.log().record(std::string(LogTag) + ": DeviceLibrary cannot store a comment for \"" + proposal.stickTrack.title +
-                             "\" -- its row has no room to grow one");
+            ctx.log().record(std::string(LogTag) + ": DeviceLibrary cannot store a comment for \"" +
+                             proposal.stickTrack.title + "\" -- its row has no room to grow one");
         }
-        return true;
+        return outcome;
     }
 
     // format == "onelibrary": the adapter is this format's cue writer,
@@ -241,15 +273,15 @@ bool applyAnnotation(SaveContext &ctx, RestoreWriterContext &writer, const QStri
     if (!adapter) {
         ctx.log().record(std::string(LogTag) + ": no OneLibrary writer for \"" + proposal.stickTrack.title +
                          "\"; its rating and comment were not written");
-        return true;
+        return {};
     }
     try {
         adapter->writer().writeAnnotationForPath(proposal.stickTrack.filePath, stars, comment);
-        writer.session.noteItemApplied();
+        return {.ok = true, .wroteToWriteRoot = true};
     } catch (const std::exception &e) {
         ctx.log().record(std::string(LogTag) + ": OneLibrary annotation write failed: " + e.what());
     }
-    return true;
+    return {};
 }
 
 }  // namespace
@@ -370,6 +402,7 @@ ChangeOutcome RestoreMetadataChange::apply(SaveContext &ctx)
     // cues, and under the skip-all default a track whose cues conflict
     // carries none either: exactly the DJ's live work that the default
     // exists to protect.
+    bool wroteIntoWriteRoot = false;
     if (m_proposal.cuesOffered) {
         writer.writer->writeHotCues(sourceId, m_proposal.cues);
         // Counted, because FormatWriteSession throws a scratch copy away
@@ -379,9 +412,7 @@ ChangeOutcome RestoreMetadataChange::apply(SaveContext &ctx)
         // holding them while the summary still counted the tracks as
         // restored. rekordbox cues are exempt only because they live in
         // ANLZ files the session does not manage.
-        if (m_format != "rekordbox") {
-            writer.session.noteItemApplied();
-        }
+        wroteIntoWriteRoot = m_format != "rekordbox";
         ctx.log().record(std::string(LogTag) + ": wrote " + std::to_string(m_proposal.cues.size()) +
                          " stored cue(s) onto " + m_format.toStdString() + " track id=" + sourceId + " (\"" +
                          track.title + "\")");
@@ -397,7 +428,28 @@ ChangeOutcome RestoreMetadataChange::apply(SaveContext &ctx)
         }
     }
 
-    if (!applyAnnotation(ctx, writer, m_format, m_path, sourceId, m_proposal)) {
+    const AnnotationOutcome annotation = applyAnnotation(ctx, writer, m_format, m_path, sourceId, m_proposal);
+    // Every format, rekordbox included: the rating goes into
+    // session.writeRoot()/rekordbox/export.pdb, which IS the scratch
+    // copy when this save has one. Only the cue write above is exempt
+    // for rekordbox, and only because ANLZ files are not the session's.
+    if (annotation.wroteToWriteRoot) {
+        wroteIntoWriteRoot = true;
+    }
+
+    // Once per track, not once per write. FormatWriteSession throws a
+    // scratch copy away on a cancel when nothing was applied to it, so
+    // this has to be counted -- Engine and OneLibrary writes go INTO
+    // that copy -- but the same count is the "N update(s)" the commit
+    // log reports, and a track that got both cues and a rating is still
+    // one track. rekordbox's CUES are the only exemption: they live in
+    // per-track ANLZ files the session does not manage. Its rating is
+    // not exempt -- that goes into the session's own export.pdb.
+    if (wroteIntoWriteRoot) {
+        writer.session.noteItemApplied();
+    }
+
+    if (!annotation.ok) {
         return ChangeOutcome::failure("The restored rating could not be written into export.pdb for \"" +
                                       QString::fromStdString(track.title) + "\".");
     }
