@@ -43,7 +43,7 @@ TestCase {
                 durationSeconds: 372, playlistNames: ["Peaktime", "Warm-up"], streamingSource: "",
                 rating: 4, bpm: 126.5, key: "Fm", bitrate: 320, playCount: 17,
                 artworkPath: "file:///covers/major-tom.jpg",
-                comment: "Big room, drop at 1:04"};
+                comment: "Big room, drop at 1:04", album: "Sounds From The Deep"};
     }
 
     // The artist list is built from the track being SHOWN, not the one
@@ -92,6 +92,7 @@ TestCase {
         compare(panel.trackBitrate, 320);
         compare(panel.trackPlayCount, 17);
         compare(panel.trackComment, "Big room, drop at 1:04");
+        compare(panel.trackAlbum, "Sounds From The Deep");
         // Passed straight through, never re-prefixed: the role already
         // hands over a file:// URL, and prefixing it again produced
         // "file://file:///..." and an image that silently did not load.

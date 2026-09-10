@@ -475,6 +475,7 @@ Page {
                     required property int rating
                     required property int bitrate
                     required property string comment
+                    required property string album
 
                     readonly property bool isPlaying: playbackController.hasTrack
                         && playbackController.currentFormat === root.format

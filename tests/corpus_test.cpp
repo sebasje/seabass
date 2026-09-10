@@ -406,6 +406,16 @@ std::string readWholeFile(const fs::path &path)
     return buffer.str();
 }
 
+// Tracks whose catalog recorded an album. A guarded count rather than a
+// spot check: album is resolved through a normalized table in all three
+// formats, so a reader that silently stops resolving it reports every
+// track as album-less while everything else still passes.
+long long countWithAlbum(const std::vector<domain::Track> &tracks)
+{
+    return std::count_if(tracks.begin(), tracks.end(),
+                          [](const domain::Track &t) { return !t.album.empty(); });
+}
+
 int countCues(const std::vector<domain::Track> &tracks)
 {
     int total = 0;
@@ -447,6 +457,8 @@ void caseScanCounts(const DataSet &set, Catalogs &catalogs, Expectations &expect
             expected.expect("rekordbox.tracksWithCues", countWithCues(catalogs.rekordbox),
                             "rekordbox tracks-with-cues unchanged");
             expected.expect("rekordbox.cues", countCues(catalogs.rekordbox), "rekordbox cue count unchanged");
+            expected.expect("rekordbox.tracksWithAlbum", countWithAlbum(catalogs.rekordbox),
+                            "rekordbox tracks-with-album unchanged");
             pass("case 1: rekordbox scan at real scale, track and cue counts hold");
         }
     }
@@ -474,6 +486,8 @@ void caseScanCounts(const DataSet &set, Catalogs &catalogs, Expectations &expect
             expected.expect("engine.tracksWithCues", countWithCues(catalogs.engine),
                             "Engine tracks-with-cues unchanged");
             expected.expect("engine.cues", countCues(catalogs.engine), "Engine cue count unchanged");
+            expected.expect("engine.tracksWithAlbum", countWithAlbum(catalogs.engine),
+                            "Engine tracks-with-album unchanged");
             pass("case 2: Engine scan at real scale, track and cue counts hold");
         }
     }

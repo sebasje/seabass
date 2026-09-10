@@ -124,14 +124,47 @@ std::vector<Track> OneLibraryReader::readAll()
     }
     m_progress->start("Reading OneLibrary", total);
 
+    // The album table is optional. rekordbox has shipped several
+    // exportLibrary.db schema versions (see the OneLibrary issues), and
+    // refusing to read a stick at all because one nice-to-have field's
+    // table is absent is a bad trade: the album is one line in a details
+    // panel, the catalog is the whole library. So the join is added only
+    // when the table is there, and the field stays empty when it is not.
+    //
+    // Checked rather than caught: letting the prepare fail and retrying
+    // would also swallow a genuine SQL error in the rest of the query.
+    // Both halves, because they can differ: a schema was found with the
+    // album table present and content.album_id absent, which passed a
+    // table-only check and then failed to prepare the query.
+    bool hasAlbums = false;
+    {
+        SqlCipherStatement table(db, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='album'");
+        if (table.step() && table.columnInt64(0) > 0) {
+            SqlCipherStatement columns(db, "PRAGMA table_info(content)");
+            while (columns.step()) {
+                if (columns.columnText(1) == "album_id") {
+                    hasAlbums = true;
+                    break;
+                }
+            }
+        }
+    }
+
     std::vector<Track> tracks;
     size_t done = 0;
+    // content.album_id, NOT album_id_album: the artist join uses the
+    // doubled form, so this column name was worth checking against a real
+    // database rather than inferring it. PRAGMA table_info(content) on a
+    // real stick says album_id.
+    const std::string albumColumn = hasAlbums ? "al.name" : "NULL";
+    const std::string albumJoin = hasAlbums ? " LEFT JOIN album al ON al.album_id = c.album_id" : "";
     SqlCipherStatement stmt(db,
                              "SELECT c.content_id, c.title, a.name, c.bpmx100, c.length, c.path, c.fileName, "
-                             "c.bitrate, c.fileSize, k.name, c.djPlayCount, i.path FROM content c "
+                             "c.bitrate, c.fileSize, k.name, c.djPlayCount, i.path, " + albumColumn
+                                 + " FROM content c "
                              "LEFT JOIN artist a ON a.artist_id = c.artist_id_artist "
                              "LEFT JOIN key k ON k.key_id = c.key_id "
-                             "LEFT JOIN image i ON i.image_id = c.image_id");
+                             "LEFT JOIN image i ON i.image_id = c.image_id" + albumJoin);
     while (stmt.step()) {
         int64_t contentId = stmt.columnInt64(0);
 
@@ -140,6 +173,11 @@ std::vector<Track> OneLibraryReader::readAll()
         track.format = "onelibrary";
         track.title = stmt.columnText(1);
         track.artist = stmt.columnText(2);
+        // Column 12, not 11: i.path is 11. Counting the SELECT list by
+        // eye put this one place early, and it read the artwork path as
+        // the album -- caught by the reader test asserting the value
+        // rather than merely that the query ran.
+        track.album = stmt.columnText(12);
         track.bpm = static_cast<double>(stmt.columnInt64(3)) / 100.0;
         track.durationSeconds = static_cast<double>(stmt.columnInt64(4));
         std::string relPath = stmt.columnText(5);
