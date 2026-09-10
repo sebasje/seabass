@@ -56,6 +56,22 @@ Page {
     readonly property string recommendedFilesystem: root.selectedDisk
         ? controller.recommendedFilesystem(root.selectedDisk.capacityBytes) : ""
 
+    // Whether formatting this drive would actually destroy anything.
+    // Two ways to be empty: no filesystem at all (blank/unpartitioned),
+    // or mounted with nothing in its root.
+    //
+    // The `mounted` check on the second is load-bearing, not defensive.
+    // rootEntries is only ever populated for a mounted drive (see
+    // DetectedStick::rootEntries), so an unmounted one always has an
+    // empty list -- meaning "contents unknown", not "empty". Keying off
+    // the list alone would disarm the warning on exactly the drives
+    // Seabass knows least about. The Contains row below draws the same
+    // distinction and says "(not mounted, contents unknown)".
+    readonly property bool nothingToLose: root.selectedDisk
+        ? (root.selectedDisk.hasNoFilesystem
+           || (root.selectedDisk.mounted && root.selectedDisk.rootEntries.length === 0))
+        : false
+
     function applySelection(index) {
         if (index < 0 || index >= root.disks.length) {
             root.selectedWholeDiskPath = "";
@@ -182,8 +198,8 @@ Page {
                 Layout.fillWidth: true
                 implicitHeight: warnColumn.implicitHeight + 24
                 radius: 4
-                color: Theme.dangerBg
-                border.color: Theme.dangerBorder
+                color: root.nothingToLose ? Theme.warnBg : Theme.dangerBg
+                border.color: root.nothingToLose ? Theme.warnBorder : Theme.dangerBorder
                 border.width: 1
 
                 RowLayout {
@@ -195,7 +211,7 @@ Page {
                     Label {
                         text: "⚠"
                         font.pointSize: Theme.fontHuge
-                        color: Theme.dangerText
+                        color: root.nothingToLose ? Theme.warnIcon : Theme.dangerText
                         Layout.alignment: Qt.AlignTop
                     }
                     ColumnLayout {
@@ -203,16 +219,24 @@ Page {
                         Layout.fillWidth: true
                         spacing: 4
                         Label {
+                            objectName: "confirmDialogHeadlineLabel"
                             Layout.fillWidth: true
                             wrapMode: Text.WordWrap
-                            color: Theme.dangerText
+                            color: root.nothingToLose ? Theme.warnText : Theme.dangerText
                             font.family: Theme.titleFamily
                             font.weight: Font.Bold
                             font.pointSize: Theme.fontMedium
-                            text: "This permanently erases everything on this drive."
+                            text: root.nothingToLose
+                                ? "This drive is empty. Formatting will set it up fresh."
+                                : "This permanently erases everything on this drive."
                         }
                         Label {
                             objectName: "confirmDialogDataLossLabel"
+                            // Nothing on the drive, nothing to claim. The
+                            // Contains row below already says so, and this
+                            // line contradicting it is what made the whole
+                            // warning easy to click past.
+                            visible: !root.nothingToLose
                             Layout.fillWidth: true
                             wrapMode: Text.WordWrap
                             color: Theme.dangerText
@@ -220,11 +244,16 @@ Page {
                                 + (root.selectedDisk ? root.selectedDisk.wholeDiskPath : "") + ") will be lost "
                                 + "permanently, including any existing DJ library. This cannot be undone."
                         }
+                        // Never softened away, even on an empty drive.
+                        // The residual risk there is not that this drive
+                        // holds data, it is that this is not the drive
+                        // the user thinks it is after a replug -- the
+                        // near-miss rootEntries exists for.
                         Label {
                             objectName: "confirmDialogDoubleCheckLabel"
                             Layout.fillWidth: true
                             wrapMode: Text.WordWrap
-                            color: Theme.dangerText
+                            color: root.nothingToLose ? Theme.warnText : Theme.dangerText
                             font.weight: Font.Bold
                             text: "Double-check that you've selected the correct storage device before "
                                 + "continuing."

@@ -521,4 +521,72 @@ TestCase {
         compare(page.selectedIndex, -1);
         verify(page.selectedDisk === null);
     }
+    // --- Warning strength vs. what is actually on the drive ---------
+    //
+    // The confirm dialog used to claim "All data ... will be lost
+    // permanently" on every drive, including one it had just described as
+    // "Contains: empty" three rows further down. A warning that fires when
+    // there is nothing to lose is the fastest way to teach someone to
+    // click past the one that matters.
+
+    // Opens the confirm dialog for real. Everything asserted below lives
+    // inside it, and a closed Dialog's contents are invisible regardless
+    // of their own bindings -- checking `visible` without this reports
+    // false for every case and passes the "warning is hidden" tests for
+    // entirely the wrong reason. (It did, on the first run of this file.)
+    function openConfirmFor(disk) {
+        var page = createTemporaryObject(pageComponent, testCase, {controller: makeFakeController([disk])});
+        verify(page !== null);
+        page.applySelection(0);
+        wait(50);
+        var confirmDialog = findChild(page, "confirmDialog");
+        verify(confirmDialog !== null);
+        confirmDialog.open();
+        tryVerify(function() { return confirmDialog.visible; });
+        return page;
+    }
+
+    // A blank, unpartitioned drive has nothing on it by definition.
+    function test_blankDriveIsNotWarnedAboutAsDataLoss() {
+        var page = openConfirmFor(makeDisk({hasNoFilesystem: true, mounted: false, rootEntries: []}));
+        compare(page.nothingToLose, true);
+        compare(findChild(page, "confirmDialogDataLossLabel").visible, false);
+        verify(findChild(page, "confirmDialogHeadlineLabel").text.indexOf("empty") >= 0);
+    }
+
+    // A mounted drive with an empty root: formatted, but holding nothing.
+    function test_mountedButEmptyDriveIsNotWarnedAboutAsDataLoss() {
+        var page = openConfirmFor(makeDisk({hasNoFilesystem: false, mounted: true, rootEntries: []}));
+        compare(page.nothingToLose, true);
+        compare(findChild(page, "confirmDialogDataLossLabel").visible, false);
+    }
+
+    // The one that matters. rootEntries is only populated for a mounted
+    // drive, so an unmounted drive always has an empty list -- and that
+    // means "contents unknown", not "empty". Softening here would disarm
+    // the warning on precisely the drives Seabass knows least about.
+    function test_unmountedDriveKeepsTheFullWarningDespiteEmptyRootEntries() {
+        var page = openConfirmFor(makeDisk({hasNoFilesystem: false, mounted: false, rootEntries: []}));
+        compare(page.nothingToLose, false);
+        compare(findChild(page, "confirmDialogDataLossLabel").visible, true);
+        verify(findChild(page, "confirmDialogHeadlineLabel").text.indexOf("permanently erases") >= 0);
+    }
+
+    function test_driveWithContentsKeepsTheFullWarning() {
+        var page = openConfirmFor(makeDisk({hasNoFilesystem: false, mounted: true,
+                                            hasDjLibrary: true, rootEntries: ["PIONEER/", "Contents/"]}));
+        compare(page.nothingToLose, false);
+        compare(findChild(page, "confirmDialogDataLossLabel").visible, true);
+    }
+
+    // Softening the data-loss claim must not soften the identity check:
+    // on an empty stick the residual risk is that this is not the drive
+    // the user thinks it is, which an empty root says nothing about.
+    function test_wrongDriveWarningSurvivesOnAnEmptyDrive() {
+        var page = openConfirmFor(makeDisk({hasNoFilesystem: true, mounted: false, rootEntries: []}));
+        compare(page.nothingToLose, true);
+        compare(findChild(page, "confirmDialogDoubleCheckLabel").visible, true);
+        // And the typed confirmation is still required.
+        compare(findChild(page, "formatAcceptButton").enabled, false);
+    }
 }
