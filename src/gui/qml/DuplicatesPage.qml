@@ -300,8 +300,18 @@ Page {
                                 color: Theme.textMuted
                             }
                         }
-                        Label { text: delegateRoot.description; color: Theme.textMuted }
-                        Label { text: delegateRoot.wastedBytesDescription; color: Theme.textMuted }
+                        Label {
+                            text: delegateRoot.description
+                            color: Theme.textMuted
+                            Layout.fillWidth: true
+                            wrapMode: Text.WordWrap
+                        }
+                        Label {
+                            text: delegateRoot.wastedBytesDescription
+                            color: Theme.textMuted
+                            Layout.fillWidth: true
+                            wrapMode: Text.WordWrap
+                        }
                     }
                 }
 

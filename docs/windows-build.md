@@ -122,20 +122,22 @@ real machine: build -> deploy -> `ISCC.exe` -> silent install -> smoke-run
 - Unit tests: build and run fine, but see the Debug-vs-Release
   `assert()`/`NDEBUG` caveat above -- a real, only-partially-fixed gap,
   not a solved one.
-- Three genuine Windows-specific test failures found so far, all
-  pre-existing and unrelated to any one feature:
-  `pending_deletion_applier_test` (simulates an undeletable file via
-  POSIX permission bits `fs::permissions()` sets, which Windows doesn't
-  enforce the same way -- a test-portability issue, not a product bug);
-  `onelibrary_cue_writer_test` (the staleness guard, meant to refuse a
-  write if the database changed externally, does not throw on Windows --
-  possibly a real product bug in an mtime-based check, given Windows
-  timestamp granularity/caching differs from Linux; flagged as the one
-  to prioritize since it guards a real safety property); `onelibrary_reader_test`
-  (compares a path built with Windows backslashes against one the reader
-  builds with forward slashes from the DB's stored `/Contents/...` value --
-  likely test-only, but worth confirming the product itself never emits
-  mixed separators on Windows).
+- The three Windows-specific test failures previously tracked here are
+  now fixed; full suite (90/90, including the integration/corpus tests)
+  passes clean on Windows 11 (MSYS2 UCRT64, Debug):
+  `onelibrary_cue_writer_test`'s staleness guard was a real product bug,
+  not a test artifact -- size/mtime alone missed a same-length external
+  overwrite on Windows, so `checkNotStale()` now also checks SQLite's
+  `PRAGMA data_version` (see `9f966994`/`d5254dbb`), and a dedicated case
+  (`d5254dbb`) pins down the whole-file-checksum path specifically,
+  proving size/mtime weren't secretly doing all the work.
+  `onelibrary_reader_test`'s mixed-separator path is fixed with
+  `make_preferred()` in `OneLibraryReader::readAll()` (`d5254dbb`).
+  `pending_deletion_applier_test` no longer relies on POSIX permission
+  bits to simulate an undeletable file -- it holds the file open without
+  `FILE_SHARE_DELETE` on Windows instead, which is also the real-world
+  case (a track still open in rekordbox or a player) the code under test
+  exists to survive (`3e1c7532`).
 - No CI (`.github/` doesn't exist).
 - `seabass-cli.exe` (the CLI) links `-static -static-libgcc -static-libstdc++`
   but its dependency on `zlib1.dll` (found via MSYS2's `libz.dll.a` import

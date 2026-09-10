@@ -2,6 +2,7 @@
 
 #include <QCoreApplication>
 #include <QSettings>
+#include <QUrl>
 #include <QtConcurrent/QtConcurrentRun>
 
 #include <algorithm>
@@ -13,6 +14,9 @@
 #include "application/stick_presence_diff.hpp"
 #include "application/use_cases/open_stick_backup.hpp"
 #include "infrastructure/paths/seabass_paths.hpp"
+#include "infrastructure/local/browsed_backup_root.hpp"
+#include "infrastructure/rekordbox/anlz_source_for_root.hpp"
+#include "gui/local_file_url.hpp"
 #include "infrastructure/hashing/sha256.hpp"
 #include "infrastructure/media/media_factory.hpp"
 #include "infrastructure/media/stick_root_scan.hpp"
@@ -81,6 +85,8 @@ QVariant DetectedStickListModel::data(const QModelIndex &index, int role) const
         return stick.isSdCard;
     case IsFolderRole:
         return stick.isFolder;
+    case IsBrowsedBackupRole:
+        return stick.isBrowsedBackup;
     case LibraryIdRole:
         return QString::fromStdString(stick.identity.libraryId());
     case HardwareSerialRole:
@@ -108,6 +114,7 @@ QHash<int, QByteArray> DetectedStickListModel::roleNames() const
         {EnginePathRole, "enginePath"},
         {IsSdCardRole, "isSdCard"},
         {IsFolderRole, "isFolder"},
+        {IsBrowsedBackupRole, "isBrowsedBackup"},
         {LibraryIdRole, "libraryId"},
         {HardwareSerialRole, "hardwareSerial"},
         {IdentityStrengthRole, "identityStrength"},
@@ -196,15 +203,78 @@ void MediaController::detect()
     // a stick's, and the folder itself can be gone by now -- in which case
     // it stays listed with no library so it can be seen and closed, rather
     // than vanishing without explanation.
+    // A folder whose path is a mounted stick's own root is that stick,
+    // already listed with the identity it really has; a second row would
+    // carry a second edit-lock id for one export.pdb. openFolder() refuses
+    // this at open time, but a persisted folder can find a stick on its
+    // path after a restart or a replug (drive-letter reuse on Windows is
+    // routine), so the rule is enforced here, on every refresh.
+    // Only paths that actually canonicalised take part: on failure
+    // weakly_canonical returns an empty path, and two failures would
+    // compare equal (empty == empty) and erase an unrelated folder row.
+    std::vector<std::filesystem::path> mountedRoots;
+    for (const application::DetectedStick &stick : sticks) {
+        if (stick.mounted && !stick.mountPoint.empty()) {
+            std::error_code ec;
+            const auto root = std::filesystem::weakly_canonical(std::filesystem::path(stick.mountPoint), ec);
+            if (!ec && !root.empty()) {
+                mountedRoots.push_back(root);
+            }
+        }
+    }
+    // Dropped, not merely hidden: a hidden entry stays persisted with no
+    // row to close it from, and comes back as a library-less ghost the
+    // moment the stick is unplugged. openFolder() already refuses this
+    // case by name at open time; this is the same rule for a folder the
+    // stick arrived under later.
+    const auto coincides = [&](const application::DetectedStick &folder) {
+        std::error_code ec;
+        const auto folderRoot = std::filesystem::weakly_canonical(std::filesystem::path(folder.mountPoint), ec);
+        return !ec && !folderRoot.empty()
+               && std::find(mountedRoots.begin(), mountedRoots.end(), folderRoot) != mountedRoots.end();
+    };
+    std::vector<application::DetectedStick> dropped;
+    for (const application::DetectedStick &folder : m_openedFolders) {
+        if (coincides(folder)) {
+            dropped.push_back(folder);
+        }
+    }
+    if (!dropped.empty()) {
+        m_openedFolders.erase(std::remove_if(m_openedFolders.begin(), m_openedFolders.end(), coincides),
+                              m_openedFolders.end());
+        saveOpenedFolders();
+        // The row is going without anyone clicking close, so its edit
+        // session -- if one is dirty or holds the lock -- must hear about
+        // it the way it would for a pulled stick, or the edits sit
+        // unseen until quit and then land on whatever is mounted there.
+        for (const application::DetectedStick &folder : dropped) {
+            emit stickRemoved(QString::fromStdString(folder.identity.libraryId()),
+                              QString::fromStdString(folder.label));
+        }
+    }
     for (application::DetectedStick &folder : m_openedFolders) {
         folder.rekordboxPath.reset();
         folder.enginePath.reset();
         infrastructure::media::scanMountedRoot(folder.mountPoint, folder);
+        // Decided from disk every time, not remembered from openBackup():
+        // the marker is what makes the cache self-describing, and it is
+        // what survives a restart. Only honoured under the browse cache --
+        // see isBrowsedBackupRoot for why a stray marker elsewhere is not.
+        folder.isBrowsedBackup = infrastructure::local::isBrowsedBackupRoot(std::filesystem::path(folder.mountPoint));
         sticks.push_back(folder);
     }
     m_model.setSticks(std::move(sticks));
     std::vector<application::StickIdentity> present;
     for (const application::DetectedStick &stick : m_model.sticks()) {
+        // Folder rows are not physical: nothing pulls them, nothing
+        // re-inserts them, and closing one is a deliberate act -- so they
+        // take no part in the removed/returned bookkeeping below. Without
+        // this, closing a folder raised the "USB stick removed" dialog
+        // for a directory still on disk, and a folder opened at a mounted
+        // stick's own root overwrote that stick's last-known identity.
+        if (stick.isFolder) {
+            continue;
+        }
         if (stick.mounted && !stick.mountPoint.empty()) {
             m_lastKnownByMountPoint[stick.mountPoint] = stick.identity;
             if (stick.identity.strength() != application::StickIdentity::Strength::None) {
@@ -260,7 +330,8 @@ QString MediaController::openFolder(const QString &path)
 QString MediaController::openFolder(const QString &path, const QString &label)
 {
     std::error_code ec;
-    const std::filesystem::path dir = std::filesystem::canonical(std::filesystem::path(path.toStdString()), ec);
+    const std::filesystem::path dir =
+        std::filesystem::canonical(std::filesystem::path(localPathFromUrl(path).toStdString()), ec);
     if (ec) {
         return tr("That folder could not be opened: %1").arg(QString::fromStdString(ec.message()));
     }
@@ -269,15 +340,24 @@ QString MediaController::openFolder(const QString &path, const QString &label)
     }
     const std::string canonical = dir.string();
 
+    // A mounted stick's own root is already listed, with the identity the
+    // stick actually has. Listing it a second time as a folder would put
+    // two rows on one library and let the folder's synthetic id shadow
+    // the real one in the pulled-stick lookup.
+    for (const application::DetectedStick &stick : m_model.sticks()) {
+        std::error_code cmpEc;
+        if (!stick.isFolder && stick.mounted
+            && std::filesystem::weakly_canonical(std::filesystem::path(stick.mountPoint), cmpEc) == dir) {
+            return tr("That is the USB stick \"%1\", which is already in the list.")
+                .arg(QString::fromStdString(stick.label));
+        }
+    }
+
     application::DetectedStick folder;
     folder.mountPoint = canonical;
     folder.mounted = true;  // there is nothing to mount; the library is readable now
     folder.isFolder = true;
-    // filename() is empty for a path ending in a separator, and for a root
-    // like "/" -- fall back to the path itself so the row is never blank.
-    folder.label = !label.isEmpty()      ? label.toStdString()
-                   : dir.filename().empty() ? canonical
-                                            : dir.filename().string();
+    folder.label = folderLabelFor(dir, label);
     infrastructure::media::scanMountedRoot(canonical, folder);
     if (!folder.rekordboxPath.has_value() && !folder.enginePath.has_value()) {
         return tr("No rekordbox or Engine DJ library in that folder. Open the folder that holds "
@@ -300,15 +380,22 @@ QString MediaController::openFolder(const QString &path, const QString &label)
 
 QString MediaController::openBackup(const QString &archivePath)
 {
-    const std::filesystem::path archive(archivePath.toStdString());
+    const std::filesystem::path archive(localPathFromUrl(archivePath).toStdString());
     // One cache directory per archive, named after its path rather than
     // its label: two backups of differently-named sticks must not land on
     // top of each other, and re-opening the same archive should reuse (and
-    // refresh) the same directory instead of accumulating copies.
+    // refresh) the same directory instead of accumulating copies. Keyed on
+    // the canonical path, so the same ZIP reached through a symlinked
+    // directory or a ".." spelling is one backup, one cache, one row.
+    std::error_code canonEc;
+    std::filesystem::path archiveKey = std::filesystem::weakly_canonical(archive, canonEc);
+    if (canonEc) {
+        archiveKey = std::filesystem::absolute(archive);
+    }
     const std::filesystem::path cacheRoot =
-        infrastructure::paths::localBrowsedBackupsDir() / folderLibraryId(std::filesystem::absolute(archive).string());
+        infrastructure::paths::localBrowsedBackupsDir() / folderLibraryId(archiveKey.string());
 
-    const application::OpenedStickBackup opened = application::OpenStickBackup::execute(archive, cacheRoot);
+    const application::OpenedStickBackup opened = application::OpenStickBackup::execute(archiveKey, cacheRoot);
     if (!opened.error.empty()) {
         return QString::fromStdString(opened.error);
     }
@@ -319,16 +406,39 @@ QString MediaController::openBackup(const QString &archivePath)
                       QString::fromStdString(opened.stickLabel));
 }
 
+// The row's name: the one given (a browsed backup's stick label), else
+// the directory's own name, else -- for a path ending in a separator, or
+// a root like "/" -- the whole path, so the row is never blank.
+std::string MediaController::folderLabelFor(const std::filesystem::path &dir, const QString &given)
+{
+    if (!given.isEmpty()) {
+        return given.toStdString();
+    }
+    return dir.filename().empty() ? dir.string() : dir.filename().string();
+}
+
 void MediaController::closeFolder(const QString &path)
 {
     const std::string canonical = path.toStdString();
-    const auto before = m_openedFolders.size();
-    m_openedFolders.erase(std::remove_if(m_openedFolders.begin(), m_openedFolders.end(),
-                                         [&](const application::DetectedStick &f) { return f.mountPoint == canonical; }),
-                          m_openedFolders.end());
-    if (m_openedFolders.size() == before) {
+    auto it = std::find_if(m_openedFolders.begin(), m_openedFolders.end(),
+                           [&](const application::DetectedStick &f) { return f.mountPoint == canonical; });
+    if (it == m_openedFolders.end()) {
         return;
     }
+
+    // Unsaved edits are the page's business, not this controller's: the
+    // stick list already holds the edit registry (or a fake in tests)
+    // and refuses the close there while a session on this row is dirty.
+    // Depending on EditSessionRegistry from here would invert the one
+    // direction that already exists (the registry watches this controller).
+    // The shared open archive, if this was a browsed backup: an open
+    // handle otherwise stays held until quit, and on Windows blocks
+    // replacing that archive with a newer generation.
+    if (auto archive = infrastructure::local::browsedBackupArchive(std::filesystem::path(canonical))) {
+        infrastructure::rekordbox::forgetArchiveSource(archive->string());
+    }
+
+    m_openedFolders.erase(it);
     saveOpenedFolders();
     detect();
 }
@@ -342,14 +452,25 @@ void MediaController::loadOpenedFolders()
     // silently fail to persist. Same construction as main.cpp and
     // AppSettingsController.
     QSettings settings("seabass", "seabass");
-    const QStringList paths = settings.value(QStringLiteral("openedFolders")).toStringList();
-    for (const QString &path : paths) {
+    // One array, one entry per row, path and label together -- so a row is
+    // either whole or absent. (Two parallel lists would let an index
+    // drift give row N row N+1's label, and on a browsed backup the label
+    // is what the backup archive's own name is derived from.) The label
+    // matters because a browsed backup's directory is named after a hash;
+    // its label is the stick the backup came from.
+    const int count = settings.beginReadArray(QStringLiteral("openedFolders"));
+    for (int i = 0; i < count; ++i) {
+        settings.setArrayIndex(i);
+        const QString path = settings.value(QStringLiteral("path")).toString();
+        if (path.isEmpty()) {
+            continue;
+        }
         application::DetectedStick folder;
         folder.mountPoint = path.toStdString();
         folder.mounted = true;
         folder.isFolder = true;
         const std::filesystem::path dir(folder.mountPoint);
-        folder.label = dir.filename().empty() ? folder.mountPoint : dir.filename().string();
+        folder.label = folderLabelFor(dir, settings.value(QStringLiteral("label")).toString());
         folder.identity.label = folder.label;
         folder.identity.explicitLibraryId = folderLibraryId(folder.mountPoint);
         // Deliberately not re-scanned or existence-checked here: detect()
@@ -358,16 +479,19 @@ void MediaController::loadOpenedFolders()
         // up construction (or disappear from the list for good).
         m_openedFolders.push_back(std::move(folder));
     }
+    settings.endArray();
 }
 
 void MediaController::saveOpenedFolders()
 {
-    QStringList paths;
-    for (const application::DetectedStick &folder : m_openedFolders) {
-        paths << QString::fromStdString(folder.mountPoint);
-    }
     QSettings settings("seabass", "seabass");  // see loadOpenedFolders()
-    settings.setValue(QStringLiteral("openedFolders"), paths);
+    settings.beginWriteArray(QStringLiteral("openedFolders"), static_cast<int>(m_openedFolders.size()));
+    for (std::size_t i = 0; i < m_openedFolders.size(); ++i) {
+        settings.setArrayIndex(static_cast<int>(i));
+        settings.setValue(QStringLiteral("path"), QString::fromStdString(m_openedFolders[i].mountPoint));
+        settings.setValue(QStringLiteral("label"), QString::fromStdString(m_openedFolders[i].label));
+    }
+    settings.endArray();
 }
 
 QString MediaController::libraryIdForMountPoint(const QString &mountPoint) const

@@ -20,6 +20,8 @@
 
 #include "scratch_path.hpp"
 #include "gui/media_controller.hpp"
+#include "infrastructure/local/browsed_backup_root.hpp"
+#include "infrastructure/paths/seabass_paths.hpp"
 
 namespace fs = std::filesystem;
 using seabass::gui::DetectedStickListModel;
@@ -70,6 +72,7 @@ int main(int argc, char **argv)
     const fs::path scratch = seabass::testing::scratchRoot() / "open-folder-test";
     fs::remove_all(scratch);
     fs::create_directories(scratch);
+    seabass::testing::sandboxSeabassHome(scratch / "home");
     // Redirects the store by path and format rather than by naming the
     // application: the controller opens QSettings("seabass", "seabass")
     // exactly as the real app does, and setting organizationName here
@@ -187,6 +190,63 @@ int main(int argc, char **argv)
         assert(row >= 0);
         assert(!controller.sticksModel()->sticks()[static_cast<size_t>(row)].rekordboxPath.has_value());
         std::cout << "case 7 (emptied folder stays listed) OK\n";
+    }
+
+    // A QML FolderDialog hands over a file:// URL, and that is what the
+    // controller receives; it must not be stripped by hand.
+    {
+        MediaController controller;
+        assert(controller.openFolder(QString::fromStdString("file://" + both.string())).isEmpty());
+        assert(rowForMountPoint(*controller.sticksModel(), both.string()) >= 0);
+        std::cout << "case 7b (file:// URL accepted) OK\n";
+    }
+
+    // A row opened with an explicit label keeps it across a restart: a
+    // browsed backup's directory is a hash, and its label is the stick.
+    {
+        {
+            MediaController controller;
+            assert(controller.openFolder(QString::fromStdString(both.string()), "TOURSTICK").isEmpty());
+        }
+        MediaController restarted;
+        const int row = rowForMountPoint(*restarted.sticksModel(), both.string());
+        assert(row >= 0);
+        assert(restarted.sticksModel()->sticks()[static_cast<size_t>(row)].label == "TOURSTICK");
+        assert(restarted.sticksModel()->sticks()[static_cast<size_t>(row)].identity.label == "TOURSTICK");
+        std::cout << "case 7c (label survives a restart) OK\n";
+    }
+
+    // A folder carrying a marker written for it is flagged read-only on
+    // every detect(), from the marker alone -- no archive needed to decide
+    // it, and no dependence on where the folder sits.
+    {
+        const fs::path browsed = scratch / "browsed";
+        makeStickShapedFolder(browsed, true, false);
+        assert(seabass::infrastructure::local::writeBrowsedBackupMarker(browsed, "/nonexistent/TOURSTICK.zip", browsed));
+        MediaController controller;
+        assert(controller.openFolder(QString::fromStdString(browsed.string())).isEmpty());
+        int row = rowForMountPoint(*controller.sticksModel(), browsed.string());
+        assert(row >= 0);
+        assert(controller.sticksModel()->sticks()[static_cast<size_t>(row)].isBrowsedBackup);
+        row = rowForMountPoint(*controller.sticksModel(), both.string());
+        assert(row < 0 || !controller.sticksModel()->sticks()[static_cast<size_t>(row)].isBrowsedBackup);
+        std::cout << "case 7d (marker flags a browsed backup) OK\n";
+    }
+
+    // A marker copied from somewhere else names that other directory and
+    // is a stray file here: a real stick that was restored from a browse
+    // cache must not come up read-only.
+    {
+        const fs::path stray = scratch / "restored-onto-a-stick";
+        makeStickShapedFolder(stray, true, false);
+        fs::copy_file(scratch / "browsed" / seabass::infrastructure::local::BrowsedBackupMarkerName,
+                      stray / seabass::infrastructure::local::BrowsedBackupMarkerName);
+        MediaController controller;
+        assert(controller.openFolder(QString::fromStdString(stray.string())).isEmpty());
+        const int row = rowForMountPoint(*controller.sticksModel(), stray.string());
+        assert(row >= 0);
+        assert(!controller.sticksModel()->sticks()[static_cast<size_t>(row)].isBrowsedBackup);
+        std::cout << "case 7e (marker copied from elsewhere is ignored) OK\n";
     }
 
     // The id a folder gets is stable for a path and different between

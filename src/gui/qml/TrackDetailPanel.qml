@@ -481,6 +481,8 @@ Pane {
             text: "Click the waveform above to add a cue there, or drag to add a loop."
             color: Theme.textMuted
             font.pointSize: Theme.fontSmall
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
         }
 
         // Position-only for now, no beatgrid snap, see

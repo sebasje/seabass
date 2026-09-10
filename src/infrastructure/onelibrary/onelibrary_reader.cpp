@@ -197,7 +197,19 @@ std::vector<Track> OneLibraryReader::readAll()
             // failure comparing this against a path built the "normal"
             // way (separate operator/ calls per component, which do get
             // the native separator throughout).
-            track.filePath = (stickRoot / relPath.substr(1)).make_preferred().string();
+            //
+            // relPath is a raw OneLibrary column, so it is exactly the
+            // kind of foreign data normalizedPathKey() (path_key.cpp) is
+            // documented never to trust: on Windows, operator/ re-encodes
+            // its argument through the current locale's narrow-to-wide
+            // codecvt and throws std::filesystem::filesystem_error on
+            // bytes that are not valid UTF-8. One track with an
+            // undecodable path must not take down the whole scan.
+            try {
+                track.filePath = (stickRoot / relPath.substr(1)).make_preferred().string();
+            } catch (const std::exception &e) {
+                m_progress->warn("content_id=" + track.sourceId + ": file path unreadable (" + e.what() + ")");
+            }
         }
         track.filename = stmt.columnText(6);
         track.bitrate = static_cast<int>(stmt.columnInt64(7));
@@ -217,10 +229,17 @@ std::vector<Track> OneLibraryReader::readAll()
             // above, same reason -- imageRelPath.substr(1)'s own forward
             // slashes are appended as one path component and survive
             // .string() as literal characters on Windows otherwise.
-            fs::path candidate = (stickRoot / imageRelPath.substr(1)).make_preferred();
-            std::error_code ec;
-            if (fs::exists(candidate, ec)) {
-                track.artworkPath = candidate.string();
+            //
+            // Same undecodable-bytes risk as filePath above, and the same
+            // fix: one bad artwork path must not lose the whole track.
+            try {
+                fs::path candidate = (stickRoot / imageRelPath.substr(1)).make_preferred();
+                std::error_code ec;
+                if (fs::exists(candidate, ec)) {
+                    track.artworkPath = candidate.string();
+                }
+            } catch (const std::exception &e) {
+                m_progress->warn("content_id=" + track.sourceId + ": artwork path unreadable (" + e.what() + ")");
             }
         }
 

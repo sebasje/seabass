@@ -140,10 +140,22 @@ std::unordered_map<int64_t, std::string> readArtworkPaths(const std::string &eng
         // from the stickRoot join on Windows. Same bug/fix as
         // OneLibraryReader's artworkPath (onelibrary_reader.cpp), found
         // via a real Windows test failure there.
-        std::filesystem::path candidate = (stickRoot / hash.substr(pos)).make_preferred();
-        std::error_code ec;
-        if (std::filesystem::exists(candidate, ec)) {
-            result[trackId] = candidate.string();
+        //
+        // hash is a raw Engine sqlite column, so on Windows operator/ can
+        // throw filesystem_error over bytes that are not valid UTF-8 (see
+        // path_key.cpp's own doc comment on the same risk). Caught per
+        // row, not just by readAll()'s outer try/catch around this whole
+        // function: that one would otherwise lose every OTHER track's
+        // artwork too, not just this row's.
+        try {
+            std::filesystem::path candidate = (stickRoot / hash.substr(pos)).make_preferred();
+            std::error_code ec;
+            if (std::filesystem::exists(candidate, ec)) {
+                result[trackId] = candidate.string();
+            }
+        } catch (const std::exception &) {
+            // Best-effort, same as the rest of this loop's field reads:
+            // one unreadable artwork path is not worth losing the scan.
         }
     }
     sqlite3_finalize(stmt);

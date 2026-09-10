@@ -1,3 +1,4 @@
+#include "infrastructure/local/browsed_backup_root.hpp"
 #include "application/use_cases/backup_stick.hpp"
 
 #include <algorithm>
@@ -433,9 +434,30 @@ VerifyOutcome BackupStick::verify(const fs::path &archivePath, CancellationToken
     return outcome;
 }
 
+namespace
+{
+
+// A stick backup being browsed is a catalogs-only cache of an archive.
+// Backing it up -- or cloning from it, which is a backup underneath --
+// would diff that cache against the archive's manifest, call every
+// analysis and audio file "removed", and rewrite the user's full backup
+// down to the catalogs. Refused here, where the write happens, rather
+// than at whichever button led here: the stick list withholds its own
+// cards, but a *different* row's Clone card resolves the same archive by
+// label, and there is always another button.
+const char *BrowsedBackupRefusal =
+    "That is a stick backup being browsed, not a stick. It cannot be backed up or cloned from; "
+    "restore it onto a stick first.";
+
+}  // namespace
+
 BackupPreview BackupStick::preview(const BackupStickOptions &options, ProgressReporter &reporter)
 {
     BackupPreview preview;
+    if (infrastructure::local::isBrowsedBackupRoot(options.stickRoot)) {
+        preview.error = BrowsedBackupRefusal;
+        return preview;
+    }
     OpenedArchive opened;
     if (!opened.open(options, false)) {
         preview.error = opened.error;
@@ -474,6 +496,10 @@ BackupPreview BackupStick::preview(const BackupStickOptions &options, ProgressRe
 BackupStickOutcome BackupStick::execute(const BackupStickOptions &options, ProgressReporter &reporter)
 {
     BackupStickOutcome outcome;
+    if (infrastructure::local::isBrowsedBackupRoot(options.stickRoot)) {
+        outcome.message = BrowsedBackupRefusal;
+        return outcome;
+    }
     auto impl = std::make_unique<PendingBackup::Impl>();
     impl->options = options;
     try {

@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "infrastructure/engine/engine_library_layout.hpp"
+#include "infrastructure/local/browsed_backup_root.hpp"
 #include "infrastructure/long_paths.hpp"
 
 namespace seabass::infrastructure::stick_backup
@@ -22,6 +23,11 @@ constexpr std::array<std::string_view, 5> ExcludedRootDirectories = {
     "System Volume Information", "$RECYCLE.BIN", ".Trashes", ".Spotlight-V100", ".fseventsd",
 };
 constexpr std::string_view WriteLockPath = "Seabass/backups/.write.lock";
+// The browse cache's own marker. A backup taken from one must not carry
+// it: restored onto a stick it would be a stray file (the marker names
+// the directory it was written for, so it would not be honoured -- but
+// it need not travel at all).
+constexpr std::string_view BrowsedBackupMarker = local::BrowsedBackupMarkerName;
 
 std::string_view firstComponent(std::string_view relativePath)
 {
@@ -53,7 +59,7 @@ bool isExcludedFromBackup(std::string_view relativePath, bool isDirectory)
             return true;
         }
     }
-    if (relativePath == WriteLockPath) {
+    if (relativePath == WriteLockPath || relativePath == BrowsedBackupMarker) {
         return true;
     }
     return !isDirectory && engine::isSqliteShmFile(lastComponent(relativePath));

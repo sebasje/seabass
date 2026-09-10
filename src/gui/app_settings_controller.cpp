@@ -1,3 +1,4 @@
+#include "gui/local_file_url.hpp"
 #include "infrastructure/paths/seabass_paths.hpp"
 #include "app_settings_controller.hpp"
 
@@ -74,9 +75,20 @@ void AppSettingsController::setKeyNotation(const QString &value)
     emit keyNotationChanged();
 }
 
+QString AppSettingsController::localPathFromUrl(const QString &pathOrUrl)
+{
+    return seabass::gui::localPathFromUrl(pathOrUrl);
+}
+
+QString AppSettingsController::toLocalFileUrl(const QString &path)
+{
+    return seabass::gui::toLocalFileUrl(path.toStdString());
+}
+
 void AppSettingsController::setStickBackupDirectory(const QString &value)
 {
-    QString effective = value.isEmpty() ? defaultStickBackupDirectory() : value;
+    const QString local = seabass::gui::localPathFromUrl(value);
+    QString effective = local.isEmpty() ? defaultStickBackupDirectory() : local;
     if (m_stickBackupDirectory == effective) {
         return;
     }
@@ -100,7 +112,8 @@ QString AppSettingsController::anonymizedExportDirectory() const
 
 void AppSettingsController::setSeabassHomeDirectory(const QString &value)
 {
-    const QString effective = value.isEmpty() ? defaultSeabassHomeDirectory() : value;
+    const QString local = seabass::gui::localPathFromUrl(value);
+    const QString effective = local.isEmpty() ? defaultSeabassHomeDirectory() : local;
     if (m_seabassHomeDirectory == effective) {
         return;
     }

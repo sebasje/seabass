@@ -24,7 +24,7 @@ TestCase {
             label: "MAIN", mountPoint: "/media/MAIN", devicePath: "/dev/sdb1", mounted: true,
             hasRekordbox: true, hasEngine: true, rekordboxPath: "/media/MAIN/PIONEER",
             enginePath: "/media/MAIN/Engine Library", isSdCard: false, isFolder: false,
-            libraryId: "lib-main",
+            isBrowsedBackup: false, libraryId: "lib-main",
         };
         for (var key in overrides) {
             s[key] = overrides[key];
@@ -56,7 +56,7 @@ TestCase {
                               closeFolder: function(p) { this.calls.push("closeFolder:" + p); },
                               openBackup: function(p) { this.calls.push("openBackup:" + p); return ""; }},
             playbackController: {stop: function() {}},
-            appSettingsController: {experimentalFeaturesEnabled: true, stickBackupDirectory: "/tmp"},
+            appSettingsController: fakeAppSettings(),
             backupAdvisor: {advice: advice, calls: [],
                             assess: function(l, m, r, e) { this.calls.push("assess:" + m); },
                             reassessAll: function() { this.calls.push("reassessAll"); },
@@ -130,6 +130,15 @@ TestCase {
         image.save(screenshotDir + "/" + name + ".png");
     }
 
+    // What StickListPage reads and calls on the real AppSettingsController.
+    function fakeAppSettings() {
+        return {
+            experimentalFeaturesEnabled: true, stickBackupDirectory: "/tmp",
+            toLocalFileUrl: function(p) { return "file://" + p; },
+            localPathFromUrl: function(u) { return u.replace(/^file:\/\//, ""); },
+        };
+    }
+
     function fakeEditRegistry(lockedIds) {
         return {
             lockedByOther: lockedIds, calls: [],
@@ -137,6 +146,10 @@ TestCase {
             removeLock: function(id) { this.calls.push("remove:" + id); },
             lockHolder: function(id) { return {hostname: "studio-pc", pid: 4242, startedAtUtc: "2026-09-06T10:00:00Z"}; },
             libraryIdForPath: function(p) { return "lib-main"; },
+            // What the real registry always has; tests override as needed.
+            hasSession: function(id) { return false; },
+            sessionFor: function(id) { return null; },
+            closeSession: function(id) { this.calls.push("closeSession:" + id); },
         };
     }
 
@@ -338,8 +351,7 @@ TestCase {
             enginePath: "/home/dj/restored/Engine Library",
         });
         var page = makePage([folder], makeAdvice({state: "no-backups"}),
-                            {appSettingsController: {experimentalFeaturesEnabled: true,
-                                                     stickBackupDirectory: "/tmp"}});
+                            {appSettingsController: fakeAppSettings()});
 
         // The library is reachable: the ordinary cards are all there.
         verify(findCard(page, "/home/dj/restored", "Browse Library") !== null);
@@ -361,6 +373,71 @@ TestCase {
         compare(page.mediaController.calls.indexOf("closeFolder:/home/dj/restored") >= 0, true);
 
         saveScreenshot(page, "stick-list-folder-library");
+    }
+
+    // A browsed stick backup is a folder row that must not be written
+    // to: its analysis files are still in the archive and its directory
+    // is replaced on the next open. Every card that writes is withheld;
+    // the ones that only read stay. The Backups card in particular used
+    // to be live here, and from this row it targets the very archive
+    // being browsed.
+    function test_browsedBackupWithholdsEveryWritingCard() {
+        var backup = makeStick({
+            label: "TOURSTICK", mountPoint: "/home/dj/Seabass/metadata/browsed-backups/folder-abc",
+            devicePath: "", isFolder: true, isBrowsedBackup: true, libraryId: "folder-abc",
+            rekordboxPath: "/home/dj/Seabass/metadata/browsed-backups/folder-abc/PIONEER",
+            enginePath: "/home/dj/Seabass/metadata/browsed-backups/folder-abc/Engine Library",
+        });
+        var page = makePage([backup], makeAdvice({state: "no-backups"}),
+                            {appSettingsController: fakeAppSettings()});
+        var mp = backup.mountPoint;
+        var reads = ["Browse Library", "Library Statistics", "Metadata Backup"];
+        for (var i = 0; i < reads.length; ++i) {
+            var card = findCard(page, mp, reads[i]);
+            verify(card !== null, reads[i] + " missing");
+            compare(card.visible, true, reads[i] + " should stay");
+        }
+        var writes = ["Backups", "Housekeeping", "Library Health", "Restore Metadata",
+                      "Create Engine Library", "Sync Cue Points", "Device Profile", "Format USB Stick"];
+        for (var j = 0; j < writes.length; ++j) {
+            var w = findCard(page, mp, writes[j]);
+            verify(w === null || !w.visible, writes[j] + " must be withheld on a browsed backup");
+        }
+        saveScreenshot(page, "stick-list-browsed-backup");
+    }
+
+    // Closing a folder row is where its unsaved edits would otherwise
+    // vanish unseen (folder rows sit out the pulled-stick prompts): the
+    // close is refused while the session is dirty, and a clean session's
+    // lock is released before the row goes.
+    function test_closingAFolderRowRefusesWhileDirtyAndReleasesWhenClean() {
+        var folder = makeStick({
+            label: "restored", mountPoint: "/home/dj/restored", devicePath: "",
+            isFolder: true, libraryId: "folder-r1",
+        });
+        var registry = fakeEditRegistry([]);
+        registry.session = {dirty: true};
+        registry.hasSession = function(id) { this.calls.push("hasSession:" + id); return id === "folder-r1"; };
+        registry.sessionFor = function(id) { return this.session; };
+        registry.closeSession = function(id) { this.calls.push("closeSession:" + id); };
+        var page = makePage([folder], makeAdvice({}), {editRegistry: registry});
+        // Read the page's own copy, as every other fake in this file is
+        // read (page.mediaController.calls): what the page holds is what
+        // the handler talked to.
+        var reg = page.editRegistry;
+        var close = findRowObject(page, "/home/dj/restored", "closeFolderButton");
+        verify(close !== null);
+
+        close.clicked();
+        verify(reg.calls.indexOf("hasSession:folder-r1") >= 0, "the registry was consulted");
+        compare(page.mediaController.calls.indexOf("closeFolder:/home/dj/restored"), -1,
+                "a dirty session must not be dropped");
+        compare(reg.calls.indexOf("closeSession:folder-r1"), -1, "a dirty session must not be closed");
+
+        reg.session.dirty = false;
+        close.clicked();
+        verify(reg.calls.indexOf("closeSession:folder-r1") >= 0, "a clean session is closed");
+        verify(page.mediaController.calls.indexOf("closeFolder:/home/dj/restored") >= 0);
     }
 
     // The entry point itself: the toolbar button opens the folder picker.

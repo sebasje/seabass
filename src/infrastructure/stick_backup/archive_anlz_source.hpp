@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 
@@ -25,9 +26,12 @@ namespace seabass::infrastructure::stick_backup
 // validated every offset and count against the file size, so lookups are
 // arithmetic on an already-checked central directory.
 //
-// Thread-safety matches ArchiveFile's: a scan reads tracks on one
-// background thread at a time, which is how LibraryCatalogCache already
-// serializes a catalog's readers.
+// One instance is shared by every thread that reads the same backup (see
+// anlzSourceForPioneerRoot's cache): a scan on a worker and a waveform
+// lookup on the UI thread can ask for entries at once. Zip64Reader fills
+// its data-offset table lazily from a const method with no lock of its
+// own, so read() fills that slot under m_readMutex and does the actual
+// read outside it -- every access to the reader goes through here.
 class ArchiveAnlzSource : public rekordbox::AnlzByteSource
 {
 public:
@@ -50,6 +54,7 @@ private:
     std::shared_ptr<const ArchiveFile> m_file;
     std::shared_ptr<const Zip64Reader> m_reader;
     std::string m_entryPrefix;
+    mutable std::mutex m_readMutex;
 };
 
 }  // namespace seabass::infrastructure::stick_backup

@@ -270,7 +270,9 @@ void CloneStickController::start(bool exact)
     auto *registry = EditSessionRegistry::instance();
     if (auto holder = m_writeHold.acquire({registry->libraryIdForPath(m_sourceRoot), registry->libraryIdForPath(m_targetRoot)},
                                           m_sourceLabel, [this, exact] { start(exact); })) {
-        emit lockRefused(*holder, m_writeHold.refusedLibraryId());
+        if (!holder->isEmpty()) {  // empty: a read-only refusal, already shown
+            emit lockRefused(*holder, m_writeHold.refusedLibraryId());
+        }
         return;
     }
     setErrorMessage({});

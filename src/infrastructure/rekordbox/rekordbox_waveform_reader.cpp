@@ -16,9 +16,9 @@ std::vector<domain::WaveformColumn> readWaveformPreview(const std::string &pione
                                                           const std::string &trackSourceId,
                                                           std::shared_ptr<AnlzByteSource> anlzSource)
 {
-    if (!anlzSource) {
-        anlzSource = anlzSourceForPioneerRoot(pioneerRoot);
-    }
+    // Resolved below, after the track is known to have an analysis file
+    // at all -- for a browsed backup, resolving means opening the archive,
+    // and this runs on the UI thread on every Play and list scroll.
     // Best-effort per the header contract: findAnlzPathForTrackId() throws
     // if export.pdb itself can't be opened (e.g. the stick was unmounted
     // right as playback was requested), which callers -- notably
@@ -30,6 +30,9 @@ std::vector<domain::WaveformColumn> readWaveformPreview(const std::string &pione
             return {};
         }
 
+        if (!anlzSource) {
+            anlzSource = anlzSourceForPioneerRoot(pioneerRoot);
+        }
         auto bytes = anlzSource->read(anlzRelativePath(*analyzePath, /*wantExt=*/false));
         if (!bytes || bytes->empty()) {
             return {};

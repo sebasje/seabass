@@ -1,3 +1,4 @@
+#include "gui/local_file_url.hpp"
 #include "gui/library_catalog_cache.hpp"
 #include "restore_stick_backup_controller.hpp"
 
@@ -133,10 +134,7 @@ void RestoreStickBackupController::refresh()
 
 void RestoreStickBackupController::setArchivePath(const QString &path)
 {
-    QString cleaned = path;
-    if (cleaned.startsWith(QStringLiteral("file://"))) {
-        cleaned = QUrl(cleaned).toLocalFile();
-    }
+    const QString cleaned = localPathFromUrl(path);
     if (m_archivePath == cleaned) {
         return;
     }
@@ -368,7 +366,9 @@ void RestoreStickBackupController::restore(const QString &targetRoot, bool exact
     const QString archiveId = m_archiveInfo.value("identifier").toString();
     if (auto holder = m_writeHold.acquire({targetId, archiveId}, QString(),
                                           [this, targetRoot, exact] { restore(targetRoot, exact); })) {
-        emit lockRefused(*holder, m_writeHold.refusedLibraryId());
+        if (!holder->isEmpty()) {  // empty: a read-only refusal, already shown
+            emit lockRefused(*holder, m_writeHold.refusedLibraryId());
+        }
         return;
     }
     setErrorMessage({});
