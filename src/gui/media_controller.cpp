@@ -11,6 +11,8 @@
 #include <utility>
 
 #include "application/stick_presence_diff.hpp"
+#include "application/use_cases/open_stick_backup.hpp"
+#include "infrastructure/paths/seabass_paths.hpp"
 #include "infrastructure/hashing/sha256.hpp"
 #include "infrastructure/media/media_factory.hpp"
 #include "infrastructure/media/stick_root_scan.hpp"
@@ -252,6 +254,11 @@ std::string MediaController::folderLibraryId(const std::string &canonicalPath)
 
 QString MediaController::openFolder(const QString &path)
 {
+    return openFolder(path, QString());
+}
+
+QString MediaController::openFolder(const QString &path, const QString &label)
+{
     std::error_code ec;
     const std::filesystem::path dir = std::filesystem::canonical(std::filesystem::path(path.toStdString()), ec);
     if (ec) {
@@ -268,7 +275,9 @@ QString MediaController::openFolder(const QString &path)
     folder.isFolder = true;
     // filename() is empty for a path ending in a separator, and for a root
     // like "/" -- fall back to the path itself so the row is never blank.
-    folder.label = dir.filename().empty() ? canonical : dir.filename().string();
+    folder.label = !label.isEmpty()      ? label.toStdString()
+                   : dir.filename().empty() ? canonical
+                                            : dir.filename().string();
     infrastructure::media::scanMountedRoot(canonical, folder);
     if (!folder.rekordboxPath.has_value() && !folder.enginePath.has_value()) {
         return tr("No rekordbox or Engine DJ library in that folder. Open the folder that holds "
@@ -287,6 +296,27 @@ QString MediaController::openFolder(const QString &path)
     saveOpenedFolders();
     detect();
     return {};
+}
+
+QString MediaController::openBackup(const QString &archivePath)
+{
+    const std::filesystem::path archive(archivePath.toStdString());
+    // One cache directory per archive, named after its path rather than
+    // its label: two backups of differently-named sticks must not land on
+    // top of each other, and re-opening the same archive should reuse (and
+    // refresh) the same directory instead of accumulating copies.
+    const std::filesystem::path cacheRoot =
+        infrastructure::paths::localBrowsedBackupsDir() / folderLibraryId(std::filesystem::absolute(archive).string());
+
+    const application::OpenedStickBackup opened = application::OpenStickBackup::execute(archive, cacheRoot);
+    if (!opened.error.empty()) {
+        return QString::fromStdString(opened.error);
+    }
+    // The label is the stick the backup was taken from, when the manifest
+    // says; the cache directory's own name is a hash and would tell the
+    // user nothing.
+    return openFolder(QString::fromStdString(opened.libraryRoot.string()),
+                      QString::fromStdString(opened.stickLabel));
 }
 
 void MediaController::closeFolder(const QString &path)

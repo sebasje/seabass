@@ -8,6 +8,7 @@
 
 #include "infrastructure/rekordbox/generated/rekordbox_anlz.h"
 #include "infrastructure/rekordbox/generated/rekordbox_pdb.h"
+#include "infrastructure/rekordbox/anlz_source_for_root.hpp"
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 
 namespace seabass::infrastructure::rekordbox
@@ -136,8 +137,13 @@ std::string playlistPath(uint32_t id, const std::unordered_map<uint32_t, Playlis
 
 }  // namespace
 
+// Resolves the analysis-file source from the root itself rather than
+// taking one: a browsed stick backup's extracted catalogs carry a marker
+// naming their archive, so every existing construction of this reader --
+// the CLI, the catalog cache, the corpus runner -- reads a backup
+// correctly without knowing backups exist. See anlzSourceForPioneerRoot().
 KaitaiRekordboxReader::KaitaiRekordboxReader(std::string pioneerRoot)
-    : m_pioneerRoot(pioneerRoot), m_anlzSource(std::make_shared<FilesystemAnlzSource>(std::move(pioneerRoot)))
+    : m_pioneerRoot(pioneerRoot), m_anlzSource(anlzSourceForPioneerRoot(pioneerRoot))
 {
 }
 

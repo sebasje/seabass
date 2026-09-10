@@ -5,8 +5,9 @@
 namespace seabass::infrastructure::stick_backup
 {
 
-ArchiveAnlzSource::ArchiveAnlzSource(std::shared_ptr<const Zip64Reader> reader, std::string entryPrefix)
-    : m_reader(std::move(reader)), m_entryPrefix(std::move(entryPrefix))
+ArchiveAnlzSource::ArchiveAnlzSource(std::shared_ptr<const Zip64Reader> reader, std::string entryPrefix,
+                                       std::shared_ptr<const ArchiveFile> file)
+    : m_file(std::move(file)), m_reader(std::move(reader)), m_entryPrefix(std::move(entryPrefix))
 {
 }
 

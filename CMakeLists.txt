@@ -246,6 +246,8 @@ add_library(seabass_core STATIC
     src/infrastructure/bulk_write_strategy.cpp
     src/infrastructure/durable_file_write.cpp
     src/infrastructure/rekordbox/anlz_byte_source.cpp
+    src/infrastructure/rekordbox/anlz_source_for_root.cpp
+    src/application/use_cases/open_stick_backup.cpp
     src/infrastructure/stick_backup/archive_anlz_source.cpp
     src/infrastructure/rekordbox/anlz_cue_codec.cpp
     src/infrastructure/rekordbox/anlz_file.cpp
@@ -932,13 +934,25 @@ add_executable(cue_color_normalization_test
     src/infrastructure/engine/libdjinterop_engine_reader.cpp
     src/infrastructure/rekordbox/kaitai_rekordbox_reader.cpp
     src/infrastructure/rekordbox/anlz_byte_source.cpp
+    # KaitaiRekordboxReader resolves its analysis-file source from the
+    # library root itself, so that a stick backup browsed in place is read
+    # correctly by every existing caller without one of them changing (see
+    # anlzSourceForPioneerRoot). The cost is here: the pdb reader now pulls
+    # in the archive stack, so a test that lists its own sources has to
+    # list those too.
+    src/infrastructure/rekordbox/anlz_source_for_root.cpp
+    src/infrastructure/stick_backup/archive_anlz_source.cpp
+    src/infrastructure/stick_backup/posix_archive_file.cpp
+    src/infrastructure/stick_backup/zip64_reader.cpp
+    src/infrastructure/stick_backup/zip_format.cpp
     src/infrastructure/rekordbox/pdb_lookup.cpp
     src/infrastructure/rekordbox/anlz_path_index.cpp
     src/infrastructure/work_counters.cpp
     tests/cue_color_normalization_test.cpp
 )
 target_include_directories(cue_color_normalization_test PRIVATE src)
-target_link_libraries(cue_color_normalization_test PRIVATE DjInterop rekordbox_format kaitai_cpp_stl_runtime)
+target_link_libraries(cue_color_normalization_test PRIVATE DjInterop rekordbox_format kaitai_cpp_stl_runtime
+    ZLIB::ZLIB)
 add_test(NAME cue_color_normalization_test COMMAND cue_color_normalization_test)
 
 add_executable(anlz_cue_codec_test
@@ -1671,6 +1685,15 @@ target_link_libraries(archive_anlz_source_test PRIVATE seabass_core)
 add_test(NAME archive_anlz_source_test COMMAND archive_anlz_source_test
     ${CMAKE_SOURCE_DIR}/tests/fixtures/anonymized_library)
 set_tests_properties(archive_anlz_source_test PROPERTIES LABELS "integration")
+
+# End to end: back a library up, open the backup, read it. Asserts the
+# cues match the original folder even though USBANLZ was never extracted.
+add_executable(open_stick_backup_test tests/open_stick_backup_test.cpp)
+target_include_directories(open_stick_backup_test PRIVATE src)
+target_link_libraries(open_stick_backup_test PRIVATE seabass_core)
+add_test(NAME open_stick_backup_test COMMAND open_stick_backup_test
+    ${CMAKE_SOURCE_DIR}/tests/fixtures/anonymized_library)
+set_tests_properties(open_stick_backup_test PROPERTIES LABELS "integration")
 
 add_executable(corpus_test tests/corpus_test.cpp)
 target_include_directories(corpus_test PRIVATE src)

@@ -127,4 +127,9 @@ fs::path localMetadataDir()
     return localRoot() / MetadataSubdir;
 }
 
+fs::path localBrowsedBackupsDir()
+{
+    return localMetadataDir() / "browsed-backups";
+}
+
 }  // namespace seabass::infrastructure::paths

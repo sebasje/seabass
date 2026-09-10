@@ -53,9 +53,10 @@ TestCase {
                               mountStick: function(d) { this.calls.push("mount:" + d); },
                               unmountStick: function(d) { this.calls.push("unmount:" + d); },
                               openFolder: function(p) { this.calls.push("openFolder:" + p); return ""; },
-                              closeFolder: function(p) { this.calls.push("closeFolder:" + p); }},
+                              closeFolder: function(p) { this.calls.push("closeFolder:" + p); },
+                              openBackup: function(p) { this.calls.push("openBackup:" + p); return ""; }},
             playbackController: {stop: function() {}},
-            appSettingsController: {experimentalFeaturesEnabled: true},
+            appSettingsController: {experimentalFeaturesEnabled: true, stickBackupDirectory: "/tmp"},
             backupAdvisor: {advice: advice, calls: [],
                             assess: function(l, m, r, e) { this.calls.push("assess:" + m); },
                             reassessAll: function() { this.calls.push("reassessAll"); },
@@ -337,7 +338,8 @@ TestCase {
             enginePath: "/home/dj/restored/Engine Library",
         });
         var page = makePage([folder], makeAdvice({state: "no-backups"}),
-                            {appSettingsController: {experimentalFeaturesEnabled: true}});
+                            {appSettingsController: {experimentalFeaturesEnabled: true,
+                                                     stickBackupDirectory: "/tmp"}});
 
         // The library is reachable: the ordinary cards are all there.
         verify(findCard(page, "/home/dj/restored", "Browse Library") !== null);
@@ -373,6 +375,17 @@ TestCase {
         walk(page);
         verify(button !== null, "no openFolderButton on the toolbar");
         compare(button.visible, true);
+
+        // And its sibling, for browsing a backup archive in place.
+        var backupButton = null;
+        function walkBackup(item) {
+            if (backupButton !== null) return;
+            if (item.objectName === "openBackupButton") { backupButton = item; return; }
+            for (var i = 0; i < item.children.length; ++i) walkBackup(item.children[i]);
+        }
+        walkBackup(page);
+        verify(backupButton !== null, "no openBackupButton on the toolbar");
+        compare(backupButton.visible, true);
     }
 
     Component {

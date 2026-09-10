@@ -134,9 +134,25 @@ public:
     // entry point was the only thing missing.
     Q_INVOKABLE QString openFolder(const QString &path);
 
+    // openFolder() with the row's name given rather than taken from the
+    // directory: a browsed backup should say which stick it came from,
+    // not the hash its cache directory is named after.
+    QString openFolder(const QString &path, const QString &label);
+
     // Forgets a folder opened with openFolder(). Nothing on disk is
     // touched; the folder is only dropped from the list.
     Q_INVOKABLE void closeFolder(const QString &path);
+
+    // Opens a full stick backup for browsing, without unpacking it: the
+    // catalogs are extracted into a cache directory (about 1% of the
+    // archive's metadata; see OpenStickBackup), the analysis files stay
+    // in the ZIP and are read per track, and the cache is then opened as
+    // a folder library like any other. Returns a message for the page to
+    // show, or an empty string on success.
+    //
+    // Read-only in practice: the row it produces points at the cache, not
+    // at the archive, so nothing a page does can write into a backup.
+    Q_INVOKABLE QString openBackup(const QString &archivePath);
 
     // Both run the actual mount/unmount (a real syscall/subprocess that
     // can visibly take a moment -- confirmed by this exact freeze once

@@ -4,6 +4,7 @@
 #include <sstream>
 
 #include "infrastructure/rekordbox/generated/rekordbox_anlz.h"
+#include "infrastructure/rekordbox/anlz_source_for_root.hpp"
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 
 namespace seabass::infrastructure::rekordbox
@@ -16,7 +17,7 @@ std::vector<domain::WaveformColumn> readWaveformPreview(const std::string &pione
                                                           std::shared_ptr<AnlzByteSource> anlzSource)
 {
     if (!anlzSource) {
-        anlzSource = std::make_shared<FilesystemAnlzSource>(pioneerRoot);
+        anlzSource = anlzSourceForPioneerRoot(pioneerRoot);
     }
     // Best-effort per the header contract: findAnlzPathForTrackId() throws
     // if export.pdb itself can't be opened (e.g. the stick was unmounted

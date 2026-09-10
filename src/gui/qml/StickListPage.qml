@@ -62,6 +62,24 @@ Page {
             }
         }
     }
+    // Browsing a full stick backup without unpacking it: only the
+    // catalogs are extracted (see MediaController::openBackup), the
+    // analysis files stay in the archive and are read per track.
+    FileDialog {
+        id: openBackupDialog
+        objectName: "openBackupDialog"
+        title: "Open a full stick backup to browse"
+        nameFilters: ["Stick backups (*.zip)", "All files (*)"]
+        currentFolder: "file://" + root.appSettingsController.stickBackupDirectory
+        onAccepted: {
+            var message = root.mediaController.openBackup(
+                selectedFile.toString().replace(/^file:\/\//, ""));
+            if (message.length > 0) {
+                openFolderError.text = message;
+                openFolderError.open();
+            }
+        }
+    }
     Dialog {
         id: openFolderError
         objectName: "openFolderError"
@@ -158,11 +176,19 @@ Page {
             }
             Item { Layout.fillWidth: true }
             ToolButton {
+                objectName: "openBackupButton"
+                text: "🗄"
+                font.pointSize: Theme.fontLarge
+                ToolTip.visible: hovered
+                ToolTip.text: "Browse a full stick backup -- opened in place, nothing is unpacked"
+                onClicked: openBackupDialog.open()
+            }
+            ToolButton {
                 objectName: "openFolderButton"
                 text: "📂"
                 font.pointSize: Theme.fontLarge
                 ToolTip.visible: hovered
-                ToolTip.text: "Open a library from a folder -- a restored stick backup, or a copy on this computer"
+                ToolTip.text: "Open a library from a folder -- a copy on this computer, or a restored stick"
                 onClicked: openFolderDialog.open()
             }
             ToolButton {
