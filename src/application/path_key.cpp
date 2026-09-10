@@ -2,8 +2,8 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <filesystem>
 #include <string>
+#include <vector>
 
 namespace seabass::application
 {
@@ -152,6 +152,60 @@ std::string lowerUtf8(const std::string &in)
     return out;
 }
 
+// Collapses "." and ".." components and doubled separators, the same
+// job as std::filesystem::path::lexically_normal(), without ever
+// constructing a std::filesystem::path: on Windows that path's
+// value_type is wchar_t, so building one from a std::string re-encodes
+// it through the current locale's narrow-to-wide codecvt, which throws
+// std::filesystem::filesystem_error on bytes that are not valid UTF-8 --
+// exactly the input this whole file is documented, and tested, to pass
+// through untouched rather than mangle. normalizedPathKey() gates real
+// deletion decisions, so a path with one undecodable byte must normalize
+// to a key, not crash the process.
+//
+// Splitting on the literal '/' byte is safe even over invalid UTF-8:
+// 0x2F never appears as a lead or continuation byte of a multi-byte
+// sequence, so it cannot occur inside one, valid or not.
+std::string lexicallyNormalizedPath(const std::string &in)
+{
+    const bool absolute = !in.empty() && in.front() == '/';
+    std::vector<std::string> segments;
+    std::size_t i = 0;
+    while (i <= in.size()) {
+        const std::size_t next = in.find('/', i);
+        const std::string segment = in.substr(i, next == std::string::npos ? std::string::npos : next - i);
+        if (segment.empty() || segment == ".") {
+            // skip: doubled separator or a no-op component
+        } else if (segment == "..") {
+            if (!segments.empty() && segments.back() != "..") {
+                segments.pop_back();
+            } else if (!absolute) {
+                // Nothing to pop and no root to be swallowed by: keep it,
+                // same as lexically_normal() does for a relative path.
+                segments.push_back(segment);
+            }
+            // Absolute and nothing to pop: parent of root is root, drop it.
+        } else {
+            segments.push_back(segment);
+        }
+        if (next == std::string::npos) {
+            break;
+        }
+        i = next + 1;
+    }
+    std::string out;
+    if (absolute) {
+        out.push_back('/');
+    }
+    for (std::size_t s = 0; s < segments.size(); ++s) {
+        if (s != 0) {
+            out.push_back('/');
+        }
+        out += segments[s];
+    }
+    return out;
+}
+
 }  // namespace
 
 std::string normalizedPathKey(const std::string &path)
@@ -181,7 +235,7 @@ std::string normalizedPathKey(const std::string &path)
         return {};
     }
     std::replace(slashed.begin(), slashed.end(), '\\', '/');
-    return lowerUtf8(std::filesystem::path(slashed).lexically_normal().generic_string());
+    return lowerUtf8(lexicallyNormalizedPath(slashed));
 }
 
 }  // namespace seabass::application
