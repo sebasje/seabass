@@ -318,6 +318,27 @@ optimisation is ever wanted back, is for `FormatWriteSession` to
 checkpoint and close a format's connections before copying -- or to copy
 the `-wal` and `-shm` alongside the database.
 
+### The same WAL premise reaches the backups, and they have not moved
+
+If `exportLibrary.db` is a WAL database, then a copy of that file alone
+is not a copy of the database. Every backup path in Seabass still takes
+exactly that copy: `SaveContext::backupOnce()`, `backupAllNow()` and
+`filesWrittenFor()` all name the `.db` and never `-wal` or `-shm`.
+
+The failure needs an uncheckpointed `-wal` on the stick, which is what
+being killed or unplugged with a connection open leaves behind. A later
+save then archives a `.db` that is missing the rows still sitting in that
+`-wal`. Restoring that archive puts the older `.db` back while the newer
+`-wal` is still there, and SQLite replays the one on top of the other --
+so the restore either quietly does not restore, or trips the WAL
+checksum.
+
+Not introduced by this work, and not fixed by it: it is the same premise
+the scratch-copy finding above rests on, followed into the other half of
+the write path. Backing up a WAL database means capturing its sidecars
+with it, and restoring means putting them back together or checkpointing
+before the copy. That belongs with the backup format, not here.
+
 ### What is still on the old footing
 
 Sharing the session fixes it for the features that take theirs from

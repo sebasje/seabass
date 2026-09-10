@@ -135,13 +135,15 @@ struct RestoreWriterContext
 // What one track's annotation write did. `ok` false means a write was
 // attempted and is known NOT to have reached the catalog, so the change
 // must report a failure rather than let the page take the track off its
-// list. `wrote` says whether anything actually went into the session's
-// write root, which is what decides whether a cancelled save may throw
-// its scratch copy away.
+// list. `wroteToWriteRoot` says whether anything actually went into the
+// SESSION's write root -- which is what decides whether a cancelled save
+// may throw its scratch copy away. A write to some other database (the
+// OneLibrary mirror, which never goes through this format's session)
+// does not count towards it.
 struct AnnotationOutcome
 {
     bool ok = true;
-    bool wrote = false;
+    bool wroteToWriteRoot = false;
 };
 
 AnnotationOutcome applyAnnotation(SaveContext &ctx, RestoreWriterContext &writer, const QString &format, const QString &path,
@@ -173,7 +175,7 @@ AnnotationOutcome applyAnnotation(SaveContext &ctx, RestoreWriterContext &writer
         // another change wrote to the real m.db.
         try {
             engine->writeAnnotation(sourceId, stars, comment);
-            return {.ok = true, .wrote = true};
+            return {.ok = true, .wroteToWriteRoot = true};
         } catch (const std::exception &e) {
             ctx.log().record(std::string(LogTag) + ": Engine annotation write failed for \"" +
                              proposal.stickTrack.title + "\": " + e.what());
@@ -210,7 +212,14 @@ AnnotationOutcome applyAnnotation(SaveContext &ctx, RestoreWriterContext &writer
                                  " for \"" + proposal.stickTrack.title + "\"");
                 outcome.ok = false;
             } else {
-                outcome.wrote = true;
+                // Into the session's write root -- the scratch copy of
+                // export.pdb when this save has one. It has to be
+                // counted for exactly the reason the Engine path is:
+                // FormatWriteSession discards a scratch nothing was
+                // applied to, so an uncounted rating is a rating a
+                // cancelled or failed save throws away after the page
+                // has already been told it landed.
+                outcome.wroteToWriteRoot = true;
             }
           } catch (const std::exception &e) {
             // A missing, truncated or unparseable export.pdb, or a
@@ -234,7 +243,8 @@ AnnotationOutcome applyAnnotation(SaveContext &ctx, RestoreWriterContext &writer
             try {
                 writer.mirror->writeAnnotationForPath(proposal.stickTrack.filePath, stars, comment);
                 mirrorTookIt = true;
-                outcome.wrote = true;
+                // Deliberately NOT counted: this is exportLibrary.db,
+                // a different database from the one this session holds.
             } catch (const std::exception &e) {
                 ctx.log().record(std::string(LogTag) + ": OneLibrary annotation write failed: " + e.what());
             }
@@ -267,7 +277,7 @@ AnnotationOutcome applyAnnotation(SaveContext &ctx, RestoreWriterContext &writer
     }
     try {
         adapter->writer().writeAnnotationForPath(proposal.stickTrack.filePath, stars, comment);
-        return {.ok = true, .wrote = true};
+        return {.ok = true, .wroteToWriteRoot = true};
     } catch (const std::exception &e) {
         ctx.log().record(std::string(LogTag) + ": OneLibrary annotation write failed: " + e.what());
     }
@@ -419,7 +429,11 @@ ChangeOutcome RestoreMetadataChange::apply(SaveContext &ctx)
     }
 
     const AnnotationOutcome annotation = applyAnnotation(ctx, writer, m_format, m_path, sourceId, m_proposal);
-    if (annotation.wrote && m_format != "rekordbox") {
+    // Every format, rekordbox included: the rating goes into
+    // session.writeRoot()/rekordbox/export.pdb, which IS the scratch
+    // copy when this save has one. Only the cue write above is exempt
+    // for rekordbox, and only because ANLZ files are not the session's.
+    if (annotation.wroteToWriteRoot) {
         wroteIntoWriteRoot = true;
     }
 
@@ -428,9 +442,9 @@ ChangeOutcome RestoreMetadataChange::apply(SaveContext &ctx)
     // this has to be counted -- Engine and OneLibrary writes go INTO
     // that copy -- but the same count is the "N update(s)" the commit
     // log reports, and a track that got both cues and a rating is still
-    // one track. rekordbox is exempt throughout: its cues live in ANLZ
-    // files and its rating commits itself, neither of which the session
-    // manages.
+    // one track. rekordbox's CUES are the only exemption: they live in
+    // per-track ANLZ files the session does not manage. Its rating is
+    // not exempt -- that goes into the session's own export.pdb.
     if (wroteIntoWriteRoot) {
         writer.session.noteItemApplied();
     }

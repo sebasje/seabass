@@ -111,30 +111,6 @@ std::string storedComment(const std::string &pioneerRoot)
     return stmt.columnText(0);
 }
 
-// The committed rekordbox fixture ships its own exportLibrary.db, so
-// case 9 reads a real content row out of it rather than building a
-// second schema on top.
-std::string firstContentPath(const std::string &pioneerRoot)
-{
-    SqlCipherLibrary lib;
-    SqlCipherDb db(lib, OneLibraryCueWriter::dbPathFor(pioneerRoot), /*readOnly=*/true);
-    db.exec("PRAGMA key = '" + deriveOneLibraryKey() + "';");
-    SqlCipherStatement stmt(db, "SELECT path FROM content WHERE path IS NOT NULL AND path != '' LIMIT 1");
-    assert(stmt.step());
-    return stmt.columnText(0);
-}
-
-std::string commentForPath(const std::string &pioneerRoot, const std::string &contentPath)
-{
-    SqlCipherLibrary lib;
-    SqlCipherDb db(lib, OneLibraryCueWriter::dbPathFor(pioneerRoot), /*readOnly=*/true);
-    db.exec("PRAGMA key = '" + deriveOneLibraryKey() + "';");
-    SqlCipherStatement stmt(db, "SELECT djComment FROM content WHERE path = ?");
-    stmt.bindText(1, contentPath);
-    assert(stmt.step());
-    return stmt.columnText(0);
-}
-
 std::vector<CuePoint> liveCues()
 {
     CuePoint hot1{CuePoint::Kind::Hot, 1, 1000.0, "#FF0000", "the DJ's own"};
@@ -506,6 +482,74 @@ int main()
         }
         assert(cueCount(fixture.pioneerRoot.string()) == 1);
         std::cout << "case 8: OneLibrary declines the scratch copy, and a cancel keeps the write\n";
+    }
+
+    // Case 9: a save that fails part-way keeps the ratings it already
+    // committed.
+    //
+    // The rating goes into session.writeRoot()/rekordbox/export.pdb,
+    // which IS the scratch copy when the save has one -- and
+    // FormatWriteSession discards a scratch copy nothing was applied to.
+    // While the rating went uncounted, a Stage All of four hundred
+    // tracks that failed on track fifty-one threw away the fifty ratings
+    // already committed, with those fifty changes already in the save's
+    // applied list and their rows already off the page. Written,
+    // reported, gone -- the failure the whole branch is about, reached
+    // through the one path left uncounted.
+    {
+        const fs::path scratch = seabass::testing::scratchRoot() / "seabass_restore_metadata_change_partial";
+        std::error_code ec;
+        fs::remove_all(scratch, ec);
+        fs::create_directories(scratch);
+        const fs::path source =
+            fs::path(SEABASS_SOURCE_DIR) / "tests" / "fixtures" / "anonymized_library" / "rekordbox";
+        const fs::path pioneer = scratch / "PIONEER";
+        fs::copy(source, pioneer, fs::copy_options::recursive);
+
+        seabass::infrastructure::rekordbox::KaitaiRekordboxReader reader(pioneer.string());
+        std::string targetId;
+        for (const auto &track : reader.readAll()) {
+            if (!track.rating) {
+                targetId = track.sourceId;
+                break;
+            }
+        }
+        assert(!targetId.empty());
+
+        auto &noProgress = seabass::application::NullProgressReporter::instance();
+        CancellationToken token;
+        const QString root = QString::fromStdString(pioneer.string());
+        {
+            SaveContext ctx(token, noProgress, {}, root, {});
+            // A batch big enough to earn the scratch copy, which is the
+            // only situation in which the count matters at all.
+            auto &session = sharedFormatWriteSession(ctx, "rekordbox", pioneer.string(), 400, "test-batch");
+            assert(session.usesScratch());
+
+            MetadataRestoreProposal proposal;
+            proposal.storedId = "stored-partial";
+            proposal.stickTrack.sourceId = targetId;
+            proposal.stickTrack.title = "Partial";
+            proposal.ratingOffered = true;
+            proposal.rating = 5;
+
+            RestoreMetadataChange change("rekordbox", root, QString::fromStdString(targetId), proposal);
+            assert(change.apply(ctx).ok);
+            // ok == false: a later track in the same batch failed, or the
+            // DJ cancelled. This one already committed its rating.
+            assert(!ctx.runFinishHooks(false));
+        }
+
+        seabass::infrastructure::rekordbox::KaitaiRekordboxReader after(pioneer.string());
+        bool found = false;
+        for (const auto &track : after.readAll()) {
+            if (track.sourceId == targetId) {
+                found = true;
+                assert(track.rating && *track.rating == 5);
+            }
+        }
+        assert(found);
+        std::cout << "case 9: a failed batch keeps the ratings it already committed\n";
     }
 
     std::cout << "restore_metadata_change_test: all cases passed\n";

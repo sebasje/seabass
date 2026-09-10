@@ -328,12 +328,17 @@ void MetadataRestoreController::attachSession()
 
 void MetadataRestoreController::stage(int index)
 {
-    // What this save is expected to write: everything already staged,
-    // plus this one. A DJ who stages four hundred tracks one at a time
-    // -- which the page allows -- would otherwise leave the first change
-    // carrying a hint of 1, and the session would decline the scratch
-    // copy for the whole save.
-    stageOne(index, static_cast<int>(m_stagedByStoredId.size()) + 1);
+    // How much this save might write, not how much is staged right now.
+    //
+    // The session is built once, by whichever change applies FIRST, and
+    // that change was staged when nothing else had been -- so a running
+    // total ("staged so far, plus this one") is always 1 on the change
+    // that actually decides, and the decision never changes. The page's
+    // own list is the honest upper bound: these are the tracks this save
+    // could write. Erring high only ever buys a scratch copy, which on a
+    // slow stick is the cheaper mistake by a wide margin -- it is one
+    // durable write at the end instead of one per track.
+    stageOne(index, static_cast<int>(m_model.proposals().size()));
 }
 
 // itemCountHint is what the save is expected to write in total, which
@@ -410,8 +415,8 @@ void MetadataRestoreController::stageAll()
         if (m_stagedByStoredId.count(m_model.proposals()[static_cast<std::size_t>(i)].storedId)) {
             continue;
         }
-        // Every remaining proposal is about to be staged, so the save
-        // knows its own size here even though a single Stage does not.
+        // Every remaining proposal is about to be staged, so this is
+        // the same upper bound arrived at exactly.
         stageOne(i, count);
         if (m_session && !m_session->lockHeld()) {
             return;  // refused at the first one; no point trying the rest
