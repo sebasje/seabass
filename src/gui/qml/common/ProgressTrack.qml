@@ -27,7 +27,13 @@ ProgressBar {
     background: Rectangle {
         implicitHeight: track.barHeight
         radius: height / 2
-        color: Theme.surface
+        // A translucent tint of the text colour rather than
+        // Theme.surface. Surface is the background tinted three per
+        // cent, which is invisible against a BusyOverlay -- that dims
+        // the page with the same background colour at 72% opacity, so a
+        // part-filled bar read as a short bar floating in space with no
+        // track behind it. This reads on a card and on the dim alike.
+        color: Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.14)
         border.color: Theme.borderSubtle
     }
 
