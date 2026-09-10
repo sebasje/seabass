@@ -2,6 +2,7 @@
 
 #include <QCoreApplication>
 #include <QSettings>
+#include <QUrl>
 #include <QtConcurrent/QtConcurrentRun>
 
 #include <algorithm>
@@ -13,6 +14,7 @@
 #include "application/stick_presence_diff.hpp"
 #include "application/use_cases/open_stick_backup.hpp"
 #include "infrastructure/paths/seabass_paths.hpp"
+#include "infrastructure/rekordbox/anlz_source_for_root.hpp"
 #include "infrastructure/hashing/sha256.hpp"
 #include "infrastructure/media/media_factory.hpp"
 #include "infrastructure/media/stick_root_scan.hpp"
@@ -81,6 +83,8 @@ QVariant DetectedStickListModel::data(const QModelIndex &index, int role) const
         return stick.isSdCard;
     case IsFolderRole:
         return stick.isFolder;
+    case IsBrowsedBackupRole:
+        return stick.isBrowsedBackup;
     case LibraryIdRole:
         return QString::fromStdString(stick.identity.libraryId());
     case HardwareSerialRole:
@@ -108,6 +112,7 @@ QHash<int, QByteArray> DetectedStickListModel::roleNames() const
         {EnginePathRole, "enginePath"},
         {IsSdCardRole, "isSdCard"},
         {IsFolderRole, "isFolder"},
+        {IsBrowsedBackupRole, "isBrowsedBackup"},
         {LibraryIdRole, "libraryId"},
         {HardwareSerialRole, "hardwareSerial"},
         {IdentityStrengthRole, "identityStrength"},
@@ -200,11 +205,26 @@ void MediaController::detect()
         folder.rekordboxPath.reset();
         folder.enginePath.reset();
         infrastructure::media::scanMountedRoot(folder.mountPoint, folder);
+        // Decided from disk every time, not remembered from openBackup():
+        // the marker is what makes the cache self-describing, and it is
+        // what survives a restart.
+        std::error_code ec;
+        folder.isBrowsedBackup = std::filesystem::exists(
+            std::filesystem::path(folder.mountPoint) / infrastructure::rekordbox::BackupSourceMarkerName, ec);
         sticks.push_back(folder);
     }
     m_model.setSticks(std::move(sticks));
     std::vector<application::StickIdentity> present;
     for (const application::DetectedStick &stick : m_model.sticks()) {
+        // Folder rows are not physical: nothing pulls them, nothing
+        // re-inserts them, and closing one is a deliberate act -- so they
+        // take no part in the removed/returned bookkeeping below. Without
+        // this, closing a folder raised the "USB stick removed" dialog
+        // for a directory still on disk, and a folder opened at a mounted
+        // stick's own root overwrote that stick's last-known identity.
+        if (stick.isFolder) {
+            continue;
+        }
         if (stick.mounted && !stick.mountPoint.empty()) {
             m_lastKnownByMountPoint[stick.mountPoint] = stick.identity;
             if (stick.identity.strength() != application::StickIdentity::Strength::None) {
@@ -257,10 +277,22 @@ QString MediaController::openFolder(const QString &path)
     return openFolder(path, QString());
 }
 
+QString MediaController::localPathFrom(const QString &pathOrUrl)
+{
+    // Same rule RestoreStickBackupController::setArchivePath applies. A
+    // regex strip of "file://" is not equivalent: it leaves "/C:/..." on
+    // Windows and keeps "%23" for a '#' in the name everywhere.
+    if (pathOrUrl.startsWith(QStringLiteral("file:"))) {
+        return QUrl(pathOrUrl).toLocalFile();
+    }
+    return pathOrUrl;
+}
+
 QString MediaController::openFolder(const QString &path, const QString &label)
 {
     std::error_code ec;
-    const std::filesystem::path dir = std::filesystem::canonical(std::filesystem::path(path.toStdString()), ec);
+    const std::filesystem::path dir =
+        std::filesystem::canonical(std::filesystem::path(localPathFrom(path).toStdString()), ec);
     if (ec) {
         return tr("That folder could not be opened: %1").arg(QString::fromStdString(ec.message()));
     }
@@ -268,6 +300,17 @@ QString MediaController::openFolder(const QString &path, const QString &label)
         return tr("That is not a folder.");
     }
     const std::string canonical = dir.string();
+
+    // A mounted stick's own root is already listed, with the identity the
+    // stick actually has. Listing it a second time as a folder would put
+    // two rows on one library and let the folder's synthetic id shadow
+    // the real one in the pulled-stick lookup.
+    for (const application::DetectedStick &stick : m_model.sticks()) {
+        if (!stick.isFolder && stick.mounted && stick.mountPoint == canonical) {
+            return tr("That is the USB stick \"%1\", which is already in the list.")
+                .arg(QString::fromStdString(stick.label));
+        }
+    }
 
     application::DetectedStick folder;
     folder.mountPoint = canonical;
@@ -300,7 +343,7 @@ QString MediaController::openFolder(const QString &path, const QString &label)
 
 QString MediaController::openBackup(const QString &archivePath)
 {
-    const std::filesystem::path archive(archivePath.toStdString());
+    const std::filesystem::path archive(localPathFrom(archivePath).toStdString());
     // One cache directory per archive, named after its path rather than
     // its label: two backups of differently-named sticks must not land on
     // top of each other, and re-opening the same archive should reuse (and
@@ -343,13 +386,23 @@ void MediaController::loadOpenedFolders()
     // AppSettingsController.
     QSettings settings("seabass", "seabass");
     const QStringList paths = settings.value(QStringLiteral("openedFolders")).toStringList();
-    for (const QString &path : paths) {
+    // Parallel to `paths`: the label each row was opened with. A browsed
+    // backup's directory is named after a hash, and its label is the
+    // stick the backup came from -- lose it and the row reads
+    // "folder-3f9a..." after every restart, and its identity.label (which
+    // the backup archive name is derived from) changes between sessions.
+    const QStringList labels = settings.value(QStringLiteral("openedFolderLabels")).toStringList();
+    for (int i = 0; i < paths.size(); ++i) {
+        const QString &path = paths[i];
         application::DetectedStick folder;
         folder.mountPoint = path.toStdString();
         folder.mounted = true;
         folder.isFolder = true;
         const std::filesystem::path dir(folder.mountPoint);
-        folder.label = dir.filename().empty() ? folder.mountPoint : dir.filename().string();
+        const QString savedLabel = i < labels.size() ? labels[i] : QString();
+        folder.label = !savedLabel.isEmpty()   ? savedLabel.toStdString()
+                       : dir.filename().empty() ? folder.mountPoint
+                                                : dir.filename().string();
         folder.identity.label = folder.label;
         folder.identity.explicitLibraryId = folderLibraryId(folder.mountPoint);
         // Deliberately not re-scanned or existence-checked here: detect()
@@ -363,11 +416,14 @@ void MediaController::loadOpenedFolders()
 void MediaController::saveOpenedFolders()
 {
     QStringList paths;
+    QStringList labels;
     for (const application::DetectedStick &folder : m_openedFolders) {
         paths << QString::fromStdString(folder.mountPoint);
+        labels << QString::fromStdString(folder.label);
     }
     QSettings settings("seabass", "seabass");  // see loadOpenedFolders()
     settings.setValue(QStringLiteral("openedFolders"), paths);
+    settings.setValue(QStringLiteral("openedFolderLabels"), labels);
 }
 
 QString MediaController::libraryIdForMountPoint(const QString &mountPoint) const

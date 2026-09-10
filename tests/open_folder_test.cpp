@@ -189,6 +189,49 @@ int main(int argc, char **argv)
         std::cout << "case 7 (emptied folder stays listed) OK\n";
     }
 
+    // A QML FolderDialog hands over a file:// URL, and that is what the
+    // controller receives; it must not be stripped by hand.
+    {
+        MediaController controller;
+        assert(controller.openFolder(QString::fromStdString("file://" + both.string())).isEmpty());
+        assert(rowForMountPoint(*controller.sticksModel(), both.string()) >= 0);
+        std::cout << "case 7b (file:// URL accepted) OK\n";
+    }
+
+    // A row opened with an explicit label keeps it across a restart: a
+    // browsed backup's directory is a hash, and its label is the stick.
+    {
+        {
+            MediaController controller;
+            assert(controller.openFolder(QString::fromStdString(both.string()), "TOURSTICK").isEmpty());
+        }
+        MediaController restarted;
+        const int row = rowForMountPoint(*restarted.sticksModel(), both.string());
+        assert(row >= 0);
+        assert(restarted.sticksModel()->sticks()[static_cast<size_t>(row)].label == "TOURSTICK");
+        assert(restarted.sticksModel()->sticks()[static_cast<size_t>(row)].identity.label == "TOURSTICK");
+        std::cout << "case 7c (label survives a restart) OK\n";
+    }
+
+    // A folder carrying the backup marker is flagged read-only on every
+    // detect(), from the marker alone -- no archive needed to decide it.
+    {
+        const fs::path browsed = scratch / "browsed";
+        makeStickShapedFolder(browsed, true, false);
+        {
+            std::ofstream marker(browsed / ".seabass-backup-source");
+            marker << "/nonexistent/TOURSTICK.zip\n";
+        }
+        MediaController controller;
+        assert(controller.openFolder(QString::fromStdString(browsed.string())).isEmpty());
+        int row = rowForMountPoint(*controller.sticksModel(), browsed.string());
+        assert(row >= 0);
+        assert(controller.sticksModel()->sticks()[static_cast<size_t>(row)].isBrowsedBackup);
+        row = rowForMountPoint(*controller.sticksModel(), both.string());
+        assert(row < 0 || !controller.sticksModel()->sticks()[static_cast<size_t>(row)].isBrowsedBackup);
+        std::cout << "case 7d (marker flags a browsed backup) OK\n";
+    }
+
     // The id a folder gets is stable for a path and different between
     // paths -- it keys the edit lock, so a collision would let two
     // different libraries be edited under one lock.

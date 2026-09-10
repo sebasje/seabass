@@ -191,6 +191,49 @@ int main(int argc, char **argv)
         std::cout << "case 5 (archive gone: catalogs still browse, no cues) OK\n";
     }
 
+    // A failed re-open leaves yesterday's cache exactly as it was: the
+    // archive is replaced by something unreadable, the open fails, and
+    // the previously extracted catalogs and marker are still there.
+    {
+        assert(fs::exists(cache / "PIONEER" / "rekordbox" / "export.pdb"));
+        const fs::path movedAside = scratch / "good.zip";
+        fs::rename(archivePath, movedAside);
+        std::ofstream(archivePath) << "this replaced the backup and is not a zip";
+        const auto failed = OpenStickBackup::execute(archivePath, cache);
+        assert(!failed.error.empty());
+        assert(fs::exists(cache / "PIONEER" / "rekordbox" / "export.pdb"));
+        assert(fs::exists(cache / seabass::infrastructure::rekordbox::BackupSourceMarkerName));
+        assert(!fs::exists(fs::path(cache.string() + ".partial")));
+        fs::remove(archivePath);
+        fs::rename(movedAside, archivePath);
+        std::cout << "case 5b (failed re-open keeps the previous cache) OK\n";
+    }
+
+    // An entry name that would resolve outside the cache is refused, and
+    // the open fails rather than skipping it: a backup with malformed
+    // catalog entries is not one to browse. Backslash segments have no
+    // '/' after the prefix, so isCatalogEntry alone would let them in.
+    {
+        const fs::path evil = scratch / "evil.zip";
+        {
+            PosixArchiveFile file(evil, PosixArchiveFile::OpenMode::ReadWrite);
+            Zip64Writer writer(file, {});
+            const std::string content = "not really a database";
+            Zip64Writer::EntrySink sink =
+                writer.beginFile("PIONEER/rekordbox/..\\..\\..\\evil.pdb", 1, Compression::Store);
+            sink.write(zip::bytesOf(std::string_view(content)));
+            sink.finish();
+            writer.finish("", std::string(ManifestEntryName), 1);
+        }
+        const auto refused = OpenStickBackup::execute(evil, scratch / "cache-evil");
+        assert(!refused.error.empty());
+        assert(refused.error.find("evil.pdb") != std::string::npos);
+        assert(!fs::exists(scratch / "evil.pdb"));
+        assert(!fs::exists(scratch.parent_path() / "evil.pdb"));
+        assert(!fs::exists(scratch / "cache-evil"));
+        std::cout << "case 5c (entry escaping the cache refused) OK\n";
+    }
+
     // A file that is not an archive at all is refused with a message.
     {
         const fs::path notAZip = scratch / "notes.txt";

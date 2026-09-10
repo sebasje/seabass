@@ -2,10 +2,12 @@
 
 #include <fstream>
 #include <memory>
+#include <system_error>
 
 #include "infrastructure/rekordbox/anlz_source_for_root.hpp"
 #include "infrastructure/stick_backup/backup_manifest.hpp"
 #include "infrastructure/stick_backup/posix_archive_file.hpp"
+#include "infrastructure/stick_backup/restore_path_sanitizer.hpp"
 #include "infrastructure/stick_backup/zip64_reader.hpp"
 
 namespace seabass::application
@@ -63,13 +65,40 @@ OpenedStickBackup OpenStickBackup::execute(const fs::path &archivePath, const fs
         return result;
     }
 
+    // Everything is extracted into a staging directory beside the real
+    // one and swapped in only at the end. Two reasons. A re-open that
+    // fails part-way (the archive was rewritten, a disk filled up) must
+    // leave yesterday's good cache exactly as it was, still browsable with
+    // its cues -- not half-replaced and marker-less, which reads as a
+    // library with no cues and no explanation. And any reader that opens
+    // the real directory while this runs sees a complete state, never one
+    // with the marker missing.
+    const fs::path staging = cacheRoot.string() + ".partial";
     std::error_code ec;
-    fs::remove_all(cacheRoot, ec);  // a previous open of this archive; replaced wholesale
-    fs::create_directories(cacheRoot, ec);
+    fs::remove_all(staging, ec);
+    if (ec) {
+        result.error = "Could not clear the staging directory for the backup: " + ec.message();
+        return result;
+    }
+    fs::create_directories(staging, ec);
     if (ec) {
         result.error = "Could not create a place to open the backup: " + ec.message();
         return result;
     }
+    // Whatever happens below, a failure never leaves the staging tree
+    // around to be mistaken for a cache.
+    struct StagingGuard
+    {
+        const fs::path &path;
+        bool keep = false;
+        ~StagingGuard()
+        {
+            if (!keep) {
+                std::error_code ignored;
+                fs::remove_all(path, ignored);
+            }
+        }
+    } guard{staging};
 
     for (std::size_t index = 0; index < reader->entries().size(); ++index) {
         const sb::CentralEntry &entry = reader->entries()[index];
@@ -85,8 +114,24 @@ OpenedStickBackup OpenStickBackup::execute(const fs::path &archivePath, const fs
             continue;
         }
 
-        const fs::path target = cacheRoot / fs::path(entry.name);
+        // The same rule a restore applies to every entry it writes: an
+        // entry name is data from a file the user picked, and ".." or a
+        // backslash segment must never resolve outside the cache. A bad
+        // name fails the open rather than being skipped, because a backup
+        // whose catalog entries are malformed is not one to browse.
+        std::string reason;
+        const auto safe = sb::sanitizeEntryName(entry.name, sb::hostTargetOs(), &reason);
+        if (!safe) {
+            result.error = "The backup holds an entry Seabass will not extract (\"" + entry.name + "\"): " + reason;
+            return result;
+        }
+
+        const fs::path target = staging / *safe;
         fs::create_directories(target.parent_path(), ec);
+        if (ec) {
+            result.error = "Could not create a directory while opening the backup: " + ec.message();
+            return result;
+        }
         std::string bytes;
         try {
             bytes = reader->readEntryToString(index);
@@ -114,8 +159,10 @@ OpenedStickBackup OpenStickBackup::execute(const fs::path &archivePath, const fs
     // is what tells every rekordbox reader built against this root to
     // pull analysis files out of the archive rather than looking for
     // USBANLZ next to the databases (which is not there, on purpose).
+    // Written into staging, so it is present the instant the directory
+    // becomes the real one.
     {
-        std::ofstream marker(cacheRoot / infrastructure::rekordbox::BackupSourceMarkerName, std::ios::trunc);
+        std::ofstream marker(staging / infrastructure::rekordbox::BackupSourceMarkerName, std::ios::trunc);
         marker << fs::absolute(archivePath).string() << "\n";
         if (!marker) {
             result.error = "Could not record which backup this came from.";
@@ -134,6 +181,19 @@ OpenedStickBackup OpenStickBackup::execute(const fs::path &archivePath, const fs
         } catch (const std::exception &) {
         }
     }
+
+    // Swap: the old cache goes only now that the new one is complete.
+    fs::remove_all(cacheRoot, ec);
+    if (ec) {
+        result.error = "Could not replace the previous copy of this backup: " + ec.message();
+        return result;
+    }
+    fs::rename(staging, cacheRoot, ec);
+    if (ec) {
+        result.error = "Could not move the opened backup into place: " + ec.message();
+        return result;
+    }
+    guard.keep = true;
 
     result.libraryRoot = cacheRoot;
     return result;

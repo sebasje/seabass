@@ -32,6 +32,14 @@ struct DetectedStick
     // one -- MediaController merges them into the same list so every page
     // downstream keeps taking a stick and needs no new case.
     bool isFolder = false;
+    // A folder library that is the extracted catalogs of a stick backup
+    // being browsed (see OpenStickBackup): its analysis files live in the
+    // archive, not on disk, and the directory is replaced wholesale on the
+    // next open. Read-only by construction, so every card that writes is
+    // withheld for it -- an ordinary folder (a restored backup, a copy on
+    // an internal disk) is a real library and stays writable. Decided
+    // from the marker file in the directory, so it survives a restart.
+    bool isBrowsedBackup = false;
     std::optional<std::string> rekordboxPath;  // the "PIONEER" folder, if export.pdb was found under it
     std::optional<std::string> enginePath;     // the "Engine Library" folder, if Database2/m.db was found under it
 

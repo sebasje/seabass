@@ -54,8 +54,9 @@ Page {
         objectName: "openFolderDialog"
         title: "Open a folder holding a rekordbox or Engine DJ library"
         onAccepted: {
-            var message = root.mediaController.openFolder(
-                selectedFolder.toString().replace(/^file:\/\//, ""));
+            // Handed over as the URL it is; the controller converts it
+            // with QUrl::toLocalFile (see MediaController::localPathFrom).
+            var message = root.mediaController.openFolder(selectedFolder.toString());
             if (message.length > 0) {
                 openFolderError.text = message;
                 openFolderError.open();
@@ -72,8 +73,7 @@ Page {
         nameFilters: ["Stick backups (*.zip)", "All files (*)"]
         currentFolder: "file://" + root.appSettingsController.stickBackupDirectory
         onAccepted: {
-            var message = root.mediaController.openBackup(
-                selectedFile.toString().replace(/^file:\/\//, ""));
+            var message = root.mediaController.openBackup(selectedFile.toString());
             if (message.length > 0) {
                 openFolderError.text = message;
                 openFolderError.open();
@@ -346,6 +346,7 @@ Page {
                 required property string enginePath
                 required property bool isSdCard
                 required property bool isFolder
+                required property bool isBrowsedBackup
                 required property string libraryId
                 readonly property bool hasKnownLibrary: hasRekordbox || hasEngine
                 // Another instance is editing this stick's library: every
@@ -604,13 +605,20 @@ Page {
                             enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
                             onClicked: root.browseRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
                         }
+                        // Every card below that writes is withheld for a
+                        // browsed backup: its analysis files are in the
+                        // archive, not on disk, so a rekordbox cue write
+                        // would fail mid-save, and the directory is
+                        // replaced on the next open, so an Engine write
+                        // would silently vanish. Browse, Statistics and
+                        // Metadata Backup only read, and stay.
                         ActionCard {
                             cardTitle: "Housekeeping"
                             readOnly: delegateRoot.lockedByOther
                             onReadOnlyClicked: root.explainLock(delegateRoot.libraryId)
                             cardSubtitle: "Duplicate stats, copy cues between copies, and clean up"
                             cardIcon: "▣"
-                            visible: delegateRoot.hasKnownLibrary
+                            visible: delegateRoot.hasKnownLibrary && !delegateRoot.isBrowsedBackup
                             enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
                             onClicked: root.duplicateTracksHubRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
                         }
@@ -623,7 +631,7 @@ Page {
                             // Graduated from experimental (see
                             // docs/experimental-features.md) after real
                             // use with no incidents.
-                            visible: delegateRoot.hasKnownLibrary
+                            visible: delegateRoot.hasKnownLibrary && !delegateRoot.isBrowsedBackup
                             enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
                             onClicked: root.libraryHealthRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
                         }
@@ -657,7 +665,7 @@ Page {
                             onReadOnlyClicked: root.explainLock(delegateRoot.libraryId)
                             cardSubtitle: "Put cues from this computer back on tracks that have lost them"
                             cardIcon: "📥"
-                            visible: delegateRoot.hasKnownLibrary
+                            visible: delegateRoot.hasKnownLibrary && !delegateRoot.isBrowsedBackup
                             enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
                             onClicked: root.metadataRestoreRequested(delegateRoot.label, delegateRoot.rekordboxPath,
                                                                      delegateRoot.enginePath, delegateRoot.libraryId)
@@ -676,7 +684,7 @@ Page {
                             // no Engine Library already present to overwrite.
                             experimental: true
                             experimentalFeaturesEnabled: root.appSettingsController.experimentalFeaturesEnabled
-                            visible: delegateRoot.hasKnownLibrary
+                            visible: delegateRoot.hasKnownLibrary && !delegateRoot.isBrowsedBackup
                             enabled: delegateRoot.hasRekordbox && !delegateRoot.hasEngine
                             onClicked: root.engineLibraryCreatorRequested(delegateRoot.label, delegateRoot.rekordboxPath)
                         }
@@ -687,7 +695,7 @@ Page {
                             cardSubtitle: "Copy cues between DeviceLibrary and Engine"
                             cardIcon: "⇄"
                             cardIconFont: "Noto Sans Math"
-                            visible: delegateRoot.hasKnownLibrary
+                            visible: delegateRoot.hasKnownLibrary && !delegateRoot.isBrowsedBackup
                             enabled: delegateRoot.hasRekordbox && delegateRoot.hasEngine
                             onClicked: root.syncRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
                         }
@@ -712,7 +720,7 @@ Page {
                                 }
                             }
                             cardIcon: "🗄"
-                            visible: delegateRoot.hasKnownLibrary
+                            visible: delegateRoot.hasKnownLibrary && !delegateRoot.isBrowsedBackup
                             enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
                             onClicked: root.backupsHubRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath,
                                 delegateRoot.mountPoint, delegateRoot.devicePath)
@@ -724,7 +732,7 @@ Page {
                             cardSubtitle: "View this stick's saved Rekordbox player settings"
                             cardIcon: "⚙"
                             cardIconFont: "Noto Sans Symbols"
-                            visible: delegateRoot.hasKnownLibrary
+                            visible: delegateRoot.hasKnownLibrary && !delegateRoot.isBrowsedBackup
                             enabled: delegateRoot.hasRekordbox
                             onClicked: root.settingsRequested(delegateRoot.label, delegateRoot.rekordboxPath)
                         }

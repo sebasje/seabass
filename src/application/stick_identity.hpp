@@ -107,6 +107,13 @@ struct StickIdentity
     //     say so).
     bool isSameStick(const StickIdentity &other) const
     {
+        // A folder library is the same library only when it is the same
+        // folder. Checked first and on its own: without this, two browsed
+        // backups of one stick share a label and a capacity of zero, and
+        // the label rule below would call them the same stick.
+        if (!explicitLibraryId.empty() || !other.explicitLibraryId.empty()) {
+            return explicitLibraryId == other.explicitLibraryId;
+        }
         if (!hardwareSerial.empty() && !other.hardwareSerial.empty()) {
             if (hardwareSerial != other.hardwareSerial) {
                 return false;
