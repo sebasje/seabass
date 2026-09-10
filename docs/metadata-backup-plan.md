@@ -246,39 +246,84 @@ save rather than the log saying so after it:
   overwriting.
 - Letting the browse page read the whole store to show twenty rows.
 
-## Known open: two writers against export.pdb
+## Two writers against one database, and how that was closed
 
-`RestoreMetadataChange` writes the rating into the live `export.pdb`
-through its own `PdbRowWriter` and commits it in an `onFinish` hook.
-`CleanupGroupChange` and `SyncPlanChange` write the same file through a
-`FormatWriteSession` scratch copy and copy the whole file back in *their*
-`onFinish` hook. Both features share one `LibraryEditSession` per library,
-so both can be staged into a single save, and hooks run in creation
-order:
+`RestoreMetadataChange` writes a rating into `export.pdb`. Clean Up and
+Sync write the same file through a `FormatWriteSession`, which for a
+large enough batch redirects them to a local scratch copy and copies the
+whole file back when the save finishes. Both features share one
+`LibraryEditSession` per library, so both can land in a single save --
+and while each feature kept a session of its own, the two wrote
+*different files*. Whichever committed last won: the session's copy, made
+before the rating was written, silently replaced it while the page
+reported the restore as applied.
 
-- the session's hook last overwrites `export.pdb` with a scratch copy
-  made before the ratings were written -- the ratings are lost and the
-  page reports them applied;
-- the restore's hook last finds the file changed underneath it,
-  `commit()` returns false, the hook throws, and the save reports a
-  failure even though the cleanup landed.
+The same hole was open for Engine and OneLibrary, not just `export.pdb`:
+any change writing a catalog database directly loses to another change's
+scratch commit.
 
-Nothing serialises the two. This is new with this feature: before it, no
-change wrote `export.pdb` outside a `FormatWriteSession`.
+`FormatWriteSession`'s own class comment had promised the fix all along
+-- "every change of one save that writes the same catalog uses the same
+copy" -- but each feature obtained its session under a per-feature key,
+so the promise held only *within* a feature. It is now obtained through
+`sharedFormatWriteSession()`, keyed on the database file. One copy, one
+commit, nothing to race, and every writer in this feature points at
+`session.writeRoot()` rather than at the stick.
 
-Two ways out, and the choice is not obvious. **Key `FormatWriteSession`
-on (format, catalog path) rather than per feature**, so every change in a
-save shares one scratch copy and one commit -- correct, and what
-`sharedOneLibraryWriter()` already argues for in its own comment, but it
-touches Clean Up, Sync and Library Health repair and moves counts
-`corpus_test` pins. Or **refuse the combination**: have the edit session
-decline to stage a rekordbox rating restore while a change that rewrites
-`export.pdb` is staged, and say so -- small, and it follows the rule the
-browsed-backup incident left behind (refuse where the destruction
-happens, not where the button is), at the cost of a real workflow.
+Two smaller things fell out of it. The rating is written and committed
+per rated track rather than buffered across the save: `PdbRowWriter`
+reads the whole file at construction and refuses to commit if anything
+changed underneath, so holding one open across a save that another change
+also writes is a guaranteed loser. And rekordbox cues still go to the
+real catalog folder, because they live in per-track ANLZ files rather
+than in `export.pdb` -- the same split `makeContext()` draws in Clean Up.
 
-Until one of them lands, a save that stages Restore Metadata ratings and
-Clean Up together on one stick is not safe.
+`tests/restore_metadata_change_test.cpp` case 7 drives it: a session that
+really is scratching, a real restore change, and the rating read back off
+the stick's own `export.pdb` afterwards.
+
+### What is still on the old footing
+
+Sharing the session fixes it for the features that take theirs from
+`sharedFormatWriteSession()`. Four changes still write their catalog at
+the real root and so still lose to another change's scratch commit in
+the same save:
+
+| Change | Writes directly |
+|---|---|
+| `AddCueChange` | OneLibrary, and Engine's `m.db` |
+| `RemoveJunkCueChange` | OneLibrary |
+| `CopyCuesChange` | OneLibrary |
+| `MergeCuesChange` | its catalogs, and the OneLibrary mirror |
+
+The concrete case, unchanged by this work: add a hot cue to an Engine
+track, stage a twenty-group Engine Clean Up, save once. The cue goes to
+the stick's `m.db`; the Clean Up's scratch copy, taken before it, is
+committed on top; the cue is gone and the page said it was written.
+
+The OneLibrary mirror is the same story from the other side.
+`exportLibrary.db` is deliberately not behind a session anywhere,
+including here -- every mirror write in the codebase passes the real
+PIONEER root to `sharedOneLibraryWriter()`, so they at least all agree
+on one file and one writer. Putting only this feature's mirror behind a
+session would break that agreement rather than settle it: it would write
+a copy the others do not, and whichever committed last would win.
+
+Converting the four, and then the mirror, is the rest of this seam. It
+was left out of this change deliberately -- each needs the same care
+about which writers take the write root and which stay on the real one
+(rekordbox cues live in ANLZ files; only the catalog database moves),
+and that is a change to four destructive features, not a detail to slip
+in alongside a metadata feature.
+
+One more thing this made ordering-dependent. The scratch decision is
+taken once, by whichever change reaches the session first, from that
+change's `itemCountHint`. Stage a rekordbox Sync or a single metadata
+restore before a five-hundred-item Clean Up and the Clean Up loses its
+scratch copy -- five hundred direct `export.pdb` rewrites instead of
+one. It costs speed and never correctness, but it is a coin flip rather
+than a bound. Taking the largest hint seen, and deferring the decision to
+the first write, would remove it.
 
 ## Relationship to Local Cue Backup
 

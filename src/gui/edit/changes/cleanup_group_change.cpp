@@ -106,7 +106,8 @@ struct CleanupWriterContext
 {
     CleanupWriterContext(const QString &format, const QString &path, int itemCountHint, SaveContext &ctx,
                          const std::unordered_map<std::string, std::string> &oneLibrarySourceIdToPath)
-        : session(format.toStdString(), path.toStdString(), itemCountHint, "duplicate-file-cleanup", ctx),
+        : session(sharedFormatWriteSession(ctx, format.toStdString(), path.toStdString(), itemCountHint,
+                                            "duplicate-file-cleanup")),
           manifest(infrastructure::paths::stickPendingDeletions(fs::path(path.toStdString()).parent_path()).string())
     {
         std::optional<std::string> writeRoot;
@@ -121,7 +122,9 @@ struct CleanupWriterContext
         dbBackupId = ctx.backupIdOf(session.databaseFile());
     }
 
-    FormatWriteSession session;
+    // The save's session for this database, shared with every
+    // other change that writes it -- see sharedFormatWriteSession().
+    FormatWriteSession &session;
     infrastructure::cleanup::PendingDeletionManifest manifest;
     CleanupFormatContext context;
     std::string effectiveRoot;
