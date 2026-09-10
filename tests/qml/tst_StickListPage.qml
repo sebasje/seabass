@@ -53,7 +53,7 @@ TestCase {
                               mountStick: function(d) { this.calls.push("mount:" + d); },
                               unmountStick: function(d) { this.calls.push("unmount:" + d); },
                               openFolder: function(p) { this.calls.push("openFolder:" + p); return ""; },
-                              closeFolder: function(p) { this.calls.push("closeFolder:" + p); },
+                              closeFolder: function(p) { this.calls.push("closeFolder:" + p); return ""; },
                               openBackup: function(p) { this.calls.push("openBackup:" + p); return ""; }},
             playbackController: {stop: function() {}},
             appSettingsController: {experimentalFeaturesEnabled: true, stickBackupDirectory: "/tmp"},
@@ -393,6 +393,40 @@ TestCase {
             verify(w === null || !w.visible, writes[j] + " must be withheld on a browsed backup");
         }
         saveScreenshot(page, "stick-list-browsed-backup");
+    }
+
+    // Closing a folder row is where its unsaved edits would otherwise
+    // vanish unseen (folder rows sit out the pulled-stick prompts): the
+    // close is refused while the session is dirty, and a clean session's
+    // lock is released before the row goes.
+    function test_closingAFolderRowRefusesWhileDirtyAndReleasesWhenClean() {
+        var folder = makeStick({
+            label: "restored", mountPoint: "/home/dj/restored", devicePath: "",
+            isFolder: true, libraryId: "folder-r1",
+        });
+        var registry = fakeEditRegistry([]);
+        registry.session = {dirty: true};
+        registry.hasSession = function(id) { this.calls.push("hasSession:" + id); return id === "folder-r1"; };
+        registry.sessionFor = function(id) { return this.session; };
+        registry.closeSession = function(id) { this.calls.push("closeSession:" + id); };
+        var page = makePage([folder], makeAdvice({}), {editRegistry: registry});
+        // Read the page's own copy, as every other fake in this file is
+        // read (page.mediaController.calls): what the page holds is what
+        // the handler talked to.
+        var reg = page.editRegistry;
+        var close = findRowObject(page, "/home/dj/restored", "closeFolderButton");
+        verify(close !== null);
+
+        close.clicked();
+        verify(reg.calls.indexOf("hasSession:folder-r1") >= 0, "the registry was consulted");
+        compare(page.mediaController.calls.indexOf("closeFolder:/home/dj/restored"), -1,
+                "a dirty session must not be dropped");
+        compare(reg.calls.indexOf("closeSession:folder-r1"), -1, "a dirty session must not be closed");
+
+        reg.session.dirty = false;
+        close.clicked();
+        verify(reg.calls.indexOf("closeSession:folder-r1") >= 0, "a clean session is closed");
+        verify(page.mediaController.calls.indexOf("closeFolder:/home/dj/restored") >= 0);
     }
 
     // The entry point itself: the toolbar button opens the folder picker.

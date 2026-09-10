@@ -192,7 +192,7 @@ Page {
                     id: seabassHomeDialog
                     title: "Choose where Seabass keeps its data on this computer"
                     currentFolder: "file://" + root.appSettingsController.seabassHomeDirectory
-                    onAccepted: root.appSettingsController.seabassHomeDirectory = selectedFolder.toString().replace(/^file:\/\//, "")
+                    onAccepted: root.appSettingsController.seabassHomeDirectory = selectedFolder.toString()
                 }
             }
 
@@ -231,7 +231,7 @@ Page {
                     id: backupFolderDialog
                     title: "Choose where to keep full stick backups"
                     currentFolder: "file://" + root.appSettingsController.stickBackupDirectory
-                    onAccepted: root.appSettingsController.stickBackupDirectory = selectedFolder.toString().replace(/^file:\/\//, "")
+                    onAccepted: root.appSettingsController.stickBackupDirectory = selectedFolder.toString()
                 }
             }
 

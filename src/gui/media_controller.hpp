@@ -149,8 +149,11 @@ public:
     QString openFolder(const QString &path, const QString &label);
 
     // Forgets a folder opened with openFolder(). Nothing on disk is
-    // touched; the folder is only dropped from the list.
-    Q_INVOKABLE void closeFolder(const QString &path);
+    // touched; the folder is only dropped from the list, and the shared
+    // open archive (a browsed backup) is released. Returns a message for
+    // the page on refusal, empty on success. The unsaved-changes check
+    // lives in StickListPage.qml, which holds the edit registry.
+    Q_INVOKABLE QString closeFolder(const QString &path);
 
     // Opens a full stick backup for browsing, without unpacking it: the
     // catalogs are extracted into a cache directory (about 1% of the
@@ -248,9 +251,6 @@ public:
     void loadOpenedFolders();
     void saveOpenedFolders();
 
-    // A QML dialog result ("file:///home/dj/x") or an already-local path,
-    // as a local path. See openFolder().
-    static QString localPathFrom(const QString &pathOrUrl);
 
     DetectedStickListModel m_model;
     // Kept separately from the model because detect() rebuilds that from

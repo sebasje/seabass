@@ -115,7 +115,7 @@ Page {
         defaultSuffix: "zip"
         nameFilters: ["Zip archive (*.zip)"]
         onAccepted: {
-            root.outputPath = selectedFile.toString().replace(/^file:\/\//, "");
+            root.outputPath = appSettingsController.localPathFromUrl(selectedFile.toString());
             root.outputPathEdited = true;
         }
     }

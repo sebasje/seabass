@@ -85,12 +85,16 @@ Page {
         objectName: "openFolderError"
         property alias text: openFolderErrorLabel.text
         anchors.centerIn: Overlay.overlay
+        // Explicit, so the dialog's implicit width never has to be derived
+        // from content that is itself sized from the dialog -- the loop
+        // Qt reports as "Binding loop detected for implicitWidth".
+        width: 460
         modal: true
         title: "Cannot open that folder"
         standardButtons: Dialog.Ok
         Label {
             id: openFolderErrorLabel
-            width: Math.min(implicitWidth, 420)
+            width: 420
             wrapMode: Text.WordWrap
         }
     }
@@ -371,7 +375,10 @@ Page {
                 readonly property bool thisRowBusy: root.mediaController.busy
                     && root.mediaController.busyDevicePath === delegateRoot.devicePath
                 function assessBackup() {
-                    if (mounted && mountPoint.length > 0) {
+                    // A browsed backup is never a backup subject or peer:
+                    // the advisor would offer it as the newest clone
+                    // source, and cloning from it targets its own archive.
+                    if (mounted && mountPoint.length > 0 && !isBrowsedBackup) {
                         root.backupAdvisor.assess(label, mountPoint, rekordboxPath, enginePath);
                     }
                 }
@@ -518,7 +525,29 @@ Page {
                         Layout.alignment: Qt.AlignVCenter
                         ToolTip.visible: hovered
                         ToolTip.text: "Remove " + delegateRoot.label + " from this list (nothing on disk is changed)"
-                        onClicked: root.mediaController.closeFolder(delegateRoot.mountPoint)
+                        onClicked: {
+                            // A folder row takes no part in the pulled-stick
+                            // prompts, so this is the one place its unsaved
+                            // edits would otherwise go unseen: refuse while
+                            // dirty, release a clean session's lock, then drop.
+                            var reg = root.editRegistry;
+                            var id = delegateRoot.libraryId;
+                            if (reg && typeof reg.hasSession === "function" && reg.hasSession(id)) {
+                                var session = reg.sessionFor(id);
+                                if (session && session.dirty === true) {
+                                    openFolderError.text = "\"" + delegateRoot.label
+                                        + "\" has unsaved changes. Save or discard them before removing it from the list.";
+                                    openFolderError.open();
+                                    return;
+                                }
+                                reg.closeSession(id);
+                            }
+                            var message = root.mediaController.closeFolder(delegateRoot.mountPoint);
+                            if (message.length > 0) {
+                                openFolderError.text = message;
+                                openFolderError.open();
+                            }
+                        }
                     }
 
                     ToolButton {

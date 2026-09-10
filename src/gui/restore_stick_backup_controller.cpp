@@ -1,3 +1,4 @@
+#include "gui/local_file_url.hpp"
 #include "gui/library_catalog_cache.hpp"
 #include "restore_stick_backup_controller.hpp"
 
@@ -133,10 +134,7 @@ void RestoreStickBackupController::refresh()
 
 void RestoreStickBackupController::setArchivePath(const QString &path)
 {
-    QString cleaned = path;
-    if (cleaned.startsWith(QStringLiteral("file://"))) {
-        cleaned = QUrl(cleaned).toLocalFile();
-    }
+    const QString cleaned = localPathFromUrl(path);
     if (m_archivePath == cleaned) {
         return;
     }

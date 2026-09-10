@@ -4,7 +4,8 @@
 #include <memory>
 #include <system_error>
 
-#include "infrastructure/rekordbox/anlz_source_for_root.hpp"
+#include "infrastructure/local/browsed_backup_root.hpp"
+#include "infrastructure/scratch_dir_guard.hpp"
 #include "infrastructure/stick_backup/backup_manifest.hpp"
 #include "infrastructure/stick_backup/posix_archive_file.hpp"
 #include "infrastructure/stick_backup/restore_path_sanitizer.hpp"
@@ -86,19 +87,10 @@ OpenedStickBackup OpenStickBackup::execute(const fs::path &archivePath, const fs
         return result;
     }
     // Whatever happens below, a failure never leaves the staging tree
-    // around to be mistaken for a cache.
-    struct StagingGuard
-    {
-        const fs::path &path;
-        bool keep = false;
-        ~StagingGuard()
-        {
-            if (!keep) {
-                std::error_code ignored;
-                fs::remove_all(path, ignored);
-            }
-        }
-    } guard{staging};
+    // around to be mistaken for a cache. After a successful swap the
+    // staging path no longer exists and the guard's remove_all is a
+    // no-op -- so there is no "keep" flag to forget to set.
+    infrastructure::ScratchDirGuard guard(staging);
 
     for (std::size_t index = 0; index < reader->entries().size(); ++index) {
         const sb::CentralEntry &entry = reader->entries()[index];
@@ -162,7 +154,7 @@ OpenedStickBackup OpenStickBackup::execute(const fs::path &archivePath, const fs
     // Written into staging, so it is present the instant the directory
     // becomes the real one.
     {
-        std::ofstream marker(staging / infrastructure::rekordbox::BackupSourceMarkerName, std::ios::trunc);
+        std::ofstream marker(staging / infrastructure::local::BrowsedBackupMarkerName, std::ios::trunc);
         marker << fs::absolute(archivePath).string() << "\n";
         if (!marker) {
             result.error = "Could not record which backup this came from.";
@@ -182,18 +174,37 @@ OpenedStickBackup OpenStickBackup::execute(const fs::path &archivePath, const fs
         }
     }
 
-    // Swap: the old cache goes only now that the new one is complete.
-    fs::remove_all(cacheRoot, ec);
-    if (ec) {
-        result.error = "Could not replace the previous copy of this backup: " + ec.message();
-        return result;
+    // Swap, in an order where no failure leaves a half-cache behind:
+    // the old directory is renamed aside whole (one atomic step, so a
+    // reader holding one of its files cannot leave it half-deleted the
+    // way remove_all could), the new one is renamed into place, and only
+    // then is the old one removed. If the second rename fails, the first
+    // is undone and yesterday's cache is exactly where it was.
+    const fs::path retired = cacheRoot.string() + ".old";
+    fs::remove_all(retired, ec);  // a leftover from an interrupted swap
+    const bool hadPrevious = fs::exists(cacheRoot, ec);
+    if (hadPrevious) {
+        fs::rename(cacheRoot, retired, ec);
+        if (ec) {
+            result.error = "Could not set aside the previous copy of this backup: " + ec.message();
+            return result;
+        }
     }
     fs::rename(staging, cacheRoot, ec);
     if (ec) {
         result.error = "Could not move the opened backup into place: " + ec.message();
+        if (hadPrevious) {
+            std::error_code undo;
+            fs::rename(retired, cacheRoot, undo);
+        }
         return result;
     }
-    guard.keep = true;
+    if (hadPrevious) {
+        // Best effort: a file still open in the retired tree just delays
+        // its removal to the next open; the live cache is complete either
+        // way.
+        fs::remove_all(retired, ec);
+    }
 
     result.libraryRoot = cacheRoot;
     return result;

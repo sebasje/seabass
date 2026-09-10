@@ -3,31 +3,42 @@
 #include <memory>
 #include <string>
 
+#include "infrastructure/local/browsed_backup_root.hpp"
 #include "infrastructure/rekordbox/anlz_byte_source.hpp"
 
 namespace seabass::infrastructure::rekordbox
 {
 
-// The file OpenStickBackup writes next to an extracted catalog to say
-// "the analysis files for this library are still in that archive". Sits
-// in the library root (the directory holding PIONEER / Engine Library),
-// and holds the absolute archive path, one line, UTF-8.
-inline constexpr const char *BackupSourceMarkerName = ".seabass-backup-source";
+// The marker's name, kept here as well so the callers that learned it
+// under this name keep resolving; the definition lives with the
+// is-this-a-browsed-backup question in infrastructure/local.
+inline constexpr const char *BackupSourceMarkerName = local::BrowsedBackupMarkerName;
 
-// The right AnlzByteSource for a PIONEER folder, decided by looking for
-// the marker above in its parent directory: an archive-backed source for
-// a stick backup being browsed, the plain filesystem otherwise.
+// The right AnlzByteSource for a PIONEER folder: an archive-backed source
+// when the folder's parent is a stick backup being browsed (decided by
+// local::isBrowsedBackupRoot -- marker present AND under the browse
+// cache, never a stray marker on a real stick), the plain filesystem
+// otherwise.
 //
 // Deciding it here, from what is on disk, rather than through a
 // process-wide registry the composition roots have to remember to
 // populate: every existing construction of a rekordbox reader then works
 // against a browsed backup without changing, and it survives a restart
-// because the marker does. A cache directory that says what it is beats
-// one that needs a live object to explain it.
+// because the marker does.
 //
-// Falls back to the filesystem source whenever the marker is missing,
-// unreadable, or names an archive that will not open -- browsing then
-// simply shows no cues, rather than failing the whole scan.
+// One open archive is shared per backup, for as long as any reader holds
+// it or until forgetArchiveSource() is called: opening means reading and
+// validating the whole central directory, and the waveform reader asks
+// on the UI thread. Falls back to the filesystem source whenever the
+// archive will not open -- browsing then shows no cues rather than
+// failing the whole scan.
 std::shared_ptr<AnlzByteSource> anlzSourceForPioneerRoot(const std::string &pioneerRoot);
+
+// Drops the shared open archive for `archivePath`, closing its file
+// handle once the last reader lets go. Called when a browsed backup is
+// closed: an open handle is otherwise held until the app exits, and on
+// Windows that blocks replacing the archive (Compact, a new backup
+// generation) with "another program keeps it open" -- Seabass itself.
+void forgetArchiveSource(const std::string &archivePath);
 
 }  // namespace seabass::infrastructure::rekordbox

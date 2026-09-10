@@ -19,7 +19,10 @@
 #include <string>
 
 #include "scratch_path.hpp"
+#include <cstdlib>
+
 #include "gui/media_controller.hpp"
+#include "infrastructure/paths/seabass_paths.hpp"
 
 namespace fs = std::filesystem;
 using seabass::gui::DetectedStickListModel;
@@ -70,6 +73,9 @@ int main(int argc, char **argv)
     const fs::path scratch = seabass::testing::scratchRoot() / "open-folder-test";
     fs::remove_all(scratch);
     fs::create_directories(scratch);
+    if (std::getenv("SEABASS_HOME") == nullptr) {
+        setenv("SEABASS_HOME", (scratch / "home").string().c_str(), 1);
+    }
     // Redirects the store by path and format rather than by naming the
     // application: the controller opens QSettings("seabass", "seabass")
     // exactly as the real app does, and setting organizationName here
@@ -213,10 +219,11 @@ int main(int argc, char **argv)
         std::cout << "case 7c (label survives a restart) OK\n";
     }
 
-    // A folder carrying the backup marker is flagged read-only on every
-    // detect(), from the marker alone -- no archive needed to decide it.
+    // A folder carrying the backup marker under the browse cache is
+    // flagged read-only on every detect(), from the marker alone -- no
+    // archive needed to decide it.
     {
-        const fs::path browsed = scratch / "browsed";
+        const fs::path browsed = seabass::infrastructure::paths::localBrowsedBackupsDir() / "browsed";
         makeStickShapedFolder(browsed, true, false);
         {
             std::ofstream marker(browsed / ".seabass-backup-source");
@@ -230,6 +237,23 @@ int main(int argc, char **argv)
         row = rowForMountPoint(*controller.sticksModel(), both.string());
         assert(row < 0 || !controller.sticksModel()->sticks()[static_cast<size_t>(row)].isBrowsedBackup);
         std::cout << "case 7d (marker flags a browsed backup) OK\n";
+    }
+
+    // The same marker anywhere else is a stray file: a real stick that
+    // was restored from a browse cache must not come up read-only.
+    {
+        const fs::path stray = scratch / "restored-onto-a-stick";
+        makeStickShapedFolder(stray, true, false);
+        {
+            std::ofstream marker(stray / ".seabass-backup-source");
+            marker << "/nonexistent/TOURSTICK.zip\n";
+        }
+        MediaController controller;
+        assert(controller.openFolder(QString::fromStdString(stray.string())).isEmpty());
+        const int row = rowForMountPoint(*controller.sticksModel(), stray.string());
+        assert(row >= 0);
+        assert(!controller.sticksModel()->sticks()[static_cast<size_t>(row)].isBrowsedBackup);
+        std::cout << "case 7e (marker outside the browse cache is ignored) OK\n";
     }
 
     // The id a folder gets is stable for a path and different between

@@ -1,4 +1,4 @@
-#include "infrastructure/rekordbox/anlz_source_for_root.hpp"
+#include "infrastructure/local/browsed_backup_root.hpp"
 #include "gui/edit/library_edit_session.hpp"
 
 #include <filesystem>
@@ -202,10 +202,7 @@ bool LibraryEditSession::stage(std::unique_ptr<PendingChange> change)
         if (libraryPath.isEmpty()) {
             continue;
         }
-        std::error_code ec;
-        const auto marker = std::filesystem::path(libraryPath.toStdString()).parent_path()
-                            / infrastructure::rekordbox::BackupSourceMarkerName;
-        if (std::filesystem::exists(marker, ec)) {
+        if (infrastructure::local::isBrowsedBackupRoot(std::filesystem::path(libraryPath.toStdString()).parent_path())) {
             emit readOnlyRefused(tr("This is a stick backup being browsed. It cannot be edited here -- "
                                     "restore it onto a stick first, or open the restored folder."));
             return false;

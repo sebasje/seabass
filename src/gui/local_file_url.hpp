@@ -25,4 +25,17 @@ inline QString toLocalFileUrl(const std::string &path)
     return QUrl::fromLocalFile(QString::fromStdString(path)).toString();
 }
 
+// The inverse, for what a QML FileDialog/FolderDialog hands back: a
+// file:// URL string, or an already-local path (a setting restored from
+// disk, a test). Converted with QUrl::toLocalFile, never by stripping the
+// scheme -- that leaves "/C:/..." on Windows and "%23" for a '#' in the
+// name everywhere. Every dialog result in the app comes through here.
+inline QString localPathFromUrl(const QString &pathOrUrl)
+{
+    if (pathOrUrl.startsWith(QStringLiteral("file:"))) {
+        return QUrl(pathOrUrl).toLocalFile();
+    }
+    return pathOrUrl;
+}
+
 }  // namespace seabass::gui

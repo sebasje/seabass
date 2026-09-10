@@ -84,6 +84,9 @@ public:
     // The default, so the UI can offer "put it back" without knowing how
     // the path is built.
     Q_INVOKABLE static QString defaultSeabassHomeDirectory();
+    // For QML dialog results; see gui/local_file_url.hpp. On this
+    // controller because every page already has one.
+    Q_INVOKABLE static QString localPathFromUrl(const QString &pathOrUrl);
     // <seabassHome>/testdata, where anonymized exports are proposed.
     Q_INVOKABLE QString anonymizedExportDirectory() const;
     void setStickBackupDirectory(const QString &value);

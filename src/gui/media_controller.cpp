@@ -14,7 +14,9 @@
 #include "application/stick_presence_diff.hpp"
 #include "application/use_cases/open_stick_backup.hpp"
 #include "infrastructure/paths/seabass_paths.hpp"
+#include "infrastructure/local/browsed_backup_root.hpp"
 #include "infrastructure/rekordbox/anlz_source_for_root.hpp"
+#include "gui/local_file_url.hpp"
 #include "infrastructure/hashing/sha256.hpp"
 #include "infrastructure/media/media_factory.hpp"
 #include "infrastructure/media/stick_root_scan.hpp"
@@ -201,16 +203,33 @@ void MediaController::detect()
     // a stick's, and the folder itself can be gone by now -- in which case
     // it stays listed with no library so it can be seen and closed, rather
     // than vanishing without explanation.
+    // A folder whose path is a mounted stick's own root is that stick,
+    // already listed with the identity it really has; a second row would
+    // carry a second edit-lock id for one export.pdb. openFolder() refuses
+    // this at open time, but a persisted folder can find a stick on its
+    // path after a restart or a replug (drive-letter reuse on Windows is
+    // routine), so the rule is enforced here, on every refresh.
+    std::vector<std::filesystem::path> mountedRoots;
+    for (const application::DetectedStick &stick : sticks) {
+        if (stick.mounted && !stick.mountPoint.empty()) {
+            std::error_code ec;
+            mountedRoots.push_back(std::filesystem::weakly_canonical(std::filesystem::path(stick.mountPoint), ec));
+        }
+    }
     for (application::DetectedStick &folder : m_openedFolders) {
+        std::error_code ec;
+        const auto folderRoot = std::filesystem::weakly_canonical(std::filesystem::path(folder.mountPoint), ec);
+        if (std::find(mountedRoots.begin(), mountedRoots.end(), folderRoot) != mountedRoots.end()) {
+            continue;
+        }
         folder.rekordboxPath.reset();
         folder.enginePath.reset();
         infrastructure::media::scanMountedRoot(folder.mountPoint, folder);
         // Decided from disk every time, not remembered from openBackup():
         // the marker is what makes the cache self-describing, and it is
-        // what survives a restart.
-        std::error_code ec;
-        folder.isBrowsedBackup = std::filesystem::exists(
-            std::filesystem::path(folder.mountPoint) / infrastructure::rekordbox::BackupSourceMarkerName, ec);
+        // what survives a restart. Only honoured under the browse cache --
+        // see isBrowsedBackupRoot for why a stray marker elsewhere is not.
+        folder.isBrowsedBackup = infrastructure::local::isBrowsedBackupRoot(std::filesystem::path(folder.mountPoint));
         sticks.push_back(folder);
     }
     m_model.setSticks(std::move(sticks));
@@ -277,22 +296,11 @@ QString MediaController::openFolder(const QString &path)
     return openFolder(path, QString());
 }
 
-QString MediaController::localPathFrom(const QString &pathOrUrl)
-{
-    // Same rule RestoreStickBackupController::setArchivePath applies. A
-    // regex strip of "file://" is not equivalent: it leaves "/C:/..." on
-    // Windows and keeps "%23" for a '#' in the name everywhere.
-    if (pathOrUrl.startsWith(QStringLiteral("file:"))) {
-        return QUrl(pathOrUrl).toLocalFile();
-    }
-    return pathOrUrl;
-}
-
 QString MediaController::openFolder(const QString &path, const QString &label)
 {
     std::error_code ec;
     const std::filesystem::path dir =
-        std::filesystem::canonical(std::filesystem::path(localPathFrom(path).toStdString()), ec);
+        std::filesystem::canonical(std::filesystem::path(localPathFromUrl(path).toStdString()), ec);
     if (ec) {
         return tr("That folder could not be opened: %1").arg(QString::fromStdString(ec.message()));
     }
@@ -343,13 +351,20 @@ QString MediaController::openFolder(const QString &path, const QString &label)
 
 QString MediaController::openBackup(const QString &archivePath)
 {
-    const std::filesystem::path archive(localPathFrom(archivePath).toStdString());
+    const std::filesystem::path archive(localPathFromUrl(archivePath).toStdString());
     // One cache directory per archive, named after its path rather than
     // its label: two backups of differently-named sticks must not land on
     // top of each other, and re-opening the same archive should reuse (and
-    // refresh) the same directory instead of accumulating copies.
+    // refresh) the same directory instead of accumulating copies. Keyed on
+    // the canonical path, so the same ZIP reached through a symlinked
+    // directory or a ".." spelling is one backup, one cache, one row.
+    std::error_code canonEc;
+    std::filesystem::path archiveKey = std::filesystem::weakly_canonical(archive, canonEc);
+    if (canonEc) {
+        archiveKey = std::filesystem::absolute(archive);
+    }
     const std::filesystem::path cacheRoot =
-        infrastructure::paths::localBrowsedBackupsDir() / folderLibraryId(std::filesystem::absolute(archive).string());
+        infrastructure::paths::localBrowsedBackupsDir() / folderLibraryId(archiveKey.string());
 
     const application::OpenedStickBackup opened = application::OpenStickBackup::execute(archive, cacheRoot);
     if (!opened.error.empty()) {
@@ -362,18 +377,31 @@ QString MediaController::openBackup(const QString &archivePath)
                       QString::fromStdString(opened.stickLabel));
 }
 
-void MediaController::closeFolder(const QString &path)
+QString MediaController::closeFolder(const QString &path)
 {
     const std::string canonical = path.toStdString();
-    const auto before = m_openedFolders.size();
-    m_openedFolders.erase(std::remove_if(m_openedFolders.begin(), m_openedFolders.end(),
-                                         [&](const application::DetectedStick &f) { return f.mountPoint == canonical; }),
-                          m_openedFolders.end());
-    if (m_openedFolders.size() == before) {
-        return;
+    auto it = std::find_if(m_openedFolders.begin(), m_openedFolders.end(),
+                           [&](const application::DetectedStick &f) { return f.mountPoint == canonical; });
+    if (it == m_openedFolders.end()) {
+        return {};
     }
+
+    // Unsaved edits are the page's business, not this controller's: the
+    // stick list already holds the edit registry (or a fake in tests)
+    // and refuses the close there while a session on this row is dirty.
+    // Depending on EditSessionRegistry from here would invert the one
+    // direction that already exists (the registry watches this controller).
+    // The shared open archive, if this was a browsed backup: an open
+    // handle otherwise stays held until quit, and on Windows blocks
+    // replacing that archive with a newer generation.
+    if (auto archive = infrastructure::local::browsedBackupArchive(std::filesystem::path(canonical))) {
+        infrastructure::rekordbox::forgetArchiveSource(archive->string());
+    }
+
+    m_openedFolders.erase(it);
     saveOpenedFolders();
     detect();
+    return {};
 }
 
 void MediaController::loadOpenedFolders()
