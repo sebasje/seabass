@@ -15,6 +15,8 @@
 #include "gui/edit/format_write_session.hpp"
 #include "gui/edit/save_context.hpp"
 
+#include "scratch_path.hpp"
+
 using namespace seabass::gui;
 using seabass::application::CancellationToken;
 namespace fs = std::filesystem;
@@ -50,7 +52,7 @@ fs::path makeStick(const fs::path &root)
 
 int main()
 {
-    fs::path root = fs::temp_directory_path() / "seabass_format_write_session_test";
+    fs::path root = seabass::testing::scratchRoot() / "seabass_format_write_session_test";
     auto &noProgress = seabass::application::NullProgressReporter::instance();
 
     // 1. Database file per format.

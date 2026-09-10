@@ -25,6 +25,8 @@ private:
 }  // namespace
 #include "infrastructure/engine/libdjinterop_engine_reader.hpp"
 
+#include "scratch_path.hpp"
+
 using namespace seabass::infrastructure::engine;
 using seabass::domain::CuePoint;
 using seabass::domain::Track;
@@ -59,7 +61,7 @@ Track makeTrack(std::string id, std::string title, std::string artist, std::stri
 
 int main()
 {
-    fs::path root = fs::temp_directory_path() / "seabass_engine_library_creator_test";
+    fs::path root = seabass::testing::scratchRoot() / "seabass_engine_library_creator_test";
     fs::remove_all(root);
     fs::create_directories(root);
     fs::path enginePath = root / "Engine Library";

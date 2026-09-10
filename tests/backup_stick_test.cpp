@@ -15,6 +15,8 @@
 #include "infrastructure/stick_backup/zip64_reader.hpp"
 #include "infrastructure/stick_backup/zip_format.hpp"
 
+#include "scratch_path.hpp"
+
 using namespace seabass::application;
 using namespace seabass::infrastructure::stick_backup;
 namespace fs = std::filesystem;
@@ -85,7 +87,7 @@ struct Fixture
     BackupStickOptions options;
 
     explicit Fixture(const std::string &name)
-        : root(fs::temp_directory_path() / ("seabass_backup_stick_test_" + name)), stick(root / "stick"),
+        : root(seabass::testing::scratchRoot() / ("seabass_backup_stick_test_" + name)), stick(root / "stick"),
           archive(root / "Seabass Backups" / "STICK.zip")
     {
         fs::remove_all(root);

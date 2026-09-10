@@ -9,6 +9,8 @@
 #include "infrastructure/stick_backup/in_memory_archive_file.hpp"
 #include "infrastructure/stick_backup/posix_archive_file.hpp"
 
+#include "scratch_path.hpp"
+
 using namespace seabass::infrastructure::stick_backup;
 namespace fs = std::filesystem;
 
@@ -44,7 +46,7 @@ void appendString(ArchiveFile &file, const std::string &s)
 
 int main()
 {
-    fs::path root = fs::temp_directory_path() / "seabass_archive_file_test";
+    fs::path root = seabass::testing::scratchRoot() / "seabass_archive_file_test";
     fs::remove_all(root);
     fs::create_directories(root);
 

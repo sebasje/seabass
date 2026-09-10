@@ -11,6 +11,8 @@
 #include "infrastructure/onelibrary/onelibrary_reader.hpp"
 #include "infrastructure/onelibrary/sqlcipher_dyn.hpp"
 
+#include "scratch_path.hpp"
+
 using namespace seabass::infrastructure::onelibrary;
 using namespace seabass::domain;
 namespace fs = std::filesystem;
@@ -22,7 +24,7 @@ namespace
 // onelibrary_cue_writer_test.cpp uses.
 fs::path freshScratch()
 {
-    fs::path scratch = fs::temp_directory_path() / "seabass_onelibrary_reader_test";
+    fs::path scratch = seabass::testing::scratchRoot() / "seabass_onelibrary_reader_test";
     std::error_code ec;
     fs::remove_all(scratch, ec);
     fs::create_directories(scratch);
@@ -50,15 +52,17 @@ void createFixture(const std::string &pioneerRoot)
     db.exec("CREATE TABLE artist(artist_id integer primary key, name varchar);");
     db.exec("CREATE TABLE key(key_id integer primary key, name varchar);");
     db.exec("CREATE TABLE image(image_id integer primary key, path varchar);");
+    db.exec("CREATE TABLE album(album_id integer primary key, name varchar);");
     db.exec(
         "CREATE TABLE content(content_id integer primary key, title varchar, artist_id_artist integer, "
         "bpmx100 integer, length integer, path varchar, fileName varchar, bitrate integer, fileSize integer, "
-        "key_id integer, djPlayCount integer, image_id integer);");
+        "key_id integer, djPlayCount integer, image_id integer, album_id integer);");
     db.exec("CREATE TABLE playlist(playlist_id integer primary key, name varchar, playlist_id_parent integer);");
     db.exec("CREATE TABLE playlist_content(content_id integer, playlist_id integer, sequenceNo integer);");
     db.exec("CREATE TABLE cue(content_id integer, kind integer, inUsec integer, cueComment varchar);");
 
     db.exec("INSERT INTO artist VALUES (1, 'Test Artist');");
+    db.exec("INSERT INTO album VALUES (1, 'Test Album');");
     db.exec("INSERT INTO key VALUES (1, 'Fm');");
     // image_id 1 resolves to a real file (created below); image_id 2's
     // path is never created on disk -- readAll() must leave artworkPath
@@ -68,8 +72,8 @@ void createFixture(const std::string &pioneerRoot)
 
     db.exec(
         "INSERT INTO content (content_id, title, artist_id_artist, bpmx100, length, path, fileName, bitrate, "
-        "fileSize, key_id, djPlayCount, image_id) VALUES "
-        "(566, 'Test Track', 1, 12800, 245, '/Contents/Test Track.mp3', 'Test Track.mp3', 320, 654321, 1, 5, 1);");
+        "fileSize, key_id, djPlayCount, image_id, album_id) VALUES "
+        "(566, 'Test Track', 1, 12800, 245, '/Contents/Test Track.mp3', 'Test Track.mp3', 320, 654321, 1, 5, 1, 1);");
     db.exec(
         "INSERT INTO content (content_id, title, artist_id_artist, bpmx100, length, path, fileName, bitrate, "
         "fileSize, key_id, djPlayCount, image_id) VALUES "
@@ -121,6 +125,8 @@ int main()
         assert(t->format == "onelibrary");
         assert(t->title == "Test Track");
         assert(t->artist == "Test Artist");
+        // Resolved through the album table, the same shape as artist.
+        assert(t->album == "Test Album");
         assert(t->bpm == 128.0);
         assert(t->durationSeconds == 245.0);
         assert(t->filePath == (scratch / "Contents" / "Test Track.mp3").string());

@@ -83,6 +83,8 @@
 #include "gui/edit/changes/sync_plan_change.hpp"
 #include "gui/edit/save_context.hpp"
 #include "gui/edit/save_loop.hpp"
+
+#include "scratch_path.hpp"
 #endif
 
 namespace fs = std::filesystem;
@@ -184,7 +186,7 @@ std::optional<DataSet> asDataSet(const fs::path &dir)
 // Where a zipped set gets unpacked, once, before anything reads it.
 fs::path unpackedSetsRoot()
 {
-    return fs::temp_directory_path() / "seabass_corpus_unpacked";
+    return seabass::testing::scratchRoot() / "seabass_corpus_unpacked";
 }
 
 // A set kept as one file rather than six thousand. Unpacked into a scratch
@@ -334,11 +336,25 @@ public:
         if (!m_dirty) {
             return;
         }
-        std::ofstream out(m_path, std::ios::trunc);
-        out << "# Written by corpus_test. Delete this file to re-record after a\n"
-               "# deliberate change to the data set itself.\n";
-        for (const auto &[key, value] : m_values) {
-            out << key << " " << value << "\n";
+        // Written through a temp file and renamed, because this one path
+        // is shared by every corpus_test process on the machine and two
+        // of them re-recording at once would otherwise interleave into a
+        // half-written file that neither run could read back. Rare -- it
+        // needs two runs recording new expectations at the same moment --
+        // and cheap enough not to reason about.
+        const fs::path temp = m_path.string() + ".tmp-" + std::to_string(::getpid());
+        {
+            std::ofstream out(temp, std::ios::trunc);
+            out << "# Written by corpus_test. Delete this file to re-record after a\n"
+                   "# deliberate change to the data set itself.\n";
+            for (const auto &[key, value] : m_values) {
+                out << key << " " << value << "\n";
+            }
+        }
+        std::error_code ec;
+        fs::rename(temp, m_path, ec);
+        if (ec) {
+            fs::remove(temp, ec);
         }
     }
 
@@ -366,7 +382,7 @@ fs::path scratchFor(const std::string &name)
     for (char c : name) {
         safe += (c == ' ' || c == '/') ? '_' : c;
     }
-    fs::path root = fs::temp_directory_path() / ("seabass_corpus_test_" + safe);
+    fs::path root = seabass::testing::scratchRoot() / ("seabass_corpus_test_" + safe);
     fs::remove_all(root);
     fs::create_directories(root);
     return root;
@@ -388,6 +404,16 @@ std::string readWholeFile(const fs::path &path)
     std::ostringstream buffer;
     buffer << in.rdbuf();
     return buffer.str();
+}
+
+// Tracks whose catalog recorded an album. A guarded count rather than a
+// spot check: album is resolved through a normalized table in all three
+// formats, so a reader that silently stops resolving it reports every
+// track as album-less while everything else still passes.
+long long countWithAlbum(const std::vector<domain::Track> &tracks)
+{
+    return std::count_if(tracks.begin(), tracks.end(),
+                          [](const domain::Track &t) { return !t.album.empty(); });
 }
 
 int countCues(const std::vector<domain::Track> &tracks)
@@ -431,6 +457,8 @@ void caseScanCounts(const DataSet &set, Catalogs &catalogs, Expectations &expect
             expected.expect("rekordbox.tracksWithCues", countWithCues(catalogs.rekordbox),
                             "rekordbox tracks-with-cues unchanged");
             expected.expect("rekordbox.cues", countCues(catalogs.rekordbox), "rekordbox cue count unchanged");
+            expected.expect("rekordbox.tracksWithAlbum", countWithAlbum(catalogs.rekordbox),
+                            "rekordbox tracks-with-album unchanged");
             pass("case 1: rekordbox scan at real scale, track and cue counts hold");
         }
     }
@@ -458,6 +486,8 @@ void caseScanCounts(const DataSet &set, Catalogs &catalogs, Expectations &expect
             expected.expect("engine.tracksWithCues", countWithCues(catalogs.engine),
                             "Engine tracks-with-cues unchanged");
             expected.expect("engine.cues", countCues(catalogs.engine), "Engine cue count unchanged");
+            expected.expect("engine.tracksWithAlbum", countWithAlbum(catalogs.engine),
+                            "Engine tracks-with-album unchanged");
             pass("case 2: Engine scan at real scale, track and cue counts hold");
         }
     }

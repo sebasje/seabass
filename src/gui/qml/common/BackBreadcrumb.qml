@@ -28,6 +28,12 @@ RowLayout {
     signal backRequested()
 
     spacing: 4 * Theme.iconScale
+    // The segments are hover pills with their own left padding, so the
+    // text inside the first one starts that much further right than the
+    // row does. Pulled back by exactly that, so a page's title lines up
+    // with the body beneath it instead of sitting a pill's padding to
+    // the right of it. Every header gets this without asking.
+    Layout.leftMargin: -Theme.crumbTextInset
 
     component Crumb: AbstractButton {
         id: crumb

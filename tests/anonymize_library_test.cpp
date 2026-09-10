@@ -16,6 +16,8 @@
 #include "infrastructure/rekordbox/little_endian.hpp"
 #include "infrastructure/rekordbox/pdb_lookup.hpp"
 
+#include "scratch_path.hpp"
+
 using namespace seabass::application;
 using namespace seabass::infrastructure::rekordbox;
 namespace fs = std::filesystem;
@@ -224,7 +226,7 @@ void extractZip(const fs::path &zipPath, const fs::path &destDir)
 
 int main()
 {
-    fs::path root = fs::temp_directory_path() / "seabass_anonymize_library_test";
+    fs::path root = seabass::testing::scratchRoot() / "seabass_anonymize_library_test";
     fs::remove_all(root);
     fs::create_directories(root);
 

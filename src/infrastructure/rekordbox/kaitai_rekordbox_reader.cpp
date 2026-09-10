@@ -195,6 +195,31 @@ std::vector<domain::Track> KaitaiRekordboxReader::readAll()
         });
     }
 
+    // Album titles, same shape as artists above: their own normalized
+    // table, with track rows carrying an album_id into it. A track with
+    // no album has album_id 0, which matches no row and correctly leaves
+    // the field empty.
+    std::unordered_map<uint32_t, std::string> albumNameById;
+    for (const auto &table : *pdb.tables()) {
+        if (table->type() != Pdb::PAGE_TYPE_ALBUMS) {
+            continue;
+        }
+        forEachDataPage(*table, [&](Pdb::page_t *page) {
+            for (const auto &group : *page->row_groups()) {
+                for (const auto &row : *group->rows()) {
+                    if (!row->present()) {
+                        continue;
+                    }
+                    auto *rowAlbum = dynamic_cast<Pdb::album_row_t *>(row->body());
+                    if (!rowAlbum) {
+                        continue;
+                    }
+                    albumNameById[rowAlbum->id()] = sqlText(rowAlbum->name());
+                }
+            }
+        });
+    }
+
     // Musical key names live in their own table; track rows only carry a
     // key_id foreign key into it.
     std::unordered_map<uint32_t, std::string> keyNameById;
@@ -332,6 +357,10 @@ std::vector<domain::Track> KaitaiRekordboxReader::readAll()
                     track.format = "rekordbox";
                     track.title = sqlText(rowTrack->title());
                     track.filename = sqlText(rowTrack->filename());
+                    auto albumIt = albumNameById.find(rowTrack->album_id());
+                    if (albumIt != albumNameById.end()) {
+                        track.album = albumIt->second;
+                    }
                     auto artistIt = artistNameById.find(rowTrack->artist_id());
                     if (artistIt != artistNameById.end()) {
                         track.artist = artistIt->second;

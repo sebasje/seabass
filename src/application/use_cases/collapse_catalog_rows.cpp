@@ -38,6 +38,9 @@ void fillGapsFrom(domain::Track &into, const domain::Track &from)
     if (into.artist.empty()) {
         into.artist = from.artist;
     }
+    if (into.album.empty()) {
+        into.album = from.album;
+    }
     if (!into.rating.has_value()) {
         into.rating = from.rating;
     }

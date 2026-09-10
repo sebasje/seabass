@@ -21,6 +21,8 @@
 #include "infrastructure/stick_backup/zip_format.hpp"
 #include "stick_fixture.hpp"
 
+#include "scratch_path.hpp"
+
 using namespace seabass::application;
 using namespace seabass::infrastructure::stick_backup;
 using seabass::infrastructure::hashing::Sha256;
@@ -72,7 +74,7 @@ struct Fixture
     RestoreOptions restore;
 
     explicit Fixture(const std::string &name)
-        : root(fs::temp_directory_path() / ("seabass_backup_restore_test_" + name)), stick(root / "stick"),
+        : root(seabass::testing::scratchRoot() / ("seabass_backup_restore_test_" + name)), stick(root / "stick"),
           archive(root / "Seabass Backups" / "STICK.zip"), target(root / "target")
     {
         fs::remove_all(root);
@@ -340,7 +342,7 @@ int main()
         // shape, so a single interrupted run would leave a directory that
         // hangs every later run of this whole file. This case owns its
         // root and clears it deepest-first at both ends instead.
-        const fs::path root = fs::temp_directory_path() / "seabass_backup_restore_test_longpath";
+        const fs::path root = seabass::testing::scratchRoot() / "seabass_backup_restore_test_longpath";
         const fs::path archive = root / "Seabass Backups" / "STICK.zip";
         const fs::path target = fs::absolute(root / "target");
         removeTreeDeepestFirst(root);

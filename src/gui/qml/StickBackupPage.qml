@@ -97,10 +97,19 @@ Page {
     }
 
     header: ToolBar {
+        // Every side zeroed so the header's inset is Theme.pageMargin
+        // and nothing else. `padding` alone does not do it: styles set
+        // horizontalPadding or leftPadding of their own on top of it,
+        // 4px under Breeze and 6 under the default style, and that is
+        // exactly how far right of the body the breadcrumb used to sit.
+        leftPadding: 0
+        rightPadding: 0
+        topPadding: 0
+        bottomPadding: 0
         background: Rectangle { color: Theme.surface }
         RowLayout {
             anchors.fill: parent
-            anchors.margins: 10
+            anchors.margins: Theme.pageMargin
             spacing: 12
             BackBreadcrumb {
                 middleLabel: "Backups"

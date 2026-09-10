@@ -329,6 +329,18 @@ ApplicationWindow {
                 rekordboxPath: rekordboxPath,
                 enginePath: enginePath,
             })
+            onMetadataBackupRequested: (stickLabel, rekordboxPath, enginePath, libraryId) => stackView.push(metadataBackupPageComponent, {
+                stickLabel: stickLabel,
+                rekordboxPath: rekordboxPath,
+                enginePath: enginePath,
+                libraryId: libraryId,
+            })
+            onMetadataRestoreRequested: (stickLabel, rekordboxPath, enginePath, libraryId) => stackView.push(metadataRestorePageComponent, {
+                stickLabel: stickLabel,
+                rekordboxPath: rekordboxPath,
+                enginePath: enginePath,
+                libraryId: libraryId,
+            })
             onEngineLibraryCreatorRequested: (stickLabel, rekordboxPath) => stackView.push(engineLibraryCreatorPageComponent, {
                 stickLabel: stickLabel,
                 rekordboxPath: rekordboxPath,
@@ -608,6 +620,16 @@ ApplicationWindow {
     Component {
         id: backupsPageComponent
         BackupsPage {}
+    }
+
+    Component {
+        id: metadataBackupPageComponent
+        MetadataBackupPage {}
+    }
+
+    Component {
+        id: metadataRestorePageComponent
+        MetadataRestorePage {}
     }
 
     Component {

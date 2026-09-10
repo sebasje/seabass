@@ -31,6 +31,15 @@ Page {
     Component.onCompleted: settingsController.load(root.pioneerRoot)
 
     header: ToolBar {
+        // Every side zeroed so the header's inset is Theme.pageMargin
+        // and nothing else. `padding` alone does not do it: styles set
+        // horizontalPadding or leftPadding of their own on top of it,
+        // 4px under Breeze and 6 under the default style, and that is
+        // exactly how far right of the body the breadcrumb used to sit.
+        leftPadding: 0
+        rightPadding: 0
+        topPadding: 0
+        bottomPadding: 0
         // Opaque background override -- see AppSettingsPage.qml's header
         // for why (KDE's Breeze style bleeds the window behind Seabass
         // through an unstyled ToolBar).
@@ -38,7 +47,7 @@ Page {
 
         RowLayout {
             anchors.fill: parent
-            anchors.margins: 8
+            anchors.margins: Theme.pageMargin
             BackBreadcrumb {
                 middleLabel: root.stickLabel
                 title: "Device Profile"

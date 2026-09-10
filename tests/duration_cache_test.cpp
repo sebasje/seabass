@@ -7,6 +7,8 @@
 
 #include "infrastructure/local/duration_cache.hpp"
 
+#include "scratch_path.hpp"
+
 using seabass::infrastructure::local::DurationCache;
 namespace fs = std::filesystem;
 
@@ -23,7 +25,7 @@ std::string writeFile(const fs::path &p, const std::string &data)
 
 int main()
 {
-    fs::path root = fs::temp_directory_path() / "seabass_duration_cache_test";
+    fs::path root = seabass::testing::scratchRoot() / "seabass_duration_cache_test";
     fs::remove_all(root);
     fs::create_directories(root);
     const std::string audio = writeFile(root / "Contents" / "a" / "track.mp3", "not really audio, but a real file");
@@ -61,7 +63,7 @@ int main()
         cache.store(audio, 311.5);
         assert(cache.save());
 
-        fs::path moved = fs::temp_directory_path() / "seabass_duration_cache_test_moved";
+        fs::path moved = seabass::testing::scratchRoot() / "seabass_duration_cache_test_moved";
         fs::remove_all(moved);
         fs::rename(root, moved);
         DurationCache movedCache(moved.string());

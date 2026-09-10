@@ -7,12 +7,14 @@
 
 #include "infrastructure/engine/libdjinterop_engine_anonymizer.hpp"
 
+#include "scratch_path.hpp"
+
 using namespace seabass::infrastructure::engine;
 namespace fs = std::filesystem;
 
 int main()
 {
-    fs::path root = fs::temp_directory_path() / "seabass_engine_anonymizer_test";
+    fs::path root = seabass::testing::scratchRoot() / "seabass_engine_anonymizer_test";
     fs::remove_all(root);
     fs::create_directories(root);
 

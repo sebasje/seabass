@@ -14,6 +14,8 @@
 #include "infrastructure/stick_backup/zip64_writer.hpp"
 #include "infrastructure/stick_backup/zip_format.hpp"
 
+#include "scratch_path.hpp"
+
 using namespace seabass::infrastructure::stick_backup;
 using seabass::infrastructure::hashing::Sha256;
 using seabass::infrastructure::hashing::Sha256Digest;
@@ -166,7 +168,7 @@ int main()
 
     // ---- Round trip through a real file ----
     {
-        fs::path root = fs::temp_directory_path() / "seabass_backup_archive_roundtrip_test";
+        fs::path root = seabass::testing::scratchRoot() / "seabass_backup_archive_roundtrip_test";
         fs::remove_all(root);
         fs::create_directories(root);
         fs::path path = root / "stick.zip";
@@ -310,7 +312,7 @@ int main()
 
     // ---- > 4 GiB entry (opt-in: writes ~4 GiB to the temp directory) ----
     if (const char *large = std::getenv("SEABASS_LARGE_TESTS"); large != nullptr && std::string(large) == "1") {
-        fs::path root = fs::temp_directory_path() / "seabass_backup_archive_roundtrip_large";
+        fs::path root = seabass::testing::scratchRoot() / "seabass_backup_archive_roundtrip_large";
         fs::remove_all(root);
         fs::create_directories(root);
         fs::path path = root / "large.zip";

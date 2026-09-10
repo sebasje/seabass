@@ -17,13 +17,15 @@
 #include "infrastructure/audio/taglib_metadata_probe.hpp"
 #include "mp3_fixture.hpp"
 
+#include "scratch_path.hpp"
+
 using seabass::infrastructure::audio::TagLibMetadataProbe;
 using namespace seabass::test_fixture::mp3;
 namespace fs = std::filesystem;
 
 int main()
 {
-    fs::path root = fs::temp_directory_path() / "seabass_taglib_metadata_probe_test";
+    fs::path root = seabass::testing::scratchRoot() / "seabass_taglib_metadata_probe_test";
     fs::remove_all(root);
     fs::create_directories(root);
 

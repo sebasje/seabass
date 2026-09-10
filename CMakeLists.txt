@@ -234,6 +234,7 @@ add_library(seabass_core STATIC
     src/domain/library_consistency.cpp
     src/domain/library_statistics.cpp
     src/domain/local_restore.cpp
+    src/domain/metadata_restore.cpp
     src/domain/sync_planning.cpp
     src/domain/track_matching.cpp
     src/domain/track_queries.cpp
@@ -322,6 +323,7 @@ add_library(seabass_core STATIC
     src/infrastructure/cleanup/audio_file_walk.cpp
     src/infrastructure/local/duration_cache.cpp
     src/infrastructure/local/metadata_cache.cpp
+    src/infrastructure/local/metadata_store.cpp
 )
 target_include_directories(seabass_core PUBLIC src)
 target_link_libraries(seabass_core PUBLIC rekordbox_format DjInterop ZLIB::ZLIB)
@@ -532,6 +534,8 @@ if(SEABASS_GUI AND Qt6_FOUND)
         src/gui/edit/changes/device_setting_change.cpp
         src/gui/edit/changes/merge_cues_change.hpp
         src/gui/edit/changes/merge_cues_change.cpp
+        src/gui/edit/changes/restore_metadata_change.hpp
+        src/gui/edit/changes/restore_metadata_change.cpp
         src/gui/edit/changes/remove_junk_cue_change.hpp
         src/gui/edit/changes/remove_junk_cue_change.cpp
         src/gui/edit/changes/repair_issue_change.hpp
@@ -657,6 +661,14 @@ if(SEABASS_GUI AND Qt6_FOUND)
         # itself needs to be on it for <system_font_metrics.hpp> to resolve.
         target_include_directories(seabass_qml_tests PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/src/gui
             ${CMAKE_SOURCE_DIR}/src/gui/edit)
+        # Same experimental setting the application target is built with.
+        # Without this the QML tests always compiled the stable-only
+        # variant of AppSettingsController while the default build of the
+        # app ships the experimental one, so no QML test could reach an
+        # experimental-gated section of a page -- including the whole
+        # "Full stick backups" group on AppSettingsPage.
+        target_compile_definitions(seabass_qml_tests PRIVATE
+            $<$<BOOL:${SEABASS_EXPERIMENTAL}>:SEABASS_EXPERIMENTAL_BUILD>)
 
         add_test(NAME seabass_qml_tests
             COMMAND seabass_qml_tests -input ${CMAKE_CURRENT_SOURCE_DIR}/tests/qml)
@@ -701,6 +713,13 @@ add_executable(metadata_cache_test tests/metadata_cache_test.cpp)
 target_include_directories(metadata_cache_test PRIVATE src)
 target_link_libraries(metadata_cache_test PRIVATE seabass_core)
 add_test(NAME metadata_cache_test COMMAND metadata_cache_test)
+
+add_executable(metadata_store_test tests/metadata_store_test.cpp)
+target_include_directories(metadata_store_test PRIVATE src)
+# Links SQLite directly as well: one case writes a database in an
+# earlier schema by hand, to prove the store moves it aside.
+target_link_libraries(metadata_store_test PRIVATE seabass_core)
+add_test(NAME metadata_store_test COMMAND metadata_store_test)
 
 add_executable(no_em_dashes_test tests/no_em_dashes_test.cpp)
 target_compile_definitions(no_em_dashes_test PRIVATE SEABASS_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
@@ -987,6 +1006,14 @@ add_executable(local_restore_test
 )
 target_include_directories(local_restore_test PRIVATE src)
 add_test(NAME local_restore_test COMMAND local_restore_test)
+
+add_executable(metadata_restore_test
+    src/domain/metadata_restore.cpp
+    src/domain/track_matching.cpp
+    tests/metadata_restore_test.cpp
+)
+target_include_directories(metadata_restore_test PRIVATE src)
+add_test(NAME metadata_restore_test COMMAND metadata_restore_test)
 
 add_executable(durable_file_write_test
     src/infrastructure/durable_file_write.cpp

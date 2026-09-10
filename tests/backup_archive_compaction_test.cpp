@@ -16,6 +16,8 @@
 #include "infrastructure/stick_backup/zip64_reader.hpp"
 #include "infrastructure/stick_backup/zip_format.hpp"
 
+#include "scratch_path.hpp"
+
 using namespace seabass::infrastructure::stick_backup;
 using seabass::application::CancellationToken;
 using seabass::application::CompactionOutcome;
@@ -226,7 +228,7 @@ int main()
 
     // ---- The use case on disk: preflight, replace, cleanup, refusal ----
     {
-        fs::path root = fs::temp_directory_path() / "seabass_backup_archive_compaction_test";
+        fs::path root = seabass::testing::scratchRoot() / "seabass_backup_archive_compaction_test";
         fs::remove_all(root);
         fs::create_directories(root);
         fs::path path = root / "stick.zip";

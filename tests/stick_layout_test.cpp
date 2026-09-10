@@ -5,6 +5,8 @@
 
 #include "infrastructure/stick_layout.hpp"
 
+#include "scratch_path.hpp"
+
 namespace fs = std::filesystem;
 using seabass::infrastructure::catalogPathFor;
 
@@ -19,7 +21,7 @@ void touch(const fs::path &p)
 
 int main()
 {
-    const fs::path root = fs::temp_directory_path() / "seabass_stick_layout_test";
+    const fs::path root = seabass::testing::scratchRoot() / "seabass_stick_layout_test";
     fs::remove_all(root);
     fs::create_directories(root);
 

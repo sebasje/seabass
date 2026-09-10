@@ -8,6 +8,8 @@
 
 #include "infrastructure/backup/filesystem_backup_store.hpp"
 
+#include "scratch_path.hpp"
+
 using namespace seabass::infrastructure::backup;
 using seabass::application::BackupOrigin;
 namespace fs = std::filesystem;
@@ -33,7 +35,7 @@ std::string readFile(const fs::path &path)
 
 int main()
 {
-    fs::path root = fs::temp_directory_path() / "seabass_filesystem_backup_store_test";
+    fs::path root = seabass::testing::scratchRoot() / "seabass_filesystem_backup_store_test";
     fs::remove_all(root);
     fs::create_directories(root);
 

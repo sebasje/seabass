@@ -9,6 +9,8 @@
 #include "infrastructure/local/local_cue_store.hpp"
 #include "infrastructure/paths/seabass_paths.hpp"
 
+#include "scratch_path.hpp"
+
 using namespace seabass::domain;
 using namespace seabass::infrastructure::local;
 namespace fs = std::filesystem;
@@ -33,7 +35,7 @@ Track makeTrack(std::string id, std::string filename, std::string title, std::st
 
 int main()
 {
-    fs::path dbPath = fs::temp_directory_path() / "seabass_local_cue_store_test.db";
+    fs::path dbPath = seabass::testing::scratchRoot() / "seabass_local_cue_store_test.db";
     fs::remove(dbPath);
 
     CuePoint hotCue{CuePoint::Kind::Hot, 1, 1000.0, "#FF0000", "drop"};

@@ -3,6 +3,7 @@
 engine.cues 1688
 engine.opensPerBatch 1
 engine.tracks 1564
+engine.tracksWithAlbum 1563
 engine.tracksWithCues 1561
 engine.writeRefusals 0
 matrix.addCue.durableWritesPerSave 2
@@ -23,5 +24,6 @@ matrix.sync.engineOpens 0
 onelibrary.tracks 1644
 rekordbox.cues 314
 rekordbox.tracks 1161
+rekordbox.tracksWithAlbum 1160
 rekordbox.tracksWithCues 222
 sync.matched 1161
