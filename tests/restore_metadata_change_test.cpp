@@ -33,6 +33,7 @@
 #include "infrastructure/onelibrary/onelibrary_cue_writer.hpp"
 #include "infrastructure/onelibrary/onelibrary_key.hpp"
 #include "infrastructure/onelibrary/sqlcipher_dyn.hpp"
+#include "infrastructure/work_counters.hpp"
 
 #include "scratch_path.hpp"
 
@@ -67,6 +68,9 @@ void createFixture(const std::string &pioneerRoot)
     db.exec("CREATE TABLE hotCueBankList_cue(hotCueBankList_id integer, cue_id integer, sequenceNo integer);");
     db.exec("CREATE TABLE playlist_content(content_id integer, playlist_id integer, sequenceNo integer);");
     db.exec("INSERT INTO content (content_id, title, path) VALUES (1, 'Test Track', '/Contents/Test Track.mp3');");
+    // Two more, for the case that counts what a multi-track restore costs.
+    db.exec("INSERT INTO content (content_id, title, path) VALUES (2, 'Second', '/Contents/Second.mp3');");
+    db.exec("INSERT INTO content (content_id, title, path) VALUES (3, 'Third', '/Contents/Third.mp3');");
 }
 
 // Everything read back goes through an independent second connection, so
@@ -280,6 +284,77 @@ int main()
         RestoreMetadataChange cueChange("onelibrary", root, "1", withCues);
         assert(cueChange.description().contains("1 stored cue(s)"));
         std::cout << "case 5: the description names the fields it will write\n";
+    }
+
+    // Case 6: what a restore costs in SQLCipher opens, and -- the part
+    // that matters -- whether that cost is per save or per track.
+    //
+    // Every open derives the key from a passphrase, ~115 ms of CPU, so
+    // on a real set this number is most of the feature's write cost.
+    // Round 4 of docs/write-path-performance.md drove every save to a
+    // flat floor of two, one write connection and one verify connection
+    // held for the save, by putting the writer in SaveContext::shared.
+    // This path did not reach it: RestoreMetadataChange keyed its shared
+    // writer per sourceId, and OneLibraryCueWriterAdapter constructed a
+    // fresh OneLibraryCueWriter on every call underneath -- two opens per
+    // track, so a 400-track restore paid about 90 seconds of PBKDF2 and
+    // nothing else in the suite would have noticed.
+    //
+    // Now flat. The assertion below is on the SHAPE, not just the
+    // number: one track and three tracks must cost the same, which is
+    // the only form of this that cannot quietly regress into linear
+    // again.
+    {
+        // One save of N tracks, counted for N = 1 and N = 3. Two numbers
+        // rather than one, because the question the counter has to
+        // answer is not "how many" but "per save or per track": a cost
+        // paid once per save is the floor working, and a cost that grows
+        // with the track count is the Round 4 regression.
+        auto opensForTrackCount = [](int trackCount) {
+            Fixture fixture = freshFixture("open_count_" + std::to_string(trackCount));
+            auto &noProgress = seabass::application::NullProgressReporter::instance();
+            CancellationToken token;
+            const QString root = QString::fromStdString(fixture.pioneerRoot.string());
+            const std::string names[3] = {"Test Track", "Second", "Third"};
+
+            seabass::infrastructure::WorkCounters::instance().reset();
+            {
+                SaveContext ctx(token, noProgress, {}, root, {});
+                for (int i = 0; i < trackCount; ++i) {
+                    MetadataRestoreProposal proposal;
+                    proposal.storedId = "stored-" + std::to_string(i + 1);
+                    proposal.stickTrack.sourceId = std::to_string(i + 1);
+                    proposal.stickTrack.filePath =
+                        (fixture.scratch / "Contents" / (names[i] + ".mp3")).string();
+                    proposal.stickTrack.title = names[i];
+                    proposal.cuesOffered = true;
+                    proposal.cues = storedCues();
+                    proposal.ratingOffered = true;
+                    proposal.rating = 3;
+
+                    RestoreMetadataChange change("onelibrary", root,
+                                                 QString::fromStdString(proposal.stickTrack.sourceId), proposal);
+                    assert(change.apply(ctx).ok);
+                }
+                assert(!ctx.runFinishHooks(true));
+            }
+            return seabass::infrastructure::WorkCounters::instance().snapshot().encryptedDatabaseOpens;
+        };
+
+        const auto one = opensForTrackCount(1);
+        const auto three = opensForTrackCount(3);
+        std::cout << "case 6: one track costs " << one << " SQLCipher open(s), three cost " << three
+                  << " -- " << ((three - one) / 2) << " per extra track, against the floor of 2 per save"
+                  << std::endl;
+
+        // Two: the writer's own write connection and the separate
+        // connection it verifies through, opened once and held. Flat in
+        // the track count is the property; the constant is what the
+        // format costs at all.
+        assert(one == 2);
+        assert(three == 2);
+        assert(three == one);  // per save, not per track saved
+        std::cout << "case 6: counted, and pinned so the fix has to move it\n";
     }
 
     std::cout << "restore_metadata_change_test: all cases passed\n";

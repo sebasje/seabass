@@ -32,8 +32,7 @@ constexpr const char *LogTag = "metadata-restore";
 // four hundred times.
 struct RestoreWriterContext
 {
-    RestoreWriterContext(const QString &format, const QString &path, SaveContext &ctx,
-                          std::unordered_map<std::string, std::string> oneLibraryPaths)
+    RestoreWriterContext(const QString &format, const QString &path, SaveContext &ctx)
     {
         const std::string root = path.toStdString();
         if (format == "rekordbox") {
@@ -55,7 +54,10 @@ struct RestoreWriterContext
             writer = std::make_unique<infrastructure::engine::LibdjinteropEngineCueWriter>(root);
         } else {
             ctx.backupOnce(infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(root), LogTag);
-            writer = std::make_unique<OneLibraryCueWriterAdapter>(root, std::move(oneLibraryPaths));
+            // Empty: each change registers its own track through
+            // notePath() as it applies, so one adapter serves the save.
+            writer = std::make_unique<OneLibraryCueWriterAdapter>(
+                root, std::unordered_map<std::string, std::string>{});
         }
     }
 
@@ -66,27 +68,6 @@ struct RestoreWriterContext
     std::unique_ptr<infrastructure::rekordbox::PdbRowWriter> pdbRows;
     std::string pdbPath;
     bool pdbDirty = false;
-};
-
-// The OneLibrary writer the rating and the comment go through when
-// OneLibrary is the format being restored. It is deliberately not part
-// of RestoreWriterContext: that one is keyed per track for this format
-// (the cue adapter takes one track's path), and opening a
-// OneLibraryCueWriter CRC32s the whole encrypted database. Keyed on the
-// stick root alone, this is opened once for the whole save.
-struct OneLibraryAnnotationWriter
-{
-    OneLibraryAnnotationWriter(const QString &path, SaveContext &ctx)
-    {
-        try {
-            writer = std::make_unique<infrastructure::onelibrary::OneLibraryCueWriter>(path.toStdString());
-        } catch (const std::exception &e) {
-            ctx.log().record(std::string(LogTag) + ": could not open OneLibrary to write ratings or comments: "
-                             + e.what());
-        }
-    }
-
-    std::unique_ptr<infrastructure::onelibrary::OneLibraryCueWriter> writer;
 };
 
 // Writes the rating and the comment, per format, and says in the log
@@ -209,17 +190,18 @@ void applyAnnotation(SaveContext &ctx, RestoreWriterContext &writer, const QStri
         return;
     }
 
-    // format == "onelibrary": its own writer is the adapter, so go
-    // through a plain OneLibraryCueWriter on the same root, opened once
-    // for the save rather than once per track.
-    auto &annotations = ctx.shared<OneLibraryAnnotationWriter>(
-        "metadata-restore-annotations:" + path.toStdString(),
-        [&]() { return std::make_unique<OneLibraryAnnotationWriter>(path, ctx); });
-    if (!annotations.writer) {
+    // format == "onelibrary": the adapter is this format's cue writer,
+    // and it holds the one OneLibrary connection this save opens. Going
+    // through it rather than constructing a second writer is what keeps
+    // the whole save at one key derivation instead of one per track.
+    auto *adapter = dynamic_cast<OneLibraryCueWriterAdapter *>(writer.writer.get());
+    if (!adapter) {
+        ctx.log().record(std::string(LogTag) + ": no OneLibrary writer for \"" + proposal.stickTrack.title +
+                         "\"; its rating and comment were not written");
         return;
     }
     try {
-        annotations.writer->writeAnnotationForPath(proposal.stickTrack.filePath, stars, comment);
+        adapter->writer().writeAnnotationForPath(proposal.stickTrack.filePath, stars, comment);
     } catch (const std::exception &e) {
         ctx.log().record(std::string(LogTag) + ": OneLibrary annotation write failed: " + e.what());
     }
@@ -307,14 +289,19 @@ ChangeOutcome RestoreMetadataChange::apply(SaveContext &ctx)
     const domain::Track &track = m_proposal.stickTrack;
     const std::string sourceId = m_sourceId.toStdString();
 
-    std::string key = "metadata-restore:" + m_format.toStdString();
-    std::unordered_map<std::string, std::string> oneLibraryPaths;
-    if (m_format == "onelibrary") {
-        oneLibraryPaths[sourceId] = track.filePath;
-        key += ":" + sourceId;
-    }
+    // One writer per format for the whole save, not one per track. The
+    // key deliberately does not carry the sourceId: the OneLibrary
+    // adapter learns this track's path through notePath() below, so
+    // every track in the save shares one adapter and therefore one
+    // SQLCipher connection and one key derivation. Keying it per track
+    // cost two opens per track, ~115 ms of PBKDF2 each -- see
+    // tests/restore_metadata_change_test.cpp case 6, which counts them.
+    const std::string key = "metadata-restore:" + m_format.toStdString();
     RestoreWriterContext &writer = ctx.shared<RestoreWriterContext>(
-        key, [&]() { return std::make_unique<RestoreWriterContext>(m_format, m_path, ctx, oneLibraryPaths); });
+        key, [&]() { return std::make_unique<RestoreWriterContext>(m_format, m_path, ctx); });
+    if (auto *adapter = dynamic_cast<OneLibraryCueWriterAdapter *>(writer.writer.get())) {
+        adapter->notePath(sourceId, track.filePath);
+    }
 
     if (m_format == "rekordbox" && m_proposal.cuesOffered) {
         // rekordbox keeps cues per track, in ANLZ files, so the file to
