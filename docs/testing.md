@@ -45,6 +45,48 @@ without checking anything:
 
 Most of the suite is unit tests against small, synthetic, hand-built fixtures (a two-track `export.pdb`, a fresh `djinterop::engine::create_database()`, and so on) -- fast, and run by a bare `ctest`. One test, `anonymized_fixture_integration_test`, is tagged with the CTest label `integration` and runs the app's real use cases (`ScanLibrary`, `SyncLibraries`, `LibraryStatisticsCalculator`, `LibraryConsistencyChecker`, a real cue write) against `tests/fixtures/anonymized_library/` -- a committed, de-identified copy of a real ~1,400-track library. It's the only thing in this suite exercised at realistic scale and variety; run it before merging a larger change or cutting a release, not on every build. There's no CI in this repo (yet) to enforce that automatically -- this is a documented habit, not an automated gate.
 
+## A new guard has to be seen failing
+
+A test written from a review finding encodes the pre-fix behaviour by
+construction, which is exactly why it can be written wrong and never
+noticed: a case that cannot fail passes for the same reason a correct one
+does. So before a fix is called done, its test is run against the code it
+was written to catch.
+
+The mechanics, for a fix commit `F`:
+
+```
+git worktree add --detach ../worktrees/guard F^
+cd ../worktrees/guard
+git checkout F -- tests/the_test.cpp        # the new case, the old code
+cmake -G Ninja -B ../../builds/guard -DSEABASS_EXPERIMENTAL=ON
+cmake --build ../../builds/guard --target the_test && ../../builds/guard/the_test
+```
+
+These are `assert`-based programs, so the first failure aborts and hides
+the cases after it. To check a second case in the same file, delete the
+block that already went red and run again.
+
+Two things the run can tell you, and both are answers:
+
+- **It fails on its own assertion.** The guard is real. Note *which*
+  assertion -- a case that fails on the setup one line earlier has been
+  proved to abort, not to guard anything.
+- **It does not compile**, because the case asserts on a member or a
+  function the fix introduced. Add the member to the old code, defaulted
+  to what the un-fixed code effectively did (`false`, usually), and run
+  again. The point is to see the assertion fail, not the linker.
+
+And if it passes, the case is wrong and gets rewritten until it fails --
+the failure scenario it was written from is usually narrower than the bug.
+`open_stick_backup_test` case 5b is the worked example: written as "the
+archive is replaced by something unreadable", which the un-fixed code
+already survived because it refused before touching the cache. The
+scenario that actually destroyed the cache was an archive that *reads*
+fine and only then turns out to hold no catalog -- past the point of no
+return. Rewritten that way it fails against the pre-fix code and passes
+against the fix.
+
 ## The anonymized fixture
 
 `tests/fixtures/anonymized_library/` holds a real rekordbox export and a real Engine Library, both de-identified: every track's title/artist/comment/filename/playlist name is replaced with placeholder text, artwork and detailed waveform-display data are stripped, but everything else (BPM, key, cue positions and colors, ratings, play counts, playlist structure, beatgrid) is real. See `MANIFEST.txt` inside that directory for the exact counts and field-by-field policy from when it was last generated, and `src/infrastructure/rekordbox/rekordbox_library_anonymizer.hpp` / `src/infrastructure/engine/libdjinterop_engine_anonymizer.hpp` for exactly what each step does.
