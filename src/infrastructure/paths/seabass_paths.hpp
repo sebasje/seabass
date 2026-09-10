@@ -79,4 +79,11 @@ fs::path localBackupsDir();
 // one place the user can find, back up and delete.
 fs::path localMetadataDir();
 
+// ~/Seabass/metadata/browsed-backups -- the extracted catalogs of a stick
+// backup being browsed, one directory per archive. Derived data with an
+// obvious source: safe to delete at any time, and re-created by opening
+// the backup again. Under metadata rather than backups/ because it is
+// bookkeeping, not something the user put there.
+fs::path localBrowsedBackupsDir();
+
 }  // namespace seabass::infrastructure::paths

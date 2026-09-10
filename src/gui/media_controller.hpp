@@ -39,6 +39,10 @@ public:
         RekordboxPathRole,
         EnginePathRole,
         IsSdCardRole,
+        // True for a library opened from an ordinary directory rather
+        // than found on removable media: the list still shows it, but
+        // there is nothing to mount, eject, format or benchmark.
+        IsFolderRole,
         // See application::StickIdentity. libraryId is the key every
         // edit-mode/lock feature uses for "this library"; identityStrength
         // ("hardware"/"filesystem"/"weak"/"none") says how trustworthy
@@ -117,6 +121,39 @@ public:
 
     Q_INVOKABLE void detect();
 
+    // Opens an ordinary directory as a library, listed alongside any
+    // detected sticks. `path` is checked for the same PIONEER/Engine
+    // Library signatures a mounted stick root is (scanMountedRoot, the
+    // one definition of what makes a root a library), so a restored stick
+    // backup, a copy of a library on an internal disk, or a test fixture
+    // all open the same way. Returns a message for the page to show, or
+    // an empty string on success; opening a folder that is already open
+    // is a no-op, not an error.
+    //
+    // Everything downstream of here already takes plain paths -- this
+    // entry point was the only thing missing.
+    Q_INVOKABLE QString openFolder(const QString &path);
+
+    // openFolder() with the row's name given rather than taken from the
+    // directory: a browsed backup should say which stick it came from,
+    // not the hash its cache directory is named after.
+    QString openFolder(const QString &path, const QString &label);
+
+    // Forgets a folder opened with openFolder(). Nothing on disk is
+    // touched; the folder is only dropped from the list.
+    Q_INVOKABLE void closeFolder(const QString &path);
+
+    // Opens a full stick backup for browsing, without unpacking it: the
+    // catalogs are extracted into a cache directory (about 1% of the
+    // archive's metadata; see OpenStickBackup), the analysis files stay
+    // in the ZIP and are read per track, and the cache is then opened as
+    // a folder library like any other. Returns a message for the page to
+    // show, or an empty string on success.
+    //
+    // Read-only in practice: the row it produces points at the cache, not
+    // at the archive, so nothing a page does can write into a backup.
+    Q_INVOKABLE QString openBackup(const QString &archivePath);
+
     // Both run the actual mount/unmount (a real syscall/subprocess that
     // can visibly take a moment -- confirmed by this exact freeze once
     // looking like the app had hung or lost the stick) on a background
@@ -139,6 +176,12 @@ public:
     // has been pulled, which is what the last-seen fallback is for. Empty
     // when the mount point was never seen.
     Q_INVOKABLE QString libraryIdForMountPoint(const QString &mountPoint) const;
+
+    // The library id openFolder() gives a directory: derived from the
+    // canonical path, because a folder has no serial or filesystem UUID
+    // of its own and the path is the only thing that stays the same
+    // across restarts. Exposed for tests.
+    static std::string folderLibraryId(const std::string &canonicalPath);
     std::optional<application::StickIdentity> lastKnownIdentity(const std::string &mountPoint) const;
     std::string mountPointFor(const application::StickIdentity &identity) const;
 
@@ -185,7 +228,18 @@ public:
     void onTaskFinished();
     void queueAutoMounts();
 
+    // Opened folders survive a restart: they are the only libraries in
+    // the list that nothing re-detects, so forgetting them on quit would
+    // make the feature useless for the case it exists for (coming back to
+    // a restored backup tomorrow).
+    void loadOpenedFolders();
+    void saveOpenedFolders();
+
     DetectedStickListModel m_model;
+    // Kept separately from the model because detect() rebuilds that from
+    // the locator every refresh, and these are exactly the rows no
+    // locator will ever produce.
+    std::vector<application::DetectedStick> m_openedFolders;
     std::unique_ptr<application::RemovableMediaMonitor> m_monitor;
     QTimer m_debounceTimer;
     QString m_errorMessage;

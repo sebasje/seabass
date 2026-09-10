@@ -1,14 +1,21 @@
 #include "media_controller.hpp"
 
 #include <QCoreApplication>
+#include <QSettings>
 #include <QtConcurrent/QtConcurrentRun>
 
 #include <algorithm>
+#include <filesystem>
 #include <iterator>
+#include <system_error>
 #include <utility>
 
 #include "application/stick_presence_diff.hpp"
+#include "application/use_cases/open_stick_backup.hpp"
+#include "infrastructure/paths/seabass_paths.hpp"
+#include "infrastructure/hashing/sha256.hpp"
 #include "infrastructure/media/media_factory.hpp"
+#include "infrastructure/media/stick_root_scan.hpp"
 #include "gui/future_result.hpp"
 
 namespace seabass::gui
@@ -72,6 +79,8 @@ QVariant DetectedStickListModel::data(const QModelIndex &index, int role) const
         return stick.enginePath ? QString::fromStdString(*stick.enginePath) : QString();
     case IsSdCardRole:
         return stick.isSdCard;
+    case IsFolderRole:
+        return stick.isFolder;
     case LibraryIdRole:
         return QString::fromStdString(stick.identity.libraryId());
     case HardwareSerialRole:
@@ -98,6 +107,7 @@ QHash<int, QByteArray> DetectedStickListModel::roleNames() const
         {RekordboxPathRole, "rekordboxPath"},
         {EnginePathRole, "enginePath"},
         {IsSdCardRole, "isSdCard"},
+        {IsFolderRole, "isFolder"},
         {LibraryIdRole, "libraryId"},
         {HardwareSerialRole, "hardwareSerial"},
         {IdentityStrengthRole, "identityStrength"},
@@ -144,6 +154,7 @@ MediaController::MediaController(QObject *parent) : QObject(parent)
     m_debounceTimer.setInterval(500);
     connect(&m_debounceTimer, &QTimer::timeout, this, &MediaController::detect);
 
+    loadOpenedFolders();
     detect();
 
     m_monitor = infrastructure::media::createRemovableMediaMonitor();
@@ -179,7 +190,19 @@ std::string MediaController::mountPointFor(const application::StickIdentity &ide
 void MediaController::detect()
 {
     auto locator = infrastructure::media::createRemovableMediaLocator();
-    m_model.setSticks(locator->detect());
+    std::vector<application::DetectedStick> sticks = locator->detect();
+    // Re-scanned on every refresh, not cached from openFolder(): a folder's
+    // catalogs can be written, added or deleted underneath us exactly like
+    // a stick's, and the folder itself can be gone by now -- in which case
+    // it stays listed with no library so it can be seen and closed, rather
+    // than vanishing without explanation.
+    for (application::DetectedStick &folder : m_openedFolders) {
+        folder.rekordboxPath.reset();
+        folder.enginePath.reset();
+        infrastructure::media::scanMountedRoot(folder.mountPoint, folder);
+        sticks.push_back(folder);
+    }
+    m_model.setSticks(std::move(sticks));
     std::vector<application::StickIdentity> present;
     for (const application::DetectedStick &stick : m_model.sticks()) {
         if (stick.mounted && !stick.mountPoint.empty()) {
@@ -216,6 +239,135 @@ void MediaController::detect()
                                application::matchStrength(*awaited, identity))));
     }
     queueAutoMounts();
+}
+
+std::string MediaController::folderLibraryId(const std::string &canonicalPath)
+{
+    // Hashed rather than sanitized: the id becomes a lock-cookie filename
+    // (see StickIdentity::sanitizeForFileName) and a full path is both too
+    // long for that and lossy once the separators are stripped -- two
+    // different folders could sanitize to the same name. 16 hex digits of
+    // SHA-256 is far more than enough to keep a person's folders apart.
+    const std::string hex = infrastructure::hashing::toHex(infrastructure::hashing::Sha256::of(canonicalPath));
+    return "folder-" + hex.substr(0, 16);
+}
+
+QString MediaController::openFolder(const QString &path)
+{
+    return openFolder(path, QString());
+}
+
+QString MediaController::openFolder(const QString &path, const QString &label)
+{
+    std::error_code ec;
+    const std::filesystem::path dir = std::filesystem::canonical(std::filesystem::path(path.toStdString()), ec);
+    if (ec) {
+        return tr("That folder could not be opened: %1").arg(QString::fromStdString(ec.message()));
+    }
+    if (!std::filesystem::is_directory(dir, ec) || ec) {
+        return tr("That is not a folder.");
+    }
+    const std::string canonical = dir.string();
+
+    application::DetectedStick folder;
+    folder.mountPoint = canonical;
+    folder.mounted = true;  // there is nothing to mount; the library is readable now
+    folder.isFolder = true;
+    // filename() is empty for a path ending in a separator, and for a root
+    // like "/" -- fall back to the path itself so the row is never blank.
+    folder.label = !label.isEmpty()      ? label.toStdString()
+                   : dir.filename().empty() ? canonical
+                                            : dir.filename().string();
+    infrastructure::media::scanMountedRoot(canonical, folder);
+    if (!folder.rekordboxPath.has_value() && !folder.enginePath.has_value()) {
+        return tr("No rekordbox or Engine DJ library in that folder. Open the folder that holds "
+                  "\"PIONEER\" or \"Engine Library\", not one of those itself.");
+    }
+    folder.identity.label = folder.label;
+    folder.identity.explicitLibraryId = folderLibraryId(canonical);
+
+    auto existing = std::find_if(m_openedFolders.begin(), m_openedFolders.end(),
+                                 [&](const application::DetectedStick &f) { return f.mountPoint == canonical; });
+    if (existing != m_openedFolders.end()) {
+        *existing = folder;  // re-opening refreshes what is there
+    } else {
+        m_openedFolders.push_back(folder);
+    }
+    saveOpenedFolders();
+    detect();
+    return {};
+}
+
+QString MediaController::openBackup(const QString &archivePath)
+{
+    const std::filesystem::path archive(archivePath.toStdString());
+    // One cache directory per archive, named after its path rather than
+    // its label: two backups of differently-named sticks must not land on
+    // top of each other, and re-opening the same archive should reuse (and
+    // refresh) the same directory instead of accumulating copies.
+    const std::filesystem::path cacheRoot =
+        infrastructure::paths::localBrowsedBackupsDir() / folderLibraryId(std::filesystem::absolute(archive).string());
+
+    const application::OpenedStickBackup opened = application::OpenStickBackup::execute(archive, cacheRoot);
+    if (!opened.error.empty()) {
+        return QString::fromStdString(opened.error);
+    }
+    // The label is the stick the backup was taken from, when the manifest
+    // says; the cache directory's own name is a hash and would tell the
+    // user nothing.
+    return openFolder(QString::fromStdString(opened.libraryRoot.string()),
+                      QString::fromStdString(opened.stickLabel));
+}
+
+void MediaController::closeFolder(const QString &path)
+{
+    const std::string canonical = path.toStdString();
+    const auto before = m_openedFolders.size();
+    m_openedFolders.erase(std::remove_if(m_openedFolders.begin(), m_openedFolders.end(),
+                                         [&](const application::DetectedStick &f) { return f.mountPoint == canonical; }),
+                          m_openedFolders.end());
+    if (m_openedFolders.size() == before) {
+        return;
+    }
+    saveOpenedFolders();
+    detect();
+}
+
+void MediaController::loadOpenedFolders()
+{
+    // ("seabass", "seabass") explicitly, never the default constructor:
+    // this app sets no organizationName/applicationName, so a default-
+    // constructed QSettings resolves to a different (empty-organization)
+    // store than every other setting here, and opened folders would
+    // silently fail to persist. Same construction as main.cpp and
+    // AppSettingsController.
+    QSettings settings("seabass", "seabass");
+    const QStringList paths = settings.value(QStringLiteral("openedFolders")).toStringList();
+    for (const QString &path : paths) {
+        application::DetectedStick folder;
+        folder.mountPoint = path.toStdString();
+        folder.mounted = true;
+        folder.isFolder = true;
+        const std::filesystem::path dir(folder.mountPoint);
+        folder.label = dir.filename().empty() ? folder.mountPoint : dir.filename().string();
+        folder.identity.label = folder.label;
+        folder.identity.explicitLibraryId = folderLibraryId(folder.mountPoint);
+        // Deliberately not re-scanned or existence-checked here: detect()
+        // does that for every opened folder anyway, and a folder on a
+        // network share that is slow or absent at startup must not hold
+        // up construction (or disappear from the list for good).
+        m_openedFolders.push_back(std::move(folder));
+    }
+}
+
+void MediaController::saveOpenedFolders()
+{
+    QStringList paths;
+    for (const application::DetectedStick &folder : m_openedFolders) {
+        paths << QString::fromStdString(folder.mountPoint);
+    }
+    QSettings settings("seabass", "seabass");  // see loadOpenedFolders()
+    settings.setValue(QStringLiteral("openedFolders"), paths);
 }
 
 QString MediaController::libraryIdForMountPoint(const QString &mountPoint) const

@@ -33,6 +33,26 @@ int main()
         std::cout << "case 1 (strength ladder) OK\n";
     }
 
+    // A folder library: explicitLibraryId wins over everything, and says
+    // so through its own strength rather than borrowing "filesystem".
+    {
+        StickIdentity folder;
+        folder.label = "restored-backup";
+        folder.explicitLibraryId = "folder-0123456789abcdef";
+        assert(folder.strength() == Strength::Folder);
+        assert(std::string(StickIdentity::strengthName(Strength::Folder)) == "folder");
+        assert(folder.libraryId() == "folder-0123456789abcdef");
+
+        // Even with real hardware fields present it still wins: a folder
+        // that happens to sit on a removable drive is still identified by
+        // which folder it is, not by the drive under it.
+        StickIdentity onAStick = make("S1", "U1");
+        onAStick.explicitLibraryId = "folder-fedcba9876543210";
+        assert(onAStick.libraryId() == "folder-fedcba9876543210");
+        assert(onAStick.strength() == Strength::Folder);
+        std::cout << "case 1b (folder identity) OK\n";
+    }
+
     // libraryId: the filesystem UUID when known, else label + capacity
     // (the same shape StickHardwareInfo::stickIdentifier falls back to),
     // else empty. The hardware serial deliberately plays no part: the id
