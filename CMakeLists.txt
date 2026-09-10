@@ -1360,6 +1360,18 @@ add_executable(sha256_test
 target_include_directories(sha256_test PRIVATE src)
 add_test(NAME sha256_test COMMAND sha256_test)
 
+# Windows-only: WindowsRemovableMediaMonitor has no Linux equivalent
+# target (see infrastructure/media/linux_udev_media_monitor.cpp for that
+# one), and links against nothing but the Win32 API itself.
+if(WIN32)
+    add_executable(windows_removable_media_monitor_test
+        src/infrastructure/media/windows_removable_media_monitor.cpp
+        tests/windows_removable_media_monitor_test.cpp
+    )
+    target_include_directories(windows_removable_media_monitor_test PRIVATE src)
+    add_test(NAME windows_removable_media_monitor_test COMMAND windows_removable_media_monitor_test)
+endif()
+
 add_executable(archive_file_test
     src/infrastructure/stick_backup/posix_archive_file.cpp
     tests/archive_file_test.cpp
