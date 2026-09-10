@@ -246,6 +246,40 @@ save rather than the log saying so after it:
   overwriting.
 - Letting the browse page read the whole store to show twenty rows.
 
+## Known open: two writers against export.pdb
+
+`RestoreMetadataChange` writes the rating into the live `export.pdb`
+through its own `PdbRowWriter` and commits it in an `onFinish` hook.
+`CleanupGroupChange` and `SyncPlanChange` write the same file through a
+`FormatWriteSession` scratch copy and copy the whole file back in *their*
+`onFinish` hook. Both features share one `LibraryEditSession` per library,
+so both can be staged into a single save, and hooks run in creation
+order:
+
+- the session's hook last overwrites `export.pdb` with a scratch copy
+  made before the ratings were written -- the ratings are lost and the
+  page reports them applied;
+- the restore's hook last finds the file changed underneath it,
+  `commit()` returns false, the hook throws, and the save reports a
+  failure even though the cleanup landed.
+
+Nothing serialises the two. This is new with this feature: before it, no
+change wrote `export.pdb` outside a `FormatWriteSession`.
+
+Two ways out, and the choice is not obvious. **Key `FormatWriteSession`
+on (format, catalog path) rather than per feature**, so every change in a
+save shares one scratch copy and one commit -- correct, and what
+`sharedOneLibraryWriter()` already argues for in its own comment, but it
+touches Clean Up, Sync and Library Health repair and moves counts
+`corpus_test` pins. Or **refuse the combination**: have the edit session
+decline to stage a rekordbox rating restore while a change that rewrites
+`export.pdb` is staged, and say so -- small, and it follows the rule the
+browsed-backup incident left behind (refuse where the destruction
+happens, not where the button is), at the cost of a real workflow.
+
+Until one of them lands, a save that stages Restore Metadata ratings and
+Clean Up together on one stick is not safe.
+
 ## Relationship to Local Cue Backup
 
 `LocalCueStore`, `LocalCueController`, `LocalCuePage.qml` and
