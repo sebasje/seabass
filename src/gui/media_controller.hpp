@@ -46,6 +46,10 @@ public:
         LibraryIdRole,
         HardwareSerialRole,
         IdentityStrengthRole,
+        // The whole disk's capacity, already carried by DetectedStick for
+        // the Format feature, so showing it costs no extra I/O in a model
+        // refresh that runs on every replug.
+        CapacityBytesRole,
     };
 
     explicit DetectedStickListModel(QObject *parent = nullptr);

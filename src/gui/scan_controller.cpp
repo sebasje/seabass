@@ -84,6 +84,13 @@ QVariant TrackListModel::data(const QModelIndex &index, int role) const
         return QString::fromStdString(track.streamingSource);
     case RatingRole:
         return track.rating ? *track.rating : -1;
+    case BitrateRole:
+        // 0 means "this format does not record one" as much as it means
+        // "unknown" -- Engine stores no bitrate at all -- so the panel
+        // hides the field rather than showing "0 kbps".
+        return track.bitrate;
+    case CommentRole:
+        return QString::fromStdString(track.comment);
     default:
         return {};
     }
@@ -106,6 +113,8 @@ QHash<int, QByteArray> TrackListModel::roleNames() const
         {PlaylistNamesRole, "playlistNames"},
         {StreamingSourceRole, "streamingSource"},
         {RatingRole, "rating"},
+        {BitrateRole, "bitrate"},
+        {CommentRole, "comment"},
     };
 }
 
@@ -326,6 +335,40 @@ void ScanController::setHideStreamingTracks(bool hide)
     }
     m_hideStreamingTracks = hide;
     applyFilters();
+}
+
+QVariantList ScanController::tracksByArtist(const QString &artist, const QString &excludeSourceId) const
+{
+    QVariantList result;
+    const QString wanted = artist.trimmed();
+    if (wanted.isEmpty()) {
+        return result;
+    }
+    const std::string exclude = excludeSourceId.toStdString();
+    for (const auto &track : m_allTracks) {
+        if (track.sourceId == exclude) {
+            continue;
+        }
+        const QString candidate = QString::fromStdString(track.artist).trimmed();
+        if (candidate.compare(wanted, Qt::CaseInsensitive) != 0) {
+            continue;
+        }
+        QVariantMap m;
+        m["sourceId"] = QString::fromStdString(track.sourceId);
+        m["title"] = QString::fromStdString(track.title);
+        m["durationSeconds"] = track.durationSeconds;
+        m["bpm"] = track.bpm;
+        m["key"] = QString::fromStdString(track.key);
+        m["cueCount"] = static_cast<int>(track.cues.size());
+        result.append(m);
+    }
+    // By title, so the same artist reads the same way every time. The
+    // scan's own sort order is whatever the user chose for the main
+    // list, which would make this list reshuffle under them.
+    std::sort(result.begin(), result.end(), [](const QVariant &a, const QVariant &b) {
+        return a.toMap()["title"].toString().compare(b.toMap()["title"].toString(), Qt::CaseInsensitive) < 0;
+    });
+    return result;
 }
 
 QVariantList ScanController::findMergeCandidates(const QString &query, const QString &excludeSourceId) const
