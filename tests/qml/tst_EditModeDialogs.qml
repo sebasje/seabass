@@ -208,4 +208,43 @@ TestCase {
         findByObjectName(dialog, "discardButton").clicked();
         tryCompare(discardSpy, "count", 1);
     }
+
+    // How the summary says what happened. The shapes matter more than
+    // the words: a complete run and a partial one have to look
+    // different at a glance, and counting one of something must not
+    // read like counting several.
+    function test_countSentenceShapes_data() {
+        return [
+            // Complete: no "of", because comparing two identical numbers
+            // to learn that nothing was left is work the reader should
+            // not have to do.
+            {tag: "complete", written: 27, total: 27, unit: "cues", verb: "removed",
+             expected: "27 cues removed."},
+            // Incomplete: the shortfall is the whole point, so it is named.
+            {tag: "partial", written: 5, total: 31, unit: "tracks", verb: "synchronised",
+             expected: "5 of 31 tracks synchronised."},
+            // One of something is singular, including the -ies case.
+            {tag: "one", written: 1, total: 1, unit: "cues", verb: "added",
+             expected: "1 cue added."},
+            {tag: "one entry", written: 1, total: 1, unit: "entries", verb: "removed",
+             expected: "1 entry removed."},
+            {tag: "one setting", written: 1, total: 1, unit: "settings", verb: "saved",
+             expected: "1 setting saved."},
+            // One of several stays plural on the total, singular on the count.
+            {tag: "one of many", written: 1, total: 9, unit: "groups", verb: "cleaned up",
+             expected: "1 of 9 groups cleaned up."},
+            // Nothing went through: still plural, still says so.
+            {tag: "none", written: 0, total: 4, unit: "cues", verb: "removed",
+             expected: "0 of 4 cues removed."},
+        ];
+    }
+
+    function test_countSentenceShapes(row) {
+        var dialog = createTemporaryObject(summaryComponent, testCase);
+        verify(dialog !== null);
+        dialog.show({written: row.written, total: row.total, unit: row.unit, verb: row.verb,
+                     cancelled: false, error: ""});
+        compare(findByObjectName(dialog, "countLabel").text, row.expected);
+        dialog.close();
+    }
 }

@@ -3,9 +3,10 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import SeabassGui
 
-// "5 of 31 tracks written": what a save or a direct write operation
-// actually did, shown after it finished, was cancelled, or failed. OK is
-// the only way out; the page decides what happens after (stay, or go back
+// "27 cues removed", or "5 of 31 tracks synchronised" when some of it
+// did not happen: what the user asked for and how much of it took
+// effect, shown after it finished, was cancelled, or failed. OK is the
+// only way out; the page decides what happens after (stay, or go back
 // to where the user came from).
 //
 // summary: {written, total, unit, cancelled, error} plus an optional
@@ -22,6 +23,41 @@ SeabassDialog {
     readonly property bool cancelled: dialog.summary.cancelled === true
     readonly property string error: dialog.summary.error !== undefined ? dialog.summary.error : ""
     readonly property string detail: dialog.summary.detail !== undefined ? dialog.summary.detail : ""
+
+    // "27 cues removed." when everything staged went through, and
+    // "5 of 31 cues removed." only when it did not.
+    //
+    // "27 of 27" is a report of a loop rather than an answer: the reader
+    // has to compare the two numbers to learn that nothing was left, and
+    // the interesting case -- some of it did not happen -- is the one
+    // that looks identical at a glance. Naming the shortfall only when
+    // there is one makes the two outcomes different shapes.
+    readonly property string countSentence: {
+        // The noun agrees with the number it follows, which is the
+        // total in both shapes: "1 cue added", but "1 of 9 groups
+        // cleaned up" -- there are nine groups, one of which was done.
+        // Singularising on the count instead gives "1 of 9 group", which
+        // a test caught.
+        const noun = dialog.total === 1 ? dialog.singularUnit : dialog.unit;
+        const count = dialog.written === dialog.total
+            ? String(dialog.written)
+            : dialog.written + " of " + dialog.total;
+        return count + " " + noun + " " + dialog.verb + ".";
+    }
+
+    // "1 cues added" is the same kind of wrongness one word smaller.
+    // Enough English for the nouns this app actually counts -- cues,
+    // tracks, entries, groups, settings, files -- rather than a general
+    // pluraliser it has no use for.
+    readonly property string singularUnit: {
+        if (dialog.unit.endsWith("ies")) {
+            return dialog.unit.substring(0, dialog.unit.length - 3) + "y";
+        }
+        if (dialog.unit.endsWith("s")) {
+            return dialog.unit.substring(0, dialog.unit.length - 1);
+        }
+        return dialog.unit;
+    }
 
     function show(newSummary) {
         dialog.summary = newSummary;
@@ -56,7 +92,7 @@ SeabassDialog {
             font.family: Theme.titleFamily
             font.weight: Theme.cardTitleWeight
             font.pointSize: Theme.fontMedium
-            text: dialog.written + " of " + dialog.total + " " + dialog.unit + " " + dialog.verb + "."
+            text: dialog.countSentence
         }
         // Selectable, because when this carries an error it is the text
         // someone will be asked to paste into a bug report.

@@ -130,7 +130,9 @@ TestCase {
         t.session.saveFinished({written: 2, total: 2, unit: "tracks", cancelled: false, error: ""});
         var summary = findByObjectName(t.host, "summaryDialog");
         tryCompare(summary, "opened", true);
-        compare(findByObjectName(summary, "countLabel").text, "2 of 2 tracks written.");
+        // Everything staged went through, so no "of": see
+        // OperationSummaryDialog.countSentence.
+        compare(findByObjectName(summary, "countLabel").text, "2 tracks written.");
         findByObjectName(summary, "okButton").clicked();
         tryCompare(summary, "opened", false);
         compare(left, 1);
