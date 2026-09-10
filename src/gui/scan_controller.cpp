@@ -91,6 +91,8 @@ QVariant TrackListModel::data(const QModelIndex &index, int role) const
         return track.bitrate;
     case CommentRole:
         return QString::fromStdString(track.comment);
+    case AlbumRole:
+        return QString::fromStdString(track.album);
     default:
         return {};
     }
@@ -115,6 +117,7 @@ QHash<int, QByteArray> TrackListModel::roleNames() const
         {RatingRole, "rating"},
         {BitrateRole, "bitrate"},
         {CommentRole, "comment"},
+        {AlbumRole, "album"},
     };
 }
 
