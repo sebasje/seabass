@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "application/ports/progress_reporter.hpp"
 
@@ -14,6 +15,13 @@ struct EngineAnonymizationResult
     int tracksKept = 0;
     int tracksDropped = 0;  // only nonzero when maxTracks was set and exceeded
     int playlistsRenamed = 0;
+    // Files in Database2 that no anonymizer scrubs, dropped rather than
+    // shipped. hm.db -- the play history, with real titles, artists and
+    // paths -- was going out in every export until this existed.
+    std::vector<std::string> removedUnanonymizableFiles;
+    // PerformanceData rows whose waveform blob was emptied, when
+    // slimForTesting was asked for. The cues in the same row are kept.
+    int waveformRowsEmptied = 0;
     // Tracks libdjinterop refused to read or write (undecodable
     // performance data, which real libraries genuinely contain). Their
     // metadata is NOT anonymized, so a nonzero count here means the export
@@ -57,6 +65,9 @@ struct EngineAnonymizationResult
 // LibdjinteropEngineReader's own convention.
 EngineAnonymizationResult anonymizeEngineLibrary(
     const std::string &sourceRoot, const std::string &destinationRoot, std::optional<size_t> maxTracks,
+    // See AnonymizationOptions::slimForTesting: empties the waveform
+    // blob and drops the .rgb previews, keeping the cues beside them.
+    bool slimForTesting = false,
     application::ProgressReporter &reporter = application::NullProgressReporter::instance());
 
 }  // namespace seabass::infrastructure::engine

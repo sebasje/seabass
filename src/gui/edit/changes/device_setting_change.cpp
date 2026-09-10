@@ -30,6 +30,11 @@ QString DeviceSettingChange::description() const
     return QStringLiteral("\"%1\": %2 -> %3 (%4)").arg(m_fieldLabel, m_oldValue, m_optionName, m_fileName);
 }
 
+QString DeviceSettingChange::verb() const
+{
+    return QStringLiteral("saved");
+}
+
 QString DeviceSettingChange::unit() const
 {
     return QStringLiteral("settings");

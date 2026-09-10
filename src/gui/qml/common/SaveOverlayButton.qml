@@ -10,6 +10,7 @@ import SeabassGui
 Item {
     id: root
     required property var session
+    property string label: "Save"
 
     readonly property bool hasSession: root.session !== null && root.session !== undefined
     readonly property int pendingCount: root.hasSession ? root.session.pendingCount : 0
@@ -17,7 +18,12 @@ Item {
 
     implicitWidth: button.implicitWidth
     implicitHeight: button.implicitHeight
-    visible: root.hasSession
+    // Only when there is something to save. It used to sit there
+    // permanently on any page with an edit session, which made a
+    // floating button that does nothing the most prominent thing on a
+    // page the user was only reading. Stays up while a save is running,
+    // because that is when its progress matters most.
+    visible: root.hasSession && (root.pendingCount > 0 || root.session.state === "writing")
 
     Button {
         id: button
@@ -43,7 +49,7 @@ Item {
         contentItem: RowLayout {
             spacing: 10
             Label {
-                text: "Save"
+                text: root.label
                 font.family: Theme.titleFamily
                 font.weight: Font.Bold
                 font.pointSize: Theme.fontLarge
@@ -69,12 +75,23 @@ Item {
 
         ToolTip.visible: hovered
         ToolTip.delay: 400
+        // Three lines, each trimmed. Eight full descriptions was a wall
+        // of text hanging off a button -- and a cleanup description is a
+        // long sentence naming a track, a filename and a cue count, so
+        // eight of them covered a good part of the window and told you
+        // less than the count already did. The tooltip's job is "what am
+        // I about to save"; the page itself lists the detail.
         ToolTip.text: {
             if (!root.hasSession) return "";
             if (root.pendingCount === 0) return "No unsaved changes";
-            var lines = root.session.pendingDescriptions.slice(0, 8);
-            if (root.pendingCount > 8) lines.push("... and " + (root.pendingCount - 8) + " more");
-            return "Save " + root.pendingCount + " change(s) to the stick:\n" + lines.join("\n");
+            var shown = 3;
+            var lines = root.session.pendingDescriptions.slice(0, shown).map(function (line) {
+                return "- " + (line.length > 64 ? line.substring(0, 63) + "\u2026" : line);
+            });
+            if (root.pendingCount > shown) {
+                lines.push("- and " + (root.pendingCount - shown) + " more");
+            }
+            return root.label + ": " + root.pendingCount + " change(s) written to the stick\n" + lines.join("\n");
         }
     }
 }

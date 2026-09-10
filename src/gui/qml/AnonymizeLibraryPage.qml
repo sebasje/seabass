@@ -15,6 +15,7 @@ import SeabassGui
 Page {
     id: root
     required property var mediaController
+    required property var appSettingsController
 
     AnonymizeLibraryController {
         id: controller
@@ -28,7 +29,30 @@ Page {
     readonly property var selectedStick: root.selectedStickIndex >= 0 && root.selectedStickIndex < root.candidateSticks.length
         ? root.candidateSticks[root.selectedStickIndex] : null
 
-    property string outputDir: ""
+    // The full path of the zip to write, proposed rather than demanded:
+    // an export is named after the stick it came from and the day it was
+    // taken, which is what anyone filing one would have typed anyway.
+    // Editable, because the proposal is a guess about someone else's
+    // filing system.
+    property string outputPath: ""
+
+    function proposedOutputPath() {
+        const label = root.selectedStick ? String(root.selectedStick.label || "library") : "library";
+        const safe = label.replace(/[^A-Za-z0-9._-]+/g, "-");
+        const now = new Date();
+        const pad = n => String(n).padStart(2, "0");
+        const stamp = pad(now.getDate()) + "-" + pad(now.getMonth() + 1) + "-" + now.getFullYear();
+        return appSettingsController.anonymizedExportDirectory() + "/" + safe + "-" + stamp + ".zip";
+    }
+
+    // Re-proposed whenever the chosen stick changes, but never over
+    // something the user typed.
+    property bool outputPathEdited: false
+    onSelectedStickIndexChanged: {
+        if (!root.outputPathEdited) {
+            root.outputPath = root.proposedOutputPath();
+        }
+    }
     property int maxTracks: 0  // 0 = unlimited, see controller.run()'s own doc comment
     property var selectedHardware: ({})  // label -> true, for checked entries
     property string otherHardware: ""
@@ -51,10 +75,10 @@ Page {
     // model name, so grouping never changes what ends up in MANIFEST.txt.
     readonly property var hardwareGroups: [
         { vendor: "Pioneer DJ / AlphaTheta", items: [
-            "CDJ-3000", "CDJ-2000NXS2", "XDJ-RX3", "XDJ-XZ", "DJM-900NXS2", "DJM-750MK2", "DJM-A9",
+            "CDJ-3000", "CDJ-2000NXS2", "XDJ-RX3", "XDJ-RX2", "XDJ-XZ", "DJM-900NXS2", "DJM-750MK2", "DJM-A9",
         ] },
         { vendor: "Denon DJ / inMusic", items: [
-            "Prime 4", "Prime 4+", "Prime GO", "SC5000", "SC6000", "SC-Live 4",
+            "Prime 4", "Prime 4+", "Prime GO(+)", "SC5000", "SC6000", "SC-Live 4",
         ] },
     ]
 
@@ -74,6 +98,9 @@ Page {
     Component.onCompleted: {
         mediaController.detect();
         root.refreshCandidates();
+        if (root.outputPath.length === 0) {
+            root.outputPath = root.proposedOutputPath();
+        }
     }
 
     Connections {
@@ -81,10 +108,16 @@ Page {
         function onModelReset() { root.refreshCandidates() }
     }
 
-    FolderDialog {
-        id: outputFolderDialog
-        title: "Choose where to write the anonymized export"
-        onAccepted: root.outputDir = selectedFolder.toString().replace(/^file:\/\//, "")
+    FileDialog {
+        id: outputFileDialog
+        title: "Where to write the anonymized export"
+        fileMode: FileDialog.SaveFile
+        defaultSuffix: "zip"
+        nameFilters: ["Zip archive (*.zip)"]
+        onAccepted: {
+            root.outputPath = selectedFile.toString().replace(/^file:\/\//, "");
+            root.outputPathEdited = true;
+        }
     }
 
     header: ToolBar {
@@ -114,6 +147,55 @@ Page {
             width: parent.width
             spacing: 16
 
+            // What goes in the zip and why, on the page rather than behind
+            // the (?): someone is being asked to hand over a copy of their
+            // library, and "click here to find out what you are sending"
+            // is the wrong shape for that question.
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: exportSummary.implicitHeight + 24
+                color: Theme.groupBackground
+                border.color: Theme.borderSubtle
+                border.width: 1
+                radius: 4
+
+                ColumnLayout {
+                    id: exportSummary
+                    anchors.fill: parent
+                    anchors.margins: 12
+                    spacing: 6
+
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        font.bold: true
+                        text: "The zip holds your library's catalogs and analysis files. No music."
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        color: Theme.textMuted
+                        text: "Every name is replaced with a placeholder: track titles, artists, "
+                            + "comments, filenames, playlist and folder names, in all three catalogs "
+                            + "and inside the analysis files, which embed the file path each track came "
+                            + "from. The same real track gets the same placeholder everywhere, so the "
+                            + "catalogs still agree with each other."
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        color: Theme.textMuted
+                        text: "What stays is the shape of the library: cue positions and colours, BPM, "
+                            + "key, durations, file sizes, ratings, play counts, playlist order, and the "
+                            + "waveform preview. That is where the bugs are: a cue landing two "
+                            + "milliseconds out, a playlist that reorders itself, three catalogs "
+                            + "disagreeing about one file. None of it can be reproduced from a "
+                            + "description. Because it is metadata only, the zip is tens of megabytes, "
+                            + "not the size of your music."
+                    }
+                }
+            }
+
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 8
@@ -125,12 +207,16 @@ Page {
                 }
                 InfoButton {
                     explanationTitle: "What gets sent, and to whom?"
-                    explanationText: "Nothing, automatically. This tool only writes one zip file to the "
-                        + "location you pick. If you'd like to help test Seabass, you review its contents "
-                        + "yourself, then attach that zip file to an email you send to sebas@kde.org. This "
-                        + "data may be published as part of the project's test suite. If there's anything "
-                        + "in the hardware or notes fields below you would not want published, leave it out "
-                        + "here and mention it directly in your email instead."
+                    summaryText: "Nothing is sent automatically. This writes one zip file to a "
+                        + "location you pick, and nothing leaves your machine unless you email it."
+                    explanationText:
+                          "## If you want to help test Seabass\n"
+                        + "1. Review the zip's contents yourself\n"
+                        + "2. Attach it to an email to sebas@kde.org\n\n"
+                        + "## Before you send it\n"
+                        + "This data **may be published** as part of the project's test suite. "
+                        + "Anything you would not want public should not go in the hardware or "
+                        + "notes fields below -- mention it in the email instead.\n"
                 }
             }
 
@@ -191,16 +277,25 @@ Page {
                     }
                     RowLayout {
                         spacing: 8
-                        Label {
+                        TextField {
+                            objectName: "outputPathField"
                             Layout.fillWidth: true
-                            text: root.outputDir.length > 0 ? (root.outputDir + ".zip") : "No location chosen yet"
-                            color: root.outputDir.length > 0 ? Theme.text : Theme.textMuted
-                            elide: Text.ElideMiddle
+                            enabled: !controller.busy
+                            text: root.outputPath
+                            placeholderText: "No location chosen yet"
+                            onTextEdited: {
+                                root.outputPath = text;
+                                root.outputPathEdited = true;
+                            }
                         }
                         Button {
                             text: "Choose…"
                             enabled: !controller.busy
-                            onClicked: outputFolderDialog.open()
+                            onClicked: {
+                                outputFileDialog.currentFolder =
+                                    "file://" + appSettingsController.anonymizedExportDirectory();
+                                outputFileDialog.open();
+                            }
                         }
                     }
 
@@ -225,22 +320,29 @@ Page {
                         }
                         InfoButton {
                             explanationTitle: "What's kept, replaced, and removed"
-                            explanationText: "Kept as-is: format, file size, bitrate, duration, BPM, key, "
-                                + "hot/memory cue positions and colors, cue comments, rating, play count, "
-                                + "last-played date, whether a track is a streaming-service track, playlist "
-                                + "membership and position, and the low-resolution waveform preview this app "
-                                + "actually uses.\n\n"
-                                + "Replaced with placeholder text: title, artist, comment, cue comments, "
-                                + "filenames, and playlist/folder names.\n\n"
-                                + "Removed entirely: artwork images, the detailed color and scrolling "
-                                + "waveform data rekordbox's own player UI uses (not read by this app), and "
-                                + "original file paths."
+                            summaryText: "Everything that identifies your music is replaced or "
+                                + "removed. What stays is the shape of the library: timings, cues, "
+                                + "and structure."
+                            explanationText:
+                                  "## Kept as-is\n"
+                                + "Format, file size, bitrate, duration, BPM, key, hot and memory cue "
+                                + "positions and colours, rating, play count, last-played date, "
+                                + "whether a track is from a streaming service, playlist membership "
+                                + "and position, and the low-resolution waveform this app uses.\n\n"
+                                + "## Replaced with placeholder text\n"
+                                + "Titles, artists, comments, cue comments, filenames, and "
+                                + "playlist and folder names.\n\n"
+                                + "## Removed entirely\n"
+                                + "Artwork images, the detailed colour and scrolling waveform data "
+                                + "rekordbox's own player uses (this app does not read it), and "
+                                + "original file paths.\n"
                         }
                     }
                 }
             }
 
             GroupBox {
+                id: submissionBox
                 label: Subtitle { text: "For the submission (optional; saved into MANIFEST.txt as entered)" }
                 Layout.fillWidth: true
                 ColumnLayout {
@@ -301,89 +403,69 @@ Page {
             }
 
             RowLayout {
+                Layout.fillWidth: true
+                // Every field above lives inside a GroupBox, so the right
+                // edge a reader lines things up against is the box's
+                // CONTENT edge -- where the "Choose..." button and the two
+                // text fields end -- not the frame around it. This row is
+                // a direct child of the page column, so without the same
+                // inset it overhangs them by the box's own padding: six
+                // pixels in the desktop style, which is exactly enough to
+                // look wrong. Borrowed from a real GroupBox rather than
+                // hardcoded, because that padding is the style's to pick
+                // and it differs between them.
                 spacing: 12
+                // Right-aligned, the same way SeabassDialog places its
+                // accept button: the action that commits the page sits at
+                // the trailing edge, where KDE's own dialogs put it.
+                Item { Layout.fillWidth: true }
                 Button {
-                    text: "Generate"
-                    enabled: !controller.busy && root.selectedStick !== null && root.outputDir.length > 0
+                    text: "Export Library"
+                    enabled: !controller.busy && root.selectedStick !== null && root.outputPath.length > 0
                     onClicked: controller.run(
                         root.selectedStick.hasRekordbox ? root.selectedStick.rekordboxPath : "",
                         root.selectedStick.hasEngine ? root.selectedStick.enginePath : "",
-                        root.outputDir, root.maxTracks, root.hardwareText, notesField.text)
+                        root.outputPath, root.maxTracks, root.hardwareText, notesField.text)
                 }
             }
 
-            Label {
+            // Selectable: this is the text a person is being asked to
+            // send to someone, so it has to be copyable rather than
+            // retyped off the screen.
+            SelectableText {
+                objectName: "errorText"
                 visible: controller.errorMessage.length > 0
                 text: controller.errorMessage
                 color: Theme.danger
-                wrapMode: Text.WordWrap
-                Layout.fillWidth: true
             }
 
-            ColumnLayout {
-                visible: controller.summaryText.length > 0
-                Layout.fillWidth: true
-                spacing: 8
-                Label {
-                    text: "Written to " + controller.outputZipPath
-                    color: Theme.good
-                    font.bold: true
-                    wrapMode: Text.WordWrap
-                    Layout.fillWidth: true
+            // The result is a confirmation, not page furniture: it says
+            // where the file went and what the person still has to do
+            // with it, and both are easy to scroll past when they sit
+            // inline under a long form. A dialog makes the reader
+            // acknowledge it, and gives the "show me the file" action
+            // somewhere to live that is not competing with the form.
+            MessageDialog {
+                id: exportedDialog
+                severity: SeabassDialog.Info
+                title: "Anonymized library exported"
+                headline: "Written to " + controller.outputZipPath
+                detailText: controller.summaryText
+                acceptText: "Show in Folder"
+                rejectText: "Close"
+                onAccepted: {
+                    const lastSlash = controller.outputZipPath.lastIndexOf("/");
+                    const folder = lastSlash >= 0
+                        ? controller.outputZipPath.substring(0, lastSlash) : controller.outputZipPath;
+                    Qt.openUrlExternally("file://" + folder);
                 }
-                Label {
-                    text: controller.summaryText
-                    wrapMode: Text.WordWrap
-                    Layout.fillWidth: true
-                }
+            }
 
-                RowLayout {
-                    spacing: 12
-                    Button {
-                        text: "Show in Folder"
-                        ToolTip.visible: hovered
-                        ToolTip.text: "Open the folder containing the zip file"
-                        onClicked: {
-                            var lastSlash = controller.outputZipPath.lastIndexOf("/");
-                            var containingFolder = lastSlash >= 0
-                                ? controller.outputZipPath.substring(0, lastSlash) : controller.outputZipPath;
-                            Qt.openUrlExternally("file://" + containingFolder);
-                        }
-                    }
-                }
-
-                Rectangle {
-                    Layout.fillWidth: true
-                    implicitHeight: submitText.implicitHeight + 16
-                    color: Theme.warnBg
-                    border.color: Theme.warnBorder
-                    radius: 4
-                    Label {
-                        id: submitText
-                        anchors.fill: parent
-                        anchors.margins: 8
-                        wrapMode: Text.WordWrap
-                        color: Theme.warnText
-                        text: "To help test Seabass, review the zip file's contents, then attach it "
-                            + "to an email to sebas@kde.org. Nothing has been sent yet; this is a "
-                            + "manual step you do yourself."
-                    }
-                }
-
-                GroupBox {
-                    label: Subtitle { text: "MANIFEST.txt" }
-                    Layout.fillWidth: true
-                    ScrollView {
-                        anchors.fill: parent
-                        implicitHeight: 300
-                        ScrollBar.vertical: BigScrollBar {}
-                        TextArea {
-                            readOnly: true
-                            wrapMode: Text.WordWrap
-                            text: controller.manifestText
-                            font.family: "monospace"
-                            font.pointSize: Theme.fontSmall
-                        }
+            Connections {
+                target: controller
+                function onResultChanged() {
+                    if (controller.summaryText.length > 0 && controller.outputZipPath.length > 0) {
+                        exportedDialog.open();
                     }
                 }
             }
@@ -396,5 +478,8 @@ Page {
         current: controller.progressCurrent
         total: controller.progressTotal
         label: controller.currentPhase.length > 0 ? controller.currentPhase + "..." : "Working..."
+        // An export walks thousands of analysis files, so a bare "1874 /
+        // 5976" leaves the reader guessing what is being counted.
+        unitName: "files"
     }
 }

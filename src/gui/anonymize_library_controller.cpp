@@ -2,7 +2,9 @@
 
 #include <QtConcurrent/QtConcurrentRun>
 
+#include <filesystem>
 #include <optional>
+#include <system_error>
 
 #include "application/use_cases/anonymize_library.hpp"
 
@@ -86,9 +88,16 @@ AnonymizeLibraryTaskResult runAnonymizeTask(QString rekordboxPath, QString engin
             line += QString("; renamed %1 playlist(s)/folder(s)").arg(summary.enginePlaylistsRenamed);
             lines << line;
         }
-        double outputMb = static_cast<double>(summary.outputSizeBytes) / (1024.0 * 1024.0);
-        double zippedMb = static_cast<double>(summary.finalZipBytes) / (1024.0 * 1024.0);
-        lines << QString("%1 MB raw, %2 MB zipped").arg(outputMb, 0, 'f', 1).arg(zippedMb, 0, 'f', 1);
+        // The zip is what the person actually has, so it leads. The raw
+        // figure follows in brackets for context rather than being the
+        // headline number, and there is no estimate any more: this runs
+        // after the file exists, so the size is measured.
+        const double zippedMb = static_cast<double>(summary.finalZipBytes) / (1024.0 * 1024.0);
+        const double outputMb = static_cast<double>(summary.outputSizeBytes) / (1024.0 * 1024.0);
+        lines << QString("%1 MB zipped, %2 file(s) (%3 MB before compression)")
+                     .arg(zippedMb, 0, 'f', 1)
+                     .arg(summary.filesWritten)
+                     .arg(outputMb, 0, 'f', 1);
         result.summaryText = lines.join("\n");
     } catch (const std::exception &e) {
         result.errorMessage = QString::fromStdString(e.what());
@@ -124,12 +133,29 @@ std::shared_ptr<QtProgressReporter> AnonymizeLibraryController::makeReporter()
     return reporter;
 }
 
-void AnonymizeLibraryController::run(const QString &rekordboxPath, const QString &enginePath, const QString &outDir,
+void AnonymizeLibraryController::run(const QString &rekordboxPath, const QString &enginePath, const QString &outPath,
                                       int maxTracks, const QString &hardware, const QString &notes)
 {
     if (m_busy) {
         return;
     }
+    // The UI asks for the zip by name. The use case stages into a
+    // directory and zips that directory to <dir>.zip, so the staging
+    // directory is the requested path with the suffix taken off -- which
+    // keeps the zip exactly where the user pointed, rather than one
+    // directory beside it.
+    std::filesystem::path requested(outPath.toStdString());
+    if (requested.extension() == ".zip") {
+        requested.replace_extension();
+    }
+    // The proposed location is <Seabass home>/testdata, which will not
+    // exist the first time. Refusing over a missing parent directory
+    // would be an odd thing to make a person fix by hand.
+    std::error_code dirEc;
+    if (requested.has_parent_path()) {
+        std::filesystem::create_directories(requested.parent_path(), dirEc);
+    }
+    const QString outDir = QString::fromStdString(requested.string());
     setErrorMessage({});
     m_summaryText.clear();
     m_manifestText.clear();

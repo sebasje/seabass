@@ -365,6 +365,10 @@ public:
     Q_INVOKABLE void apply();
     // row is the visible row (the delegate index).
     Q_INVOKABLE void unstage(int row);
+    // Every staged group at once, for Escape. Loses no work: the
+    // checkboxes keep their state, so staging again restores exactly
+    // what was there.
+    Q_INVOKABLE void unstageAll();
 
     // Reverts every file the last save touched (the session's undo).
     Q_INVOKABLE void undoLastOperation();

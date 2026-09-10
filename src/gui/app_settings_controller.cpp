@@ -23,6 +23,11 @@ AppSettingsController::AppSettingsController(QObject *parent)
     if (m_stickBackupDirectory.isEmpty()) {
         m_stickBackupDirectory = defaultStickBackupDirectory();
     }
+    m_seabassHomeDirectory = m_settings.value("seabassHomeDirectory", defaultSeabassHomeDirectory()).toString();
+    if (m_seabassHomeDirectory.isEmpty()) {
+        m_seabassHomeDirectory = defaultSeabassHomeDirectory();
+    }
+    infrastructure::paths::setLocalRootOverride(m_seabassHomeDirectory.toStdString());
     m_lastBrowsePlaylistName = m_settings.value("lastBrowsePlaylistName", "").toString();
 #ifdef SEABASS_EXPERIMENTAL_BUILD
     m_experimentalFeaturesEnabled = m_settings.value("experimentalFeaturesEnabled", false).toBool();
@@ -78,6 +83,35 @@ void AppSettingsController::setStickBackupDirectory(const QString &value)
     m_stickBackupDirectory = effective;
     m_settings.setValue("stickBackupDirectory", effective);
     emit stickBackupDirectoryChanged();
+}
+
+QString AppSettingsController::defaultSeabassHomeDirectory()
+{
+    // Asked of the paths module rather than rebuilt here, so the app and
+    // everything Qt-free agree on one answer.
+    infrastructure::paths::setLocalRootOverride({});
+    return QString::fromStdString(infrastructure::paths::localRoot().string());
+}
+
+QString AppSettingsController::anonymizedExportDirectory() const
+{
+    return QString::fromStdString((std::filesystem::path(m_seabassHomeDirectory.toStdString()) / "testdata").string());
+}
+
+void AppSettingsController::setSeabassHomeDirectory(const QString &value)
+{
+    const QString effective = value.isEmpty() ? defaultSeabassHomeDirectory() : value;
+    if (m_seabassHomeDirectory == effective) {
+        return;
+    }
+    m_seabassHomeDirectory = effective;
+    m_settings.setValue("seabassHomeDirectory", effective);
+    // Applied immediately: everything Qt-free resolves its paths through
+    // localRoot(), so a setting that only took effect after a restart
+    // would leave the two halves of the app disagreeing about where the
+    // user's data lives.
+    infrastructure::paths::setLocalRootOverride(effective.toStdString());
+    emit seabassHomeDirectoryChanged();
 }
 
 void AppSettingsController::setLastBrowsePlaylistName(const QString &value)

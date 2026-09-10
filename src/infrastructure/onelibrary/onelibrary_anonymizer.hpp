@@ -14,6 +14,7 @@ struct OneLibraryAnonymizationResult
     int albumsRenamed = 0;
     int genresRenamed = 0;
     int labelsRenamed = 0;
+    int myTagsRenamed = 0;
     std::string errorMessage;
 };
 

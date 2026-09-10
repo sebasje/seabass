@@ -148,6 +148,46 @@ Page {
             // section follows the toggle below). One `<stick label>.zip` per
             // stick, in a place the user can find and open with 7-Zip/unzip.
             ColumnLayout {
+                spacing: 6 * Theme.iconScale
+                Subtitle { text: "Where Seabass keeps things on this computer" }
+                Label {
+                    Layout.leftMargin: root.settingIndent
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    color: Theme.textMuted
+                    text: "One folder for everything Seabass owns here: stick images under backups/full, "
+                        + "anonymized exports under testdata, and its own bookkeeping under metadata. "
+                        + "Moving it does not move what is already there."
+                }
+                RowLayout {
+                    Layout.leftMargin: root.settingIndent
+                    Layout.fillWidth: true
+                    spacing: 8
+                    Label {
+                        objectName: "seabassHomeValue"
+                        Layout.fillWidth: true
+                        elide: Text.ElideMiddle
+                        font.family: Theme.dataFamily
+                        text: root.appSettingsController.seabassHomeDirectory
+                    }
+                    Button {
+                        text: "Change…"
+                        onClicked: seabassHomeDialog.open()
+                    }
+                    Button {
+                        text: "Reset"
+                        onClicked: root.appSettingsController.seabassHomeDirectory = ""
+                    }
+                }
+                FolderDialog {
+                    id: seabassHomeDialog
+                    title: "Choose where Seabass keeps its data on this computer"
+                    currentFolder: "file://" + root.appSettingsController.seabassHomeDirectory
+                    onAccepted: root.appSettingsController.seabassHomeDirectory = selectedFolder.toString().replace(/^file:\/\//, "")
+                }
+            }
+
+            ColumnLayout {
                 visible: root.appSettingsController.experimentalFeaturesEnabled
                 spacing: 6 * Theme.iconScale
                 Subtitle { text: "Full stick backups" }

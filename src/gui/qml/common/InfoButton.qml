@@ -11,6 +11,13 @@ import SeabassGui
 ToolButton {
     id: root
     required property string explanationTitle
+    // One or two sentences answering "what is this page for". Shown
+    // first and emphasised, so the popup can be understood without
+    // reading the body -- most people want the summary and leave.
+    property string summaryText: ""
+    // The body. Markdown: "## " for a section heading, "- " for a
+    // bullet, blank line between paragraphs. Prose in one long block is
+    // what these grew into, and nobody reads it.
     required property string explanationText
 
     text: "?"
@@ -65,14 +72,28 @@ ToolButton {
                 }
             }
             x = centered;
-            var below = root.mapToItem(null, 0, root.height).y;
-            maxHeight = h > 0 ? Math.max(120, h - below - edgeMargin) : 600;
+            // Vertical fit, not just horizontal. Anchored below the
+            // button there is only as much room as the button's distance
+            // from the bottom, and this button often sits well down a
+            // page -- so the popup was clipped by the window edge with
+            // no hint anything was missing, the same failure the
+            // horizontal case above already fixed.
+            var top = root.mapToItem(null, 0, 0).y;
+            var below = top + root.height;
+            var roomBelow = h > 0 ? h - below - edgeMargin : 600;
+            if (h > 0 && roomBelow < Math.min(260, h - 2 * edgeMargin)) {
+                // Not enough room under the button: sit near the top of
+                // the window instead and use its full height.
+                maxHeight = Math.max(120, h - 2 * edgeMargin);
+                y = edgeMargin - top;
+            } else {
+                maxHeight = Math.max(120, roomBelow);
+                y = root.height;
+            }
         }
 
         property real maxHeight: 600
         onAboutToShow: placeInsideWindow()
-
-        y: root.height
 
         modal: true
         focus: true
@@ -108,9 +129,30 @@ ToolButton {
                     wrapMode: Text.WordWrap
                     Layout.fillWidth: true
                 }
+                // The summary, set apart so the eye lands on it first.
+                Label {
+                    visible: root.summaryText.length > 0
+                    text: root.summaryText
+                    wrapMode: Text.WordWrap
+                    font.pointSize: Theme.fontMedium
+                    color: Theme.text
+                    padding: 10
+                    Layout.fillWidth: true
+                    background: Rectangle {
+                        color: Theme.groupBackground
+                        border.color: Theme.borderSubtle
+                        border.width: 1
+                        radius: 4
+                    }
+                }
                 Label {
                     text: root.explanationText
+                    // Markdown so the body can carry headings and
+                    // bullets. Same reason the summary exists: a wall of
+                    // prose in a popup does not get read.
+                    textFormat: Text.MarkdownText
                     wrapMode: Text.WordWrap
+                    color: Theme.textMuted
                     Layout.fillWidth: true
                 }
             }

@@ -55,9 +55,18 @@ fs::path stickMetadataCache(const fs::path &stickRoot);
 fs::path stickDurationCache(const fs::path &stickRoot);
 
 // ---- on this computer ---------------------------------------------
-// ~/Seabass, or $SEABASS_HOME when set -- which is what tests use, so a
-// test run can never write into the developer's own tree.
+// Where everything Seabass keeps on this computer lives.
+//
+// Resolved in order: an explicit override set by the application from
+// the user's preference, then $SEABASS_HOME (which is what the test
+// suite uses, so a test run can never write into the real tree), then
+// <home>/Seabass.
 fs::path localRoot();
+
+// Sets the override above, or clears it when given an empty path. Called
+// once at startup from the stored preference; never from library code,
+// which has no business deciding where the user keeps their data.
+void setLocalRootOverride(const fs::path &root);
 // ~/Seabass/backups/full -- whole-stick images. The user-facing default
 // for Backup USB Stick; changeable in settings.
 fs::path localFullBackupsDir();

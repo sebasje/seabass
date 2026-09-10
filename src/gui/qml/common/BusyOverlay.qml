@@ -28,6 +28,15 @@ Item {
     property bool cancellable: false
     signal cancelRequested()
 
+    // Passed straight through to ProgressReport. A caller that knows
+    // more than "n of m" -- which phase it is in, which file it is on --
+    // can now say so without the overlay needing to grow a second body.
+    property var phases: []
+    property string phase: ""
+    property var phaseLabel: function(id) { return id; }
+    property string unitName: ""
+    property string currentItem: ""
+
     visible: root.busy
     z: 1000
 
@@ -89,86 +98,55 @@ Item {
         onClicked: {}
     }
 
+    // The body is ProgressReport, so this overlay and the inline
+    // progress on the backup/clone/restore pages are the same thing
+    // drawn in the same way -- the bar, the counts, the ETA and the
+    // Cancel button all come from one component now rather than three
+    // copies that had drifted into three slightly different bars.
+    //
+    // The overlay's own job is what is left: dimming the page, holding
+    // the label above the report, and keeping it centred.
     ColumnLayout {
         anchors.centerIn: parent
         spacing: 12
+        width: Math.min(parent.width - 64, 420)
 
         Label {
             Layout.alignment: Qt.AlignHCenter
+            Layout.fillWidth: true
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.WordWrap
             text: root.label
             font.bold: true
             font.pointSize: Theme.fontLarge
         }
-        ProgressBar {
-            id: progressBar
-            Layout.preferredWidth: 320
-            Layout.preferredHeight: 16
-            Layout.alignment: Qt.AlignHCenter
-            indeterminate: root.total === 0
-            value: root.total > 0 ? root.current / root.total : 0
 
-            // Custom track/fill, not just a taller ProgressBar -- Material's
-            // own background/contentItem delegates are fixed-height (4px)
-            // internally and don't scale up just because the control's own
-            // height does, so a plain height override alone stays thin.
-            background: Rectangle {
-                implicitHeight: 16
-                radius: height / 2
-                color: Theme.surface
-                border.color: Theme.borderSubtle
-            }
-            contentItem: Item {
-                implicitHeight: 16
-                clip: true
-
-                Rectangle {
-                    id: fill
-                    visible: !progressBar.indeterminate
-                    height: parent.height
-                    width: progressBar.visualPosition * parent.width
-                    radius: height / 2
-                    color: Theme.accent
-                }
-
-                // A simple back-and-forth sweep -- ProgressBar's own
-                // indeterminate visualPosition isn't meaningful to bind to,
-                // so this animates a fixed-width segment across the track
-                // directly instead.
-                Rectangle {
-                    visible: progressBar.indeterminate
-                    width: parent.width * 0.3
-                    height: parent.height
-                    radius: height / 2
-                    color: Theme.accent
-
-                    SequentialAnimation on x {
-                        running: progressBar.indeterminate
-                        loops: Animation.Infinite
-                        NumberAnimation { from: -parent.width * 0.3; to: parent.width; duration: 1100; easing.type: Easing.InOutQuad }
-                    }
-                }
-            }
+        ProgressReport {
+            objectName: "progressReport"
+            Layout.fillWidth: true
+            phases: root.phases
+            phase: root.phase
+            phaseLabel: root.phaseLabel
+            unitsDone: root.current
+            unitsTotal: root.total
+            unitName: root.unitName
+            currentItem: root.currentItem
+            // The overlay computes its own ETA from elapsed time, since
+            // most of its callers count items rather than bytes and have
+            // no rate to report. Handed over as a formatted string so
+            // ProgressReport does not need two ways to say the same
+            // thing; see etaText above.
+            etaSeconds: -1
+            cancellable: root.cancellable
+            onCancelRequested: root.cancelRequested()
         }
-        Label {
-            Layout.alignment: Qt.AlignHCenter
-            visible: root.total > 0
-            text: root.current + " / " + root.total
-            color: Theme.textMuted
-        }
+
         Label {
             Layout.alignment: Qt.AlignHCenter
             visible: root.etaText.length > 0
             text: root.etaText
             color: Theme.textMuted
             font.pointSize: Theme.fontSmall
-        }
-        Button {
-            objectName: "cancelButton"
-            Layout.alignment: Qt.AlignHCenter
-            Layout.topMargin: 8
-            visible: root.cancellable
-            text: "Cancel"
-            onClicked: root.cancelRequested()
         }
     }
 }

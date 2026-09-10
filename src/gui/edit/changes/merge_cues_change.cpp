@@ -82,6 +82,11 @@ QString MergeCuesChange::description() const
         .arg(QString::fromStdString(m_candidate.stickTrack.title));
 }
 
+QString MergeCuesChange::verb() const
+{
+    return QStringLiteral("merged");
+}
+
 QString MergeCuesChange::unit() const
 {
     return QStringLiteral("tracks");

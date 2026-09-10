@@ -84,14 +84,30 @@ fs::path stickDurationCache(const fs::path &stickRoot)
     return stickCachesDir(stickRoot) / "durations.jsonl";
 }
 
+namespace
+{
+fs::path &localRootOverride()
+{
+    static fs::path value;
+    return value;
+}
+}  // namespace
+
+void setLocalRootOverride(const fs::path &root)
+{
+    localRootOverride() = root;
+}
+
 fs::path localRoot()
 {
-    // The override exists so the test suite never writes into the real
-    // ~/Seabass. Read every call rather than cached: a test sets it after
-    // this translation unit is already loaded.
-    const char *override = std::getenv("SEABASS_HOME");
-    if (override != nullptr && *override != '\0') {
-        return fs::path(override);
+    if (!localRootOverride().empty()) {
+        return localRootOverride();
+    }
+    // Read every call rather than cached: a test sets it after this
+    // translation unit is already loaded.
+    const char *fromEnv = std::getenv("SEABASS_HOME");
+    if (fromEnv != nullptr && *fromEnv != '\0') {
+        return fs::path(fromEnv);
     }
     return homeDirectory() / "Seabass";
 }

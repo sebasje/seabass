@@ -19,6 +19,29 @@ struct AnonymizationOptions
     // rather than an on-by-default sampling step.
     std::optional<size_t> maxTracks;
 
+    // Strips the export down to what a test suite needs: the three
+    // catalogs and the cues, and none of the binary bulk.
+    //
+    //   - analysis files no kept track points at are removed rather than
+    //     scrubbed and shipped (20.7 MB across 5976 files on a real
+    //     stick, against 2 MB for all three catalogs)
+    //   - Engine's overviewWaveFormData column is emptied, and its
+    //     OverviewData directory of .rgb previews removed
+    //   - m.db is vacuumed, so the pages freed by the two above are
+    //     actually given back rather than left as slack
+    //
+    // What it never touches is the cue data. Engine keeps its cues in
+    // PerformanceData.quickCues and .loops, right beside the waveform
+    // column, and rekordbox keeps its in the analysis files rather than
+    // in export.pdb -- so an export slimmed any harder than this could
+    // not exercise a cue write at all, which is most of what the suite
+    // is for.
+    //
+    // Off by default: a library someone submits is more useful whole,
+    // and the unreferenced analysis files are a real on-stick condition
+    // the cleanup features exist to find.
+    bool slimForTesting = false;
+
     // Free text captured verbatim into MANIFEST.txt (and shown back to
     // the caller before anything is sent anywhere) -- what hardware the
     // submitter uses, and anything they'd like tested. Not validated or
@@ -30,6 +53,11 @@ struct AnonymizationOptions
 
 struct AnonymizationSummary
 {
+    // Audio files listed in files.tsv. The files themselves are never
+    // copied: they are gigabytes, and they are not the submitter's to
+    // distribute. The listing is what lets the unreferenced-file and
+    // orphan-cleanup paths run against shared data at all.
+    int audioFilesListed = 0;
     bool rekordboxAttempted = false;
     int rekordboxTracksKept = 0;
     int rekordboxTracksDropped = 0;
@@ -54,13 +82,13 @@ struct AnonymizationSummary
     // kept only for code inside this use case that needs it mid-run.
     std::string manifestPath;
     std::uintmax_t outputSizeBytes = 0;  // raw, uncompressed, before zipping
+    int filesWritten = 0;                // files in the export, before zipping
     // A ratio-based estimate (real compression measurements against
     // actual rekordbox/Engine files, see estimateZippedBytes() in the
     // .cpp) baked into MANIFEST.txt's own text -- written *before* the
     // real zip exists (the manifest is itself one of the zipped files,
     // so it can't know its own archive's final exact size). Prefer
     // finalZipBytes below for anything reported after execute() returns.
-    std::uintmax_t estimatedZippedBytes = 0;
 
     // The single .zip file this run actually produced -- everything
     // execute() wrote ends up in here; no loose directory is left

@@ -79,6 +79,11 @@ QString CopyCuesChange::description() const
         .arg(title);
 }
 
+QString CopyCuesChange::verb() const
+{
+    return QStringLiteral("copied");
+}
+
 QString CopyCuesChange::unit() const
 {
     return QStringLiteral("groups");

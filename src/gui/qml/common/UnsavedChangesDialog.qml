@@ -24,12 +24,20 @@ SeabassDialog {
 
     footer: DialogButtonBox {
         Button {
+            Keys.onReturnPressed: root.activateFooterSelection()
+            Keys.onEnterPressed: root.activateFooterSelection()
+            Keys.onLeftPressed: root.moveFooterSelection(-1)
+            Keys.onRightPressed: root.moveFooterSelection(1)
             objectName: "saveButton"
             text: dialog.saveText
             highlighted: true
             DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
         }
         Button {
+            Keys.onReturnPressed: root.activateFooterSelection()
+            Keys.onEnterPressed: root.activateFooterSelection()
+            Keys.onLeftPressed: root.moveFooterSelection(-1)
+            Keys.onRightPressed: root.moveFooterSelection(1)
             objectName: "discardButton"
             text: dialog.discardText
             DialogButtonBox.buttonRole: DialogButtonBox.DestructiveRole

@@ -463,6 +463,9 @@ Page {
                     required property var cues
                     required property var playlistNames
                     required property string streamingSource
+                    required property int rating
+                    required property int bitrate
+                    required property string comment
 
                     readonly property bool isPlaying: playbackController.hasTrack
                         && playbackController.currentFormat === root.format
@@ -955,8 +958,34 @@ Page {
             playbackController: root.playbackController
             format: root.format
             libraryPath: root.currentPath()
+            scanController: scanController
+            keyNotation: root.appSettingsController.keyNotation
             onCloseRequested: root.trackPanelOpen = false
             onRescanRequested: root.rescan()
+            // Jumping to another track by the same artist. The panel names
+            // the track; finding it is this page's job, because only the
+            // page knows the current sort and filter.
+            //
+            // The wanted track may not be in view at all -- the list can
+            // be narrowed to one playlist or a search while the artist
+            // list deliberately searches the whole library -- so a miss
+            // says so rather than doing nothing, which would read as a
+            // dead click.
+            onJumpToTrackRequested: (sourceId) => {
+                for (var i = 0; i < trackListView.count; ++i) {
+                    var candidate = scanController.tracks.trackAt(i);
+                    if (candidate && candidate.sourceId === sourceId) {
+                        trackListView.currentIndex = i;
+                        trackListView.positionViewAtIndex(i, ListView.Contain);
+                        var item = trackListView.itemAtIndex(i);
+                        if (item) {
+                            trackDetailPanel.showFor(item);
+                        }
+                        return;
+                    }
+                }
+                trackDetailPanel.reportJumpMiss();
+            }
         }
 
         MatchingPage {

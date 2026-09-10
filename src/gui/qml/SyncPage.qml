@@ -559,6 +559,7 @@ Page {
         current: syncController.scanCurrent
         total: syncController.scanTotal
         label: "Scanning for sync differences..."
+        unitName: "tracks"
         cancellable: syncController.scanCancellable
         onCancelRequested: syncController.cancelScan()
     }

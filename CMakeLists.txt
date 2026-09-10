@@ -706,6 +706,10 @@ target_include_directories(metadata_cache_test PRIVATE src)
 target_link_libraries(metadata_cache_test PRIVATE seabass_core)
 add_test(NAME metadata_cache_test COMMAND metadata_cache_test)
 
+add_executable(no_em_dashes_test tests/no_em_dashes_test.cpp)
+target_compile_definitions(no_em_dashes_test PRIVATE SEABASS_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+add_test(NAME no_em_dashes_test COMMAND no_em_dashes_test)
+
 add_executable(real_file_sizes_test tests/real_file_sizes_test.cpp)
 target_include_directories(real_file_sizes_test PRIVATE src)
 target_link_libraries(real_file_sizes_test PRIVATE seabass_core)
@@ -1348,6 +1352,13 @@ add_executable(assertions_live_test tests/assertions_live_test.cpp)
 target_include_directories(assertions_live_test PRIVATE src)
 add_test(NAME assertions_live_test COMMAND assertions_live_test)
 
+if(TARGET seabass_edit)
+    add_executable(change_summary_wording_test tests/change_summary_wording_test.cpp)
+    target_include_directories(change_summary_wording_test PRIVATE src)
+    target_link_libraries(change_summary_wording_test PRIVATE seabass_edit seabass_core Qt6::Core)
+    add_test(NAME change_summary_wording_test COMMAND change_summary_wording_test)
+endif()
+
 add_executable(path_key_test
     src/application/path_key.cpp
     tests/path_key_test.cpp
@@ -1623,7 +1634,25 @@ target_link_libraries(extract_testdata PRIVATE seabass_core)
 add_executable(verify_anonymized_export tools/verify_anonymized_export.cpp)
 target_include_directories(verify_anonymized_export PRIVATE src)
 target_link_libraries(verify_anonymized_export PRIVATE seabass_core)
-add_test(NAME anonymization_verifier_test COMMAND verify_anonymized_export
+# Two different things, and the names now say which is which. The tool
+# run proves the committed fixture is clean; it cannot prove the verifier
+# would refuse anything, because the fixture never leaks.
+add_test(NAME anonymized_fixture_is_clean_test COMMAND verify_anonymized_export
+    ${CMAKE_SOURCE_DIR}/tests/fixtures/anonymized_library)
+set_tests_properties(anonymized_fixture_is_clean_test PROPERTIES LABELS "integration")
+
+# Plants a specific leak per case and asserts the verifier catches it.
+add_executable(onelibrary_anonymizer_test tests/onelibrary_anonymizer_test.cpp)
+target_include_directories(onelibrary_anonymizer_test PRIVATE src)
+target_link_libraries(onelibrary_anonymizer_test PRIVATE seabass_core)
+add_test(NAME onelibrary_anonymizer_test COMMAND onelibrary_anonymizer_test
+    ${CMAKE_SOURCE_DIR}/tests/fixtures/anonymized_library/rekordbox/rekordbox/exportLibrary.db)
+set_tests_properties(onelibrary_anonymizer_test PROPERTIES LABELS "integration")
+
+add_executable(anonymization_verifier_test tests/anonymization_verifier_test.cpp)
+target_include_directories(anonymization_verifier_test PRIVATE src)
+target_link_libraries(anonymization_verifier_test PRIVATE seabass_core)
+add_test(NAME anonymization_verifier_test COMMAND anonymization_verifier_test
     ${CMAKE_SOURCE_DIR}/tests/fixtures/anonymized_library)
 set_tests_properties(anonymization_verifier_test PROPERTIES LABELS "integration")
 

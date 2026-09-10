@@ -198,8 +198,8 @@ Page {
         // rather than within one).
         Label {
             text: "Copies of the same track inside this one library. Pick which copy's cues are right and "
-                + "they are copied onto the other copies. Every copy stays in the catalog \u2014 Clean Up "
-                + "Duplicates is where the redundant ones are consolidated away \u2014 and the stick's "
+                + "they are copied onto the other copies. Every copy stays in the catalog. Clean Up "
+                + "Duplicates is where the redundant ones are consolidated away, and the stick's "
                 + "other libraries are left alone, which is what Sync Cue Points does instead."
             color: Theme.textMuted
             wrapMode: Text.WordWrap
@@ -371,6 +371,7 @@ Page {
         busy: duplicatesController.busy
         current: duplicatesController.scanCurrent
         total: duplicatesController.scanTotal
+        unitName: "tracks"
         cancellable: duplicatesController.scanCancellable
         onCancelRequested: duplicatesController.cancelScan()
         // duplicatesController.scanLabel tracks the real current phase

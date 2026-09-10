@@ -89,7 +89,7 @@ TestCase {
             {name: "AboutPage", props: props({})},
             {name: "DonationPage", props: props({})},
             {name: "AppSettingsPage", props: props({appSettingsController: realAppSettings})},
-            {name: "AnonymizeLibraryPage", props: props({mediaController: realMedia})},
+            {name: "AnonymizeLibraryPage", props: props({mediaController: realMedia, appSettingsController: realAppSettings})},
             {name: "FormatUsbPage", props: props({controller: realFormatUsb})},
             {name: "RestoreStickBackupPage", props: props({controller: realRestore})},
             {name: "CloneStickPage", props: props({controller: realClone})},

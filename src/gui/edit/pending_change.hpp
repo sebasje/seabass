@@ -53,6 +53,18 @@ public:
     virtual QString description() const = 0;
     // Plural noun for the summary: "tracks", "settings", "groups", "cues".
     virtual QString unit() const = 0;
+    // Past-tense verb for the summary, in the user's terms rather than
+    // the code's: what THEY asked for, not what the save did to make it
+    // happen.
+    //
+    // Everything used to report "written", because that is what a save
+    // does. Removing 27 stray cues then said "27 of 27 cues written",
+    // which is true of the files and false of the intent -- the user
+    // deleted something and was told something was written. A person
+    // reading that has to translate it back, and the one case where they
+    // most need to trust the message is the one where they just deleted
+    // data.
+    virtual QString verb() const { return QStringLiteral("written"); }
     // Catalog formats this change writes ("rekordbox", "engine",
     // "onelibrary"), for cache invalidation after the save.
     virtual QStringList formatsTouched() const = 0;

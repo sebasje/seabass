@@ -22,6 +22,7 @@ public:
     QString id() const override;
     QString description() const override;
     QString unit() const override;
+    QString verb() const override;
     QStringList formatsTouched() const override;
     // The catalogs whose rows this group's doomed copies actually live
     // in. Empty of anything but m_format until rows are collapsed into

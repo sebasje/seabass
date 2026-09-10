@@ -86,9 +86,16 @@ QString RepairIssueChange::description() const
         .arg(m_issue.brokenGroup.size());
 }
 
+QString RepairIssueChange::verb() const
+{
+    return QStringLiteral("repaired");
+}
+
 QString RepairIssueChange::unit() const
 {
-    return QStringLiteral("rows");
+    // See DeleteOrphanChange::unit() -- a person repairs an entry in
+    // their library, not a row in a database.
+    return QStringLiteral("entries");
 }
 
 QStringList RepairIssueChange::formatsTouched() const

@@ -66,7 +66,7 @@ public:
     // spinbox "null" state in QML, so 0 is the UI's own stand-in, not
     // application::AnonymizationOptions::maxTracks' literal C++ meaning
     // (an *explicit* 0 there really would mean "keep none").
-    Q_INVOKABLE void run(const QString &rekordboxPath, const QString &enginePath, const QString &outDir,
+    Q_INVOKABLE void run(const QString &rekordboxPath, const QString &enginePath, const QString &outPath,
                           int maxTracks, const QString &hardware, const QString &notes);
 
 signals:

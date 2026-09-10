@@ -35,10 +35,24 @@ Flickable {
     clip: true
     ScrollBar.vertical: BigScrollBar {}
 
+    // The scroll bar is an overlay: it is drawn on top of the content
+    // rather than taking width from it, so without reserving room the
+    // rightmost pixels of every page sit underneath it. Invisible on a
+    // label, glaring on a right-aligned button, whose text ends up
+    // half under the bar -- which is how this was noticed.
+    //
+    // Reserved unconditionally rather than only while the bar is shown.
+    // Making it conditional reads better and does not work: the width
+    // would depend on `interactive`, which depends on contentHeight,
+    // which depends on the children's height, which depends on the
+    // width. That is a binding loop, and QML resolves those by picking
+    // an answer rather than by complaining.
+    readonly property real scrollBarGutter: 10
+
     Item {
         id: contentContainer
         x: root.padding
         y: root.padding
-        width: root.width - 2 * root.padding
+        width: root.width - 2 * root.padding - root.scrollBarGutter
     }
 }

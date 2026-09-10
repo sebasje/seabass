@@ -255,7 +255,7 @@ Page {
                             font.pointSize: Theme.fontSmall
                             color: root.preview.enoughBackupSpace === false ? Theme.danger : Theme.textMuted
                             text: (root.controller.archivePath || "") + "  ·  " + Theme.humanBytes(root.preview.backupFreeBytes || 0) + " free there"
-                                + (root.preview.enoughBackupSpace === false ? " — not enough" : "")
+                                + (root.preview.enoughBackupSpace === false ? ": not enough" : "")
                         }
                     }
                     Label { text: "2. Copy step"; color: Theme.textMuted; font.pointSize: Theme.fontSmall; Layout.alignment: Qt.AlignTop }
@@ -271,7 +271,7 @@ Page {
                                     ? (root.preview.restoreFilesToWrite || 0) + " file(s), about " + Theme.humanBytes(root.preview.bytesToTarget || 0)
                                     : "About " + Theme.humanBytes(root.preview.bytesToTarget || 0))
                                 + " onto " + root.targetName + "; " + Theme.humanBytes(root.preview.targetFreeBytes || 0) + " free"
-                                + (root.preview.enoughTargetSpace === false ? " — not enough space." : ".")
+                                + (root.preview.enoughTargetSpace === false ? ": not enough space." : ".")
                         }
                         CheckBox {
                             id: exactCheckBox
