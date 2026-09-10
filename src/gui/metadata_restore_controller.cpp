@@ -328,17 +328,19 @@ void MetadataRestoreController::attachSession()
 
 void MetadataRestoreController::stage(int index)
 {
-    // How much this save might write, not how much is staged right now.
+    // One track staged on its own is one track's worth of writing, and
+    // saying otherwise is not the safe direction.
     //
-    // The session is built once, by whichever change applies FIRST, and
-    // that change was staged when nothing else had been -- so a running
-    // total ("staged so far, plus this one") is always 1 on the change
-    // that actually decides, and the decision never changes. The page's
-    // own list is the honest upper bound: these are the tracks this save
-    // could write. Erring high only ever buys a scratch copy, which on a
-    // slow stick is the cheaper mistake by a wide margin -- it is one
-    // durable write at the end instead of one per track.
-    stageOne(index, static_cast<int>(m_model.proposals().size()));
+    // The obvious-looking alternative -- hint the whole list, since the
+    // session is built by whichever change applies first and a running
+    // total is always 1 there -- makes the wrong trade for SQLite. A
+    // hint of 400 for a single staged Engine track has the save copy the
+    // entire m.db to scratch and durably copy it back for one row
+    // update, and a whole-file replace can lose the database in a way a
+    // page-level write cannot. Staging four hundred tracks one at a time
+    // therefore does not earn the scratch copy. Stage All, which is how
+    // that is actually done, passes the real count and does.
+    stageOne(index, 1);
 }
 
 // itemCountHint is what the save is expected to write in total, which

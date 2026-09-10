@@ -47,11 +47,18 @@ struct SyncFormatWriter
         } else if (format == "engine") {
             engine = std::make_unique<infrastructure::engine::LibdjinteropEngineCueWriter>(session.writeRoot());
         } else {
-            // realStickRoot is passed explicitly because writeRoot() may
-            // be the scratch copy, whose parent is just a temp directory
-            // -- content.path lookups need the real stick's layout.
-            oneLibrary = std::make_unique<infrastructure::onelibrary::OneLibraryCueWriter>(
-                session.writeRoot(), fs::path(catalogPath).parent_path().string());
+            // The save's one writer for this database, not a private
+            // instance. This branch and the rekordbox branch's mirror
+            // (sharedOneLibraryWriter at the write site below) can both
+            // run in one save on a stick carrying both catalogs, and two
+            // instances against one exportLibrary.db make the second
+            // throw as soon as SQLite folds the first's commits into the
+            // file -- the very thing sharedOneLibraryWriter exists to
+            // stop. realStickRoot is passed explicitly because
+            // writeRoot() may be a scratch copy whose parent is a temp
+            // directory, and content.path lookups need the real stick.
+            oneLibrary = &sharedOneLibraryWriter(ctx, session.writeRoot(),
+                                                  fs::path(catalogPath).parent_path().string());
         }
     }
 
@@ -60,7 +67,8 @@ struct SyncFormatWriter
     FormatWriteSession &session;
     std::unique_ptr<infrastructure::rekordbox::RekordboxCueWriter> rekordbox;
     std::unique_ptr<infrastructure::engine::LibdjinteropEngineCueWriter> engine;
-    std::unique_ptr<infrastructure::onelibrary::OneLibraryCueWriter> oneLibrary;
+    // Owned by the save (SaveContext::shared), not by this context.
+    infrastructure::onelibrary::OneLibraryCueWriter *oneLibrary = nullptr;
 };
 
 }  // namespace
