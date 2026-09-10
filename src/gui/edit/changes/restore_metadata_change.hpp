@@ -23,8 +23,13 @@ namespace seabass::gui
 class RestoreMetadataChange : public PendingChange
 {
 public:
+    // itemCountHint: how many tracks this save is expected to restore.
+    // It only drives the scratch-copy decision (see FormatWriteSession),
+    // and the session takes it from whichever change applies first, so it
+    // is a lower bound rather than a total. Getting it wrong costs speed,
+    // never correctness.
     RestoreMetadataChange(QString format, QString path, QString sourceId,
-                           domain::MetadataRestoreProposal proposal);
+                           domain::MetadataRestoreProposal proposal, int itemCountHint = 1);
 
     QString id() const override;
     QString description() const override;
@@ -39,6 +44,7 @@ private:
     QString m_path;
     QString m_sourceId;
     domain::MetadataRestoreProposal m_proposal;
+    int m_itemCountHint = 1;
 };
 
 }  // namespace seabass::gui

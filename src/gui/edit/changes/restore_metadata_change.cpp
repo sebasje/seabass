@@ -32,10 +32,11 @@ constexpr const char *LogTag = "metadata-restore";
 // four hundred times.
 struct RestoreWriterContext
 {
-    // itemCountHint 0: this change is staged per track, so it cannot
-    // say how many the save holds. A hint only ever raises the chance of
-    // a scratch copy, and whichever change asks first sets it -- a Clean
-    // Up staged alongside this one brings its own.
+    // The hint comes from the controller, which knows how many tracks
+    // it is staging. It matters: at a hint of 1 the session never earns
+    // a scratch copy, and every rated track then pays a whole-file
+    // durable rewrite of export.pdb onto the stick -- 400 of them on a
+    // full restore, against one at the end with a copy.
     //
     // The session matters even when it decides against a scratch copy,
     // because it is shared: it is how this change and every other change
@@ -44,8 +45,8 @@ struct RestoreWriterContext
     // another change has it redirected to a scratch copy loses whatever
     // this wrote, the moment that copy is committed back -- and the page
     // reports the restore as applied.
-    RestoreWriterContext(const QString &format, const QString &path, SaveContext &ctx)
-        : session(sharedFormatWriteSession(ctx, format.toStdString(), path.toStdString(), 0, LogTag))
+    RestoreWriterContext(const QString &format, const QString &path, SaveContext &ctx, int itemCountHint)
+        : session(sharedFormatWriteSession(ctx, format.toStdString(), path.toStdString(), itemCountHint, LogTag))
     {
         // The real catalog folder. rekordbox needs it even when the
         // session redirects: cues live in per-track ANLZ files next to
@@ -64,19 +65,25 @@ struct RestoreWriterContext
             // The two rekordbox formats are one library, so a cue
             // written to one and not the other leaves them disagreeing.
             // Best-effort: see OneLibraryCueWriter's class comment.
-            // exportLibrary.db is its own database and so its own
-            // session, on the real PIONEER root rather than this
-            // format's write root.
             if (infrastructure::onelibrary::OneLibraryCueWriter::existsFor(realRoot)) {
                 try {
-                    auto &mirrorSession =
-                        sharedFormatWriteSession(ctx, "onelibrary", realRoot, 0, LogTag);
-                    // The save's one writer for this database, not a
-                    // second instance against the same file: a writer
-                    // refreshes its staleness baseline only after its own
-                    // writes, so Clean Up staging into the same library
-                    // in the same save would make this one throw.
-                    mirror = &sharedOneLibraryWriter(ctx, mirrorSession.writeRoot(),
+                    // The real PIONEER root, which is what every other
+                    // mirror write in the codebase passes -- Sync, Clean
+                    // Up, Library Health repair, Add Cue, stray-cue
+                    // removal. sharedOneLibraryWriter keys on the root
+                    // string it is handed, so passing a different one
+                    // here would not share their instance: it would make
+                    // a second writer against a second file and then
+                    // lose whichever of the two was committed first.
+                    //
+                    // exportLibrary.db is deliberately not put behind
+                    // this format's session. That session is export.pdb's,
+                    // and giving the mirror one of its own would only
+                    // move the disagreement rather than settle it while
+                    // those other call sites still write the real file.
+                    // The mirror as a whole is the remaining piece of
+                    // this seam -- see docs/metadata-backup-plan.md.
+                    mirror = &sharedOneLibraryWriter(ctx, realRoot,
                                                       fs::path(realRoot).parent_path().string());
                 } catch (const std::exception &e) {
                     ctx.log().record(std::string(LogTag) + ": could not open OneLibrary: " + e.what());
@@ -113,14 +120,17 @@ struct RestoreWriterContext
 // Engine and OneLibrary take both fields; export.pdb takes the rating
 // (one byte, already there) and cannot take a comment it does not
 // already have room for.
-void applyAnnotation(SaveContext &ctx, RestoreWriterContext &writer, const QString &format, const QString &path,
+// Returns false only when a write was attempted and is known to have
+// failed, so the change can report a failure rather than let the page
+// take a track off its list that the stick never received.
+bool applyAnnotation(SaveContext &ctx, RestoreWriterContext &writer, const QString &format, const QString &path,
                       const std::string &sourceId, const domain::MetadataRestoreProposal &proposal)
 {
     const std::optional<int> stars = proposal.ratingOffered ? proposal.rating : std::nullopt;
     const std::optional<std::string> comment =
         proposal.commentOffered ? std::optional<std::string>(proposal.comment) : std::nullopt;
     if (!stars && !comment) {
-        return;
+        return true;
     }
 
     if (format == "engine") {
@@ -128,7 +138,7 @@ void applyAnnotation(SaveContext &ctx, RestoreWriterContext &writer, const QStri
         if (!engine) {
             ctx.log().record(std::string(LogTag) + ": no Engine writer for \"" + proposal.stickTrack.title +
                              "\"; its rating and comment were not written");
-            return;
+            return true;
         }
         // writeAnnotation throws when the track has gone from the
         // database since the scan. The cues for this track are already
@@ -141,7 +151,8 @@ void applyAnnotation(SaveContext &ctx, RestoreWriterContext &writer, const QStri
             ctx.log().record(std::string(LogTag) + ": Engine annotation write failed for \"" +
                              proposal.stickTrack.title + "\": " + e.what());
         }
-        return;
+        writer.session.noteItemApplied();
+        return true;
     }
 
     if (format == "rekordbox") {
@@ -177,12 +188,16 @@ void applyAnnotation(SaveContext &ctx, RestoreWriterContext &writer, const QStri
                 ctx.log().record(std::string(LogTag) + ": no DeviceLibrary row with id=" + sourceId +
                                  " (\"" + proposal.stickTrack.title + "\"); its rating was not written");
             } else if (!rows.commit()) {
-                // False, not a throw: stale file, an edit that no longer
-                // reparses, or a failed atomic write. Reported rather
-                // than swallowed -- the DJ must not be told a rating
-                // went back while export.pdb still holds the old one.
+                // False, not a throw: a stale file, an edit that no
+                // longer reparses, or an atomic write with nowhere to
+                // put its temp copy -- these sticks run 95% full. The
+                // rating did NOT reach export.pdb, so this has to reach
+                // the DJ as a failed save; logging it and reporting
+                // success would take the track off the page's list while
+                // the old rating is still on the stick.
                 ctx.log().record(std::string(LogTag) + ": FAILED to write the restored rating into " + pdbPath +
                                  " for \"" + proposal.stickTrack.title + "\"");
+                return false;
             } else {
                 writer.session.noteItemApplied();
             }
@@ -215,7 +230,7 @@ void applyAnnotation(SaveContext &ctx, RestoreWriterContext &writer, const QStri
             ctx.log().record(std::string(LogTag) + ": DeviceLibrary cannot store a comment for \"" + proposal.stickTrack.title +
                              "\" -- its row has no room to grow one");
         }
-        return;
+        return true;
     }
 
     // format == "onelibrary": the adapter is this format's cue writer,
@@ -226,21 +241,23 @@ void applyAnnotation(SaveContext &ctx, RestoreWriterContext &writer, const QStri
     if (!adapter) {
         ctx.log().record(std::string(LogTag) + ": no OneLibrary writer for \"" + proposal.stickTrack.title +
                          "\"; its rating and comment were not written");
-        return;
+        return true;
     }
     try {
         adapter->writer().writeAnnotationForPath(proposal.stickTrack.filePath, stars, comment);
+        writer.session.noteItemApplied();
     } catch (const std::exception &e) {
         ctx.log().record(std::string(LogTag) + ": OneLibrary annotation write failed: " + e.what());
     }
+    return true;
 }
 
 }  // namespace
 
 RestoreMetadataChange::RestoreMetadataChange(QString format, QString path, QString sourceId,
-                                              domain::MetadataRestoreProposal proposal)
+                                              domain::MetadataRestoreProposal proposal, int itemCountHint)
     : m_format(std::move(format)), m_path(std::move(path)), m_sourceId(std::move(sourceId)),
-      m_proposal(std::move(proposal))
+      m_proposal(std::move(proposal)), m_itemCountHint(itemCountHint)
 {
 }
 
@@ -326,7 +343,7 @@ ChangeOutcome RestoreMetadataChange::apply(SaveContext &ctx)
     // tests/restore_metadata_change_test.cpp case 6, which counts them.
     const std::string key = "metadata-restore:" + m_format.toStdString();
     RestoreWriterContext &writer = ctx.shared<RestoreWriterContext>(
-        key, [&]() { return std::make_unique<RestoreWriterContext>(m_format, m_path, ctx); });
+        key, [&]() { return std::make_unique<RestoreWriterContext>(m_format, m_path, ctx, m_itemCountHint); });
     if (auto *adapter = dynamic_cast<OneLibraryCueWriterAdapter *>(writer.writer.get())) {
         adapter->notePath(sourceId, track.filePath);
     }
@@ -355,6 +372,16 @@ ChangeOutcome RestoreMetadataChange::apply(SaveContext &ctx)
     // exists to protect.
     if (m_proposal.cuesOffered) {
         writer.writer->writeHotCues(sourceId, m_proposal.cues);
+        // Counted, because FormatWriteSession throws a scratch copy away
+        // on a cancel when nothing was applied to it. Engine and
+        // OneLibrary cues are written INTO that copy, so leaving them
+        // uncounted meant a cancelled save could discard the copy
+        // holding them while the summary still counted the tracks as
+        // restored. rekordbox cues are exempt only because they live in
+        // ANLZ files the session does not manage.
+        if (m_format != "rekordbox") {
+            writer.session.noteItemApplied();
+        }
         ctx.log().record(std::string(LogTag) + ": wrote " + std::to_string(m_proposal.cues.size()) +
                          " stored cue(s) onto " + m_format.toStdString() + " track id=" + sourceId + " (\"" +
                          track.title + "\")");
@@ -370,7 +397,10 @@ ChangeOutcome RestoreMetadataChange::apply(SaveContext &ctx)
         }
     }
 
-    applyAnnotation(ctx, writer, m_format, m_path, sourceId, m_proposal);
+    if (!applyAnnotation(ctx, writer, m_format, m_path, sourceId, m_proposal)) {
+        return ChangeOutcome::failure("The restored rating could not be written into export.pdb for \"" +
+                                      QString::fromStdString(track.title) + "\".");
+    }
     return ChangeOutcome::success();
 }
 

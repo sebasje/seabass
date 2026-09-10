@@ -328,6 +328,16 @@ void MetadataRestoreController::attachSession()
 
 void MetadataRestoreController::stage(int index)
 {
+    // One track staged on its own is one track's worth of writing.
+    stageOne(index, 1);
+}
+
+// itemCountHint is what the save is expected to write in total, which
+// decides whether the catalog is worth copying to local scratch first.
+// Stage All knows that number; a single Stage does not, and does not
+// need to.
+void MetadataRestoreController::stageOne(int index, int itemCountHint)
+{
     const auto &proposals = m_model.proposals();
     if (index < 0 || static_cast<std::size_t>(index) >= proposals.size()) {
         return;
@@ -365,7 +375,7 @@ void MetadataRestoreController::stage(int index)
         }
         auto change = std::make_unique<RestoreMetadataChange>(
             QString::fromStdString(row.format), catalogPathForFormat(m_libraryPath, row.format),
-            QString::fromStdString(row.sourceId), proposal);
+            QString::fromStdString(row.sourceId), proposal, itemCountHint);
         const QString changeId = change->id();
         if (!m_session->stage(std::move(change))) {
             // Refused: the session reports why and the page shows it.
@@ -396,7 +406,9 @@ void MetadataRestoreController::stageAll()
         if (m_stagedByStoredId.count(m_model.proposals()[static_cast<std::size_t>(i)].storedId)) {
             continue;
         }
-        stage(i);
+        // Every remaining proposal is about to be staged, so the save
+        // knows its own size here even though a single Stage does not.
+        stageOne(i, count);
         if (m_session && !m_session->lockHeld()) {
             return;  // refused at the first one; no point trying the rest
         }

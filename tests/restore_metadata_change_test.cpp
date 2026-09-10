@@ -439,6 +439,43 @@ int main()
         std::cout << "case 7: a rating survives a save that also scratches export.pdb\n";
     }
 
+    // Case 8: a cancelled save must not discard the writes it did make.
+    //
+    // FormatWriteSession throws its scratch copy away when the save was
+    // cancelled or failed AND nothing was applied to it -- the copy holds
+    // nothing worth keeping in that case. But "nothing was applied" is
+    // counted, and the restore's Engine and OneLibrary writes go INTO
+    // that copy. While they went uncounted, a cancel could discard the
+    // copy holding them while the summary still counted those tracks as
+    // restored: written, reported, gone.
+    {
+        Fixture fixture = freshFixture("cancelled_save");
+        auto &noProgress = seabass::application::NullProgressReporter::instance();
+        CancellationToken token;
+        const QString root = QString::fromStdString(fixture.pioneerRoot.string());
+        {
+            SaveContext ctx(token, noProgress, {}, root, {});
+            // A hint big enough that the session really does redirect to
+            // a scratch copy; without that this case proves nothing.
+            auto &session = sharedFormatWriteSession(ctx, "onelibrary", fixture.pioneerRoot.string(), 5000,
+                                                     "test-other-feature");
+            assert(session.usesScratch());
+
+            MetadataRestoreProposal proposal = proposalFor(fixture);
+            proposal.cuesOffered = true;
+            proposal.cues = storedCues();
+
+            RestoreMetadataChange change("onelibrary", root, "1", proposal);
+            assert(change.apply(ctx).ok);
+            // ok == false: the save was cancelled or failed after this
+            // track went through.
+            assert(!ctx.runFinishHooks(false));
+        }
+        // The cue is on the stick, not only in a discarded scratch copy.
+        assert(cueCount(fixture.pioneerRoot.string()) == 1);
+        std::cout << "case 8: a cancelled save keeps the tracks it already wrote\n";
+    }
+
     std::cout << "restore_metadata_change_test: all cases passed\n";
     return 0;
 }

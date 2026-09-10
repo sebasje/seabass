@@ -282,10 +282,48 @@ than in `export.pdb` -- the same split `makeContext()` draws in Clean Up.
 really is scratching, a real restore change, and the rating read back off
 the stick's own `export.pdb` afterwards.
 
-Still on the same footing and not addressed here: `MergeCuesChange`
-(Local cue restore) writes its catalogs directly too. It is the
-deprecated ancestor of this feature and may be removed before it is worth
-converting.
+### What is still on the old footing
+
+Sharing the session fixes it for the features that take theirs from
+`sharedFormatWriteSession()`. Four changes still write their catalog at
+the real root and so still lose to another change's scratch commit in
+the same save:
+
+| Change | Writes directly |
+|---|---|
+| `AddCueChange` | OneLibrary, and Engine's `m.db` |
+| `RemoveJunkCueChange` | OneLibrary |
+| `CopyCuesChange` | OneLibrary |
+| `MergeCuesChange` | its catalogs, and the OneLibrary mirror |
+
+The concrete case, unchanged by this work: add a hot cue to an Engine
+track, stage a twenty-group Engine Clean Up, save once. The cue goes to
+the stick's `m.db`; the Clean Up's scratch copy, taken before it, is
+committed on top; the cue is gone and the page said it was written.
+
+The OneLibrary mirror is the same story from the other side.
+`exportLibrary.db` is deliberately not behind a session anywhere,
+including here -- every mirror write in the codebase passes the real
+PIONEER root to `sharedOneLibraryWriter()`, so they at least all agree
+on one file and one writer. Putting only this feature's mirror behind a
+session would break that agreement rather than settle it: it would write
+a copy the others do not, and whichever committed last would win.
+
+Converting the four, and then the mirror, is the rest of this seam. It
+was left out of this change deliberately -- each needs the same care
+about which writers take the write root and which stay on the real one
+(rekordbox cues live in ANLZ files; only the catalog database moves),
+and that is a change to four destructive features, not a detail to slip
+in alongside a metadata feature.
+
+One more thing this made ordering-dependent. The scratch decision is
+taken once, by whichever change reaches the session first, from that
+change's `itemCountHint`. Stage a rekordbox Sync or a single metadata
+restore before a five-hundred-item Clean Up and the Clean Up loses its
+scratch copy -- five hundred direct `export.pdb` rewrites instead of
+one. It costs speed and never correctness, but it is a coin flip rather
+than a bound. Taking the largest hint seen, and deferring the decision to
+the first write, would remove it.
 
 ## Relationship to Local Cue Backup
 

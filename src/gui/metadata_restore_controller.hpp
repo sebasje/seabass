@@ -124,6 +124,9 @@ public:
     Q_INVOKABLE void scan(const QString &libraryPath, bool overwriteConflicts);
     Q_INVOKABLE void cancelScan();
     Q_INVOKABLE void stage(int index);
+    // stage(), plus what the save is expected to write in total -- see
+    // RestoreMetadataChange's own itemCountHint.
+    void stageOne(int index, int itemCountHint);
     Q_INVOKABLE void stageAll();
     Q_INVOKABLE void unstage(int index);
 
