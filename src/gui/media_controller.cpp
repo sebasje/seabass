@@ -2,7 +2,6 @@
 
 #include <QCoreApplication>
 #include <QSettings>
-#include <QUrl>
 #include <QtConcurrent/QtConcurrentRun>
 
 #include <algorithm>
@@ -233,15 +232,13 @@ void MediaController::detect()
         return !ec && !folderRoot.empty()
                && std::find(mountedRoots.begin(), mountedRoots.end(), folderRoot) != mountedRoots.end();
     };
-    std::vector<application::DetectedStick> dropped;
-    for (const application::DetectedStick &folder : m_openedFolders) {
-        if (coincides(folder)) {
-            dropped.push_back(folder);
-        }
-    }
+    // One pass: the coinciding rows move to the tail and out, so each
+    // path is canonicalised once per refresh, not twice.
+    const auto keepEnd = std::stable_partition(m_openedFolders.begin(), m_openedFolders.end(),
+                                               [&](const application::DetectedStick &f) { return !coincides(f); });
+    std::vector<application::DetectedStick> dropped(keepEnd, m_openedFolders.end());
     if (!dropped.empty()) {
-        m_openedFolders.erase(std::remove_if(m_openedFolders.begin(), m_openedFolders.end(), coincides),
-                              m_openedFolders.end());
+        m_openedFolders.erase(keepEnd, m_openedFolders.end());
         saveOpenedFolders();
         // The row is going without anyone clicking close, so its edit
         // session -- if one is dirty or holds the lock -- must hear about
@@ -387,11 +384,7 @@ QString MediaController::openBackup(const QString &archivePath)
     // refresh) the same directory instead of accumulating copies. Keyed on
     // the canonical path, so the same ZIP reached through a symlinked
     // directory or a ".." spelling is one backup, one cache, one row.
-    std::error_code canonEc;
-    std::filesystem::path archiveKey = std::filesystem::weakly_canonical(archive, canonEc);
-    if (canonEc) {
-        archiveKey = std::filesystem::absolute(archive);
-    }
+    const std::filesystem::path archiveKey = infrastructure::local::canonicalOrAbsolute(archive);
     const std::filesystem::path cacheRoot =
         infrastructure::paths::localBrowsedBackupsDir() / folderLibraryId(archiveKey.string());
 
@@ -498,6 +491,17 @@ QString MediaController::libraryIdForMountPoint(const QString &mountPoint) const
 {
     auto identity = lastKnownIdentity(mountPoint.toStdString());
     return identity ? QString::fromStdString(identity->libraryId()) : QString();
+}
+
+std::optional<application::DetectedStick> MediaController::stickForLibraryId(const QString &libraryId) const
+{
+    const std::string id = libraryId.toStdString();
+    for (const application::DetectedStick &stick : m_model.sticks()) {
+        if (stick.identity.libraryId() == id) {
+            return stick;
+        }
+    }
+    return std::nullopt;
 }
 
 std::optional<application::StickIdentity> MediaController::lastKnownIdentity(const std::string &mountPoint) const

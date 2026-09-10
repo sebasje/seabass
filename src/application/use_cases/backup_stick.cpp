@@ -445,17 +445,13 @@ namespace
 // than at whichever button led here: the stick list withholds its own
 // cards, but a *different* row's Clone card resolves the same archive by
 // label, and there is always another button.
-const char *BrowsedBackupRefusal =
-    "That is a stick backup being browsed, not a stick. It cannot be backed up or cloned from; "
-    "restore it onto a stick first.";
-
 }  // namespace
 
 BackupPreview BackupStick::preview(const BackupStickOptions &options, ProgressReporter &reporter)
 {
     BackupPreview preview;
     if (infrastructure::local::isBrowsedBackupRoot(options.stickRoot)) {
-        preview.error = BrowsedBackupRefusal;
+        preview.error = infrastructure::local::browsedBackupRefusal(options.stickLabel);
         return preview;
     }
     OpenedArchive opened;
@@ -497,7 +493,7 @@ BackupStickOutcome BackupStick::execute(const BackupStickOptions &options, Progr
 {
     BackupStickOutcome outcome;
     if (infrastructure::local::isBrowsedBackupRoot(options.stickRoot)) {
-        outcome.message = BrowsedBackupRefusal;
+        outcome.message = infrastructure::local::browsedBackupRefusal(options.stickLabel);
         return outcome;
     }
     auto impl = std::make_unique<PendingBackup::Impl>();

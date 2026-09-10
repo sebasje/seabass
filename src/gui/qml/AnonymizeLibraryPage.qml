@@ -302,7 +302,7 @@ Page {
                             enabled: !controller.busy
                             onClicked: {
                                 outputFileDialog.currentFolder =
-                                    "file://" + appSettingsController.anonymizedExportDirectory();
+                                    appSettingsController.toLocalFileUrl(appSettingsController.anonymizedExportDirectory());
                                 outputFileDialog.open();
                             }
                         }
@@ -466,7 +466,7 @@ Page {
                     const lastSlash = controller.outputZipPath.lastIndexOf("/");
                     const folder = lastSlash >= 0
                         ? controller.outputZipPath.substring(0, lastSlash) : controller.outputZipPath;
-                    Qt.openUrlExternally("file://" + folder);
+                    Qt.openUrlExternally(appSettingsController.toLocalFileUrl(folder));
                 }
             }
 

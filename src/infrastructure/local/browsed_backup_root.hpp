@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <optional>
+#include <string>
 
 namespace seabass::infrastructure::local
 {
@@ -30,6 +31,16 @@ bool isBrowsedBackupRoot(const std::filesystem::path &libraryRoot);
 // The archive a browsed-backup root came from, or nullopt when
 // isBrowsedBackupRoot() is false.
 std::optional<std::filesystem::path> browsedBackupArchive(const std::filesystem::path &libraryRoot);
+
+// The one sentence every refusal of a write to a browsed backup uses --
+// the stick list, the edit session, BackupStick and CloneStick all say
+// the same thing, so a person meets one wording however they arrived.
+std::string browsedBackupRefusal(const std::string &label);
+
+// weakly_canonical, or absolute when the path cannot be resolved. The
+// rule that decides what "the" path of an archive is -- it keys the
+// cache directory's name and the marker's first line, so it lives once.
+std::filesystem::path canonicalOrAbsolute(const std::filesystem::path &path);
 
 // Writes the marker for `cacheRoot` into `markerDir` -- normally the
 // staging directory that is about to be renamed to cacheRoot, which is

@@ -291,9 +291,8 @@ void BackupsController::startTask(BackupsAction action, int keepCount, const QSt
     if (mutating) {
         auto *registry = EditSessionRegistry::instance();
         if (!registry->tryEnterDirectWrite(m_libraryId, m_stickLabel)) {
-            const QVariantMap holder = registry->lockHolder(m_libraryId);
-            if (!holder.isEmpty()) {  // empty: a read-only refusal, already shown
-                emit lockRefused(holder);
+            if (!registry->isReadOnlyLibrary(m_libraryId)) {  // a read-only refusal was already shown
+                emit lockRefused(registry->lockHolder(m_libraryId));
             }
             return;
         }

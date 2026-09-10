@@ -199,6 +199,10 @@ public:
     // across restarts. Exposed for tests.
     static std::string folderLibraryId(const std::string &canonicalPath);
     std::optional<application::StickIdentity> lastKnownIdentity(const std::string &mountPoint) const;
+    // The listed stick (removable or folder) whose identity has this
+    // library id, mounted or not. The one by-id lookup, so the edit
+    // registry's two call sites cannot drift in what they filter on.
+    std::optional<application::DetectedStick> stickForLibraryId(const QString &libraryId) const;
     std::string mountPointFor(const application::StickIdentity &identity) const;
 
 signals:

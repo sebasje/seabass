@@ -55,7 +55,7 @@ Page {
         title: "Open a folder holding a rekordbox or Engine DJ library"
         onAccepted: {
             // Handed over as the URL it is; the controller converts it
-            // with QUrl::toLocalFile (see MediaController::localPathFrom).
+            // with QUrl::toLocalFile (gui/local_file_url.hpp, localPathFromUrl).
             var message = root.mediaController.openFolder(selectedFolder.toString());
             if (message.length > 0) {
                 openFolderError.text = message;

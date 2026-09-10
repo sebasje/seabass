@@ -10,8 +10,9 @@ DirectWriteHold::~DirectWriteHold()
     release();
 }
 
-std::optional<QVariantMap> DirectWriteHold::acquire(const QStringList &libraryIds, const QString &stickLabel,
-                                                    std::function<void()> retry)
+std::optional<DirectWriteHold::Refusal> DirectWriteHold::acquire(const QStringList &libraryIds,
+                                                                 const QString &stickLabel,
+                                                                 std::function<void()> retry)
 {
     release();
     auto *registry = EditSessionRegistry::instance();
@@ -20,14 +21,16 @@ std::optional<QVariantMap> DirectWriteHold::acquire(const QStringList &libraryId
             continue;
         }
         if (!registry->tryEnterDirectWrite(id, stickLabel)) {
-            // Empty for a read-only refusal (a stick backup being browsed):
-            // the registry has shown that itself. Callers skip the locked
-            // dialog for an empty holder rather than stacking one on it.
-            QVariantMap holder = registry->lockHolder(id);
+            Refusal refusal;
+            if (registry->isReadOnlyLibrary(id)) {
+                refusal.kind = Refusal::Kind::ReadOnly;
+            } else {
+                refusal.holder = registry->lockHolder(id);
+            }
             release();
             m_refusedLibraryId = id;
             m_retry = std::move(retry);
-            return holder;
+            return refusal;
         }
         m_held.push_back(id);
     }

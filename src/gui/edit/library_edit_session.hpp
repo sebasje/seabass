@@ -144,13 +144,6 @@ signals:
     void changesDiscarded();
     // holder: {instanceId, hostname, pid, stickLabel, startedAtUtc}
     void lockRefused(const QVariantMap &holder);
-    // stage() was asked to edit a library that is a browsed stick backup
-    // (its directory carries the backup marker). Nothing was staged. The
-    // stick list already withholds every writing card for such a row;
-    // this is the guard underneath, so no code path can reach a write
-    // whose analysis files are not on disk and whose directory is
-    // replaced on the next open.
-    void readOnlyRefused(const QString &reason);
     // A second page tried to stage into a library another page is already
     // editing. Nothing was staged.
     void editorConflict(const QString &owner, const QString &attempted);

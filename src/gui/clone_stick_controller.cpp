@@ -268,10 +268,10 @@ void CloneStickController::start(bool exact)
     // The source's archive on disk is updated and the target is
     // overwritten: both libraries' locks, or neither.
     auto *registry = EditSessionRegistry::instance();
-    if (auto holder = m_writeHold.acquire({registry->libraryIdForPath(m_sourceRoot), registry->libraryIdForPath(m_targetRoot)},
+    if (auto refusal = m_writeHold.acquire({registry->libraryIdForPath(m_sourceRoot), registry->libraryIdForPath(m_targetRoot)},
                                           m_sourceLabel, [this, exact] { start(exact); })) {
-        if (!holder->isEmpty()) {  // empty: a read-only refusal, already shown
-            emit lockRefused(*holder, m_writeHold.refusedLibraryId());
+        if (refusal->isLocked()) {
+            emit lockRefused(refusal->holder, m_writeHold.refusedLibraryId());
         }
         return;
     }
