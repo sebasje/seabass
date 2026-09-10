@@ -88,6 +88,11 @@ QString RemoveJunkCueChange::description() const
     return QStringLiteral("Remove the 0:00 memory cue from \"%1\"").arg(QString::fromStdString(m_track.title));
 }
 
+QString RemoveJunkCueChange::verb() const
+{
+    return QStringLiteral("removed");
+}
+
 QString RemoveJunkCueChange::unit() const
 {
     return QStringLiteral("cues");

@@ -258,6 +258,7 @@ void LibraryEditSession::save()
     }
 
     m_savingUnit = m_changes.front()->unit();
+    m_savingVerb = m_changes.front()->verb();
     m_writeCancel = application::CancellationToken();
     m_cancelRequested = false;
     setWriteProgress(QStringLiteral("Preparing"), 0, pendingCount());
@@ -330,6 +331,7 @@ void LibraryEditSession::onSaveFinished()
         {"written", static_cast<int>(applied.size())},
         {"total", static_cast<int>(applied.size()) + pendingCount()},
         {"unit", m_savingUnit},
+        {"verb", m_savingVerb},
         {"cancelled", result.cancelled},
         {"error", result.error},
         {"failedId", result.failedId},

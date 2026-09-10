@@ -32,9 +32,17 @@ QString DeleteOrphanChange::description() const
     return QStringLiteral("Delete %1 orphaned OneLibrary row(s) (\"%2\")").arg(m_issue.brokenGroup.size()).arg(title);
 }
 
+QString DeleteOrphanChange::verb() const
+{
+    return QStringLiteral("removed");
+}
+
 QString DeleteOrphanChange::unit() const
 {
-    return QStringLiteral("rows");
+    // "entries", not "rows": a row is what the catalog calls it, an
+    // entry is what a person sees in a list. The summary is read by
+    // someone who just deleted something and wants to know what.
+    return QStringLiteral("entries");
 }
 
 QStringList DeleteOrphanChange::formatsTouched() const

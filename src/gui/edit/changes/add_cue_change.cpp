@@ -68,6 +68,11 @@ QString AddCueChange::description() const
     return QStringLiteral("Add %1 at %2 to %3").arg(what, formatPosition(m_positionMs), track);
 }
 
+QString AddCueChange::verb() const
+{
+    return QStringLiteral("added");
+}
+
 QString AddCueChange::unit() const
 {
     return QStringLiteral("cues");

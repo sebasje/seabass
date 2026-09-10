@@ -178,6 +178,7 @@ private:
     QVariantMap m_lastSummary;
     QString m_editorOwner;
     QString m_savingUnit;
+    QString m_savingVerb;
     int m_refs = 0;
 };
 

@@ -18,6 +18,7 @@ public:
     QString id() const override;
     QString description() const override;
     QString unit() const override;
+    QString verb() const override;
     // Settings are not a catalog, so nothing cached needs invalidating.
     QStringList formatsTouched() const override;
     std::vector<BackupTarget> filesToBackup(SaveContext &ctx) const override;

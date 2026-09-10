@@ -92,6 +92,11 @@ QString SyncPlanChange::description() const
              formatLabel(target().format));
 }
 
+QString SyncPlanChange::verb() const
+{
+    return QStringLiteral("synchronised");
+}
+
 QString SyncPlanChange::unit() const
 {
     return QStringLiteral("tracks");

@@ -1340,6 +1340,13 @@ add_executable(assertions_live_test tests/assertions_live_test.cpp)
 target_include_directories(assertions_live_test PRIVATE src)
 add_test(NAME assertions_live_test COMMAND assertions_live_test)
 
+if(TARGET seabass_edit)
+    add_executable(change_summary_wording_test tests/change_summary_wording_test.cpp)
+    target_include_directories(change_summary_wording_test PRIVATE src)
+    target_link_libraries(change_summary_wording_test PRIVATE seabass_edit seabass_core Qt6::Core)
+    add_test(NAME change_summary_wording_test COMMAND change_summary_wording_test)
+endif()
+
 add_executable(path_key_test
     src/application/path_key.cpp
     tests/path_key_test.cpp

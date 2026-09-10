@@ -153,6 +153,11 @@ QString CleanupGroupChange::description() const
         .arg(newCues > 0 ? QStringLiteral(" (%1 cue(s) preserved)").arg(newCues) : QString());
 }
 
+QString CleanupGroupChange::verb() const
+{
+    return QStringLiteral("cleaned up");
+}
+
 QString CleanupGroupChange::unit() const
 {
     return QStringLiteral("groups");
