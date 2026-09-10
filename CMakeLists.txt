@@ -653,6 +653,14 @@ if(SEABASS_GUI AND Qt6_FOUND)
         # itself needs to be on it for <system_font_metrics.hpp> to resolve.
         target_include_directories(seabass_qml_tests PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/src/gui
             ${CMAKE_SOURCE_DIR}/src/gui/edit)
+        # Same experimental setting the application target is built with.
+        # Without this the QML tests always compiled the stable-only
+        # variant of AppSettingsController while the default build of the
+        # app ships the experimental one, so no QML test could reach an
+        # experimental-gated section of a page -- including the whole
+        # "Full stick backups" group on AppSettingsPage.
+        target_compile_definitions(seabass_qml_tests PRIVATE
+            $<$<BOOL:${SEABASS_EXPERIMENTAL}>:SEABASS_EXPERIMENTAL_BUILD>)
 
         add_test(NAME seabass_qml_tests
             COMMAND seabass_qml_tests -input ${CMAKE_CURRENT_SOURCE_DIR}/tests/qml)
