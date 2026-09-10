@@ -294,16 +294,23 @@ Page {
                         visible: proposalRow.rating >= 0
                         value: Math.max(0, proposalRow.rating)
                         editable: false
-                        ToolTip.visible: hovered
+                        // StarRating only tracks hover while it is
+                        // editable, and this one is not, so the hover
+                        // comes from a handler of its own.
+                        ToolTip.visible: ratingHover.hovered
                         ToolTip.text: "This rating goes back on the track"
+                        HoverHandler { id: ratingHover }
                     }
                     Label {
                         visible: proposalRow.comment.length > 0
                         text: "comment"
                         color: Theme.textMuted
                         font.pointSize: Theme.fontSmall
-                        ToolTip.visible: hovered
+                        // A Label is a Text and has no `hovered`; this is
+                        // the only place the whole comment can be read.
+                        ToolTip.visible: commentHover.hovered
                         ToolTip.text: proposalRow.comment
+                        HoverHandler { id: commentHover }
                     }
                     Button {
                         objectName: "stageButton"

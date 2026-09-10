@@ -242,6 +242,14 @@ void MetadataRestoreController::onScanFinished()
         if (!proposal.commentOffered) {
             continue;
         }
+        // "No row anywhere but rekordbox", and a track with no catalog
+        // rows at all is not that: collapseCatalogRows() leaves the list
+        // empty for a row with no file path and for an Engine streaming
+        // track, and counting those would have the banner warn about
+        // DeviceLibrary on a stick that may carry no rekordbox catalog.
+        if (proposal.stickTrack.catalogRows.empty()) {
+            continue;
+        }
         bool elsewhere = false;
         for (const auto &row : proposal.stickTrack.catalogRows) {
             if (row.format != "rekordbox") {

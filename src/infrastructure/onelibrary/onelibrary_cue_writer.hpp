@@ -114,17 +114,6 @@ public:
     // (playlist, survivor) pair.
     void removeTrackByPathReplacingWith(const std::string &doomedFilePath, const std::string &survivorFilePath);
 
-    // Fills in a Clean Up survivor's missing bpm/key/artwork from
-    // another copy in its duplicate group (see domain::
-    // DuplicateCleanupPlan). Copies the donor row's own already-valid
-    // bpmx100/key_id/image_id column values directly onto the target
-    // row -- key_id/image_id are references into the key/image tables,
-    // so this reuses whichever row the donor already points at rather
-    // than re-deriving a lookup from a parsed key string or artwork
-    // file path. Each of copyBpm/copyKey/copyArtwork independently
-    // opts that one field in; throws if either path has no matching
-    // content row, or if the file changed since this writer was
-    // constructed (same staleness guard as writeCuesForPath()).
     // Writes the two authored fields that are not cues: the rating in
     // stars (0 to 5, the scale domain::Track uses) and the DJ's own
     // comment. Either may be absent, and an absent one is left alone
@@ -136,6 +125,18 @@ public:
     // out of that difference.
     void writeAnnotationForPath(const std::string &filePath, const std::optional<int> &stars,
                                  const std::optional<std::string> &comment);
+
+    // Fills in a Clean Up survivor's missing bpm/key/artwork from
+    // another copy in its duplicate group (see domain::
+    // DuplicateCleanupPlan). Copies the donor row's own already-valid
+    // bpmx100/key_id/image_id column values directly onto the target
+    // row -- key_id/image_id are references into the key/image tables,
+    // so this reuses whichever row the donor already points at rather
+    // than re-deriving a lookup from a parsed key string or artwork
+    // file path. Each of copyBpm/copyKey/copyArtwork independently
+    // opts that one field in; throws if either path has no matching
+    // content row, or if the file changed since this writer was
+    // constructed (same staleness guard as writeCuesForPath()).
 
     void propagateMissingFieldsForPath(const std::string &donorFilePath, const std::string &targetFilePath,
                                         bool copyBpm, bool copyKey, bool copyArtwork);

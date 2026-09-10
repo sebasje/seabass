@@ -68,6 +68,27 @@ struct RestoreWriterContext
     bool pdbDirty = false;
 };
 
+// The OneLibrary writer the rating and the comment go through when
+// OneLibrary is the format being restored. It is deliberately not part
+// of RestoreWriterContext: that one is keyed per track for this format
+// (the cue adapter takes one track's path), and opening a
+// OneLibraryCueWriter CRC32s the whole encrypted database. Keyed on the
+// stick root alone, this is opened once for the whole save.
+struct OneLibraryAnnotationWriter
+{
+    OneLibraryAnnotationWriter(const QString &path, SaveContext &ctx)
+    {
+        try {
+            writer = std::make_unique<infrastructure::onelibrary::OneLibraryCueWriter>(path.toStdString());
+        } catch (const std::exception &e) {
+            ctx.log().record(std::string(LogTag) + ": could not open OneLibrary to write ratings or comments: "
+                             + e.what());
+        }
+    }
+
+    std::unique_ptr<infrastructure::onelibrary::OneLibraryCueWriter> writer;
+};
+
 // Writes the rating and the comment, per format, and says in the log
 // what each format could not take rather than leaving a gap.
 //
@@ -88,8 +109,21 @@ void applyAnnotation(SaveContext &ctx, RestoreWriterContext &writer, const QStri
 
     if (format == "engine") {
         auto *engine = dynamic_cast<infrastructure::engine::LibdjinteropEngineCueWriter *>(writer.writer.get());
-        if (engine) {
+        if (!engine) {
+            ctx.log().record(std::string(LogTag) + ": no Engine writer for \"" + proposal.stickTrack.title +
+                             "\"; its rating and comment were not written");
+            return;
+        }
+        // writeAnnotation throws when the track has gone from the
+        // database since the scan. The cues for this track are already
+        // written by now, so failing the whole save over a rating would
+        // undo more than it saves: log it and let the rest through, the
+        // way the OneLibrary paths below do.
+        try {
             engine->writeAnnotation(sourceId, stars, comment);
+        } catch (const std::exception &e) {
+            ctx.log().record(std::string(LogTag) + ": Engine annotation write failed for \"" +
+                             proposal.stickTrack.title + "\": " + e.what());
         }
         return;
     }
@@ -104,41 +138,88 @@ void applyAnnotation(SaveContext &ctx, RestoreWriterContext &writer, const QStri
                 ctx.backupOnce(writer.pdbPath, LogTag);
                 writer.pdbRows = std::make_unique<infrastructure::rekordbox::PdbRowWriter>(writer.pdbPath);
                 RestoreWriterContext *held = &writer;
-                ctx.onFinish([held](bool ok) {
-                    if (ok && held->pdbDirty && held->pdbRows) {
-                        held->pdbRows->commit();
+                SaveContext *savedCtx = &ctx;
+                ctx.onFinish([held, savedCtx](bool ok) {
+                    (void)ok;
+                    if (!held->pdbDirty || !held->pdbRows) {
+                        return;
+                    }
+                    // Committed even after a cancel or a failure, and
+                    // for the same reason FormatWriteSession commits its
+                    // scratch copy then: the ratings already set are
+                    // counted in the save's applied changes and the page
+                    // takes them off its list, so leaving them in memory
+                    // would report a write that never reached the stick.
+                    // Nothing is committed that was not applied --
+                    // pdbDirty is only set by a rating that took.
+                    // commit() returns false rather than throwing when
+                    // the file went stale under us, when the edited
+                    // buffer does not reparse, or when the atomic write
+                    // fails. Swallowing that would tell the DJ N ratings
+                    // went back while export.pdb still holds the old
+                    // ones; throwing here is how a finish hook reports a
+                    // failed commit (see FormatWriteSession::commit).
+                    if (!held->pdbRows->commit()) {
+                        savedCtx->log().record(std::string(LogTag) +
+                                               ": FAILED to commit the restored rating(s) into export.pdb");
+                        throw std::runtime_error(
+                            "metadata-restore: the restored rating(s) could not be written into export.pdb");
                     }
                 });
             }
-            if (writer.pdbRows->setTrackRating(static_cast<uint32_t>(std::stoul(sourceId)), *stars)) {
-                writer.pdbDirty = true;
+            // Throws for a rating outside 0..5, returns false when no
+            // track row carries that id any more. Neither should cost
+            // the save the cues it has already written.
+            try {
+                if (writer.pdbRows->setTrackRating(static_cast<uint32_t>(std::stoul(sourceId)), *stars)) {
+                    writer.pdbDirty = true;
+                } else {
+                    ctx.log().record(std::string(LogTag) + ": no DeviceLibrary row with id=" + sourceId +
+                                     " (\"" + proposal.stickTrack.title + "\"); its rating was not written");
+                }
+            } catch (const std::exception &e) {
+                ctx.log().record(std::string(LogTag) + ": DeviceLibrary rating write failed for \"" +
+                                 proposal.stickTrack.title + "\": " + e.what());
             }
         }
-        if (comment) {
+        // The mirror is the other half of the same library, and it is
+        // the half that can take a comment of any length.
+        bool mirrorTookIt = false;
+        if (writer.mirror && !proposal.stickTrack.filePath.empty()) {
+            try {
+                writer.mirror->writeAnnotationForPath(proposal.stickTrack.filePath, stars, comment);
+                mirrorTookIt = true;
+            } catch (const std::exception &e) {
+                ctx.log().record(std::string(LogTag) + ": OneLibrary annotation write failed: " + e.what());
+            }
+        }
+        if (comment && !mirrorTookIt) {
             // Measured: export.pdb keeps a comment in a byte span fixed
             // at export time, and 1160 of the fixture's 1161 tracks have
             // a span of zero. Writing a truncated prefix of the DJ's own
             // sentence would be worse than not writing it, so this says
             // so instead. The page says the same thing before the save.
+            //
+            // Only when the mirror did not take it: on a stick carrying
+            // both catalogs the comment did go back, and saying it could
+            // not would contradict both the page and the truth.
             ctx.log().record(std::string(LogTag) + ": DeviceLibrary cannot store a comment for \"" + proposal.stickTrack.title +
                              "\" -- its row has no room to grow one");
-        }
-        // The mirror is the other half of the same library.
-        if (writer.mirror && !proposal.stickTrack.filePath.empty()) {
-            try {
-                writer.mirror->writeAnnotationForPath(proposal.stickTrack.filePath, stars, comment);
-            } catch (const std::exception &e) {
-                ctx.log().record(std::string(LogTag) + ": OneLibrary annotation write failed: " + e.what());
-            }
         }
         return;
     }
 
     // format == "onelibrary": its own writer is the adapter, so go
-    // through a plain OneLibraryCueWriter on the same root.
+    // through a plain OneLibraryCueWriter on the same root, opened once
+    // for the save rather than once per track.
+    auto &annotations = ctx.shared<OneLibraryAnnotationWriter>(
+        "metadata-restore-annotations:" + path.toStdString(),
+        [&]() { return std::make_unique<OneLibraryAnnotationWriter>(path, ctx); });
+    if (!annotations.writer) {
+        return;
+    }
     try {
-        infrastructure::onelibrary::OneLibraryCueWriter direct(path.toStdString());
-        direct.writeAnnotationForPath(proposal.stickTrack.filePath, stars, comment);
+        annotations.writer->writeAnnotationForPath(proposal.stickTrack.filePath, stars, comment);
     } catch (const std::exception &e) {
         ctx.log().record(std::string(LogTag) + ": OneLibrary annotation write failed: " + e.what());
     }
@@ -164,6 +245,20 @@ QString RestoreMetadataChange::description() const
                                                       ? m_proposal.stickTrack.filename
                                                       : m_proposal.stickTrack.title);
     const int cues = static_cast<int>(m_proposal.cues.size());
+    // A proposal can be staged for its rating or its comment alone --
+    // the cues may conflict and be skipped, or there may be none stored.
+    // Saying "Put 0 stored cue(s) back" would describe a write this
+    // change no longer makes.
+    if (!m_proposal.cuesOffered) {
+        QStringList fields;
+        if (m_proposal.ratingOffered) {
+            fields << QStringLiteral("rating");
+        }
+        if (m_proposal.commentOffered) {
+            fields << QStringLiteral("comment");
+        }
+        return QStringLiteral("Put the stored %1 back on \"%2\"").arg(fields.join(QStringLiteral(" and ")), title);
+    }
     if (m_proposal.cuesFillAGap) {
         return QStringLiteral("Put %1 stored cue(s) back on \"%2\"").arg(cues).arg(title);
     }
@@ -188,12 +283,20 @@ QStringList RestoreMetadataChange::formatsTouched() const
 // The format decides which catalog is written; rekordbox additionally
 // writes this track's own analysis file, whose path needs the shared
 // index apply() would build anyway. Same shape as MergeCuesChange.
+//
+// Both flags follow what this particular proposal will actually write,
+// because WriteScope is declared in both directions: a proposal staged
+// for its rating alone writes no analysis file, and one that restores a
+// rating does rewrite export.pdb -- which the up-front backup has to
+// cover rather than leaving to applyAnnotation's backupOnce mid-loop.
 std::vector<BackupTarget> RestoreMetadataChange::filesToBackup(SaveContext &ctx) const
 {
     std::vector<BackupTarget> targets;
     const domain::TrackId track{m_format.toStdString(), m_sourceId.toStdString()};
-    for (const auto &file :
-         filesWrittenFor(WriteScope{.catalogRows = false, .oneLibraryMirror = true}, track, m_path, ctx)) {
+    const WriteScope scope{.cueData = m_proposal.cuesOffered,
+                           .catalogRows = m_proposal.ratingOffered,
+                           .oneLibraryMirror = true};
+    for (const auto &file : filesWrittenFor(scope, track, m_path, ctx)) {
         targets.push_back({file, LogTag});
     }
     return targets;
@@ -213,9 +316,11 @@ ChangeOutcome RestoreMetadataChange::apply(SaveContext &ctx)
     RestoreWriterContext &writer = ctx.shared<RestoreWriterContext>(
         key, [&]() { return std::make_unique<RestoreWriterContext>(m_format, m_path, ctx, oneLibraryPaths); });
 
-    if (m_format == "rekordbox") {
+    if (m_format == "rekordbox" && m_proposal.cuesOffered) {
         // rekordbox keeps cues per track, in ANLZ files, so the file to
-        // back up is this track's own.
+        // back up is this track's own. Nothing to back up when no cue
+        // write is coming: the rating goes into export.pdb, which
+        // applyAnnotation backs up itself.
         const std::string root = m_path.toStdString();
         const auto *pathIndex = sharedAnlzPathIndex(ctx, m_path);
         const auto trackId = static_cast<uint32_t>(std::stoul(sourceId));
@@ -226,18 +331,27 @@ ChangeOutcome RestoreMetadataChange::apply(SaveContext &ctx)
         }
     }
 
-    writer.writer->writeHotCues(sourceId, m_proposal.cues);
-    ctx.log().record(std::string(LogTag) + ": wrote " + std::to_string(m_proposal.cues.size()) +
-                     " stored cue(s) onto " + m_format.toStdString() + " track id=" + sourceId + " (\"" +
-                     track.title + "\")");
+    // Only when the plan actually offers cues. Every writer treats the
+    // vector it is handed as the complete set for the track, so writing
+    // an empty one does not mean "leave the cues alone" -- it means
+    // "delete them". A proposal staged for its rating alone carries no
+    // cues, and under the skip-all default a track whose cues conflict
+    // carries none either: exactly the DJ's live work that the default
+    // exists to protect.
+    if (m_proposal.cuesOffered) {
+        writer.writer->writeHotCues(sourceId, m_proposal.cues);
+        ctx.log().record(std::string(LogTag) + ": wrote " + std::to_string(m_proposal.cues.size()) +
+                         " stored cue(s) onto " + m_format.toStdString() + " track id=" + sourceId + " (\"" +
+                         track.title + "\")");
 
-    if (writer.mirror && !track.filePath.empty()) {
-        try {
-            writer.mirror->writeCuesForPath(track.filePath, m_proposal.cues);
-            ctx.log().record(std::string(LogTag) + ": also wrote them into OneLibrary (id=" + sourceId + ")");
-        } catch (const std::exception &e) {
-            ctx.log().record(std::string(LogTag) + ": OneLibrary cue write failed for \"" + track.title +
-                             "\": " + e.what());
+        if (writer.mirror && !track.filePath.empty()) {
+            try {
+                writer.mirror->writeCuesForPath(track.filePath, m_proposal.cues);
+                ctx.log().record(std::string(LogTag) + ": also wrote them into OneLibrary (id=" + sourceId + ")");
+            } catch (const std::exception &e) {
+                ctx.log().record(std::string(LogTag) + ": OneLibrary cue write failed for \"" + track.title +
+                                 "\": " + e.what());
+            }
         }
     }
 
