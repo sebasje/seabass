@@ -74,6 +74,13 @@ public:
     size_t copyTrackFieldsIfMissing(uint32_t donorTrackId, uint32_t targetTrackId, bool copyKey, bool copyTempo,
                                      bool copyArtwork);
 
+    // Overwrites a track row's rating (0 to 5 stars) in place. One
+    // byte, already present in every track row, so this is a bounded
+    // field overwrite like copyTrackFieldsIfMissing rather than
+    // anything structural. Returns false if no track with this id
+    // exists; throws if the rating is outside 0..5.
+    bool setTrackRating(uint32_t trackId, int rating);
+
     // A track's free-text fields, to be written into the row's existing
     // device_sql_string spans in place -- see overwriteTrackText()'s own
     // doc comment for how each is fit into its field's fixed byte budget.

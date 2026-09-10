@@ -55,6 +55,16 @@ constexpr size_t PlaylistEntryTrackIdOffset = 4;
 constexpr size_t TrackArtworkIdOffset = 28;
 constexpr size_t TrackKeyIdOffset = 32;
 constexpr size_t TrackTempoOffset = 56;
+// track_row.rating, a u1 counted straight off specs/rekordbox_pdb.ksy's
+// seq: subtype(2) index_shift(2) bitmask(4) sample_rate(4)
+// composer_id(4) file_size(4) +4 +2 +2 artwork_id(4) key_id(4)
+// original_artist_id(4) label_id(4) remixer_id(4) bitrate(4)
+// track_number(4) tempo(4) genre_id(4) album_id(4) artist_id(4) id(4)
+// disc_number(2) play_count(2) year(2) sample_depth(2) duration(2) +2
+// color_id(1) -> 89. The count is checked by the three offsets above and
+// ofs_strings below, which land on 28, 32, 56 and 94 exactly as this
+// file already had them.
+constexpr size_t TrackRatingOffset = 89;
 
 // track_row's ofs_strings array: 21 x u2, each the byte offset (relative
 // to row_base) of one device_sql_string field. Continuing the same
@@ -467,6 +477,28 @@ size_t PdbRowWriter::copyTrackFieldsIfMissing(uint32_t donorTrackId, uint32_t ta
     }
     m_editedPageIndices.insert(target->pageIndex);
     return affected;
+}
+
+bool PdbRowWriter::setTrackRating(uint32_t trackId, int rating)
+{
+    // The format documents 0 to 5 stars in one byte. Anything else is a
+    // caller bug, and writing it would put a number in the file that no
+    // player has a way to render.
+    if (rating < 0 || rating > 5) {
+        throw std::runtime_error("rekordbox rating must be 0 to 5, got " + std::to_string(rating));
+    }
+    auto found = findRow(m_buffer, Pdb::PAGE_TYPE_TRACKS, [&](kaitai::kstruct *body) {
+        auto *t = dynamic_cast<Pdb::track_row_t *>(body);
+        return t != nullptr && t->id() == trackId;
+    });
+    if (!found) {
+        return false;
+    }
+    // One byte, already there, in a row that is neither resized nor
+    // moved -- the same shape as every other edit in this class.
+    m_buffer.at(found->rowBodyOffset + TrackRatingOffset) = static_cast<char>(rating);
+    m_editedPageIndices.insert(found->pageIndex);
+    return true;
 }
 
 bool PdbRowWriter::overwriteTrackText(uint32_t trackId, const TrackTextOverride &text)

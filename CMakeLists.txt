@@ -982,6 +982,12 @@ add_executable(local_restore_test
 target_include_directories(local_restore_test PRIVATE src)
 add_test(NAME local_restore_test COMMAND local_restore_test)
 
+add_executable(pdb_rating_write_test tests/pdb_rating_write_test.cpp)
+target_include_directories(pdb_rating_write_test PRIVATE src)
+target_compile_definitions(pdb_rating_write_test PRIVATE SEABASS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(pdb_rating_write_test PRIVATE seabass_core)
+add_test(NAME pdb_rating_write_test COMMAND pdb_rating_write_test)
+
 add_executable(metadata_restore_test
     src/domain/metadata_restore.cpp
     src/domain/track_matching.cpp

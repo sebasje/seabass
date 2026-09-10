@@ -126,7 +126,29 @@ the unambiguous case, it is common after a re-export, and it needs no
 conflict policy because there is nothing to overwrite.
 
 Beyond it, the same page offers rating and comment, under the skip-all
-default.
+default -- but not everywhere, and the difference is measured rather than
+assumed (`tests/pdb_rating_write_test.cpp`):
+
+| | rating | comment |
+|---|---|---|
+| Engine | yes, `set_rating` | yes, `set_comment` |
+| OneLibrary | yes, plain SQL | yes, plain SQL |
+| DeviceLibrary (`export.pdb`) | yes, a 1-byte field at offset 89 | **no** |
+
+`export.pdb` keeps a comment in a `device_sql_string` whose byte span is
+fixed at export time, and the only write available is a re-encode into
+exactly that span. So a comment can be shortened or replaced with one
+that fits, and never lengthened. On the committed fixture **1160 of 1161
+tracks have no comment at all**, which is a span of zero bytes -- so
+precisely the tracks a restore would want to give a comment back to are
+the ones that cannot take one. Growing the row is the page-allocator
+problem `docs/library-health-format-divergence.md` sizes up, not a field
+overwrite.
+
+One more thing the format cannot say: rekordbox stores "unrated" and
+"zero stars" as the same byte, and the reader maps 0 to "no rating". So
+writing a 0 clears a rating rather than setting a zero-star one. The
+store keeps the two apart; DeviceLibrary cannot.
 
 Writes are **staged, not applied**. Restore builds one `PendingChange`
 per track into the library's `LibraryEditSession`, exactly as
