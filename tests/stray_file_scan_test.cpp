@@ -24,6 +24,8 @@
 #include "infrastructure/cleanup/stray_file_scan.hpp"
 #include "mp3_fixture.hpp"
 
+#include "scratch_path.hpp"
+
 using namespace seabass;
 using namespace seabass::test_fixture::mp3;
 namespace fs = std::filesystem;
@@ -78,7 +80,7 @@ const domain::Track *findStray(const std::vector<domain::Track> &tracks, const s
 
 int main()
 {
-    fs::path root = fs::temp_directory_path() / "seabass_stray_file_scan_test";
+    fs::path root = seabass::testing::scratchRoot() / "seabass_stray_file_scan_test";
     fs::remove_all(root);
     fs::create_directories(root);
 

@@ -16,6 +16,8 @@
 #include "infrastructure/cleanup/pending_deletion_applier.hpp"
 #include "infrastructure/long_paths.hpp"
 
+#include "scratch_path.hpp"
+
 using namespace seabass::infrastructure::cleanup;
 namespace fs = std::filesystem;
 
@@ -107,7 +109,7 @@ PendingDeletion makeEntry(const std::string &filePath, const std::string &backup
 
 int main()
 {
-    fs::path root = fs::temp_directory_path() / "seabass_pending_deletion_applier_test";
+    fs::path root = seabass::testing::scratchRoot() / "seabass_pending_deletion_applier_test";
     // Not fs::remove_all: case 4 builds a tree past MAX_PATH, and
     // remove_all never returns on one (see infrastructure/long_paths.hpp),
     // so one interrupted run would hang every later run of this file.

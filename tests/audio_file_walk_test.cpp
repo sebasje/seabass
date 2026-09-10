@@ -6,6 +6,8 @@
 
 #include "infrastructure/cleanup/audio_file_walk.hpp"
 
+#include "scratch_path.hpp"
+
 using seabass::application::CancellationToken;
 using seabass::infrastructure::cleanup::isAudioExtension;
 using seabass::infrastructure::cleanup::walkAudioFiles;
@@ -50,7 +52,7 @@ int main()
         std::cout << "case 1 (audio extensions, closed list) OK\n";
     }
 
-    fs::path root = fs::temp_directory_path() / "seabass_audio_file_walk_test";
+    fs::path root = seabass::testing::scratchRoot() / "seabass_audio_file_walk_test";
     fs::remove_all(root);
 
     // Case 2: a real nested tree. Audio at several depths is found with

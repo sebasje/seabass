@@ -6,6 +6,8 @@
 
 #include "infrastructure/scratch_dir_guard.hpp"
 
+#include "scratch_path.hpp"
+
 using namespace seabass::infrastructure;
 namespace fs = std::filesystem;
 
@@ -14,7 +16,7 @@ namespace
 
 fs::path makeScratchWithFile(const std::string &name)
 {
-    fs::path dir = fs::temp_directory_path() / name;
+    fs::path dir = seabass::testing::scratchRoot() / name;
     std::error_code ec;
     fs::remove_all(dir, ec);
     fs::create_directories(dir);
@@ -64,7 +66,7 @@ int main()
     // not a crash/throw -- covers the "moved-from temporary" no-op path
     // directly.
     {
-        fs::path dir = fs::temp_directory_path() / "seabass_scratch_dir_guard_test_nonexistent";
+        fs::path dir = seabass::testing::scratchRoot() / "seabass_scratch_dir_guard_test_nonexistent";
         std::error_code ec;
         fs::remove_all(dir, ec);
         { ScratchDirGuard guard(dir); }

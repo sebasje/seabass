@@ -15,6 +15,8 @@
 #include "infrastructure/long_paths.hpp"
 #include "infrastructure/stick_backup/stick_tree_walker.hpp"
 
+#include "scratch_path.hpp"
+
 using namespace seabass::infrastructure;
 using seabass::application::CancellationToken;
 using seabass::infrastructure::stick_backup::TreeEntry;
@@ -61,7 +63,7 @@ void writeThrough(const fs::path &path, const std::string &content)
 
 fs::path freshRoot(const std::string &name)
 {
-    fs::path root = fs::temp_directory_path() / ("seabass_long_paths_test_" + name);
+    fs::path root = seabass::testing::scratchRoot() / ("seabass_long_paths_test_" + name);
     // Deliberately not fs::remove_all -- see the case 1 comment.
     removeTreeDeepestFirst(root);
     std::error_code ec;

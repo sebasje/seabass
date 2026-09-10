@@ -11,6 +11,8 @@
 #include "infrastructure/onelibrary/onelibrary_key.hpp"
 #include "infrastructure/onelibrary/sqlcipher_dyn.hpp"
 
+#include "scratch_path.hpp"
+
 using namespace seabass::infrastructure::onelibrary;
 using namespace seabass::domain;
 namespace fs = std::filesystem;
@@ -56,7 +58,7 @@ std::vector<CuePoint> sampleCues()
 // Fresh empty scratch dir with a fixture in it, ready for one test case.
 fs::path freshScratch()
 {
-    fs::path scratch = fs::temp_directory_path() / "seabass_onelibrary_test";
+    fs::path scratch = seabass::testing::scratchRoot() / "seabass_onelibrary_test";
     std::error_code ec;
     fs::remove_all(scratch, ec);
     fs::create_directories(scratch);
@@ -361,14 +363,14 @@ int main()
         createFixture(pioneerRoot.string());
         std::string realFilePath = (scratch / "Contents" / "Test Track.mp3").string();
 
-        fs::path relocated = fs::temp_directory_path() / "seabass_onelibrary_relocated_test";
+        fs::path relocated = seabass::testing::scratchRoot() / "seabass_onelibrary_relocated_test";
         std::error_code ec;
         fs::remove_all(relocated, ec);
         fs::create_directories(relocated / "rekordbox");
         fs::copy_file(OneLibraryCueWriter::dbPathFor(pioneerRoot.string()), relocated / "rekordbox" / "exportLibrary.db");
 
         // Without realStickRoot, this would derive the stick root as
-        // relocated's own parent (fs::temp_directory_path()) -- nothing
+        // relocated's own parent (seabass::testing::scratchRoot()) -- nothing
         // under there matches realFilePath, so the lookup would fail.
         // Passing it explicitly is what this test actually verifies.
         OneLibraryCueWriter writer(relocated.string(), scratch.string());

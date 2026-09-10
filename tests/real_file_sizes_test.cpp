@@ -11,6 +11,8 @@
 
 #include "application/use_cases/real_file_sizes.hpp"
 
+#include "scratch_path.hpp"
+
 using namespace seabass;
 namespace fs = std::filesystem;
 
@@ -19,7 +21,7 @@ namespace
 
 fs::path scratchDir()
 {
-    fs::path root = fs::temp_directory_path() / "seabass_real_file_sizes_test";
+    fs::path root = seabass::testing::scratchRoot() / "seabass_real_file_sizes_test";
     fs::remove_all(root);
     fs::create_directories(root);
     return root;

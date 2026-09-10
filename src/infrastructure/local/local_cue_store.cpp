@@ -13,6 +13,7 @@
 #include "domain/track_matching.hpp"
 #include "infrastructure/compression/zlib_compressor.hpp"
 #include "infrastructure/local/app_data_directory.hpp"
+#include "infrastructure/local/sqlite_statement.hpp"
 
 namespace seabass::infrastructure::local
 {
@@ -26,105 +27,19 @@ namespace
 
 constexpr double DurationToleranceSeconds = 2.0;
 
-std::string isoTimestampUtc()
+constexpr const char *Context = "local cue store";
+
+// The shared RAII statement and exec() (sqlite_statement.hpp) with this
+// store's error-message context bound in, so every call site below stays
+// two arguments and says which store failed when it throws.
+struct Stmt : Statement
 {
-    std::time_t t = std::time(nullptr);
-    std::tm tm{};
-#if defined(_WIN32)
-    // gmtime_s takes its arguments in the opposite order from POSIX's
-    // gmtime_r (destination first) and returns errno_t rather than a
-    // struct tm* -- not just a rename.
-    gmtime_s(&tm, &t);
-#else
-    gmtime_r(&t, &tm);
-#endif
-    char buf[32];
-    std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm);
-    return buf;
-}
-
-// Thin RAII wrapper so a thrown exception (or an early return) never
-// leaks a prepared statement.
-class Statement
-{
-public:
-    Statement(sqlite3 *db, const char *sql) : m_db(db)
-    {
-        if (sqlite3_prepare_v2(db, sql, -1, &m_stmt, nullptr) != SQLITE_OK) {
-            throw std::runtime_error(std::string("local cue store: failed to prepare statement: ") +
-                                      sqlite3_errmsg(db));
-        }
-    }
-    ~Statement() { sqlite3_finalize(m_stmt); }
-
-    Statement(const Statement &) = delete;
-    Statement &operator=(const Statement &) = delete;
-
-    void bind(int index, const std::string &value)
-    {
-        sqlite3_bind_text(m_stmt, index, value.c_str(), -1, SQLITE_TRANSIENT);
-    }
-    void bind(int index, double value) { sqlite3_bind_double(m_stmt, index, value); }
-    void bind(int index, int value) { sqlite3_bind_int(m_stmt, index, value); }
-    void bindInt64(int index, sqlite3_int64 value) { sqlite3_bind_int64(m_stmt, index, value); }
-    void bindBlob(int index, const std::string &value)
-    {
-        sqlite3_bind_blob(m_stmt, index, value.data(), static_cast<int>(value.size()), SQLITE_TRANSIENT);
-    }
-
-    // Runs to completion; throws if the statement reports an error.
-    void run()
-    {
-        int rc = sqlite3_step(m_stmt);
-        if (rc != SQLITE_DONE && rc != SQLITE_ROW) {
-            throw std::runtime_error(std::string("local cue store: statement failed: ") + sqlite3_errmsg(m_db));
-        }
-    }
-
-    // For SELECTs: advances to the next row, returning false once
-    // exhausted.
-    bool step()
-    {
-        int rc = sqlite3_step(m_stmt);
-        if (rc == SQLITE_ROW) {
-            return true;
-        }
-        if (rc == SQLITE_DONE) {
-            return false;
-        }
-        throw std::runtime_error(std::string("local cue store: statement failed: ") + sqlite3_errmsg(m_db));
-    }
-
-    std::string columnText(int index)
-    {
-        const unsigned char *text = sqlite3_column_text(m_stmt, index);
-        return text ? reinterpret_cast<const char *>(text) : "";
-    }
-    double columnDouble(int index) { return sqlite3_column_double(m_stmt, index); }
-    int columnInt(int index) { return sqlite3_column_int(m_stmt, index); }
-    sqlite3_int64 columnInt64(int index) { return sqlite3_column_int64(m_stmt, index); }
-    std::string columnBlob(int index)
-    {
-        const void *data = sqlite3_column_blob(m_stmt, index);
-        int size = sqlite3_column_bytes(m_stmt, index);
-        return data ? std::string(reinterpret_cast<const char *>(data), static_cast<size_t>(size)) : std::string();
-    }
-
-    sqlite3_int64 lastInsertRowId() { return sqlite3_last_insert_rowid(m_db); }
-
-private:
-    sqlite3 *m_db;
-    sqlite3_stmt *m_stmt = nullptr;
+    Stmt(sqlite3 *db, const char *sql) : Statement(db, sql, Context) {}
 };
 
 void exec(sqlite3 *db, const char *sql)
 {
-    char *errMsg = nullptr;
-    if (sqlite3_exec(db, sql, nullptr, nullptr, &errMsg) != SQLITE_OK) {
-        std::string message = errMsg ? errMsg : "unknown error";
-        sqlite3_free(errMsg);
-        throw std::runtime_error("local cue store: " + message);
-    }
+    local::exec(db, sql, Context);
 }
 
 // A schema migration for a database that already had backup_sessions
@@ -422,7 +337,7 @@ std::vector<Track> LocalCueStore::readAll()
 {
     std::vector<Track> tracks;
 
-    Statement trackStmt(m_db,
+    Stmt trackStmt(m_db,
                          "SELECT id, filename, title, artist, duration_seconds FROM tracks ORDER BY id");
     while (trackStmt.step()) {
         Track track;
@@ -433,7 +348,7 @@ std::vector<Track> LocalCueStore::readAll()
         track.artist = trackStmt.columnText(3);
         track.durationSeconds = trackStmt.columnDouble(4);
 
-        Statement cueStmt(m_db,
+        Stmt cueStmt(m_db,
                            "SELECT kind, hot_cue_number, position_ms, color, comment, is_loop, loop_end_ms "
                            "FROM cues WHERE track_id = ?");
         cueStmt.bindInt64(1, id);
@@ -468,7 +383,7 @@ void LocalCueStore::upsert(const std::vector<Track> &tracks, const std::string &
         std::optional<sqlite3_int64> existingId;
         auto key = domain::titleArtistKey(track);
         if (key) {
-            Statement find(m_db, "SELECT id, duration_seconds FROM tracks WHERE title_artist_key = ?");
+            Stmt find(m_db, "SELECT id, duration_seconds FROM tracks WHERE title_artist_key = ?");
             find.bind(1, *key);
             while (find.step()) {
                 if (std::abs(find.columnDouble(1) - track.durationSeconds) <= DurationToleranceSeconds) {
@@ -478,7 +393,7 @@ void LocalCueStore::upsert(const std::vector<Track> &tracks, const std::string &
             }
         }
         if (!existingId) {
-            Statement find(m_db, "SELECT id, duration_seconds FROM tracks WHERE filename_normalized = ?");
+            Stmt find(m_db, "SELECT id, duration_seconds FROM tracks WHERE filename_normalized = ?");
             find.bind(1, domain::normalizeFilename(track.filename));
             while (find.step()) {
                 if (std::abs(find.columnDouble(1) - track.durationSeconds) <= DurationToleranceSeconds) {
@@ -491,7 +406,7 @@ void LocalCueStore::upsert(const std::vector<Track> &tracks, const std::string &
         sqlite3_int64 trackId;
         if (existingId) {
             trackId = *existingId;
-            Statement update(m_db, R"sql(
+            Stmt update(m_db, R"sql(
                 UPDATE tracks SET filename_normalized = ?, filename = ?, title = ?, artist = ?,
                     title_artist_key = ?, duration_seconds = ?, source_format = ?, source_label = ?,
                     backed_up_at = ?
@@ -511,11 +426,11 @@ void LocalCueStore::upsert(const std::vector<Track> &tracks, const std::string &
             update.bindInt64(10, trackId);
             update.run();
 
-            Statement deleteCues(m_db, "DELETE FROM cues WHERE track_id = ?");
+            Stmt deleteCues(m_db, "DELETE FROM cues WHERE track_id = ?");
             deleteCues.bindInt64(1, trackId);
             deleteCues.run();
         } else {
-            Statement insert(m_db, R"sql(
+            Stmt insert(m_db, R"sql(
                 INSERT INTO tracks (filename_normalized, filename, title, artist, title_artist_key,
                     duration_seconds, source_format, source_label, backed_up_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -536,7 +451,7 @@ void LocalCueStore::upsert(const std::vector<Track> &tracks, const std::string &
         }
 
         for (const auto &cue : track.cues) {
-            Statement insertCue(m_db, R"sql(
+            Stmt insertCue(m_db, R"sql(
                 INSERT INTO cues (track_id, kind, hot_cue_number, position_ms, color, comment, is_loop, loop_end_ms)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             )sql");
@@ -569,7 +484,7 @@ std::int64_t LocalCueStore::createSnapshot(const std::vector<Track> &tracks, con
     std::string serialized = serializeTracksV2(withCues);
     std::string compressed = compression::compress(serialized);
 
-    Statement insert(m_db, R"sql(
+    Stmt insert(m_db, R"sql(
         INSERT INTO backup_sessions (created_at, stick_label, source_format, description, track_count,
             cue_count, uncompressed_size_bytes, compressed_size_bytes, schema_version, data)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -591,7 +506,7 @@ std::int64_t LocalCueStore::createSnapshot(const std::vector<Track> &tracks, con
 std::vector<BackupSessionSummary> LocalCueStore::listSnapshots()
 {
     std::vector<BackupSessionSummary> summaries;
-    Statement stmt(m_db, R"sql(
+    Stmt stmt(m_db, R"sql(
         SELECT id, created_at, stick_label, source_format, description, track_count, cue_count,
             uncompressed_size_bytes, compressed_size_bytes, schema_version
         FROM backup_sessions ORDER BY id DESC
@@ -615,7 +530,7 @@ std::vector<BackupSessionSummary> LocalCueStore::listSnapshots()
 
 std::vector<Track> LocalCueStore::readSnapshot(std::int64_t id)
 {
-    Statement stmt(m_db, "SELECT data, uncompressed_size_bytes, schema_version FROM backup_sessions WHERE id = ?");
+    Stmt stmt(m_db, "SELECT data, uncompressed_size_bytes, schema_version FROM backup_sessions WHERE id = ?");
     stmt.bindInt64(1, id);
     if (!stmt.step()) {
         throw std::runtime_error("local cue store: no such backup session " + std::to_string(id));
@@ -629,7 +544,7 @@ std::vector<Track> LocalCueStore::readSnapshot(std::int64_t id)
 
 void LocalCueStore::setSnapshotDescription(std::int64_t id, const std::string &description)
 {
-    Statement update(m_db, "UPDATE backup_sessions SET description = ? WHERE id = ?");
+    Stmt update(m_db, "UPDATE backup_sessions SET description = ? WHERE id = ?");
     update.bind(1, description);
     update.bindInt64(2, id);
     update.run();
@@ -637,7 +552,7 @@ void LocalCueStore::setSnapshotDescription(std::int64_t id, const std::string &d
 
 bool LocalCueStore::deleteSnapshot(std::int64_t id)
 {
-    Statement del(m_db, "DELETE FROM backup_sessions WHERE id = ?");
+    Stmt del(m_db, "DELETE FROM backup_sessions WHERE id = ?");
     del.bindInt64(1, id);
     del.run();
     return sqlite3_changes(m_db) > 0;

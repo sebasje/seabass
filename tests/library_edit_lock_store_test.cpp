@@ -21,6 +21,8 @@
 #include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+#include "scratch_path.hpp"
 #endif
 
 using namespace seabass::infrastructure::local;
@@ -49,7 +51,7 @@ LibraryEditLock lockFor(const std::string &instance, std::int64_t pid, const std
 
 int main()
 {
-    fs::path root = fs::temp_directory_path() / "seabass_library_edit_lock_store_test";
+    fs::path root = seabass::testing::scratchRoot() / "seabass_library_edit_lock_store_test";
     fs::remove_all(root);
     fs::create_directories(root);
 

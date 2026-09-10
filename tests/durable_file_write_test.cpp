@@ -7,6 +7,8 @@
 
 #include "infrastructure/durable_file_write.hpp"
 
+#include "scratch_path.hpp"
+
 using namespace seabass::infrastructure;
 namespace fs = std::filesystem;
 
@@ -31,7 +33,7 @@ void writeFile(const fs::path &p, const std::string &content)
 
 int main()
 {
-    fs::path root = fs::temp_directory_path() / "seabass_durable_file_write_test";
+    fs::path root = seabass::testing::scratchRoot() / "seabass_durable_file_write_test";
     fs::remove_all(root);
     fs::create_directories(root);
 

@@ -17,6 +17,15 @@ Page {
     signal anonymizeLibraryRequested()
 
     header: ToolBar {
+        // Every side zeroed so the header's inset is Theme.pageMargin
+        // and nothing else. `padding` alone does not do it: styles set
+        // horizontalPadding or leftPadding of their own on top of it,
+        // 4px under Breeze and 6 under the default style, and that is
+        // exactly how far right of the body the breadcrumb used to sit.
+        leftPadding: 0
+        rightPadding: 0
+        topPadding: 0
+        bottomPadding: 0
         // Explicit opaque background. KDE's platform theme integration
         // resolves ToolBar to its own "org.kde.breeze" style regardless of
         // this app's Material palette (see main.cpp's exportMaterialPalette()
@@ -30,7 +39,7 @@ Page {
 
         RowLayout {
             anchors.fill: parent
-            anchors.margins: 8
+            anchors.margins: Theme.pageMargin
             BackBreadcrumb {
                 title: "Preferences"
                 onHomeRequested: root.StackView.view.pop(null)

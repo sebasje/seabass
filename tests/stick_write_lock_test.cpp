@@ -7,12 +7,14 @@
 
 #include "infrastructure/backup/stick_write_lock.hpp"
 
+#include "scratch_path.hpp"
+
 using namespace seabass::infrastructure::backup;
 namespace fs = std::filesystem;
 
 int main()
 {
-    fs::path root = fs::temp_directory_path() / "seabass_stick_write_lock_test";
+    fs::path root = seabass::testing::scratchRoot() / "seabass_stick_write_lock_test";
     fs::remove_all(root);
     fs::create_directories(root);
     std::string lockPath = (root / "Seabass" / "backups" / ".write.lock").string();

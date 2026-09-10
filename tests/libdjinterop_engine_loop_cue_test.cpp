@@ -13,6 +13,8 @@
 #include "infrastructure/engine/libdjinterop_engine_library_creator.hpp"
 #include "infrastructure/engine/libdjinterop_engine_reader.hpp"
 
+#include "scratch_path.hpp"
+
 using namespace seabass::infrastructure::engine;
 using seabass::domain::CuePoint;
 using seabass::domain::Track;
@@ -23,7 +25,7 @@ namespace
 
 fs::path freshRoot(const std::string &caseName)
 {
-    fs::path root = fs::temp_directory_path() / "seabass_engine_loop_cue_test" / caseName / "Engine Library";
+    fs::path root = seabass::testing::scratchRoot() / "seabass_engine_loop_cue_test" / caseName / "Engine Library";
     fs::remove_all(root.parent_path());
     fs::create_directories(root.parent_path());
     return root;

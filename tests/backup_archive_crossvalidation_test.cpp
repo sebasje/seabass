@@ -37,6 +37,8 @@
 #include "infrastructure/stick_backup/zip64_writer.hpp"
 #include "infrastructure/stick_backup/zip_format.hpp"
 
+#include "scratch_path.hpp"
+
 using namespace seabass::infrastructure::stick_backup;
 namespace fs = std::filesystem;
 
@@ -283,7 +285,7 @@ int main()
     std::cout << "using python3=" << python << " unzip=" << (unzip.empty() ? "(none)" : unzip)
               << " 7z=" << (sevenZip.empty() ? "(none)" : sevenZip) << "\n";
 
-    fs::path root = fs::temp_directory_path() / "seabass_backup_archive_crossvalidation_test";
+    fs::path root = seabass::testing::scratchRoot() / "seabass_backup_archive_crossvalidation_test";
     fs::remove_all(root);
     fs::create_directories(root);
 

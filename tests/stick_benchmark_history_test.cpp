@@ -4,6 +4,8 @@
 
 #include "infrastructure/benchmark/stick_benchmark_history.hpp"
 
+#include "scratch_path.hpp"
+
 using namespace seabass::infrastructure::benchmark;
 namespace fs = std::filesystem;
 
@@ -28,7 +30,7 @@ BenchmarkRecord makeRecord(std::string stickIdentifier, std::string stickLabel, 
 
 int main()
 {
-    fs::path dbPath = fs::temp_directory_path() / "seabass_benchmark_history_test.db";
+    fs::path dbPath = seabass::testing::scratchRoot() / "seabass_benchmark_history_test.db";
     fs::remove(dbPath);
 
     // Case 1: record + historyFor round-trips for one stick, newest first.

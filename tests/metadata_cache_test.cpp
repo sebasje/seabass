@@ -8,6 +8,8 @@
 
 #include "infrastructure/local/metadata_cache.hpp"
 
+#include "scratch_path.hpp"
+
 using seabass::application::FileMetadata;
 using seabass::infrastructure::local::MetadataCache;
 namespace fs = std::filesystem;
@@ -54,7 +56,7 @@ FileMetadata sample()
 
 int main()
 {
-    fs::path root = fs::temp_directory_path() / "seabass_metadata_cache_test";
+    fs::path root = seabass::testing::scratchRoot() / "seabass_metadata_cache_test";
     fs::remove_all(root);
     fs::create_directories(root);
     const std::string audio = writeFile(root / "Contents" / "a" / "track.mp3", "not really audio, but a real file");

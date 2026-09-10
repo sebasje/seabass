@@ -7,6 +7,8 @@
 #include "infrastructure/backup/filesystem_backup_store.hpp"
 #include "infrastructure/engine/libdjinterop_engine_cleanup_writer.hpp"
 
+#include "scratch_path.hpp"
+
 using namespace seabass::infrastructure::backup;
 using namespace seabass::infrastructure::engine;
 namespace fs = std::filesystem;
@@ -30,7 +32,7 @@ namespace fs = std::filesystem;
 // to safely undo an arbitrarily-interrupted batch.
 int main()
 {
-    fs::path root = fs::temp_directory_path() / "seabass_duplicate_cleanup_interruption_test";
+    fs::path root = seabass::testing::scratchRoot() / "seabass_duplicate_cleanup_interruption_test";
     fs::remove_all(root);
     fs::create_directories(root);
     fs::path engineRoot = root / "Engine Library";

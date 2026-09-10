@@ -8,6 +8,8 @@
 #include "infrastructure/rekordbox/big_endian.hpp"
 #include "infrastructure/rekordbox/generated/rekordbox_anlz.h"
 
+#include "scratch_path.hpp"
+
 using Anlz = rekordbox_anlz_t;
 namespace fs = std::filesystem;
 using namespace seabass::infrastructure::rekordbox;
@@ -62,7 +64,7 @@ int main()
     data += section;
     writeU32BE(data, 8, static_cast<uint32_t>(data.size()));
 
-    fs::path tmp = fs::temp_directory_path() / "seabass_rekordbox_loop_cue_test.anlz";
+    fs::path tmp = seabass::testing::scratchRoot() / "seabass_rekordbox_loop_cue_test.anlz";
     writeFile(tmp, data);
 
     std::ifstream ifs(tmp, std::ifstream::binary);

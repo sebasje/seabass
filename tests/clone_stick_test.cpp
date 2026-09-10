@@ -8,6 +8,8 @@
 #include "infrastructure/stick_backup/backup_manifest.hpp"
 #include "stick_fixture.hpp"
 
+#include "scratch_path.hpp"
+
 using namespace seabass::application;
 using namespace seabass::test_fixture;
 using seabass::infrastructure::stick_backup::BackupStatus;
@@ -25,7 +27,7 @@ struct Fixture
     CloneStickOptions options;
 
     explicit Fixture(const std::string &name)
-        : root(fs::temp_directory_path() / ("seabass_clone_stick_test_" + name)), source(root / "source"),
+        : root(seabass::testing::scratchRoot() / ("seabass_clone_stick_test_" + name)), source(root / "source"),
           archive(root / "Seabass Backups" / "SOURCE.zip"), target(root / "target")
     {
         fs::remove_all(root);

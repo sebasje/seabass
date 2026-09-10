@@ -11,6 +11,8 @@
 #include "infrastructure/onelibrary/onelibrary_key.hpp"
 #include "infrastructure/onelibrary/sqlcipher_dyn.hpp"
 
+#include "scratch_path.hpp"
+
 using namespace seabass::infrastructure::onelibrary;
 using namespace seabass::domain;
 using seabass::gui::OneLibraryCueWriterAdapter;
@@ -57,7 +59,7 @@ int main()
     // via an entirely independent second connection, not just "the call
     // didn't throw".
     {
-        fs::path scratch = fs::temp_directory_path() / "seabass_onelibrary_cue_writer_adapter_test";
+        fs::path scratch = seabass::testing::scratchRoot() / "seabass_onelibrary_cue_writer_adapter_test";
         std::error_code ec;
         fs::remove_all(scratch, ec);
         fs::create_directories(scratch);
@@ -86,7 +88,7 @@ int main()
     // failure mode a caller building an incomplete sourceId->path map
     // would otherwise hit silently.
     {
-        fs::path scratch = fs::temp_directory_path() / "seabass_onelibrary_cue_writer_adapter_test2";
+        fs::path scratch = seabass::testing::scratchRoot() / "seabass_onelibrary_cue_writer_adapter_test2";
         std::error_code ec;
         fs::remove_all(scratch, ec);
         fs::create_directories(scratch);

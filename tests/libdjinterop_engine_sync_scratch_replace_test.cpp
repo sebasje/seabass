@@ -15,6 +15,8 @@
 #include "infrastructure/engine/libdjinterop_engine_library_creator.hpp"
 #include "infrastructure/engine/libdjinterop_engine_reader.hpp"
 
+#include "scratch_path.hpp"
+
 using namespace seabass::infrastructure::engine;
 using seabass::domain::CuePoint;
 using seabass::domain::Track;
@@ -54,7 +56,7 @@ std::vector<CuePoint> cuesFor(int index)
 
 int main()
 {
-    fs::path root = fs::temp_directory_path() / "seabass_engine_sync_scratch_replace_test";
+    fs::path root = seabass::testing::scratchRoot() / "seabass_engine_sync_scratch_replace_test";
     fs::remove_all(root);
     fs::create_directories(root);
 

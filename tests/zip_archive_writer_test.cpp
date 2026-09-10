@@ -12,6 +12,8 @@
 
 #include "infrastructure/zip_archive_writer.hpp"
 
+#include "scratch_path.hpp"
+
 using seabass::infrastructure::writeZipArchive;
 namespace fs = std::filesystem;
 
@@ -121,7 +123,7 @@ std::vector<ParsedEntry> parseZip(const fs::path &zipPath)
 
 int main()
 {
-    fs::path root = fs::temp_directory_path() / "seabass_zip_archive_writer_test";
+    fs::path root = seabass::testing::scratchRoot() / "seabass_zip_archive_writer_test";
     fs::remove_all(root);
     fs::create_directories(root);
 
