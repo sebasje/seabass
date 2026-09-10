@@ -499,6 +499,33 @@ void OneLibraryCueWriter::writeAnnotationForPath(const std::string &filePath, co
         throw;
     }
 
+    // Re-read the committed result through the separate verify
+    // connection before trusting it -- the same convention every other
+    // write in this class follows, and it costs no extra open because
+    // that connection is already held. Without it a rating that did not
+    // land would still advance the staleness baseline below, so this
+    // writer would record the file as its own successful change and the
+    // page would tell the DJ the rating went back.
+    SqlCipherDb &verifyDb = verifyConnection();
+    if (stars) {
+        SqlCipherStatement verify(verifyDb, "SELECT rating FROM content WHERE content_id = ?");
+        verify.bindInt64(1, contentId);
+        verify.step();
+        if (verify.columnIsNull(0) || verify.columnInt64(0) != *stars) {
+            throw std::runtime_error("onelibrary: post-write verification failed, rating did not land for "
+                                     + contentPath);
+        }
+    }
+    if (comment) {
+        SqlCipherStatement verify(verifyDb, "SELECT djComment FROM content WHERE content_id = ?");
+        verify.bindInt64(1, contentId);
+        verify.step();
+        if (verify.columnText(0) != *comment) {
+            throw std::runtime_error("onelibrary: post-write verification failed, comment did not land for "
+                                     + contentPath);
+        }
+    }
+
     refreshStalenessBaseline();
 }
 

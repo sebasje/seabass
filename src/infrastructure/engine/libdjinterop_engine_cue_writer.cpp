@@ -57,13 +57,21 @@ void LibdjinteropEngineCueWriter::writeAnnotation(const std::string &trackSource
         throw std::runtime_error("no Engine track with id=" + trackSourceId);
     }
 
-    if (stars) {
+    if (stars && *stars > 0) {
         // Engine stores 0 to 100; domain::Track carries 0 to 5, which is
         // what every reader normalises to. Twenty per star, so three
         // stars is 60 and the value round-trips through the reader's own
         // division unchanged.
         track->set_rating(*stars * 20);
     }
+    // A zero is deliberately not written. Engine has one value for
+    // "unrated" and for "rated zero stars", and the reader maps anything
+    // <= 0 back to no rating at all -- so writing a 0 would not store a
+    // zero-star rating, it would clear the field and then be offered
+    // again by the next scan, for ever. Same distinction export.pdb
+    // cannot make; see docs/metadata-backup-plan.md. No reader stores a
+    // 0 today (they all guard on > 0), so this is a guard against a
+    // future one rather than a live case.
     if (comment) {
         track->set_comment(*comment);
     }

@@ -62,12 +62,27 @@ public:
         m_sourceIdToPath[trackSourceId] = std::move(filePath);
     }
 
-    // The one held writer, for a caller that needs a OneLibrary write
-    // this port does not express -- a rating, a comment. Going through
-    // this rather than opening a second writer is the difference between
-    // one key derivation per save and two.
+    // The save's one writer for this database, from
+    // sharedOneLibraryWriter(). Set this whenever the adapter is built
+    // inside a save: a writer refreshes its staleness baseline only
+    // after its OWN writes, so two instances against one file make the
+    // second throw "changed since this writer was opened" as soon as the
+    // first writes -- which is why that helper is keyed on the database
+    // and not on the feature. Without it the adapter falls back to a
+    // writer of its own, for callers outside a save (tests, and the
+    // one-shot paths that build an adapter and use it once).
+    void useSharedWriter(infrastructure::onelibrary::OneLibraryCueWriter &shared) { m_shared = &shared; }
+
+    // The writer this adapter writes through, for a caller that needs a
+    // OneLibrary write this port does not express -- a rating, a
+    // comment. Going through this rather than opening another writer is
+    // the difference between one key derivation per save and two, and
+    // between a save that works and one that throws on the second write.
     infrastructure::onelibrary::OneLibraryCueWriter &writer()
     {
+        if (m_shared) {
+            return *m_shared;
+        }
         // Built on first use and kept, not built per call. Every open
         // derives the SQLCipher key from a passphrase, ~115 ms of CPU,
         // so a writer constructed per item put that derivation on every
@@ -75,10 +90,7 @@ public:
         // docs/write-path-performance.md set out to remove, and which it
         // removed from its own nine call sites by holding the writer in
         // SaveContext::shared while this adapter went on rebuilding one
-        // underneath. Holding it is safe for the same reason it is there:
-        // every method checks the staleness guard first and refreshes it
-        // after writing, so a held writer is never used against a file it
-        // no longer recognises.
+        // underneath.
         if (!m_writer) {
             m_writer = std::make_unique<infrastructure::onelibrary::OneLibraryCueWriter>(m_pioneerRoot,
                                                                                           m_realStickRoot);
@@ -90,6 +102,9 @@ private:
     std::string m_pioneerRoot;
     std::unordered_map<std::string, std::string> m_sourceIdToPath;
     std::optional<std::string> m_realStickRoot;
+    // Exactly one of these is used: the save's shared writer when a save
+    // set one, otherwise this adapter's own.
+    infrastructure::onelibrary::OneLibraryCueWriter *m_shared = nullptr;
     std::unique_ptr<infrastructure::onelibrary::OneLibraryCueWriter> m_writer;
 };
 

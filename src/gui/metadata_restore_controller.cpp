@@ -10,6 +10,7 @@
 #include "gui/edit/edit_session_registry.hpp"
 #include "gui/edit/library_edit_session.hpp"
 #include "gui/stick_catalogs.hpp"
+#include "infrastructure/engine/engine_library_layout.hpp"
 #include "infrastructure/local/metadata_store.hpp"
 
 namespace seabass::gui
@@ -21,6 +22,29 @@ using infrastructure::local::MetadataStore;
 
 namespace
 {
+
+namespace fs = std::filesystem;
+
+// The catalog directory for one format on the stick that `libraryPath`
+// belongs to.
+//
+// The page hands the controller a single path -- whichever catalog the
+// stick list happened to open -- but a proposal carries the rows of
+// every catalog that lists the track, and each row's change has to be
+// given the path for ITS OWN format. Handing an Engine change the
+// PIONEER folder points the Engine writer, and its backup, at a
+// database that is not there. Same derivation readAllStickCatalogs()
+// uses to find the catalogs in the first place.
+QString catalogPathForFormat(const QString &libraryPath, const std::string &format)
+{
+    const fs::path stickRoot = fs::path(libraryPath.toStdString()).parent_path();
+    if (format == "engine") {
+        return QString::fromStdString(infrastructure::engine::engineLibraryPath(stickRoot).string());
+    }
+    // rekordbox and onelibrary are two formats of one library, both
+    // under PIONEER.
+    return QString::fromStdString((stickRoot / "PIONEER").string());
+}
 
 // Runs entirely on a background thread -- no access to the controller.
 MetadataRestoreTaskResult runScanTask(QString libraryPath, bool overwriteConflicts,
@@ -339,8 +363,9 @@ void MetadataRestoreController::stage(int index)
         if (row.format == "onelibrary" && hasRekordbox) {
             continue;
         }
-        auto change = std::make_unique<RestoreMetadataChange>(QString::fromStdString(row.format), m_libraryPath,
-                                                               QString::fromStdString(row.sourceId), proposal);
+        auto change = std::make_unique<RestoreMetadataChange>(
+            QString::fromStdString(row.format), catalogPathForFormat(m_libraryPath, row.format),
+            QString::fromStdString(row.sourceId), proposal);
         const QString changeId = change->id();
         if (!m_session->stage(std::move(change))) {
             // Refused: the session reports why and the page shows it.

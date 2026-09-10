@@ -44,7 +44,12 @@ struct RestoreWriterContext
             if (infrastructure::onelibrary::OneLibraryCueWriter::existsFor(root)) {
                 ctx.backupOnce(infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(root), LogTag);
                 try {
-                    mirror = std::make_unique<infrastructure::onelibrary::OneLibraryCueWriter>(root);
+                    // The save's one writer for this database, not a
+                    // second instance against the same file: a writer
+                    // refreshes its staleness baseline only after its own
+                    // writes, so Clean Up staging into the same library
+                    // in the same save would make this one throw.
+                    mirror = &sharedOneLibraryWriter(ctx, root);
                 } catch (const std::exception &e) {
                     ctx.log().record(std::string(LogTag) + ": could not open OneLibrary: " + e.what());
                 }
@@ -56,13 +61,18 @@ struct RestoreWriterContext
             ctx.backupOnce(infrastructure::onelibrary::OneLibraryCueWriter::dbPathFor(root), LogTag);
             // Empty: each change registers its own track through
             // notePath() as it applies, so one adapter serves the save.
-            writer = std::make_unique<OneLibraryCueWriterAdapter>(
+            // It writes through the save's shared writer for the same
+            // reason the mirror above does.
+            auto adapter = std::make_unique<OneLibraryCueWriterAdapter>(
                 root, std::unordered_map<std::string, std::string>{});
+            adapter->useSharedWriter(sharedOneLibraryWriter(ctx, root));
+            writer = std::move(adapter);
         }
     }
 
     std::unique_ptr<application::CueWriter> writer;
-    std::unique_ptr<infrastructure::onelibrary::OneLibraryCueWriter> mirror;
+    // Owned by the save (SaveContext::shared), not by this context.
+    infrastructure::onelibrary::OneLibraryCueWriter *mirror = nullptr;
     // rekordbox only, and only when a rating is actually being written:
     // this one rewrites export.pdb, which no cue write touches at all.
     std::unique_ptr<infrastructure::rekordbox::PdbRowWriter> pdbRows;
@@ -114,6 +124,14 @@ void applyAnnotation(SaveContext &ctx, RestoreWriterContext &writer, const QStri
         // write touches -- so this needs its own writer, opened once per
         // save and committed by an onFinish hook after the loop.
         if (stars) {
+          // The whole rating path, guarded. PdbRowWriter's constructor
+          // throws for an export.pdb that is missing, truncated or does
+          // not validate, and an escape from here reaches
+          // runSaveLoop as a change failure that breaks the batch --
+          // aborting a save whose earlier tracks have already had their
+          // cues written. A rating nobody can write is a line in the log,
+          // not the end of the save.
+          try {
             if (!writer.pdbRows) {
                 writer.pdbPath = (fs::path(path.toStdString()) / "rekordbox" / "export.pdb").string();
                 ctx.backupOnce(writer.pdbPath, LogTag);
@@ -149,19 +167,17 @@ void applyAnnotation(SaveContext &ctx, RestoreWriterContext &writer, const QStri
                 });
             }
             // Throws for a rating outside 0..5, returns false when no
-            // track row carries that id any more. Neither should cost
-            // the save the cues it has already written.
-            try {
-                if (writer.pdbRows->setTrackRating(static_cast<uint32_t>(std::stoul(sourceId)), *stars)) {
-                    writer.pdbDirty = true;
-                } else {
-                    ctx.log().record(std::string(LogTag) + ": no DeviceLibrary row with id=" + sourceId +
-                                     " (\"" + proposal.stickTrack.title + "\"); its rating was not written");
-                }
-            } catch (const std::exception &e) {
-                ctx.log().record(std::string(LogTag) + ": DeviceLibrary rating write failed for \"" +
-                                 proposal.stickTrack.title + "\": " + e.what());
+            // track row carries that id any more.
+            if (writer.pdbRows->setTrackRating(static_cast<uint32_t>(std::stoul(sourceId)), *stars)) {
+                writer.pdbDirty = true;
+            } else {
+                ctx.log().record(std::string(LogTag) + ": no DeviceLibrary row with id=" + sourceId +
+                                 " (\"" + proposal.stickTrack.title + "\"); its rating was not written");
             }
+          } catch (const std::exception &e) {
+            ctx.log().record(std::string(LogTag) + ": DeviceLibrary rating write failed for \"" +
+                             proposal.stickTrack.title + "\": " + e.what());
+          }
         }
         // The mirror is the other half of the same library, and it is
         // the half that can take a comment of any length.
