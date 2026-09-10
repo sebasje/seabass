@@ -207,6 +207,20 @@ CREATE TABLE schema_version (version INTEGER NOT NULL);
 `domain::Track::rating` is an `optional<int>` for exactly this reason and
 flattening it here would throw the distinction away on the way in.
 
+## What the restore page says out loud
+
+A page that silently declines to write a field teaches the DJ that the
+field is unreliable. One that names the format and the reason teaches
+them something true about their own library. So when a scan finds tracks
+whose comment only DeviceLibrary catalogues, the page says so before the
+save rather than the log saying so after it:
+
+> N tracks' comments cannot be put back: they are catalogued only in
+> DeviceLibrary, which stores a comment in a fixed space decided when the
+> stick was exported and cannot make room for a new one. Their cues and
+> ratings still go back. Engine and Device Library Plus take comments of
+> any length.
+
 ## Order of work
 
 1. `MetadataStore` plus its test: schema, upsert under both policies,

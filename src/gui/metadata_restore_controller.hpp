@@ -37,6 +37,8 @@ public:
         CuesAddedRole,     // how many of those are new
         FillsAGapRole,     // the track has no cues at all today
         ConflictRole,      // the track has cues and they differ
+        RatingRole,        // the rating this restore would write, -1 for none
+        CommentRole,       // the comment it would write, empty for none
         StagedRole,
     };
 
@@ -93,6 +95,10 @@ class MetadataRestoreController : public QObject
     Q_PROPERTY(int storedTrackCount READ storedTrackCount NOTIFY analysisChanged)
     Q_PROPERTY(int conflictCount READ conflictCount NOTIFY analysisChanged)
     Q_PROPERTY(int stagedCount READ stagedCount NOTIFY analysisChanged)
+    // Proposals offering a comment that DeviceLibrary alone cannot
+    // store. Not a failure and not hidden: the page says so before the
+    // save rather than the log saying so after it.
+    Q_PROPERTY(int commentsRekordboxCannotTake READ commentsRekordboxCannotTake NOTIFY analysisChanged)
 
 public:
     explicit MetadataRestoreController(QObject *parent = nullptr);
@@ -110,6 +116,7 @@ public:
     int storedTrackCount() const { return m_storedTrackCount; }
     int conflictCount() const { return m_conflictCount; }
     int stagedCount() const { return static_cast<int>(m_stagedByStoredId.size()); }
+    int commentsRekordboxCannotTake() const { return m_commentsRekordboxCannotTake; }
 
     // libraryPath is any catalog directory on the stick; every catalog
     // on it is read and folded into files first, so one proposal covers
@@ -157,6 +164,7 @@ private:
     int m_stickTrackCount = 0;
     int m_storedTrackCount = 0;
     int m_conflictCount = 0;
+    int m_commentsRekordboxCannotTake = 0;
     QString m_currentPhase;
     QString m_errorMessage;
 };

@@ -1133,6 +1133,18 @@ if(TARGET Qt6::Core)
     target_include_directories(format_write_session_test PRIVATE src)
     target_link_libraries(format_write_session_test PRIVATE seabass_edit Qt6::Core)
     add_test(NAME format_write_session_test COMMAND format_write_session_test)
+
+    # Drives one staged change against a real encrypted OneLibrary
+    # database, which is the point of seabass_edit being its own target.
+    # ZLIB and dl for the same reason onelibrary_cue_writer_test needs
+    # them: SQLCipher is loaded at runtime.
+    add_executable(restore_metadata_change_test tests/restore_metadata_change_test.cpp)
+    target_include_directories(restore_metadata_change_test PRIVATE src)
+    target_link_libraries(restore_metadata_change_test PRIVATE seabass_edit Qt6::Core ZLIB::ZLIB)
+    if(NOT WIN32)
+        target_link_libraries(restore_metadata_change_test PRIVATE ${CMAKE_DL_LIBS})
+    endif()
+    add_test(NAME restore_metadata_change_test COMMAND restore_metadata_change_test)
 endif()
 
 add_executable(rekordbox_process_detector_test

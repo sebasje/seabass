@@ -1211,3 +1211,48 @@ runs on.
   Linux (~118 ms) and Windows (~15 ms). That is a host-side path difference,
   not a device one -- both platforms were measured against the same class of
   hardware -- and round 13 retracted the one explanation offered for it.
+
+## Round 17, 2026-09-10: round 4's fix had a hole, and it was the adapter
+
+Round 4 held one OneLibrary writer per database in `SaveContext::shared`
+and measured the derivation cost flat in the item count. It also wrote
+down, about its own first attempt, that "holding the connections inside a
+writer that is still constructed per item just moves where the derivation
+happens". `OneLibraryCueWriterAdapter` was doing exactly that the whole
+time, in the branch round 4 did not measure: `writeHotCues()` built a
+fresh `OneLibraryCueWriter` on every call, and Restore Metadata keyed its
+shared writer per `sourceId` on top of that, so each track got its own
+adapter and its own two opens.
+
+Counted rather than argued, by `tests/restore_metadata_change_test.cpp`
+case 6, on a three-track OneLibrary restore:
+
+| Tracks in one save | SQLCipher opens before | After |
+|---:|---:|---:|
+| 1 | 3 | 2 |
+| 3 | 7 | 2 |
+
+Two opens per track, plus one for the annotation writer. At ~115 ms of
+PBKDF2 per open a four-hundred-track restore paid about ninety seconds of
+pure key derivation, and no existing test would have seen it: the corpus
+matrix in `docs/real-data-testing.md` has no row for
+`RestoreMetadataChange`, and every save it does have is one item deep in
+this format.
+
+The fix is round 4's own, applied where it was missing. The adapter holds
+its writer instead of building one per call; it takes a track's path
+through `notePath()` as each change applies, so the save's key need not
+carry a `sourceId`; and the rating and comment go through that same held
+writer rather than opening a second one. Flat at two -- the write
+connection and the verify connection -- which is the floor round 4 set.
+
+The assertion is on the shape, not the number: one track and three tracks
+must cost the same. A constant that happens to be right today is not what
+went wrong here; linear growth nobody was counting is.
+
+**Still open, and unchanged by this:** `MergeCuesChange` keys its writer
+per track the same way (the `2N / 1` row for Local cue restore in the
+corpus matrix), and the Engine handle and the operation log's stream are
+still reopened. Local cue restore is the deprecated ancestor of Metadata
+Backup and may be removed before it is worth optimising -- see
+`docs/metadata-backup-plan.md`.

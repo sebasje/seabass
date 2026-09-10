@@ -10,6 +10,7 @@
 #include "gui/edit/edit_session_registry.hpp"
 #include "gui/edit/library_edit_session.hpp"
 #include "gui/stick_catalogs.hpp"
+#include "infrastructure/engine/engine_library_layout.hpp"
 #include "infrastructure/local/metadata_store.hpp"
 
 namespace seabass::gui
@@ -21,6 +22,29 @@ using infrastructure::local::MetadataStore;
 
 namespace
 {
+
+namespace fs = std::filesystem;
+
+// The catalog directory for one format on the stick that `libraryPath`
+// belongs to.
+//
+// The page hands the controller a single path -- whichever catalog the
+// stick list happened to open -- but a proposal carries the rows of
+// every catalog that lists the track, and each row's change has to be
+// given the path for ITS OWN format. Handing an Engine change the
+// PIONEER folder points the Engine writer, and its backup, at a
+// database that is not there. Same derivation readAllStickCatalogs()
+// uses to find the catalogs in the first place.
+QString catalogPathForFormat(const QString &libraryPath, const std::string &format)
+{
+    const fs::path stickRoot = fs::path(libraryPath.toStdString()).parent_path();
+    if (format == "engine") {
+        return QString::fromStdString(infrastructure::engine::engineLibraryPath(stickRoot).string());
+    }
+    // rekordbox and onelibrary are two formats of one library, both
+    // under PIONEER.
+    return QString::fromStdString((stickRoot / "PIONEER").string());
+}
 
 // Runs entirely on a background thread -- no access to the controller.
 MetadataRestoreTaskResult runScanTask(QString libraryPath, bool overwriteConflicts,
@@ -97,6 +121,7 @@ QHash<int, QByteArray> RestoreProposalListModel::roleNames() const
         {TitleRole, "title"},         {ArtistRole, "artist"},   {FilenameRole, "filename"},
         {CueCountRole, "cueCount"},   {CuesAddedRole, "cuesAdded"}, {FillsAGapRole, "fillsAGap"},
         {ConflictRole, "conflict"},   {StagedRole, "staged"},
+        {RatingRole, "rating"},       {CommentRole, "comment"},
     };
 }
 
@@ -121,6 +146,12 @@ QVariant RestoreProposalListModel::data(const QModelIndex &index, int role) cons
         return proposal.cuesFillAGap;
     case ConflictRole:
         return proposal.cuesConflict;
+    case RatingRole:
+        // -1 when this restore offers no rating, so a row can tell "no
+        // rating on offer" from "zero stars on offer".
+        return proposal.ratingOffered && proposal.rating ? *proposal.rating : -1;
+    case CommentRole:
+        return proposal.commentOffered ? QString::fromStdString(proposal.comment) : QString();
     case StagedRole:
         return m_staged[static_cast<std::size_t>(index.row())];
     default:
@@ -226,6 +257,33 @@ void MetadataRestoreController::onScanFinished()
     m_stickTrackCount = result.stickTrackCount;
     m_storedTrackCount = result.storedTrackCount;
     m_conflictCount = result.conflictCount;
+    // A comment can only be written where a format can grow one, and
+    // export.pdb cannot (tests/pdb_rating_write_test.cpp). A track that
+    // rekordbox alone catalogues therefore gets its rating back and not
+    // its comment, and the page has to say so.
+    m_commentsRekordboxCannotTake = 0;
+    for (const auto &proposal : result.proposals) {
+        if (!proposal.commentOffered) {
+            continue;
+        }
+        // "No row anywhere but rekordbox", and a track with no catalog
+        // rows at all is not that: collapseCatalogRows() leaves the list
+        // empty for a row with no file path and for an Engine streaming
+        // track, and counting those would have the banner warn about
+        // DeviceLibrary on a stick that may carry no rekordbox catalog.
+        if (proposal.stickTrack.catalogRows.empty()) {
+            continue;
+        }
+        bool elsewhere = false;
+        for (const auto &row : proposal.stickTrack.catalogRows) {
+            if (row.format != "rekordbox") {
+                elsewhere = true;
+            }
+        }
+        if (!elsewhere) {
+            m_commentsRekordboxCannotTake++;
+        }
+    }
     m_hasScanned = true;
     emit analysisChanged();
 }
@@ -278,7 +336,7 @@ void MetadataRestoreController::stage(int index)
     if (m_stagedByStoredId.count(proposal.storedId)) {
         return;
     }
-    if (!proposal.cuesOffered) {
+    if (!proposal.offersAnything()) {
         return;
     }
     if (!m_session) {
@@ -305,8 +363,9 @@ void MetadataRestoreController::stage(int index)
         if (row.format == "onelibrary" && hasRekordbox) {
             continue;
         }
-        auto change = std::make_unique<RestoreMetadataChange>(QString::fromStdString(row.format), m_libraryPath,
-                                                               QString::fromStdString(row.sourceId), proposal);
+        auto change = std::make_unique<RestoreMetadataChange>(
+            QString::fromStdString(row.format), catalogPathForFormat(m_libraryPath, row.format),
+            QString::fromStdString(row.sourceId), proposal);
         const QString changeId = change->id();
         if (!m_session->stage(std::move(change))) {
             // Refused: the session reports why and the page shows it.
