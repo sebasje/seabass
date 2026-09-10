@@ -162,8 +162,7 @@ Page {
                     text: "Stage All Fixable"
                     enabled: !duplicatesController.busy && !duplicatesController.writing
                     ToolTip.visible: hovered
-                    ToolTip.text: "Stage copying cues onto every unambiguous duplicate; conflicts are left for you to decide per copy. "
-                        + "Nothing is written until you press Save."
+                    ToolTip.text: "Stage copying cues onto every clear duplicate. Conflicts are left for you."
                     onClicked: duplicatesController.applyAllUnambiguous()
                 }
                 Button {
@@ -271,7 +270,7 @@ Page {
                                 label: delegateRoot.kind === "unambiguous" ? "Fixable" : "Conflict"
                                 badgeColor: delegateRoot.kind === "unambiguous" ? Theme.good : Theme.conflictText
                                 tooltipText: delegateRoot.actionable
-                                    ? "Conserved: only cues are copied onto the copies missing them. Files, playlists and other metadata are untouched."
+                                    ? "Kept: cues, copied onto the copies missing them.\nUntouched: files, playlists, everything else."
                                     : "These copies disagree, so nothing is copied automatically; decide per-track with the "
                                       + "Copy buttons below.\n\n" + root.conflictDetail(delegateRoot.tracks)
                             }

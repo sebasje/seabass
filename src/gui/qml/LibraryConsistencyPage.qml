@@ -369,7 +369,7 @@ Page {
                 text: "Stage All Safe Repairs"
                 enabled: !consistencyController.busy && !consistencyController.writing && consistencyController.repairableCount > 0
                 ToolTip.visible: hovered
-                ToolTip.text: "Automatically repair every row whose broken copy exactly matches an existing survivor -- conflicts and missing-everywhere rows are left for manual review"
+                ToolTip.text: "Repair every entry with an exact healthy match. Conflicts are left for you."
                 onClicked: confirmRepairAllDialog.open()
             }
         }
@@ -708,14 +708,22 @@ Page {
                         text: "Remove All"
                         enabled: !consistencyController.busy
                         ToolTip.visible: hovered
-                        ToolTip.text: "Permanently remove every memory cue at 0:00 listed below, across every track. Backed up first."
+                        // It stages; it does not remove. The row buttons
+                        // beside it and the confirmation this opens both
+                        // said so already -- this one promised an
+                        // immediate permanent delete, which is the wrong
+                        // thing to tell someone in both directions: they
+                        // either avoid a reversible action thinking it is
+                        // final, or click it and believe the cues are
+                        // already gone.
+                        ToolTip.text: "Stage removing every 0:00 memory cue listed, in all catalogs. Save writes it."
                         onClicked: confirmRemoveAllJunkCuesDialog.open()
                     }
                     Button {
                         text: "Ignore All"
                         enabled: !consistencyController.busy
                         ToolTip.visible: hovered
-                        ToolTip.text: "Dismiss every memory cue at 0:00 listed below, just for this view -- nothing on the stick changes"
+                        ToolTip.text: "Hide these from this view only. Nothing on the stick changes."
                         onClicked: confirmIgnoreAllJunkCuesDialog.open()
                     }
                 }

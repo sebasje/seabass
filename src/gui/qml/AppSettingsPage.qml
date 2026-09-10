@@ -147,9 +147,11 @@ Page {
                     checked: root.appSettingsController.hideStreamingTracks
                     onToggled: root.appSettingsController.hideStreamingTracks = checked
                     ToolTip.visible: hovered
-                    ToolTip.text: "Streaming-linked tracks (e.g. TIDAL, via Engine DJ) have no local file on the "
-                        + "stick: Seabass never plays, merges, syncs, or cleans them up regardless of this "
-                        + "setting. This only controls whether they show up in Browse Library at all."
+                    // What the setting does, first. That Seabass never
+                    // touches these tracks either way is reassurance, not
+                    // instruction, so it is one clause at the end.
+                    ToolTip.text: "Whether streaming tracks (TIDAL and similar) appear in Browse Library. "
+                        + "They have no file on the stick, so nothing else is affected."
                 }
             }
 

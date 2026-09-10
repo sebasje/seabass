@@ -402,9 +402,7 @@ ColumnLayout {
                     }
                 }
                 ToolTip.visible: hovered
-                ToolTip.text: "Which playlist to search and move within (a filter, like key/rating/BPM). "
-                    + "Defaults to whatever Browse is currently showing, but changing it here doesn't change "
-                    + "Browse's own filter."
+                ToolTip.text: "Which playlist to search within. Changing it here does not change Browse."
             }
         }
 

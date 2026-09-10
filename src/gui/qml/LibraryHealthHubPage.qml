@@ -109,17 +109,52 @@ Page {
              + " start -- rather than something you placed on purpose.";
     }
 
-    header: BackBreadcrumb {
-        middleLabel: root.stickLabel
-        title: "Library Health"
-        onHomeRequested: root.StackView.view.pop(null)
-        onBackRequested: root.StackView.view.pop()
+    // The same header every other section page uses. This one had the
+    // breadcrumb as the bare header, which is why it looked wrong in two
+    // ways at once: no toolbar background or margin above the content,
+    // and the crumbs spread across the full width, because a Page
+    // stretches its header and a RowLayout with nothing to absorb the
+    // slack hands it to the gaps between segments. The trailing filler
+    // is what keeps them packed to the left.
+    header: ToolBar {
+        // Opaque background override: KDE's Breeze style bleeds the
+        // window behind Seabass through an unstyled ToolBar.
+        background: Rectangle { color: Theme.surface }
+        // Every side zeroed so the header's inset is Theme.pageMargin
+        // and nothing else. `padding` alone does not do it: styles set
+        // horizontalPadding or leftPadding of their own on top of it.
+        leftPadding: 0
+        rightPadding: 0
+        topPadding: 0
+        bottomPadding: 0
+        RowLayout {
+            anchors.fill: parent
+            anchors.margins: Theme.pageMargin
+            spacing: Theme.rowSpacing
+            BackBreadcrumb {
+                middleLabel: root.stickLabel
+                title: "Library Health"
+                onHomeRequested: root.StackView.view.pop(null)
+                onBackRequested: root.StackView.view.pop()
+            }
+            Item { Layout.fillWidth: true }
+            BusyIndicator {
+                running: root.scanning
+                visible: root.scanning
+                implicitWidth: Theme.iconSizeSmall
+                implicitHeight: Theme.iconSizeSmall
+            }
+        }
     }
 
     PageScrollView {
         objectName: "healthScroll"
         anchors.fill: parent
-        anchors.margins: 16
+        // Every other page that uses PageScrollView insets its content
+        // by this much. This one did not, so its cards ran to the window
+        // edge while the breadcrumb above them kept its own spacing, and
+        // the page read as broken rather than as tight.
+        anchors.margins: Theme.pageMargin
 
         ColumnLayout {
             objectName: "healthColumn"

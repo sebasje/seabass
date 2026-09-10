@@ -117,13 +117,13 @@ Page {
                     onBackRequested: editHost.requestLeave(() => root.StackView.view.pop())
                 }
                 Item { Layout.fillWidth: true }
-                LibrarySourceToggle {
-                    current: root.format
-                    hasRekordbox: root.hasRekordbox
-                    hasEngine: root.hasEngine
-                    hasOneLibrary: root.hasOneLibrary
-                    onSourceRequested: (value) => root.appSettingsController.preferredFormat = value
-                }
+                // No library-type toggle here any more. A cleanup save
+                // now writes every catalog that lists the file, so the
+                // format only ever chose which catalog was scanned for
+                // duplicates -- a distinction with no consequence the
+                // user could act on, presented as a choice they had to
+                // make before they could start. The global preference in
+                // Preferences still decides it.
             }
 
             // What this page is for, in three sentences. Real libraries
@@ -260,19 +260,38 @@ Page {
                 TextField {
                     id: searchField
                     placeholderText: "Search title or artist..."
-                    width: Math.max(160, Math.min(280, root.width * 0.3))
+                    // Proportional with a cap, and a floor it may
+                    // shrink to. Through Layout.*, not `width`: this is
+                    // a RowLayout child, so the layout assigns width
+                    // itself and a direct binding is overwritten the
+                    // moment the row lays out.
+                    Layout.preferredWidth: Math.max(160, Math.min(280, root.width * 0.3))
+                    Layout.minimumWidth: 110
                     onTextChanged: cleanupController.search(text)
                 }
                 Label {
                     text: plansListView.count + " duplicate group(s) found"
                     color: Theme.textMuted
-                    width: Math.min(implicitWidth, root.width)
                     elide: Text.ElideRight
+                    // Same reason: a `width` binding here does nothing.
+                    // Eliding needs the layout to be allowed to make the
+                    // label narrower than its text, which is what a zero
+                    // minimum says.
+                    Layout.minimumWidth: 0
                 }
                 Label {
                     visible: plansListView.count > 0
-                    text: "(" + cleanupController.totalWastedBytesHuman + " total if every copy kept only one file)"
+                    // "4.2 GB total if every copy kept only one file" was
+                    // a sentence in a status line. The page is about
+                    // duplicates; what the number means is already the
+                    // subject.
+                    text: "(" + cleanupController.totalWastedBytesHuman + " reclaimable)"
                     color: Theme.textMuted
+                    elide: Text.ElideRight
+                    // Takes the slack, and gives it back first when there
+                    // is none to give.
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: 0
                 }
                 Item { Layout.fillWidth: true }
                 Label {
@@ -466,56 +485,51 @@ Page {
                             StatusBadge {
                                 label: "ⓘ what's conserved"
                                 badgeColor: Theme.textMuted
-                                tooltipText: "Conserved: cues (merged, never lost) and playlist membership on both formats. "
-                                    + "Every playlist a removed copy was in now points at the kept copy instead. "
-                                    + "If the kept copy is missing bpm, musical key"
-                                    + (root.format === "engine" ? "" : ", or artwork")
-                                    + " and another copy has it, that's filled in too"
-                                    + (root.format === "engine"
-                                        ? " (artwork isn't included: Engine's library format has no way to write it back)."
-                                        : ".")
-                                    + (root.hasOneLibrary
-                                        ? " Also mirrored into OneLibrary (exportLibrary.db), including removing the "
-                                          + "duplicate's own OneLibrary row."
-                                        : "")
-                                    + " Not conserved: rating, comment, play count, and last-played date on the "
-                                    + "removed copies aren't copied over."
+                                // Was 558 characters of prose. A hover
+                                // tooltip is read standing up, with the
+                                // mouse held still -- two labelled lists
+                                // can be taken in at a glance, a
+                                // paragraph cannot. The conditional
+                                // clauses that made it long are the ones
+                                // a reader cannot act on either way.
+                                tooltipText: "Kept: cues (merged), playlist membership, and any missing BPM"
+                                    + (root.format === "engine" ? " or key." : ", key or artwork.")
+                                    + "\nLost: rating, comment, play count, last played."
                             }
                             StatusBadge {
                                 visible: delegateRoot.differs
                                 label: "⚠ copies differ"
                                 badgeColor: Theme.conflictText
-                                tooltipText: "These copies differ in quality and length. The higher-bitrate copy isn't the "
-                                    + "longest one. This may be intentional (e.g. a shorter edit kept for specific "
-                                    + "hardware), so this group is excluded by default. Check it above to include it anyway."
+                                // The "why" (a shorter edit kept on
+                                // purpose) is what the exclusion is FOR,
+                                // not something the reader decides with.
+                                tooltipText: "The highest-bitrate copy is not the longest one, so this group is "
+                                    + "excluded by default. Tick it to include it."
                             }
                             StatusBadge {
                                 visible: delegateRoot.unreferencedCount > 0
                                 label: delegateRoot.unreferencedCount + " uncatalogued file(s)"
                                 badgeColor: Theme.textMuted
-                                tooltipText: "This many of the copies below are audio files on the stick that no "
-                                    + "catalog references -- there is no library entry to remove, only the file "
-                                    + "itself. Saving lists them under \"Delete Orphaned Files\", which re-checks "
-                                    + "every catalog again before deleting anything."
+                                // What it is, then where it goes. The
+                                // re-check before deleting is a promise
+                                // the Delete Orphaned Files page makes;
+                                // it does not belong on a count badge.
+                                tooltipText: "Audio files on the stick that no catalog lists. Saving puts them "
+                                    + "under \"Delete Orphaned Files\"."
                             }
                             StatusBadge {
                                 visible: delegateRoot.unreferencedHeldBackCount > 0
                                 label: "⚠ " + delegateRoot.unreferencedHeldBackCount + " file(s) kept back"
                                 badgeColor: Theme.conflictText
-                                tooltipText: "These uncatalogued files are left on the stick whatever you choose "
-                                    + "here. Either this group's copies differ in a way that might be deliberate, "
-                                    + "or a length in it had to be estimated from the bitrate rather than read -- "
-                                    + "in which case these copies might not be the same recording at all, and no "
-                                    + "file is deleted on a guess."
+                                tooltipText: "Left on the stick either way: these copies may not be the same "
+                                    + "recording, and nothing is deleted on a guess."
                             }
                             StatusBadge {
                                 visible: delegateRoot.hasUnpreservableDataAtRisk
                                 label: "⚠ data would be lost"
                                 badgeColor: Theme.conflictText
-                                tooltipText: "These copies have different rating, comment, play count, or last-played data, "
-                                    + "none of which carries over to the kept copy. Removing the others would permanently "
-                                    + "lose whichever values didn't happen to land on the kept copy, so this group is "
-                                    + "excluded by default. Check it above to include it anyway."
+                                tooltipText: "Rating, comment, play count and last played differ and are not kept. "
+                                    + "Excluded by default; tick to include."
                             }
                             Item { Layout.fillWidth: true }
                             Label {

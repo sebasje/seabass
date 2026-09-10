@@ -317,8 +317,8 @@ Page {
                                 text: "Restore From Here"
                                 enabled: !localCueController.busy
                                 ToolTip.visible: hovered
-                                ToolTip.text: "Match this exact backup against the " + FormatLabels.label(root.format)
-                                    + " side of the stick (switch the format toggle below to restore a different side); results appear below"
+                                ToolTip.text: "Match this backup against the " + FormatLabels.label(root.format)
+                                    + " side of the stick."
                                 onClicked: {
                                     confirmDialog.sourceDescription = snapshotDescriptionField.text.length > 0
                                         ? snapshotDescriptionField.text
