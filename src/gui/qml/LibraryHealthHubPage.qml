@@ -117,9 +117,12 @@ Page {
     }
 
     PageScrollView {
+        objectName: "healthScroll"
         anchors.fill: parent
+        anchors.margins: 16
 
         ColumnLayout {
+            objectName: "healthColumn"
             width: parent.width
             spacing: 14
 
