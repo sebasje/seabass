@@ -328,8 +328,12 @@ void MetadataRestoreController::attachSession()
 
 void MetadataRestoreController::stage(int index)
 {
-    // One track staged on its own is one track's worth of writing.
-    stageOne(index, 1);
+    // What this save is expected to write: everything already staged,
+    // plus this one. A DJ who stages four hundred tracks one at a time
+    // -- which the page allows -- would otherwise leave the first change
+    // carrying a hint of 1, and the session would decline the scratch
+    // copy for the whole save.
+    stageOne(index, static_cast<int>(m_stagedByStoredId.size()) + 1);
 }
 
 // itemCountHint is what the save is expected to write in total, which

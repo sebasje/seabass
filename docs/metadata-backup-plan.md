@@ -282,6 +282,42 @@ than in `export.pdb` -- the same split `makeContext()` draws in Clean Up.
 really is scratching, a real restore change, and the rating read back off
 the stick's own `export.pdb` afterwards.
 
+### OneLibrary cannot use a scratch copy at all
+
+Found while testing the fix above, and it outranks it. `exportLibrary.db`
+is a **WAL** database -- `PRAGMA journal_mode` returns `wal` on the
+committed fixture. A save holds its writers open across the commit, so in
+WAL mode the rows it wrote are still sitting in `exportLibrary.db-wal`
+waiting to be checkpointed, while `FormatWriteSession` commits by copying
+the single `.db` file back.
+
+That loses this format's writes in **both** directions, which is why it
+took a test rather than an argument to see:
+
+- writes routed through the scratch copy are stranded in a `-wal` file
+  nobody copies;
+- writes sent to the real file instead are overwritten by the scratch
+  copy when it is committed.
+
+Both were measured. The second had a test passing over it for a while
+because the synthetic fixture it used was not in WAL mode, unlike a real
+stick's database.
+
+So `sharedFormatWriteSession()` now forces `itemCountHint` to 0 for
+`onelibrary`, whatever the caller asked for: the session declines the
+scratch copy, `writeRoot()` is the real root, and every writer in the
+save agrees on one file again. The optimisation was never actually
+available for this format -- it only looked available, and looked it
+while quietly dropping writes. Engine's `m.db` is a rollback-journal
+database and keeps its scratch copy.
+
+This is not specific to Restore Metadata: Clean Up, Sync and Library
+Health repair all route OneLibrary writes through the same sessions, so
+the same loss was reachable from any of them. The real fix, if the
+optimisation is ever wanted back, is for `FormatWriteSession` to
+checkpoint and close a format's connections before copying -- or to copy
+the `-wal` and `-shm` alongside the database.
+
 ### What is still on the old footing
 
 Sharing the session fixes it for the features that take theirs from

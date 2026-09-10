@@ -111,6 +111,30 @@ std::string storedComment(const std::string &pioneerRoot)
     return stmt.columnText(0);
 }
 
+// The committed rekordbox fixture ships its own exportLibrary.db, so
+// case 9 reads a real content row out of it rather than building a
+// second schema on top.
+std::string firstContentPath(const std::string &pioneerRoot)
+{
+    SqlCipherLibrary lib;
+    SqlCipherDb db(lib, OneLibraryCueWriter::dbPathFor(pioneerRoot), /*readOnly=*/true);
+    db.exec("PRAGMA key = '" + deriveOneLibraryKey() + "';");
+    SqlCipherStatement stmt(db, "SELECT path FROM content WHERE path IS NOT NULL AND path != '' LIMIT 1");
+    assert(stmt.step());
+    return stmt.columnText(0);
+}
+
+std::string commentForPath(const std::string &pioneerRoot, const std::string &contentPath)
+{
+    SqlCipherLibrary lib;
+    SqlCipherDb db(lib, OneLibraryCueWriter::dbPathFor(pioneerRoot), /*readOnly=*/true);
+    db.exec("PRAGMA key = '" + deriveOneLibraryKey() + "';");
+    SqlCipherStatement stmt(db, "SELECT djComment FROM content WHERE path = ?");
+    stmt.bindText(1, contentPath);
+    assert(stmt.step());
+    return stmt.columnText(0);
+}
+
 std::vector<CuePoint> liveCues()
 {
     CuePoint hot1{CuePoint::Kind::Hot, 1, 1000.0, "#FF0000", "the DJ's own"};
@@ -439,15 +463,22 @@ int main()
         std::cout << "case 7: a rating survives a save that also scratches export.pdb\n";
     }
 
-    // Case 8: a cancelled save must not discard the writes it did make.
+    // Case 8: OneLibrary is never given a scratch copy, and a cancelled
+    // save keeps what it already wrote.
     //
-    // FormatWriteSession throws its scratch copy away when the save was
-    // cancelled or failed AND nothing was applied to it -- the copy holds
-    // nothing worth keeping in that case. But "nothing was applied" is
-    // counted, and the restore's Engine and OneLibrary writes go INTO
-    // that copy. While they went uncounted, a cancel could discard the
-    // copy holding them while the summary still counted those tracks as
-    // restored: written, reported, gone.
+    // exportLibrary.db is a WAL database. A save holds its writers open
+    // across the commit, so its committed rows are still in
+    // exportLibrary.db-wal -- and FormatWriteSession commits by copying
+    // the .db file alone. That loses this format's writes whichever root
+    // they went to: through the scratch they are stranded in a -wal file
+    // nobody copies, and at the real root they are overwritten by the
+    // copy. So the session must decline the scratch for this format no
+    // matter how large a batch asks for it.
+    //
+    // The second half is the reason the first half is not enough on its
+    // own: FormatWriteSession discards a scratch copy on a cancel when
+    // nothing was applied to it, so writes that DO go through one have
+    // to be counted.
     {
         Fixture fixture = freshFixture("cancelled_save");
         auto &noProgress = seabass::application::NullProgressReporter::instance();
@@ -455,11 +486,13 @@ int main()
         const QString root = QString::fromStdString(fixture.pioneerRoot.string());
         {
             SaveContext ctx(token, noProgress, {}, root, {});
-            // A hint big enough that the session really does redirect to
-            // a scratch copy; without that this case proves nothing.
+            // A hint far past the scratch threshold, from a stand-in for
+            // some other feature staged into the same save. It must make
+            // no difference.
             auto &session = sharedFormatWriteSession(ctx, "onelibrary", fixture.pioneerRoot.string(), 5000,
                                                      "test-other-feature");
-            assert(session.usesScratch());
+            assert(!session.usesScratch());
+            assert(session.writeRoot() == session.realRoot());
 
             MetadataRestoreProposal proposal = proposalFor(fixture);
             proposal.cuesOffered = true;
@@ -471,9 +504,8 @@ int main()
             // track went through.
             assert(!ctx.runFinishHooks(false));
         }
-        // The cue is on the stick, not only in a discarded scratch copy.
         assert(cueCount(fixture.pioneerRoot.string()) == 1);
-        std::cout << "case 8: a cancelled save keeps the tracks it already wrote\n";
+        std::cout << "case 8: OneLibrary declines the scratch copy, and a cancel keeps the write\n";
     }
 
     std::cout << "restore_metadata_change_test: all cases passed\n";
