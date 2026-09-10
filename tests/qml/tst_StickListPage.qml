@@ -56,7 +56,7 @@ TestCase {
                               closeFolder: function(p) { this.calls.push("closeFolder:" + p); },
                               openBackup: function(p) { this.calls.push("openBackup:" + p); return ""; }},
             playbackController: {stop: function() {}},
-            appSettingsController: {experimentalFeaturesEnabled: true, stickBackupDirectory: "/tmp"},
+            appSettingsController: fakeAppSettings(),
             backupAdvisor: {advice: advice, calls: [],
                             assess: function(l, m, r, e) { this.calls.push("assess:" + m); },
                             reassessAll: function() { this.calls.push("reassessAll"); },
@@ -128,6 +128,15 @@ TestCase {
         if (!screenshotDir || screenshotDir.length === 0) return;
         var image = grabImage(page);
         image.save(screenshotDir + "/" + name + ".png");
+    }
+
+    // What StickListPage reads and calls on the real AppSettingsController.
+    function fakeAppSettings() {
+        return {
+            experimentalFeaturesEnabled: true, stickBackupDirectory: "/tmp",
+            toLocalFileUrl: function(p) { return "file://" + p; },
+            localPathFromUrl: function(u) { return u.replace(/^file:\/\//, ""); },
+        };
     }
 
     function fakeEditRegistry(lockedIds) {
@@ -342,8 +351,7 @@ TestCase {
             enginePath: "/home/dj/restored/Engine Library",
         });
         var page = makePage([folder], makeAdvice({state: "no-backups"}),
-                            {appSettingsController: {experimentalFeaturesEnabled: true,
-                                                     stickBackupDirectory: "/tmp"}});
+                            {appSettingsController: fakeAppSettings()});
 
         // The library is reachable: the ordinary cards are all there.
         verify(findCard(page, "/home/dj/restored", "Browse Library") !== null);
@@ -381,8 +389,7 @@ TestCase {
             enginePath: "/home/dj/Seabass/metadata/browsed-backups/folder-abc/Engine Library",
         });
         var page = makePage([backup], makeAdvice({state: "no-backups"}),
-                            {appSettingsController: {experimentalFeaturesEnabled: true,
-                                                     stickBackupDirectory: "/tmp"}});
+                            {appSettingsController: fakeAppSettings()});
         var mp = backup.mountPoint;
         var reads = ["Browse Library", "Library Statistics", "Metadata Backup"];
         for (var i = 0; i < reads.length; ++i) {

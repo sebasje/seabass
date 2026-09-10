@@ -366,7 +366,9 @@ void RestoreStickBackupController::restore(const QString &targetRoot, bool exact
     const QString archiveId = m_archiveInfo.value("identifier").toString();
     if (auto holder = m_writeHold.acquire({targetId, archiveId}, QString(),
                                           [this, targetRoot, exact] { restore(targetRoot, exact); })) {
-        emit lockRefused(*holder, m_writeHold.refusedLibraryId());
+        if (!holder->isEmpty()) {  // empty: a read-only refusal, already shown
+            emit lockRefused(*holder, m_writeHold.refusedLibraryId());
+        }
         return;
     }
     setErrorMessage({});

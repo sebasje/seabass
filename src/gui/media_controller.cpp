@@ -209,11 +209,17 @@ void MediaController::detect()
     // this at open time, but a persisted folder can find a stick on its
     // path after a restart or a replug (drive-letter reuse on Windows is
     // routine), so the rule is enforced here, on every refresh.
+    // Only paths that actually canonicalised take part: on failure
+    // weakly_canonical returns an empty path, and two failures would
+    // compare equal (empty == empty) and erase an unrelated folder row.
     std::vector<std::filesystem::path> mountedRoots;
     for (const application::DetectedStick &stick : sticks) {
         if (stick.mounted && !stick.mountPoint.empty()) {
             std::error_code ec;
-            mountedRoots.push_back(std::filesystem::weakly_canonical(std::filesystem::path(stick.mountPoint), ec));
+            const auto root = std::filesystem::weakly_canonical(std::filesystem::path(stick.mountPoint), ec);
+            if (!ec && !root.empty()) {
+                mountedRoots.push_back(root);
+            }
         }
     }
     // Dropped, not merely hidden: a hidden entry stays persisted with no
@@ -224,13 +230,27 @@ void MediaController::detect()
     const auto coincides = [&](const application::DetectedStick &folder) {
         std::error_code ec;
         const auto folderRoot = std::filesystem::weakly_canonical(std::filesystem::path(folder.mountPoint), ec);
-        return std::find(mountedRoots.begin(), mountedRoots.end(), folderRoot) != mountedRoots.end();
+        return !ec && !folderRoot.empty()
+               && std::find(mountedRoots.begin(), mountedRoots.end(), folderRoot) != mountedRoots.end();
     };
-    const auto before = m_openedFolders.size();
-    m_openedFolders.erase(std::remove_if(m_openedFolders.begin(), m_openedFolders.end(), coincides),
-                          m_openedFolders.end());
-    if (m_openedFolders.size() != before) {
+    std::vector<application::DetectedStick> dropped;
+    for (const application::DetectedStick &folder : m_openedFolders) {
+        if (coincides(folder)) {
+            dropped.push_back(folder);
+        }
+    }
+    if (!dropped.empty()) {
+        m_openedFolders.erase(std::remove_if(m_openedFolders.begin(), m_openedFolders.end(), coincides),
+                              m_openedFolders.end());
         saveOpenedFolders();
+        // The row is going without anyone clicking close, so its edit
+        // session -- if one is dirty or holds the lock -- must hear about
+        // it the way it would for a pulled stick, or the edits sit
+        // unseen until quit and then land on whatever is mounted there.
+        for (const application::DetectedStick &folder : dropped) {
+            emit stickRemoved(QString::fromStdString(folder.identity.libraryId()),
+                              QString::fromStdString(folder.label));
+        }
     }
     for (application::DetectedStick &folder : m_openedFolders) {
         folder.rekordboxPath.reset();
@@ -375,7 +395,7 @@ QString MediaController::openBackup(const QString &archivePath)
     const std::filesystem::path cacheRoot =
         infrastructure::paths::localBrowsedBackupsDir() / folderLibraryId(archiveKey.string());
 
-    const application::OpenedStickBackup opened = application::OpenStickBackup::execute(archive, cacheRoot);
+    const application::OpenedStickBackup opened = application::OpenStickBackup::execute(archiveKey, cacheRoot);
     if (!opened.error.empty()) {
         return QString::fromStdString(opened.error);
     }

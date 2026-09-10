@@ -191,7 +191,7 @@ Page {
                 FolderDialog {
                     id: seabassHomeDialog
                     title: "Choose where Seabass keeps its data on this computer"
-                    currentFolder: "file://" + root.appSettingsController.seabassHomeDirectory
+                    currentFolder: root.appSettingsController.toLocalFileUrl(root.appSettingsController.seabassHomeDirectory)
                     onAccepted: root.appSettingsController.seabassHomeDirectory = selectedFolder.toString()
                 }
             }
@@ -230,7 +230,7 @@ Page {
                 FolderDialog {
                     id: backupFolderDialog
                     title: "Choose where to keep full stick backups"
-                    currentFolder: "file://" + root.appSettingsController.stickBackupDirectory
+                    currentFolder: root.appSettingsController.toLocalFileUrl(root.appSettingsController.stickBackupDirectory)
                     onAccepted: root.appSettingsController.stickBackupDirectory = selectedFolder.toString()
                 }
             }

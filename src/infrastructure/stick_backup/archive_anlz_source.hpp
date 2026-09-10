@@ -30,8 +30,8 @@ namespace seabass::infrastructure::stick_backup
 // anlzSourceForPioneerRoot's cache): a scan on a worker and a waveform
 // lookup on the UI thread can ask for entries at once. Zip64Reader fills
 // its data-offset table lazily from a const method with no lock of its
-// own, so read() serializes on m_readMutex -- every access to the reader
-// goes through here.
+// own, so read() fills that slot under m_readMutex and does the actual
+// read outside it -- every access to the reader goes through here.
 class ArchiveAnlzSource : public rekordbox::AnlzByteSource
 {
 public:

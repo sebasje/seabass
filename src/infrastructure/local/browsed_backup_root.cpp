@@ -4,6 +4,8 @@
 #include <string>
 #include <system_error>
 
+#include "infrastructure/durable_file_write.hpp"
+
 namespace seabass::infrastructure::local
 {
 
@@ -76,9 +78,18 @@ bool writeBrowsedBackupMarker(const fs::path &markerDir, const fs::path &archive
     if (ec) {
         return false;
     }
-    std::ofstream marker(markerDir / BrowsedBackupMarkerName, std::ios::trunc);
-    marker << fs::absolute(archivePath).string() << "\n" << root.string() << "\n";
-    return static_cast<bool>(marker);
+    // Durably: the marker is what makes the whole directory a browsed
+    // backup, and a present-but-empty one after a crash would read as a
+    // plain folder with no cues. Written with the same primitive as every
+    // other catalog file. The archive path is stored canonical, so the
+    // open-archive cache keyed on it sees one key per file, whatever
+    // spelling the user opened it by.
+    fs::path archive = fs::weakly_canonical(archivePath, ec);
+    if (ec) {
+        archive = fs::absolute(archivePath);
+    }
+    return writeFileDurablyAtomic((markerDir / BrowsedBackupMarkerName).string(),
+                                  archive.string() + "\n" + root.string() + "\n");
 }
 
 }  // namespace seabass::infrastructure::local

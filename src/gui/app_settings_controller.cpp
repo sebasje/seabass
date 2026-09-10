@@ -80,6 +80,11 @@ QString AppSettingsController::localPathFromUrl(const QString &pathOrUrl)
     return seabass::gui::localPathFromUrl(pathOrUrl);
 }
 
+QString AppSettingsController::toLocalFileUrl(const QString &path)
+{
+    return seabass::gui::toLocalFileUrl(path.toStdString());
+}
+
 void AppSettingsController::setStickBackupDirectory(const QString &value)
 {
     const QString local = seabass::gui::localPathFromUrl(value);

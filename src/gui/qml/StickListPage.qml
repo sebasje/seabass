@@ -71,7 +71,7 @@ Page {
         objectName: "openBackupDialog"
         title: "Open a full stick backup to browse"
         nameFilters: ["Stick backups (*.zip)", "All files (*)"]
-        currentFolder: "file://" + root.appSettingsController.stickBackupDirectory
+        currentFolder: root.appSettingsController.toLocalFileUrl(root.appSettingsController.stickBackupDirectory)
         onAccepted: {
             var message = root.mediaController.openBackup(selectedFile.toString());
             if (message.length > 0) {
@@ -353,6 +353,10 @@ Page {
                 required property bool isBrowsedBackup
                 required property string libraryId
                 readonly property bool hasKnownLibrary: hasRekordbox || hasEngine
+                // Which cards a row may offer that write: a library, and
+                // not a stick backup being browsed. Every writing card
+                // binds to this one line rather than restating the rule.
+                readonly property bool writable: hasKnownLibrary && !isBrowsedBackup
                 // Another instance is editing this stick's library: every
                 // card that would change it goes read-only.
                 readonly property bool lockedByOther: root.isLockedByOther(delegateRoot.libraryId)
@@ -643,7 +647,7 @@ Page {
                             onReadOnlyClicked: root.explainLock(delegateRoot.libraryId)
                             cardSubtitle: "Duplicate stats, copy cues between copies, and clean up"
                             cardIcon: "▣"
-                            visible: delegateRoot.hasKnownLibrary && !delegateRoot.isBrowsedBackup
+                            visible: delegateRoot.writable
                             enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
                             onClicked: root.duplicateTracksHubRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
                         }
@@ -656,7 +660,7 @@ Page {
                             // Graduated from experimental (see
                             // docs/experimental-features.md) after real
                             // use with no incidents.
-                            visible: delegateRoot.hasKnownLibrary && !delegateRoot.isBrowsedBackup
+                            visible: delegateRoot.writable
                             enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
                             onClicked: root.libraryHealthRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
                         }
@@ -690,7 +694,7 @@ Page {
                             onReadOnlyClicked: root.explainLock(delegateRoot.libraryId)
                             cardSubtitle: "Put cues from this computer back on tracks that have lost them"
                             cardIcon: "📥"
-                            visible: delegateRoot.hasKnownLibrary && !delegateRoot.isBrowsedBackup
+                            visible: delegateRoot.writable
                             enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
                             onClicked: root.metadataRestoreRequested(delegateRoot.label, delegateRoot.rekordboxPath,
                                                                      delegateRoot.enginePath, delegateRoot.libraryId)
@@ -709,7 +713,7 @@ Page {
                             // no Engine Library already present to overwrite.
                             experimental: true
                             experimentalFeaturesEnabled: root.appSettingsController.experimentalFeaturesEnabled
-                            visible: delegateRoot.hasKnownLibrary && !delegateRoot.isBrowsedBackup
+                            visible: delegateRoot.writable
                             enabled: delegateRoot.hasRekordbox && !delegateRoot.hasEngine
                             onClicked: root.engineLibraryCreatorRequested(delegateRoot.label, delegateRoot.rekordboxPath)
                         }
@@ -720,7 +724,7 @@ Page {
                             cardSubtitle: "Copy cues between DeviceLibrary and Engine"
                             cardIcon: "⇄"
                             cardIconFont: "Noto Sans Math"
-                            visible: delegateRoot.hasKnownLibrary && !delegateRoot.isBrowsedBackup
+                            visible: delegateRoot.writable
                             enabled: delegateRoot.hasRekordbox && delegateRoot.hasEngine
                             onClicked: root.syncRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath)
                         }
@@ -745,7 +749,7 @@ Page {
                                 }
                             }
                             cardIcon: "🗄"
-                            visible: delegateRoot.hasKnownLibrary && !delegateRoot.isBrowsedBackup
+                            visible: delegateRoot.writable
                             enabled: delegateRoot.hasRekordbox || delegateRoot.hasEngine
                             onClicked: root.backupsHubRequested(delegateRoot.label, delegateRoot.rekordboxPath, delegateRoot.enginePath,
                                 delegateRoot.mountPoint, delegateRoot.devicePath)
@@ -757,7 +761,7 @@ Page {
                             cardSubtitle: "View this stick's saved Rekordbox player settings"
                             cardIcon: "⚙"
                             cardIconFont: "Noto Sans Symbols"
-                            visible: delegateRoot.hasKnownLibrary && !delegateRoot.isBrowsedBackup
+                            visible: delegateRoot.writable
                             enabled: delegateRoot.hasRekordbox
                             onClicked: root.settingsRequested(delegateRoot.label, delegateRoot.rekordboxPath)
                         }

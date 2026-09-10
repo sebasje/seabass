@@ -962,6 +962,7 @@ add_executable(cue_color_normalization_test
     # list those too.
     src/infrastructure/rekordbox/anlz_source_for_root.cpp
     src/infrastructure/local/browsed_backup_root.cpp
+    src/infrastructure/durable_file_write.cpp
     src/infrastructure/stick_backup/archive_anlz_source.cpp
     src/infrastructure/stick_backup/posix_archive_file.cpp
     src/infrastructure/stick_backup/zip64_reader.cpp
@@ -1506,6 +1507,8 @@ add_executable(backup_stick_test
     src/application/ports/progress_reporter.cpp
     src/application/use_cases/backup_stick.cpp
     src/infrastructure/local/browsed_backup_root.cpp
+    src/infrastructure/durable_file_write.cpp
+    src/infrastructure/work_counters.cpp
     tests/backup_stick_test.cpp
 )
 target_include_directories(backup_stick_test PRIVATE src)

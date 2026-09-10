@@ -20,6 +20,9 @@ std::optional<QVariantMap> DirectWriteHold::acquire(const QStringList &libraryId
             continue;
         }
         if (!registry->tryEnterDirectWrite(id, stickLabel)) {
+            // Empty for a read-only refusal (a stick backup being browsed):
+            // the registry has shown that itself. Callers skip the locked
+            // dialog for an empty holder rather than stacking one on it.
             QVariantMap holder = registry->lockHolder(id);
             release();
             m_refusedLibraryId = id;

@@ -245,6 +245,26 @@ int main(int argc, char **argv)
         std::cout << "case 5c (entry escaping the cache refused) OK\n";
     }
 
+    // After the double failure at the end of a swap, yesterday's cache
+    // survives only as <cache>.old. Opening again must put it back before
+    // anything else -- and if that open then fails, it is still there.
+    {
+        const fs::path retired = fs::path(cache.string() + ".old");
+        fs::rename(cache, retired);
+        assert(!fs::exists(cache) && fs::exists(retired));
+        const fs::path movedAside = scratch / "good2.zip";
+        fs::rename(archivePath, movedAside);
+        std::ofstream(archivePath) << "not a zip either";
+        const auto failed = OpenStickBackup::execute(archivePath, cache);
+        assert(!failed.error.empty());
+        assert(fs::exists(cache / "PIONEER" / "rekordbox" / "export.pdb"));
+        assert(seabass::infrastructure::local::isBrowsedBackupRoot(cache));
+        assert(!fs::exists(retired));
+        fs::remove(archivePath);
+        fs::rename(movedAside, archivePath);
+        std::cout << "case 5e (retired copy put back when it is all there is) OK\n";
+    }
+
     // The marker names the directory it was written for. Copy the cache
     // somewhere else, marker and all, and it is an ordinary folder: the
     // reader looks for USBANLZ beside the databases, finds none, and the

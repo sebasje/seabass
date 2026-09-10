@@ -4,7 +4,9 @@
 #include <memory>
 #include <system_error>
 
+#include "infrastructure/durable_file_write.hpp"
 #include "infrastructure/local/browsed_backup_root.hpp"
+#include "infrastructure/long_paths.hpp"
 #include "infrastructure/scratch_dir_guard.hpp"
 #include "infrastructure/stick_backup/backup_manifest.hpp"
 #include "infrastructure/stick_backup/posix_archive_file.hpp"
@@ -56,6 +58,35 @@ OpenedStickBackup OpenStickBackup::execute(const fs::path &archivePath, const fs
 {
     OpenedStickBackup result;
 
+    // First, before the archive is so much as opened: a leftover from an
+    // interrupted swap. If the real cache is missing, the leftover is
+    // yesterday's copy -- the double-failure case at the end of this
+    // function -- and it is put back, not deleted, so that whatever fails
+    // from here on (an unreadable archive included) leaves that copy in
+    // place. Only a leftover beside an intact cache is cleared, up front,
+    // so a failure to clear it stops this open before any extraction
+    // rather than after all of it.
+    const fs::path retired = cacheRoot.string() + ".old";
+    std::error_code ec;
+    if (fs::exists(retired, ec)) {
+        if (!fs::exists(cacheRoot, ec)) {
+            fs::rename(retired, cacheRoot, ec);
+            if (ec) {
+                result.error = "The previous copy of this backup is at " + retired.string()
+                               + " and could not be put back: " + ec.message();
+                return result;
+            }
+        } else {
+            fs::remove_all(retired, ec);
+            if (fs::exists(retired, ec)) {
+                result.error = "A previous copy of this backup could not be cleared away (" + retired.string()
+                               + "). Something still has a file in it open -- possibly a scan of this "
+                                 "backup that is still running in Seabass; wait for it and try again.";
+                return result;
+            }
+        }
+    }
+
     std::unique_ptr<sb::PosixArchiveFile> file;
     std::optional<sb::Zip64Reader> reader;
     try {
@@ -64,21 +95,6 @@ OpenedStickBackup OpenStickBackup::execute(const fs::path &archivePath, const fs
     } catch (const std::exception &e) {
         result.error = std::string("That backup could not be read: ") + e.what();
         return result;
-    }
-
-    // A leftover from an interrupted swap is cleared up front -- and if it
-    // cannot be, this open fails here, before any extraction, rather than
-    // after all of it. It is never deleted blindly later: in the one
-    // double-failure case below it may be the only good copy.
-    const fs::path retired = cacheRoot.string() + ".old";
-    std::error_code ec;
-    if (fs::exists(retired, ec)) {
-        fs::remove_all(retired, ec);
-        if (fs::exists(retired, ec)) {
-            result.error = "A previous copy of this backup could not be cleared away (" + retired.string()
-                           + "); close anything using it and try again.";
-            return result;
-        }
     }
 
     // Everything is extracted into a staging directory beside the real
@@ -145,10 +161,13 @@ OpenedStickBackup OpenStickBackup::execute(const fs::path &archivePath, const fs
             result.error = "Could not read \"" + entry.name + "\" from the backup: " + e.what();
             return result;
         }
-        std::ofstream out(target, std::ios::binary | std::ios::trunc);
-        out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
-        out.close();
-        if (!out) {
+        // The same primitive every other catalog write in the app uses:
+        // temp file, fsync, rename -- so a crash after the directory swap
+        // cannot leave a present-but-empty database. longPathSafe for the
+        // cache's depth on Windows, as restore already does for these
+        // entries.
+        if (!infrastructure::writeFileDurablyAtomic(infrastructure::longPathSafe(fs::absolute(target)).string(),
+                                                    bytes)) {
             result.error = "Could not write \"" + entry.name + "\" while opening the backup.";
             return result;
         }
@@ -194,7 +213,8 @@ OpenedStickBackup OpenStickBackup::execute(const fs::path &archivePath, const fs
     if (hadPrevious) {
         fs::rename(cacheRoot, retired, ec);
         if (ec) {
-            result.error = "Could not set aside the previous copy of this backup: " + ec.message();
+            result.error = "Could not set aside the previous copy of this backup: " + ec.message()
+                           + " (a scan of it may still be running in Seabass; wait for it and try again).";
             return result;
         }
     }
