@@ -419,5 +419,8 @@ Page {
         current: controller.progressCurrent
         total: controller.progressTotal
         label: controller.currentPhase.length > 0 ? controller.currentPhase + "..." : "Working..."
+        // An export walks thousands of analysis files, so a bare "1874 /
+        // 5976" leaves the reader guessing what is being counted.
+        unitName: "files"
     }
 }

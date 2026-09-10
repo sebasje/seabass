@@ -336,32 +336,6 @@ Page {
                                 color: Theme.textMuted
                                 text: "Reads the whole stick into one file on this computer. Never writes to the stick."
                             }
-                            // Phase strip while running.
-                            RowLayout {
-                                visible: root.controller.busy === true && root.controller.pendingCancelDecision !== true
-                                spacing: 8
-                                Repeater {
-                                    model: root.controller.backingUp === true
-                                        ? ["scanning", "reading", "database", "writing", "verifying"]
-                                        : [root.controller.phase]
-                                    delegate: Rectangle {
-                                        required property string modelData
-                                        readonly property bool current: modelData === root.controller.phase
-                                        radius: 3
-                                        color: current ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.15) : "transparent"
-                                        border.color: current ? Theme.accent : "transparent"
-                                        implicitWidth: phaseText.implicitWidth + 16
-                                        implicitHeight: phaseText.implicitHeight + 6
-                                        Label {
-                                            id: phaseText
-                                            anchors.centerIn: parent
-                                            text: root.phaseLabel(parent.modelData)
-                                            color: parent.current ? Theme.accent : Theme.textMuted
-                                            font.bold: parent.current
-                                        }
-                                    }
-                                }
-                            }
                         }
                         ColumnLayout {
                             spacing: 4
@@ -450,78 +424,35 @@ Page {
                     }
 
                     // Running: progress.
-                    ColumnLayout {
+                    //
+                    // This block used to be ninety lines of bar, counts,
+                    // rate and ETA written out by hand -- the same
+                    // ninety lines as TransferProgressFrame, drifted
+                    // apart in small ways nobody could have kept in
+                    // step. It is the shared ProgressReport now.
+                    ProgressReport {
+                        objectName: "backupProgress"
                         visible: root.controller.busy === true && root.controller.activity !== "decide"
                         Layout.fillWidth: true
-                        spacing: 8
-                        ProgressBar {
-                            id: progressBar
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: 16
-                            indeterminate: root.controller.bytesTotal <= 0
-                            value: root.controller.bytesTotal > 0 ? root.controller.bytesDone / root.controller.bytesTotal : 0
-                            background: Rectangle { implicitHeight: 16; radius: 8; color: Theme.surface; border.color: Theme.borderSubtle }
-                            contentItem: Item {
-                                implicitHeight: 16
-                                clip: true
-                                Rectangle {
-                                    visible: !progressBar.indeterminate
-                                    height: parent.height
-                                    width: progressBar.visualPosition * parent.width
-                                    radius: 8
-                                    color: Theme.accent
-                                }
-                                Rectangle {
-                                    visible: progressBar.indeterminate
-                                    width: parent.width * 0.3
-                                    height: parent.height
-                                    radius: 8
-                                    color: Theme.accent
-                                    SequentialAnimation on x {
-                                        running: progressBar.indeterminate && progressBar.visible
-                                        loops: Animation.Infinite
-                                        NumberAnimation { from: -parent.width * 0.3; to: parent.width; duration: 1100; easing.type: Easing.InOutQuad }
-                                    }
-                                }
-                            }
-                        }
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 8
-                            Label {
-                                visible: root.controller.filesTotal > 0
-                                font.family: Theme.dataFamily
-                                text: root.controller.filesDone + " / " + root.controller.filesTotal + " files"
-                            }
-                            Label { visible: root.controller.filesTotal > 0; text: "·"; color: Theme.textMuted }
-                            Label {
-                                font.family: Theme.dataFamily
-                                text: Theme.humanBytes(root.controller.bytesDone)
-                                    + (root.controller.bytesTotal > 0 ? " of " + Theme.humanBytes(root.controller.bytesTotal) : "")
-                            }
-                            Label { visible: root.controller.bytesPerSecond > 0; text: "·"; color: Theme.textMuted }
-                            Label {
-                                visible: root.controller.bytesPerSecond > 0
-                                font.family: Theme.dataFamily
-                                text: (root.controller.bytesPerSecond / (1024 * 1024)).toFixed(1) + " MiB/s"
-                            }
-                            Item { Layout.fillWidth: true }
-                            Label {
-                                visible: root.controller.etaSeconds >= 0
-                                color: Theme.textMuted
-                                text: Theme.humanDuration(root.controller.etaSeconds) + " remaining"
-                            }
-                        }
-                        Label {
-                            visible: root.controller.currentFile.length > 0
-                            Layout.fillWidth: true
-                            elide: Text.ElideMiddle
-                            color: Theme.textMuted
-                            font.pointSize: Theme.fontSmall
-                            font.family: Theme.dataFamily
-                            text: root.controller.currentFile
-                        }
+                        // Moved down here from beside the button: the
+                        // phase a run is in belongs next to the bar that
+                        // shows how far through it is, not across the
+                        // card from it.
+                        phases: root.controller.backingUp === true
+                            ? ["scanning", "reading", "database", "writing", "verifying"]
+                            : (root.controller.phase.length > 0 ? [root.controller.phase] : [])
+                        phase: root.controller.phase
+                        phaseLabel: root.phaseLabel
+                        unitsDone: root.controller.filesDone
+                        unitsTotal: root.controller.filesTotal
+                        unitName: "files"
+                        bytesDone: root.controller.bytesDone
+                        bytesTotal: root.controller.bytesTotal
+                        bytesPerSecond: root.controller.bytesPerSecond
+                        etaSeconds: root.controller.etaSeconds
+                        currentItem: root.controller.currentFile
                     }
+
                     Label {
                         visible: root.controller.busy !== true && root.controller.statusMessage.length > 0
                         Layout.fillWidth: true

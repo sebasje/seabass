@@ -371,6 +371,7 @@ Page {
         busy: duplicatesController.busy
         current: duplicatesController.scanCurrent
         total: duplicatesController.scanTotal
+        unitName: "tracks"
         cancellable: duplicatesController.scanCancellable
         onCancelRequested: duplicatesController.cancelScan()
         // duplicatesController.scanLabel tracks the real current phase
