@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: 2026 Sebastian Kügler <sebas@kde.org>
+#
+# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
+
 """Regenerates src/gui/qml/icons/seabass_soundbass.svg with the fish clip
 baked into the bar geometry.
 
